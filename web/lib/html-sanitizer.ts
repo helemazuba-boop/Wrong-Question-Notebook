@@ -1,270 +1,121 @@
 import sanitizeHtml from 'sanitize-html';
-import { logger } from './logger';
+
+// ---------------------------------------------------------------------------
+// CSS allowlists — only listed property+value combos survive sanitization.
+// Prevents CSS injection via url(), position:fixed, expression(), etc.
+// ---------------------------------------------------------------------------
+
+/** Matches safe CSS numeric values (e.g. "10px", "1.5em", "100%", "-0.25em") */
+const CSS_NUMERIC =
+  /^-?\d+(?:\.\d+)?(?:px|em|rem|ex|%|cm|mm|in|pt|pc|ch|vh|vw)?$/;
+
+const IMG_STYLES: Record<string, RegExp[]> = {
+  width: [CSS_NUMERIC, /^auto$/],
+  height: [CSS_NUMERIC, /^auto$/],
+  'max-width': [CSS_NUMERIC],
+  'max-height': [CSS_NUMERIC],
+  display: [/^(?:block|inline|inline-block|none)$/],
+  'object-fit': [/^(?:contain|cover|fill|none|scale-down)$/],
+};
+
+/** Safe CSS color value: hex (#abc, #aabbcc) or named color (red, blue). */
+const CSS_COLOR = [/^#[0-9a-fA-F]{3,6}$/, /^[a-zA-Z]{1,20}$/];
+
+/** CSS keyword values used by KaTeX for vertical-align. */
+const CSS_VALIGN_KEYWORD = /^(?:bottom|top|middle|baseline|text-top|text-bottom|sub|super)$/;
+
+/** CSS border-style keyword values. */
+const CSS_BORDER_STYLE = /^(?:solid|dashed|dotted|none)$/;
+
+/** Matches two-value CSS shorthand (e.g. "0 -0.1667em" for margin). */
+const CSS_NUMERIC_PAIR =
+  /^-?\d+(?:\.\d+)?(?:px|em|rem|ex|%|cm|mm|in|pt|pc|ch|vh|vw)?\s+-?\d+(?:\.\d+)?(?:px|em|rem|ex|%|cm|mm|in|pt|pc|ch|vh|vw)?$/;
+
+/** Verified against katex.renderToString output for complex formulas. */
+const KATEX_STYLES: Record<string, RegExp[]> = {
+  height: [CSS_NUMERIC],
+  width: [CSS_NUMERIC],
+  'min-width': [CSS_NUMERIC],
+  'max-width': [CSS_NUMERIC],
+  top: [CSS_NUMERIC],
+  left: [CSS_NUMERIC],
+  right: [CSS_NUMERIC],
+  bottom: [CSS_NUMERIC],
+  'vertical-align': [CSS_NUMERIC, CSS_VALIGN_KEYWORD],
+  margin: [CSS_NUMERIC, CSS_NUMERIC_PAIR],
+  'margin-left': [CSS_NUMERIC],
+  'margin-right': [CSS_NUMERIC],
+  'margin-top': [CSS_NUMERIC],
+  'margin-bottom': [CSS_NUMERIC],
+  'padding-left': [CSS_NUMERIC],
+  'padding-right': [CSS_NUMERIC],
+  'font-size': [CSS_NUMERIC],
+  color: CSS_COLOR,
+  'background-color': CSS_COLOR,
+  'border-bottom-width': [CSS_NUMERIC],
+  'border-top-width': [CSS_NUMERIC],
+  'border-right-width': [CSS_NUMERIC],
+  'border-width': [CSS_NUMERIC],
+  'border-style': [CSS_BORDER_STYLE],
+  'border-right-style': [CSS_BORDER_STYLE],
+  position: [/^relative$/],
+};
+
+// ---------------------------------------------------------------------------
+// Shared constants
+// ---------------------------------------------------------------------------
 
 /**
- * Sanitizes HTML content to prevent XSS attacks
- * Works both on client and server side using sanitize-html
+ * Detects KaTeX/TipTap math content by looking for class attribute values.
+ * Handles double-quoted, single-quoted, and unquoted class attributes.
+ * Uses word-boundary matching so plain text containing "katex" won't trigger.
+ */
+const MATH_CLASS_PATTERN =
+  /class\s*=\s*(?:"[^"]*\b(?:katex|tiptap)\b[^"]*"|'[^']*\b(?:katex|tiptap)\b[^']*')/;
+
+/** Attributes shared by both span and div (KaTeX math rendering). */
+const MATH_ELEMENT_ATTRS = [
+  'class',
+  'data-math',
+  'data-type',
+  'data-latex',
+  'aria-hidden',
+  'aria-label',
+  'role',
+];
+
+const DANGEROUS_IMG_PROTOCOLS = [
+  'javascript:',
+  'data:',
+  'file:',
+  'blob:',
+  'ftp:',
+];
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitizes HTML content to prevent XSS attacks.
+ * Uses a stricter config for regular content and a more permissive one
+ * for math content (KaTeX/TipTap) that needs extra classes and styles.
  */
 export function sanitizeHtmlContent(html: string): string {
   if (!html || typeof html !== 'string') {
     return '';
   }
 
-  // Special handling for math content - use a more permissive config
-  if (html.includes('katex') || html.includes('tiptap')) {
-    // Use a more permissive config for math content
-    const mathConfig = {
-      ...getSanitizeConfig(),
-      // Allow all classes for math elements to preserve KaTeX styling
-      allowedClasses: {
-        span: ['*'],
-        div: ['*'],
-      },
-    };
-
-    return sanitizeHtml(html, mathConfig);
+  if (MATH_CLASS_PATTERN.test(html)) {
+    return sanitizeHtml(html, getMathSanitizeConfig());
   }
 
-  // Use standard config for non-math content
-  const sanitized = sanitizeHtml(html, getSanitizeConfig());
-
-  // Ensure the sanitized HTML is valid and complete
-  // This prevents issues where HTML might be truncated
-  if (typeof window !== 'undefined') {
-    try {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = sanitized;
-      // If parsing succeeded, return the sanitized content
-      return sanitized;
-    } catch {
-      // If parsing failed, return the original content (it will be sanitized again)
-      logger.warn('HTML sanitization resulted in invalid HTML', {
-        component: 'HTMLSanitizer',
-        action: 'sanitizeHtmlContent',
-      });
-      return html;
-    }
-  }
-
-  return sanitized;
+  return sanitizeHtml(html, getBaseSanitizeConfig());
 }
 
 /**
- * Configuration for sanitize-html sanitization
- * Allows safe HTML tags and attributes commonly used in rich text content
- */
-function getSanitizeConfig(): sanitizeHtml.IOptions {
-  return {
-    allowedTags: [
-      // Basic text formatting
-      'p',
-      'br',
-      'strong',
-      'em',
-      'u',
-      's',
-      'mark',
-      'small',
-      'sub',
-      'sup',
-
-      // Headings
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'h5',
-      'h6',
-
-      // Lists
-      'ul',
-      'ol',
-      'li',
-
-      // Links and media
-      'a',
-      'img',
-
-      // Code
-      'code',
-      'pre',
-
-      // Quotes
-      'blockquote',
-
-      // Tables
-      'table',
-      'thead',
-      'tbody',
-      'tfoot',
-      'tr',
-      'th',
-      'td',
-
-      // Horizontal rule
-      'hr',
-
-      // Math (KaTeX specific)
-      'span',
-      'div',
-    ],
-
-    allowedAttributes: {
-      // Link attributes
-      a: ['href', 'target', 'rel'],
-
-      // Image attributes
-      img: ['src', 'alt', 'title', 'width', 'height', 'style'],
-
-      // Table attributes
-      td: ['colspan', 'rowspan'],
-      th: ['colspan', 'rowspan'],
-
-      // Math attributes (KaTeX) - allow all common KaTeX attributes
-      span: [
-        'class',
-        'data-math',
-        'data-type',
-        'data-latex',
-        'aria-hidden',
-        'aria-label',
-        'role',
-      ],
-      div: [
-        'class',
-        'data-math',
-        'data-type',
-        'data-latex',
-        'aria-hidden',
-        'aria-label',
-        'role',
-      ],
-      code: ['class'],
-
-      // General attributes
-      '*': ['id', 'style'],
-    },
-
-    // Allow specific classes for images
-    allowedClasses: {
-      img: ['editor-image'],
-    },
-
-    // Allow all classes for math-related elements (KaTeX generates many dynamic classes)
-    // Note: sanitize-html doesn't support wildcards, so we'll use transformTags instead
-
-    allowedSchemes: ['http', 'https', 'mailto', 'tel'],
-    allowedSchemesByTag: {
-      img: ['http', 'https'],
-    },
-
-    // Allow protocol relative URLs for images
-    allowProtocolRelative: true,
-
-    // Disallowed tags for security
-    disallowedTagsMode: 'discard',
-
-    // Additional security measures
-    allowedIframeHostnames: [],
-    allowedIframeDomains: [],
-
-    // Transform functions for additional security
-    transformTags: {
-      // Ensure external links open in new tab
-      a: (tagName, attribs) => {
-        if (
-          attribs.href &&
-          (attribs.href.startsWith('http://') ||
-            attribs.href.startsWith('https://'))
-        ) {
-          return {
-            tagName: 'a',
-            attribs: {
-              ...attribs,
-              target: '_blank',
-              rel: 'noopener noreferrer',
-            },
-          };
-        }
-        return { tagName, attribs };
-      },
-      // Preserve math content
-      span: (tagName, attribs) => {
-        // If this looks like a math element, preserve all attributes
-        if (
-          attribs.class &&
-          (attribs.class.includes('katex') || attribs.class.includes('tiptap'))
-        ) {
-          return { tagName, attribs };
-        }
-        return { tagName, attribs };
-      },
-      div: (tagName, attribs) => {
-        // If this looks like a math element, preserve all attributes
-        if (
-          attribs.class &&
-          (attribs.class.includes('katex') || attribs.class.includes('tiptap'))
-        ) {
-          return { tagName, attribs };
-        }
-        return { tagName, attribs };
-      },
-      // Validate image URLs for security
-      img: (tagName, attribs) => {
-        if (attribs.src) {
-          // Block dangerous protocols
-          const dangerousProtocols = [
-            'javascript:',
-            'data:',
-            'file:',
-            'blob:',
-            'ftp:',
-          ];
-          if (
-            dangerousProtocols.some(protocol =>
-              attribs.src.toLowerCase().startsWith(protocol)
-            )
-          ) {
-            // Remove the src attribute to prevent XSS
-            const { src, ...safeAttribs } = attribs;
-            void src; // Explicitly mark as intentionally unused
-            return { tagName, attribs: safeAttribs };
-          }
-
-          // Only allow http://, https://, or relative paths starting with /api/files/
-          if (
-            !attribs.src.startsWith('http://') &&
-            !attribs.src.startsWith('https://') &&
-            !attribs.src.startsWith('/api/files/')
-          ) {
-            // Remove the src attribute for invalid URLs
-            const { src, ...safeAttribs } = attribs;
-            void src; // Explicitly mark as intentionally unused
-            return { tagName, attribs: safeAttribs };
-          }
-        }
-        return { tagName, attribs };
-      },
-    },
-  };
-}
-
-/**
- * Validates that the provided HTML is safe (contains only allowed tags and attributes)
- * Returns true if the HTML is safe, false otherwise
- */
-export function isValidHtml(html: string): boolean {
-  if (!html || typeof html !== 'string') {
-    return true; // Empty or non-string content is considered valid
-  }
-
-  const sanitized = sanitizeHtmlContent(html);
-  return sanitized === html;
-}
-
-/**
- * Strips all HTML tags, returning only the text content
- * Useful for creating previews or search indexes
+ * Strips all HTML tags, returning only text content.
+ * Useful for creating previews or search indexes.
  */
 export function stripHtml(html: string): string {
   if (!html || typeof html !== 'string') {
@@ -277,3 +128,170 @@ export function stripHtml(html: string): string {
     disallowedTagsMode: 'discard',
   });
 }
+
+// ---------------------------------------------------------------------------
+// Config builders
+// ---------------------------------------------------------------------------
+
+/** Base sanitize-html config for regular (non-math) rich text content. */
+function getBaseSanitizeConfig(): sanitizeHtml.IOptions {
+  return {
+    allowedTags: [
+      // Text formatting
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      's',
+      'mark',
+      'small',
+      'sub',
+      'sup',
+      // Headings
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      // Lists
+      'ul',
+      'ol',
+      'li',
+      // Links and media
+      'a',
+      'img',
+      // Code
+      'code',
+      'pre',
+      // Quotes
+      'blockquote',
+      // Tables
+      'table',
+      'thead',
+      'tbody',
+      'tfoot',
+      'tr',
+      'th',
+      'td',
+      // Misc
+      'hr',
+      // KaTeX math rendering
+      'span',
+      'div',
+    ],
+
+    allowedAttributes: {
+      a: ['href', 'target', 'rel'],
+      img: ['src', 'alt', 'title', 'width', 'height', 'style'],
+      td: ['colspan', 'rowspan'],
+      th: ['colspan', 'rowspan'],
+      span: MATH_ELEMENT_ATTRS,
+      div: MATH_ELEMENT_ATTRS,
+      code: ['class'],
+      '*': ['id'],
+    },
+
+    allowedClasses: {
+      img: ['editor-image'],
+    },
+
+    allowedStyles: {
+      img: IMG_STYLES,
+    },
+
+    allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+    allowedSchemesByTag: { img: ['http', 'https'] },
+    allowProtocolRelative: false,
+    disallowedTagsMode: 'discard',
+
+    transformTags: {
+      a: addTargetBlankToExternalLinks,
+      img: validateImgSrc,
+    },
+  };
+}
+
+/**
+ * Extended config for content containing KaTeX/TipTap math.
+ * Adds style attributes and wildcard classes for span/div so that
+ * KaTeX's generated inline styles and dynamic class names survive.
+ */
+function getMathSanitizeConfig(): sanitizeHtml.IOptions {
+  const base = getBaseSanitizeConfig();
+  const baseAttrs =
+    base.allowedAttributes && typeof base.allowedAttributes === 'object'
+      ? base.allowedAttributes
+      : {};
+
+  return {
+    ...base,
+    allowedAttributes: {
+      ...baseAttrs,
+      span: [...((baseAttrs.span as string[]) ?? []), 'style'],
+      div: [...((baseAttrs.div as string[]) ?? []), 'style'],
+    },
+    allowedClasses: {
+      span: ['*'],
+      div: ['*'],
+    },
+    allowedStyles: {
+      img: IMG_STYLES,
+      span: KATEX_STYLES,
+      div: KATEX_STYLES,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Transform helpers (used by sanitize-html transformTags)
+// ---------------------------------------------------------------------------
+
+/** Adds target="_blank" and rel="noopener noreferrer" to external links. */
+const addTargetBlankToExternalLinks: sanitizeHtml.Transformer = (
+  tagName,
+  attribs
+) => {
+  if (
+    attribs.href &&
+    (attribs.href.startsWith('http://') || attribs.href.startsWith('https://'))
+  ) {
+    return {
+      tagName: 'a',
+      attribs: {
+        ...attribs,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+    };
+  }
+  return { tagName, attribs };
+};
+
+/**
+ * Validates image src against an allowlist of safe origins:
+ * http://, https://, or the internal /api/files/ path.
+ * Strips src for anything else (dangerous protocols, unknown paths).
+ */
+const validateImgSrc: sanitizeHtml.Transformer = (tagName, attribs) => {
+  if (!attribs.src) {
+    return { tagName, attribs };
+  }
+
+  const srcLower = attribs.src.toLowerCase();
+
+  const isDangerous = DANGEROUS_IMG_PROTOCOLS.some(p => srcLower.startsWith(p));
+  const isAllowed =
+    srcLower.startsWith('http://') ||
+    srcLower.startsWith('https://') ||
+    attribs.src.startsWith('/api/files/');
+
+  if (isDangerous || !isAllowed) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { src: _removed, ...safeAttribs } = attribs;
+    return { tagName, attribs: safeAttribs };
+  }
+
+  return { tagName, attribs };
+};
