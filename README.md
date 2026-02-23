@@ -1,98 +1,193 @@
 # Wrong Question Notebook
 
-The Wrong Question Notebook (WQN) is a web-based application designed to help students systematically track, organize, and revise the problems they answered incorrectly. It provides a comprehensive system for managing problems across multiple subjects, tracking progress, and facilitating effective revision through structured practice sessions.
+The Wrong Question Notebook (WQN) is a web application designed to help students systematically track, organise, and revise the problems they answered incorrectly. It provides a comprehensive system for managing problems across multiple notebooks, tracking progress with detailed statistics, and facilitating effective revision through structured review sessions.
 
-## 🚀 Features
+**Live:** [wqn.magicworks.app](https://wqn.magicworks.app/)
 
-### Core Functionality
+## Features
 
-#### Subject Management
-- [x] Create, edit, and delete subjects to organize your problems
-- [x] Subject-based navigation and filtering
-- [x] Clean, intuitive subject management interface
-- [ ] Track problem counts and activity per subject
+### Notebook & Problem Management
 
-#### Problem Management
-- [x] **Three Problem Types**: Multiple Choice Questions (MCQ), Short Answer, and Extended Response
-- [x] **Rich Content Support**: Create problems with formatted content using an advanced rich text editor
-  - Text formatting (bold, italic, underline, headings)
-  - Mathematical equations with LaTeX support
-  - Tables and lists
-  - Links, subscript, and superscript
-  - Image embedding with resizable images
-  - Typography enhancements
-- [x] **Status Tracking**: Mark problems as Wrong, Needs Review, or Mastered
-- [x] **Auto-marking**: Enable automatic answer validation for multiple choice questions
-- [x] **Assets Management**: Attach images and PDF files to problems
-- [x] **Solution Support**: Add detailed solutions with text and assets
+- Create colour-coded notebooks (formerly "subjects") with custom icons to organise problems
+- **Three problem types**: Multiple Choice (MCQ), Short Answer, and Extended Response
+- **Rich text editor** (TipTap) with formatting, LaTeX math equations, tables, lists, images, and more
+- **Enhanced answer config**: MCQ radio-button picker, multi-answer short text, numeric answers with tolerance
+- **Auto-marking**: Automatic answer validation for supported problem types
+- **Status tracking**: Mark problems as Wrong, Needs Review, or Mastered
+- **File attachments**: Upload images and PDFs as problem assets or solution assets
+- Sortable and filterable problem tables with faceted search
 
-#### Tag System
-- [x] Create and manage tags within subjects for better organization
-- [x] Tag problems with multiple tags for flexible categorization
-- [x] Filter problems by tags
-- [x] Global tag overview across all subjects
-- [ ] Tag-based problem discovery
+### Tag System
 
-#### Problem Sets
-- [x] Create custom problem sets from your problems
-- [x] **Sharing Levels**: Private, Limited (share with specific users via email), or Public (all registered users)
-- [x] Add and remove problems from sets
-- [x] Track progress within problem sets
-- [ ] Problem set review mode for structured practice
+- Create and manage tags within notebooks
+- Tag problems with multiple tags for flexible categorisation
+- Filter problems by tags
+- Global tag overview across all notebooks
 
-#### Interactive Review System
-- [x] Submit answers to problems with appropriate input types:
-  - Text input for short answers
-  - Textarea for extended responses
-  - Multiple choice selection for MCQ
-- [x] **Automatic Validation**: Auto-marked problems are validated instantly
-- [x] **Manual Review**: Self-assessment workflow for complex problems
-- [x] **Solution Reveal**: View detailed solutions after attempting problems
-- [x] **Status Updates**: Update problem status during review
-- [ ] Track attempt history and review dates
+### Problem Sets & Review Sessions
 
-#### AI Features
+- Create manual or **Smart Sets** (auto-populated via saved filter configs)
+- **Sharing levels**: Private, Limited (share with specific users via email), or Public
+- **Session-based review**: Start, pause, and resume review sessions
+- Per-problem answer submission with auto-marking or self-assessment
+- **Session summary**: Post-review statistics and breakdown
+- Solution reveal after attempting problems
 
-- TODO
+### Statistics Dashboard
 
-## 🛠️ Tech Stack
+- GitHub-style **activity heatmap**
+- **Status doughnut chart**: Wrong / Needs Review / Mastered breakdown
+- **Progress line chart**: Cumulative mastery over time
+- **Subject bar & radar charts**: Per-notebook comparisons
+- Hero stat cards (streaks, totals, session stats)
+- Recent activity feed
 
-- **Frontend**: Next.js 15, React 18, TypeScript
-- **Styling**: Tailwind CSS, shadcn/ui components, Radix UI
-- **Rich Text Editor**: TipTap with extensions (Mathematics, Tables, Links, Images)
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **Storage**: Supabase Storage for file uploads
-- **Deployment**: Vercel
-- **Validation**: Zod for schema validation
-- **Math Rendering**: KaTeX for LaTeX equations
-- **Analytics**: Vercel Analytics and Speed Insights
-- **Code Quality**: ESLint, Prettier, TypeScript
+### AI Problem Extraction
 
-## 📦 Installation & Setup
+- Extract problems from images using **Google Gemini 2.5 Flash**
+- Daily usage quota with per-user admin overrides
+- Supports auto-detection of problem type, choices, and correct answers
 
-1. Clone the repository
-2. Navigate to the web directory: `cd web`
-3. Install dependencies: `npm install`
-4. Set up environment variables (see `env.example`)
-5. Run the development server: `npm run dev`
+### User Profile
 
-For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+- Customisable profile (avatar, username, bio, demographics)
 
-## 📄 Documentation
+### Authentication & Security
 
-- **CHANGELOG.md**: Track all notable changes and version history
-- **DEPLOYMENT.md**: Comprehensive deployment guide for Vercel
-- **Proposal.md**: Initial project proposal and requirements
+- Email-based signup and login with **Cloudflare Turnstile** CAPTCHA
+- Password reset flow with email confirmation
+- Security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
+- HTML sanitisation (DOMPurify + sanitize-html) with math content support
+- Rate limiting on sensitive endpoints
+- Request validation with Zod schemas
 
-## 🤝 Contributing
+### Privacy & Compliance
 
-This project uses:
-- **ESLint** and **Prettier** for code formatting
-- **TypeScript** for type safety
+- **GDPR-compliant cookie consent** banner with granular preferences
+- Privacy Policy page
 
-Run `npm run check-all` to validate your changes before committing.
+## Tech Stack
 
-## 📝 License
+| Layer          | Technology                                       |
+| -------------- | ------------------------------------------------ |
+| Framework      | Next.js 16 (App Router, Turbopack)               |
+| Language       | TypeScript (strict)                              |
+| Styling        | Tailwind CSS 3, tailwindcss-animate              |
+| Components     | shadcn/ui (Radix UI + CVA)                       |
+| Rich text      | TipTap (math, tables, images, links, typography) |
+| Math rendering | KaTeX                                            |
+| Auth & DB      | Supabase (PostgreSQL, Auth, Storage)             |
+| AI             | Google Gemini 2.5 Flash (@google/genai)          |
+| CAPTCHA        | Cloudflare Turnstile                             |
+| Charts         | Chart.js + react-chartjs-2                       |
+| Data tables    | TanStack Table                                   |
+| Validation     | Zod                                              |
+| Theme          | next-themes (class strategy)                     |
+| Analytics      | Vercel Analytics + Speed Insights                |
+| Deployment     | Vercel                                           |
+| Testing        | Vitest + @vitest/coverage-v8                     |
+| Code quality   | ESLint, Prettier                                 |
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A [Supabase](https://supabase.com) project
+- (Optional) A [Gemini API key](https://aistudio.google.com/) for AI problem extraction
+- (Optional) A [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) site key
+
+### Installation
+
+```bash
+git clone https://github.com/mrmagic2020/Wrong-Question-Notebook.git
+cd Wrong-Question-Notebook/web
+npm install
+```
+
+### Environment Variables
+
+Copy the example and fill in your values:
+
+```bash
+cp env.example .env.local
+```
+
+| Variable                                       | Description                               | Required |
+| ---------------------------------------------- | ----------------------------------------- | -------- |
+| `NEXT_PUBLIC_SUPABASE_URL`                     | Supabase project URL                      | Yes      |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | Supabase anon / public key                | Yes      |
+| `SUPABASE_SERVICE_ROLE_KEY`                    | Supabase service role key (server-side)   | Yes      |
+| `SITE_URL`                                     | Deployed site URL (for sitemap)           | No       |
+| `GEMINI_API_KEY`                               | Google Gemini API key (for AI extraction) | No       |
+
+### Development
+
+```bash
+npm run dev
+```
+
+### Available Scripts
+
+Run from `web/`:
+
+| Command              | Purpose                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| `npm run dev`        | Start dev server (Turbopack)                                     |
+| `npm run build`      | Production build                                                 |
+| `npm run type-check` | TypeScript check (`tsc --noEmit`)                                |
+| `npm run lint`       | ESLint check                                                     |
+| `npm run test`       | Run tests (Vitest)                                               |
+| `npm run test:watch` | Run tests in watch mode                                          |
+| `npm run fix-all`    | Auto-fix lint + format                                           |
+| `npm run prepush`    | Full check: fix-all, type-check, lint, format-check, test, build |
+
+Always run `npm run prepush` before committing.
+
+## Project Structure
+
+```t
+web/
+  app/
+    (app)/            # Authenticated pages (notebooks, problems, problem-sets, statistics, admin)
+    auth/             # Auth pages (login, sign-up, forgot-password, etc.)
+    api/              # API route handlers
+    privacy/          # Privacy Policy page
+    page.tsx          # Public landing page
+    layout.tsx        # Root layout
+    globals.css       # Global styles, CSS utilities, animations
+  components/
+    ui/               # shadcn/ui primitives
+    landing/          # Landing page components
+    subjects/         # Notebook cards and dialogs
+    review/           # Review session components
+    statistics/       # Dashboard charts and cards
+    admin/            # Admin panel components
+    cookie-consent/   # GDPR consent banner and provider
+    ...               # Other feature components
+  lib/                # Utilities, Supabase clients, schemas, types, constants
+  public/             # Static assets (robots.txt, sitemap.xml)
+  middleware.ts       # Supabase session refresh
+```
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for a detailed Vercel deployment guide.
+
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md) -- Version history
+- [DEPLOYMENT.md](DEPLOYMENT.md) -- Deployment guide
+- [Proposal.md](Proposal.md) -- Initial project proposal
+
+## Contributing
+
+This project uses ESLint, Prettier, and TypeScript for code quality. Please run the following before pushing:
+
+```bash
+npm run prepush
+```
+
+## License
 
 This project is licensed under the GPL-3.0 license. See [LICENSE](LICENSE) for details.
