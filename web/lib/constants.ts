@@ -544,6 +544,31 @@ export const ATTEMPT_CONSTANTS = {
 } as const;
 
 // =====================================================
+// QR Upload Session Constants
+// =====================================================
+export const QR_SESSION_CONSTANTS = {
+  TOKEN_BYTES: 32,
+  SESSION_EXPIRY_MINUTES: 5,
+  REALTIME_FALLBACK_DELAY_MS: 5000,
+  STORAGE_PATH_PREFIX: 'qr-uploads',
+  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  MAX_FILE_SIZE: FILE_CONSTANTS.MAX_FILE_SIZE.IMAGE,
+  RATE_LIMITS: {
+    SESSION_CREATION: { windowMs: 15 * 60 * 1000, maxRequests: 50 },
+    PHONE_UPLOAD: { windowMs: 5 * 60 * 1000, maxRequests: 5 },
+  },
+  ERRORS: {
+    SESSION_EXPIRED: 'QR code expired. Generate a new one on your computer.',
+    SESSION_ALREADY_USED: 'QR code already used.',
+    INVALID_TOKEN: 'Invalid link. Please scan the QR code again.',
+    SESSION_NOT_FOUND: 'Session not found.',
+    NOT_UPLOADED: 'No image has been uploaded yet.',
+    FILE_TOO_LARGE: 'Image is too large. Maximum size is 5MB.',
+    INVALID_FILE_TYPE: 'Please upload a JPEG, PNG, WebP, or GIF image.',
+  },
+} as const;
+
+// =====================================================
 // Cookie Consent Constants
 // =====================================================
 export const COOKIE_CONSENT_CONSTANTS = {
