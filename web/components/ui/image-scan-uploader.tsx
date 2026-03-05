@@ -67,8 +67,7 @@ function compressImage(
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
       if (width > COMPRESS_MAX_DIMENSION || height > COMPRESS_MAX_DIMENSION) {
-        const scale =
-          COMPRESS_MAX_DIMENSION / Math.max(width, height);
+        const scale = COMPRESS_MAX_DIMENSION / Math.max(width, height);
         width = Math.round(width * scale);
         height = Math.round(height * scale);
       }

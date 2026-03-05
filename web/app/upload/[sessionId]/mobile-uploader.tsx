@@ -56,7 +56,7 @@ function getCroppedBlob(
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => {
+      blob => {
         if (blob) {
           resolve(blob);
           return;
@@ -64,7 +64,7 @@ function getCroppedBlob(
         // Original mime type unsupported for encoding (e.g. GIF, WebP on
         // some browsers) — fall back to PNG which is universally supported.
         canvas.toBlob(
-          (fallback) =>
+          fallback =>
             fallback
               ? resolve(fallback)
               : reject(new Error('Failed to crop image')),
@@ -115,7 +115,7 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
 
       setFile(selected);
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = ev => {
         setPreview(ev.target?.result as string);
         const fullCrop: Crop = {
           unit: '%',
@@ -279,8 +279,8 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
         <div className="flex flex-1 items-center justify-center overflow-auto px-4 py-4">
           <ReactCrop
             crop={crop}
-            onChange={(c) => setCrop(c)}
-            onComplete={(c) => setCompletedCrop(c)}
+            onChange={c => setCrop(c)}
+            onComplete={c => setCompletedCrop(c)}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -288,7 +288,7 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
               src={preview}
               alt="Photo to crop"
               className="max-h-[60dvh] w-auto rounded-lg"
-              onLoad={(e) => {
+              onLoad={e => {
                 const img = e.currentTarget;
                 setCompletedCrop({
                   unit: 'px',
