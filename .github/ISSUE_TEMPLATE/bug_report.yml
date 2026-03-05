@@ -1,0 +1,67 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Thanks for taking the time to report a bug! Please fill out the information below so we can investigate.
+
+    - type: textarea
+      id: description
+      attributes:
+          label: Description
+          description: A clear and concise description of the bug.
+          placeholder: What did you expect to happen? What actually happened?
+      validations:
+          required: true
+
+    - type: textarea
+      id: steps
+      attributes:
+          label: Steps to Reproduce
+          description: How can we reproduce this issue?
+          placeholder: |
+              1. Go to '...'
+              2. Click on '...'
+              3. Scroll down to '...'
+              4. See error
+      validations:
+          required: true
+
+    - type: textarea
+      id: screenshots
+      attributes:
+          label: Screenshots
+          description: If applicable, add screenshots to help explain the problem.
+
+    - type: dropdown
+      id: browser
+      attributes:
+          label: Browser
+          description: What browser(s) are you seeing the problem in?
+          multiple: true
+          options:
+              - Chrome
+              - Firefox
+              - Safari
+              - Edge
+              - Other
+
+    - type: dropdown
+      id: device
+      attributes:
+          label: Device
+          description: What device(s) are you seeing the problem on?
+          multiple: true
+          options:
+              - Desktop
+              - Mobile
+              - Tablet
+
+    - type: textarea
+      id: context
+      attributes:
+          label: Additional Context
+          description: Any other context about the problem (error messages, console logs, etc.).
