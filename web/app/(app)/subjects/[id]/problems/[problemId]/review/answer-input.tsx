@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useLayoutEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import MathText from '@/components/ui/math-text';
 import { AnswerInputProps } from '@/lib/types';
-import type { MCQAnswerConfig } from '@/lib/types';
+import type { MCQAnswerConfig, MCQChoice } from '@/lib/types';
 
 export default function AnswerInput({
   problemType,
@@ -23,21 +23,46 @@ export default function AnswerInput({
     }
   };
 
-  // Stable shuffled choices — computed once per mount via useState initializer.
-  // Component is keyed by problem ID, so each problem visit gets a fresh shuffle.
-  const [shuffledChoices] = useState(() => {
+  // Derive stable primitives from answerConfig so the effect re-runs only
+  // when choices content or the randomize setting actually change — not on
+  // every render due to new object references from JSON parsing.
+  const choicesJson =
+    answerConfig?.type === 'mcq'
+      ? JSON.stringify((answerConfig as MCQAnswerConfig).choices)
+      : null;
+  const shouldRandomize =
+    answerConfig?.type === 'mcq' &&
+    (answerConfig as MCQAnswerConfig).randomize_choices !== false;
+
+  // Initialize with original order to avoid SSR/client hydration mismatch.
+  // Component is keyed by problem ID, so each problem gets a fresh mount.
+  const [shuffledChoices, setShuffledChoices] = useState<MCQChoice[]>(() => {
     if (answerConfig?.type === 'mcq') {
-      const config = answerConfig as MCQAnswerConfig;
-      if (config.randomize_choices === false) return config.choices;
-      const choices = [...config.choices];
-      for (let i = choices.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [choices[i], choices[j]] = [choices[j], choices[i]];
-      }
-      return choices;
+      return (answerConfig as MCQAnswerConfig).choices;
     }
     return [];
   });
+
+  // Shuffle on client only to prevent hydration mismatch.
+  // useLayoutEffect doesn't run during SSR, so server and client initial
+  // renders match (original order). Once JS hydrates, the shuffle applies
+  // before the next paint — but on slow connections the server-rendered
+  // (unshuffled) HTML may be briefly visible before hydration.
+  // Deps use stable primitives so this also handles answerConfig changes
+  // from router.refresh() / revalidation without remount.
+  useLayoutEffect(() => {
+    if (!choicesJson) return;
+    const choices: MCQChoice[] = JSON.parse(choicesJson);
+    if (!shouldRandomize) {
+      setShuffledChoices(choices);
+      return;
+    }
+    for (let i = choices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [choices[i], choices[j]] = [choices[j], choices[i]];
+    }
+    setShuffledChoices(choices);
+  }, [choicesJson, shouldRandomize]);
 
   // Enhanced MCQ: radio buttons with choice text
   if (problemType === 'mcq' && answerConfig && answerConfig.type === 'mcq') {
