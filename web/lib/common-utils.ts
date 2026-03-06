@@ -124,11 +124,11 @@ export function getProblemStatusDisplayName(status: string): string {
 export function getStatusBorderColor(status: string): string {
   switch (status) {
     case 'wrong':
-      return 'border-l-red-400 dark:border-l-red-500';
+      return 'border-l-red-300 dark:border-l-red-400/60';
     case 'needs_review':
-      return 'border-l-amber-400 dark:border-l-amber-500';
+      return 'border-l-amber-300 dark:border-l-amber-400/60';
     case 'mastered':
-      return 'border-l-green-400 dark:border-l-green-500';
+      return 'border-l-green-300 dark:border-l-green-400/60';
     default:
       return '';
   }
