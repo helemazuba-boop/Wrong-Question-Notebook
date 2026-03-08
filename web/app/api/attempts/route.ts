@@ -9,7 +9,13 @@ import {
   handleAsyncError,
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
-import { revalidateProblemAndSubject } from '@/lib/cache-invalidation';
+import {
+  revalidateProblemAndSubject,
+  revalidateUserReviewSchedule,
+} from '@/lib/cache-invalidation';
+import { updateReviewSchedule } from '@/lib/spaced-repetition';
+import { createServiceClient } from '@/lib/supabase-utils';
+import { getUserTimezone } from '@/lib/timezone-utils';
 
 async function getAttempts(req: Request) {
   const { user, supabase } = await requireUser();
@@ -130,11 +136,53 @@ async function createAttempt(req: Request) {
       );
     }
 
-    // Invalidate cache after successful attempt creation - only the specific problem and its subject
+    // Sync problem status when selected_status is provided
+    if (parsed.data.selected_status) {
+      const { error: statusError } = await supabase
+        .from('problems')
+        .update({
+          status: parsed.data.selected_status,
+          last_reviewed_date: new Date().toISOString(),
+        })
+        .eq('id', parsed.data.problem_id)
+        .eq('user_id', user.id);
+
+      if (statusError) {
+        console.error('Failed to sync problem status:', statusError.message);
+      }
+    }
+
+    // Invalidate cache after successful attempt creation
     await revalidateProblemAndSubject(
       parsed.data.problem_id,
       problem.subject_id
     );
+
+    // Update spaced repetition schedule
+    try {
+      const srStatus =
+        parsed.data.selected_status ??
+        (data.is_correct !== null
+          ? data.is_correct
+            ? 'mastered'
+            : 'wrong'
+          : null);
+
+      if (srStatus) {
+        const serviceClient = createServiceClient();
+        const userTimezone = await getUserTimezone(user.id);
+        await updateReviewSchedule(
+          serviceClient,
+          user.id,
+          parsed.data.problem_id,
+          srStatus,
+          userTimezone
+        );
+        await revalidateUserReviewSchedule(user.id);
+      }
+    } catch (e) {
+      console.error('Failed to update review schedule:', e);
+    }
 
     return NextResponse.json(createApiSuccessResponse(data), { status: 201 });
   } catch (error) {

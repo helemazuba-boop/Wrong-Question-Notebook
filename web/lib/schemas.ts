@@ -8,8 +8,10 @@ import {
   GENDER_OPTIONS,
   SUBJECT_CONSTANTS,
   ATTEMPT_CONSTANTS,
+  SPACED_REPETITION_CONSTANTS,
 } from './constants';
 import { sanitizeHtmlContent } from './html-sanitizer';
+import { isValidTimezone } from './timezone-utils';
 
 // Database enum values - these should match the PostgreSQL enum type
 export const PROBLEM_TYPE_VALUES = [
@@ -162,6 +164,7 @@ export const CreateAttemptDto = z.object({
     .string()
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .optional(),
+  selected_status: ProblemStatus.optional(),
 });
 
 export const UpdateAttemptDto = z.object({
@@ -171,6 +174,15 @@ export const UpdateAttemptDto = z.object({
     .string()
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .nullable()
+    .optional(),
+  selected_status: ProblemStatus.nullable().optional(),
+  submitted_answer: z
+    .union([
+      z.string().max(ATTEMPT_CONSTANTS.MAX_RESPONSE_LENGTH),
+      z.number(),
+      z.boolean(),
+      z.record(z.string(), z.unknown()),
+    ])
     .optional(),
 });
 
@@ -209,7 +221,10 @@ export const UserProfile = z.object({
   date_of_birth: z.string().date().nullable(),
   gender: Gender.nullable(),
   region: z.string().nullable(),
-  timezone: z.string().default('UTC'),
+  timezone: z
+    .string()
+    .refine(isValidTimezone, { message: 'Invalid IANA timezone' })
+    .default('UTC'),
   avatar_url: z.url().nullable(),
   bio: z.string().nullable(),
   user_role: UserRole.default('user'),
@@ -283,7 +298,10 @@ export const CreateUserProfileDto = z.object({
     .string()
     .max(VALIDATION_CONSTANTS.STRING_LIMITS.REGION_MAX)
     .optional(),
-  timezone: z.string().optional(),
+  timezone: z
+    .string()
+    .refine(isValidTimezone, { message: 'Invalid IANA timezone' })
+    .optional(),
   avatar_url: z.url().optional(),
   bio: z.string().max(VALIDATION_CONSTANTS.STRING_LIMITS.BIO_MAX).optional(),
 });
@@ -359,6 +377,16 @@ export const SessionConfigSchema = z.object({
   randomize: z.boolean().default(true),
   session_size: z.number().min(1).max(100).nullable().optional(),
   auto_advance: z.boolean().default(false),
+});
+
+export const StartSpacedSessionDto = z.object({
+  subject_id: z.uuid(),
+  session_size: z
+    .number()
+    .int()
+    .min(1)
+    .max(SPACED_REPETITION_CONSTANTS.MAX_SESSION_SIZE)
+    .optional(),
 });
 
 export const CreateProblemSetDto = z.object({

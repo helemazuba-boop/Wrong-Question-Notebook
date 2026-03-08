@@ -7,6 +7,13 @@ import {
   handleAsyncError,
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
+import { updateReviewSchedule } from '@/lib/spaced-repetition';
+import { createServiceClient } from '@/lib/supabase-utils';
+import {
+  revalidateProblemAndSubject,
+  revalidateUserReviewSchedule,
+} from '@/lib/cache-invalidation';
+import { getUserTimezone } from '@/lib/timezone-utils';
 
 export async function PATCH(
   req: Request,
@@ -67,6 +74,62 @@ export async function PATCH(
         createApiErrorResponse(ERROR_MESSAGES.NOT_FOUND, 404),
         { status: 404 }
       );
+    }
+
+    // Sync problem status and recalculate review schedule when selected_status
+    // is updated — but only if this is the latest attempt for the problem.
+    // Editing a historical attempt should not overwrite the current status.
+    if (parsed.data.selected_status !== undefined) {
+      // Fetch problem, latest attempt, and timezone in parallel
+      const [{ data: problem }, { data: latestAttempt }, userTimezone] =
+        await Promise.all([
+          supabase
+            .from('problems')
+            .select('subject_id')
+            .eq('id', data.problem_id)
+            .single(),
+          supabase
+            .from('attempts')
+            .select('id')
+            .eq('problem_id', data.problem_id)
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single(),
+          getUserTimezone(user.id),
+        ]);
+
+      const isLatestAttempt = latestAttempt?.id === attemptId;
+
+      if (parsed.data.selected_status && isLatestAttempt) {
+        await supabase
+          .from('problems')
+          .update({
+            status: parsed.data.selected_status,
+            last_reviewed_date: new Date().toISOString(),
+          })
+          .eq('id', data.problem_id)
+          .eq('user_id', user.id);
+
+        try {
+          const serviceClient = createServiceClient();
+          await updateReviewSchedule(
+            serviceClient,
+            user.id,
+            data.problem_id,
+            parsed.data.selected_status,
+            userTimezone
+          );
+          await revalidateUserReviewSchedule(user.id);
+        } catch (e) {
+          console.error('Failed to update review schedule:', e);
+        }
+      }
+
+      // Invalidate caches
+      if (problem) {
+        await revalidateProblemAndSubject(data.problem_id, problem.subject_id);
+      }
     }
 
     return NextResponse.json(createApiSuccessResponse(data));

@@ -59,6 +59,11 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
   );
   const [gender, setGender] = useState(initialProfile?.gender ?? '');
 
+  const detectedTimezone =
+    typeof window !== 'undefined'
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : 'UTC';
+
   // Snapshot of the last successfully saved values for dirty detection
   const savedSnapshotRef = useRef({
     username: initialProfile?.username ?? '',
@@ -245,6 +250,7 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
           bio,
           date_of_birth: dateOfBirth,
           gender,
+          timezone: detectedTimezone,
         }),
       });
       const json = await res.json();
@@ -369,8 +375,15 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
 
             {/* Email (read-only) */}
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Email</Label>
-              <p className="text-sm text-muted-foreground truncate">{email}</p>
+              <Label htmlFor="sheet-email" className="text-xs">
+                Email
+              </Label>
+              <Input
+                id="sheet-email"
+                value={email}
+                disabled
+                className="text-sm"
+              />
             </div>
 
             {/* Username */}
@@ -506,6 +519,19 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
                   </SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Timezone (auto-detected) */}
+            <div className="space-y-1">
+              <Label htmlFor="sheet-timezone" className="text-xs">
+                Timezone
+              </Label>
+              <Input
+                id="sheet-timezone"
+                value={detectedTimezone}
+                disabled
+                className="text-sm"
+              />
             </div>
 
             {saveError && (

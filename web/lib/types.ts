@@ -85,7 +85,9 @@ export interface ProblemSet {
 export interface ReviewSessionState {
   id: string;
   user_id: string;
-  problem_set_id: string;
+  problem_set_id: string | null;
+  session_type?: 'normal' | 'spaced_repetition';
+  subject_id?: string | null;
   started_at: string;
   last_activity_at: string;
   is_active: boolean;
@@ -133,6 +135,7 @@ export interface Attempt {
   is_self_assessed: boolean;
   confidence: number | null;
   reflection_notes: string | null;
+  selected_status: ProblemStatus | null;
   created_at: string;
   updated_at: string;
 }
@@ -181,6 +184,20 @@ export type AnswerConfig =
 export interface SubjectWithMetadata extends Subject {
   problem_count?: number;
   last_activity?: string;
+  due_count?: number;
+}
+
+export interface ReviewSchedule {
+  id: string;
+  user_id: string;
+  problem_id: string;
+  next_review_at: string;
+  interval_days: number;
+  ease_factor: number;
+  repetition_number: number;
+  last_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProblemWithTags extends Problem {
@@ -353,13 +370,6 @@ export interface AnswerInputProps {
   hideChoiceIds?: boolean;
 }
 
-export interface StatusSelectorProps {
-  currentStatus: ProblemStatus;
-  selectedStatus: ProblemStatus | null;
-  onStatusChange: (status: ProblemStatus) => void;
-  compact?: boolean;
-}
-
 // =====================================================
 // Problem Set Dialog Types
 // =====================================================
@@ -521,4 +531,5 @@ export interface StatisticsData {
   weeklyProgress: WeeklyProgressPoint[];
   activityHeatmap: ActivityDay[];
   recentActivity: RecentStudyActivity[];
+  timezone: string;
 }

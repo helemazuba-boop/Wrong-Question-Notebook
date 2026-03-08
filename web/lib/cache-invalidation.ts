@@ -181,10 +181,25 @@ export async function revalidateAdminPage(): Promise<void> {
 }
 
 /**
+ * Revalidate user review schedule cache (also refreshes subjects for due_count)
+ */
+export async function revalidateUserReviewSchedule(
+  userId: string
+): Promise<void> {
+  const userReviewTag = createUserCacheTag(
+    CACHE_TAGS.USER_REVIEW_SCHEDULE,
+    userId
+  );
+  await revalidateTag(userReviewTag, 'max');
+  await revalidateTag(CACHE_TAGS.REVIEW_SCHEDULE, 'max');
+  await revalidateUserSubjects(userId);
+}
+
+/**
  * Revalidate user statistics cache
  */
 export async function revalidateUserStatistics(userId: string): Promise<void> {
   const userStatsTag = createUserCacheTag(CACHE_TAGS.USER_STATISTICS, userId);
   await revalidateTag(userStatsTag, 'max');
-  await revalidateTag(CACHE_TAGS.USER_STATISTICS, 'max');
+  await revalidateTag(CACHE_TAGS.STATISTICS, 'max');
 }
