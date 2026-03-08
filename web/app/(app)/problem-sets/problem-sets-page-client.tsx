@@ -172,28 +172,71 @@ export default function ProblemSetsPageClient({
 
   if (problemSets.length === 0) {
     return (
-      <div className="container mx-auto py-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold mb-4">Problem Sets</h1>
-          <p className="text-muted-foreground mb-8">
-            Create problem sets to organize and review specific groups of
-            problems.
+      <div className="section-container">
+        <PageHeader
+          title="Problem Sets"
+          description="Organize and review specific groups of problems."
+        />
+
+        <div className="flex flex-col items-center py-12">
+          <div className="mx-auto w-20 h-20 bg-amber-500/10 dark:bg-amber-500/20 rounded-2xl flex items-center justify-center mb-6">
+            <Plus className="h-10 w-10 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            No problem sets yet
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-10 max-w-md text-center">
+            Problem sets let you group problems together for focused review
+            sessions. Get started by creating your first set.
           </p>
-          <div className="text-center py-12">
-            <div className="mx-auto w-24 h-24 bg-muted rounded-full flex items-center justify-center mb-4">
-              <Plus className="h-12 w-12 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">No problem sets yet</h3>
-            <p className="text-muted-foreground mb-6">
-              Start by selecting problems from a subject and creating your first
-              problem set.
-            </p>
-            <Button onClick={() => router.push('/subjects')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Go to Subjects
-            </Button>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-lg">
+            <button
+              onClick={() => setSmartSetDialogOpen(true)}
+              className="group flex flex-col items-center gap-3 rounded-2xl border border-amber-200/40 dark:border-amber-800/30 bg-gradient-to-br from-amber-50 to-orange-100/50 dark:from-amber-950/40 dark:to-orange-900/20 p-6 text-left transition-all hover:shadow-md hover:scale-[1.02]"
+            >
+              <div className="w-12 h-12 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 flex items-center justify-center">
+                <Sparkles className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-900 dark:text-white">
+                  Create Smart Set
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Auto-populate based on filters like status, tags, or subject
+                </p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => router.push('/subjects')}
+              className="group flex flex-col items-center gap-3 rounded-2xl border border-blue-200/40 dark:border-blue-800/30 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/40 dark:to-blue-900/20 p-6 text-left transition-all hover:shadow-md hover:scale-[1.02]"
+            >
+              <div className="w-12 h-12 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center">
+                <Plus className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-900 dark:text-white">
+                  Build Manually
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Pick specific problems from a subject to create a custom set
+                </p>
+              </div>
+            </button>
           </div>
         </div>
+
+        {/* Create Smart Set Dialog */}
+        <CreateSmartSetDialog
+          open={smartSetDialogOpen}
+          onOpenChange={setSmartSetDialogOpen}
+          onSuccess={() => {
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }}
+        />
       </div>
     );
   }
