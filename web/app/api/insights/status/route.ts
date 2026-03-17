@@ -6,7 +6,9 @@ import {
   createApiSuccessResponse,
   handleAsyncError,
 } from '@/lib/common-utils';
+import { INSIGHT_CONSTANTS } from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { logger } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getInsightStatus(req: Request) {
@@ -32,6 +34,35 @@ async function getInsightStatus(req: Request) {
     }
 
     if (latest.status === 'generating') {
+      // Auto-fail stale generating rows so the user isn't stuck forever
+      const staleMs = INSIGHT_CONSTANTS.GENERATING_STALE_MINUTES * 60 * 1000;
+      const isStale =
+        Date.now() - new Date(latest.generated_at).getTime() > staleMs;
+
+      if (isStale) {
+        const { error: updateError } = await supabase
+          .from('insight_digests')
+          .update({ status: 'failed' })
+          .eq('id', latest.id);
+
+        if (updateError) {
+          logger.error('Failed to mark stale digest as failed', updateError, {
+            component: 'InsightsStatus',
+            action: 'markStaleFailed',
+            digestId: latest.id,
+          });
+          // Return 'generating' so the client retries rather than
+          // flip-flopping between failed and generating.
+          return NextResponse.json(
+            createApiSuccessResponse({ status: 'generating', digest: null })
+          );
+        }
+
+        return NextResponse.json(
+          createApiSuccessResponse({ status: 'failed', digest: null })
+        );
+      }
+
       return NextResponse.json(
         createApiSuccessResponse({ status: 'generating', digest: null })
       );
