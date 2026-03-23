@@ -117,6 +117,21 @@ export default function SpacedReviewClient({
     };
   }, [loading, sessionData, isPaused]);
 
+  // Auto-pause when page becomes hidden (tab switch, minimize)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsPaused(true);
+      }
+    };
+    // Catch the case where the tab is already hidden on mount
+    handleVisibilityChange();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Reset form saved tracking when navigating to a new problem
   useEffect(() => {
     if (!sessionData) return;
