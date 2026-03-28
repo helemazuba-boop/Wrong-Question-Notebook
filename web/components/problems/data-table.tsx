@@ -116,10 +116,7 @@ export function DataTable<TData, TValue>({
     }
   }, [columnVisibility, onColumnVisibilityChange]);
 
-  const handleRowClick = (
-    e: React.MouseEvent,
-    problem: Problem
-  ) => {
+  const handleRowClick = (e: React.MouseEvent, problem: Problem) => {
     // Ctrl/Cmd+click → open in new tab
     if (getRowHref && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -174,13 +171,13 @@ export function DataTable<TData, TValue>({
                       }
                     }}
                     onAuxClick={e => {
-                      if (
-                        e.button === 1 &&
-                        getRowHref &&
-                        !isAddToSetMode
-                      ) {
+                      if (e.button === 1 && getRowHref && !isAddToSetMode) {
                         e.preventDefault();
-                        window.open(getRowHref(problem), '_blank', 'noopener,noreferrer');
+                        window.open(
+                          getRowHref(problem),
+                          '_blank',
+                          'noopener,noreferrer'
+                        );
                       }
                     }}
                     data-onboarding-target={

@@ -134,9 +134,7 @@ export default function EnhancedProblemsTable({
         const matchTitle = p.title.toLowerCase().includes(q);
         const matchContent = p.content?.toLowerCase().includes(q);
         const matchSolution = p.solution_text?.toLowerCase().includes(q);
-        const matchTags = pTags.some(tag =>
-          tag.name.toLowerCase().includes(q)
-        );
+        const matchTags = pTags.some(tag => tag.name.toLowerCase().includes(q));
         if (!matchTitle && !matchContent && !matchSolution && !matchTags)
           return false;
       }
@@ -146,9 +144,7 @@ export default function EnhancedProblemsTable({
 
       // Tag filter
       if (hasTagFilter && tagIdSet) {
-        const pTagIdSet = new Set(
-          (tagsByProblem[p.id] || []).map(t => t.id)
-        );
+        const pTagIdSet = new Set((tagsByProblem[p.id] || []).map(t => t.id));
         if (tagFilterMode === 'all') {
           for (const id of tagIds) {
             if (!pTagIdSet.has(id)) return false;

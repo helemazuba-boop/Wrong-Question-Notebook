@@ -92,12 +92,13 @@ export default function ProblemCardList({
                 toggleSelect(problem.id);
               } else if (isAddToSetMode) {
                 // Block navigation in add-to-set mode
-              } else if (
-                getRowHref &&
-                (e.ctrlKey || e.metaKey)
-              ) {
+              } else if (getRowHref && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                window.open(getRowHref(problem), '_blank', 'noopener,noreferrer');
+                window.open(
+                  getRowHref(problem),
+                  '_blank',
+                  'noopener,noreferrer'
+                );
               } else {
                 onRowClick(problem);
               }
@@ -110,7 +111,11 @@ export default function ProblemCardList({
                 !isAddToSetMode
               ) {
                 e.preventDefault();
-                window.open(getRowHref(problem), '_blank', 'noopener,noreferrer');
+                window.open(
+                  getRowHref(problem),
+                  '_blank',
+                  'noopener,noreferrer'
+                );
               }
             }}
           >
