@@ -32,6 +32,7 @@ import ProblemSetProblemsTable from './problem-set-problems-table';
 import ProblemSetEditDialog from '../problem-set-edit-dialog';
 import CopyProblemSetDialog from '@/components/copy-problem-set-dialog';
 import { UserProfileCard } from '@/components/user-profile-card';
+import { SocialActionsBar } from '@/components/social-actions-bar';
 import { FilterConfig, SessionConfig } from '@/lib/types';
 import { useReviewSession } from '@/lib/hooks/useReviewSession';
 
@@ -39,6 +40,10 @@ export default function ProblemSetPageClient({
   initialProblemSet,
   isAuthenticated = true,
   ownerProfile,
+  initialStats,
+  initialSocialState,
+  hasUsername = true,
+  backHref = '/problem-sets',
 }: ProblemSetPageClientProps) {
   const t = useTranslations('ProblemSets');
   const tCommon = useTranslations('Common');
@@ -186,13 +191,13 @@ export default function ProblemSetPageClient({
   return (
     <div className="section-container">
       {/* Header */}
-      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center space-x-4">
-          <BackLink onClick={() => router.push('/problem-sets')}>
+      <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-center space-x-4">
+          <BackLink onClick={() => router.push(backHref)}>
             {tCommon('back')}
           </BackLink>
           <div className="min-w-0">
-            <h1 className="page-title">{problemSet.name}</h1>
+            <h1 className="page-title break-words">{problemSet.name}</h1>
             {problemSet.isOwner ? (
               <p
                 className="page-description cursor-pointer hover:underline"
@@ -205,8 +210,9 @@ export default function ProblemSetPageClient({
             ) : (
               <div className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
                 <span>
-                  {problemSet.problem_count} problem
-                  {problemSet.problem_count !== 1 ? 's' : ''}
+                  {tCommon('problemCount', {
+                    count: problemSet.problem_count,
+                  })}
                 </span>
                 {ownerProfile && (
                   <>
@@ -219,7 +225,7 @@ export default function ProblemSetPageClient({
             )}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
           {problemSet.is_smart && (
             <Badge
               variant="outline"
@@ -278,6 +284,18 @@ export default function ProblemSetPageClient({
           )}
         </div>
       </div>
+
+      {/* Social Actions (non-private sets) */}
+      {problemSet.sharing_level !== 'private' && (
+        <SocialActionsBar
+          problemSetId={problemSet.id}
+          isShared
+          isAuthenticated={isAuthenticated}
+          initialStats={initialStats}
+          initialSocialState={initialSocialState}
+          isOwner={problemSet.isOwner}
+        />
+      )}
 
       {/* Description */}
       {problemSet.description && (
@@ -428,7 +446,11 @@ export default function ProblemSetPageClient({
           sharing_level: problemSet.sharing_level,
           shared_with_emails: problemSet.shared_with_emails,
           allow_copying: problemSet.allow_copying,
+          is_listed: problemSet.is_listed,
+          discovery_subject: problemSet.discovery_subject,
+          problem_count: problemSet.problem_count,
         }}
+        hasUsername={hasUsername}
         onSuccess={handleEditSuccess}
       />
 

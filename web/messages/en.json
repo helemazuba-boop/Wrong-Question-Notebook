@@ -2,7 +2,21 @@
   "Metadata": {
     "siteName": "Wrong Question Notebook",
     "siteDescription": "Master Your Learning",
-    "siteFullDescription": "Organize problems by subject, track your progress, and build your knowledge systematically"
+    "siteFullDescription": "Organize problems by subject, track your progress, and build your knowledge systematically",
+    "shelfMetaTitle": "Your Notebook Shelf",
+    "allProblemSetsMetaTitle": "All Problem Sets",
+    "allProblemSetsMetaDescription": "View and manage your problem sets. Problem sets enable you to group problems together to review or to share with others.",
+    "problemSetNotFoundMetaTitle": "Problem Set Not Found",
+    "subjectProblemsMetaTitle": "{subject} – Problems",
+    "reviewSummaryMetaTitle": "Review Summary",
+    "reviewItemMetaTitle": "Review {name}",
+    "spacedReviewMetaTitle": "Spaced Review",
+    "statisticsMetaTitle": "Statistics",
+    "statisticsMetaDescription": "Track your study progress, mastery, and streaks",
+    "insightsMetaTitle": "Insights",
+    "subjectInsightsMetaTitle": "Subject Insights",
+    "adminMetaTitle": "Admin",
+    "creatorMetaTitle": "@{username}"
   },
   "Common": {
     "appName": "Wrong Question Notebook",
@@ -79,7 +93,8 @@
     "minutesAgo": "{n, plural, one {# minute} other {# minutes}} ago",
     "hoursAgo": "{n, plural, one {# hour} other {# hours}} ago",
     "daysAgo": "{n, plural, one {# day} other {# days}} ago",
-    "weeksAgo": "{n, plural, one {# week} other {# weeks}} ago"
+    "weeksAgo": "{n, plural, one {# week} other {# weeks}} ago",
+    "problemCount": "{count, plural, one {# problem} other {# problems}}"
   },
   "Navigation": {
     "subjects": "Subjects",
@@ -93,7 +108,8 @@
     "signIn": "Sign In",
     "signUp": "Sign Up",
     "legal": "Legal",
-    "privacyPolicy": "Privacy Policy"
+    "privacyPolicy": "Privacy Policy",
+    "discover": "Discover"
   },
   "Auth": {
     "welcomeBack": "Welcome back",
@@ -254,7 +270,8 @@
     "heroMastered": "Mastered",
     "heroWrong": "Wrong",
     "heroReview": "Review",
-    "heroProgress": "Progress"
+    "heroProgress": "Progress",
+    "discoverProblemSets": "Discover Problem Sets"
   },
   "Onboarding": {
     "welcomeTitle": "Welcome to Wrong Question Notebook!",
@@ -552,7 +569,17 @@
     "failedToAddProblemToSet": "Failed to add problem to set",
     "problemAddedToSetSuccessfully": "Problem added to set successfully",
     "createProblemSet": "Create Problem Set",
-    "problems": "Problems"
+    "problems": "Problems",
+    "openMenu": "Open menu",
+    "answerChoices": "Answer choices",
+    "correctAnswerTooltip": "Correct answer",
+    "clickToMarkCorrect": "Click to mark as correct",
+    "optionPlaceholder": "Option {id}...",
+    "editChoice": "Edit choice {id}: {text}",
+    "removeChoice": "Remove choice {id}",
+    "addChoice": "Add choice",
+    "markCorrectAnswer": "Click a letter to mark the correct answer",
+    "mathTip": "Tip: Use $...$ for math, e.g. $x^2 + 1$"
   },
   "ProblemSets": {
     "title": "Problem Sets",
@@ -664,7 +691,9 @@
     "pleaseEnterNameForProblemSet": "Please enter a name for the problem set",
     "pleaseSelectAtLeastOneProblem": "Please select at least one problem",
     "invalidSubject": "Invalid subject",
-    "problemSetCreatedSuccessfully": "Problem set created successfully"
+    "problemSetCreatedSuccessfully": "Problem set created successfully",
+    "mySets": "My Sets",
+    "favourites": "Favourites"
   },
   "Review": {
     "smart": "Smart",
@@ -766,6 +795,19 @@
     "cause": "Cause:",
     "notesLabel": "Notes:",
     "selfAssessed": "Self-assessed",
+    "causes": {
+      "careless": "Careless mistake",
+      "misread": "Misread the question",
+      "knowledge_gap": "Knowledge gap",
+      "forgot_method": "Forgot the method",
+      "ran_out_of_time": "Ran out of time",
+      "guessed": "Guessed",
+      "confident": "Confident",
+      "educated_guess": "Educated guess",
+      "elimination": "Process of elimination",
+      "lucky": "Got lucky",
+      "other": "Other"
+    },
     "aiDiagnosis": "AI Diagnosis",
     "howDidYouGetRight": "How did you get it right?",
     "whatWentWrong": "What went wrong?",
@@ -1144,7 +1186,8 @@
     "fileTypeNotAllowed": "File type not allowed. Use JPEG, PNG, WEBP, or GIF.",
     "fileTooLarge": "File too large. Maximum size is 2MB.",
     "failedToRemove": "Failed to remove avatar",
-    "failedToSave": "Failed to save profile"
+    "failedToSave": "Failed to save profile",
+    "usernameRequired": "Username is required"
   },
   "Upload": {
     "title": "Upload Photo",
@@ -1247,7 +1290,12 @@
     "copying": "Copying...",
     "failedToCopy": "Failed to copy",
     "adding": "Adding...",
-    "addToNotebook": "Add to Notebook"
+    "addToNotebook": "Add to Notebook",
+    "problemLimitReached": "Limit reached: {current}/{limit} problems in this subject",
+    "problemLimitReachedWithCopy": "Limit reached: {current}/{limit} problems in this subject (trying to copy {copyCount})",
+    "problemSetLimitReached": "Limit reached: {current}/{limit} problem sets",
+    "subjectLimitReached": "Limit reached: {current}/{limit} subjects",
+    "subjectNameTooLong": "Subject name must be at most {max} characters"
   },
   "FileManager": {
     "clickToUpload": "Click to upload",
@@ -1343,7 +1391,10 @@
     "toolbarHeading2": "Heading 2",
     "toolbarHeading3": "Heading 3",
     "toolbarUndo": "Undo",
-    "toolbarRedo": "Redo"
+    "toolbarRedo": "Redo",
+    "characterCount": "{current} of {max} text characters",
+    "characterCountNoLimit": "{current} text characters",
+    "textLimitExceeded": "Text limit exceeded"
   },
   "DataTable": {
     "rowsPerPage": "Rows per page",
@@ -1362,5 +1413,88 @@
     "noResultsFound": "No results found",
     "selectedCount": "Selected",
     "createSet": "Create set"
+  },
+  "Discover": {
+    "title": "Discover",
+    "subtitle": "Browse problem sets shared by other students",
+    "searchPlaceholder": "Search problem sets...",
+    "all": "All",
+    "trending": "Trending",
+    "newest": "Newest",
+    "mostLiked": "Most Liked",
+    "mostCopied": "Most Copied",
+    "noSetsFound": "No problem sets found",
+    "adjustFilters": "Try adjusting your search or filters.",
+    "beFirstToShare": "Be the first to share a problem set!",
+    "metaTitle": "Discover Problem Sets",
+    "metaDescription": "Browse and search student-created problem sets across subjects. Find study materials shared by other students."
+  },
+  "Creator": {
+    "notFound": "Creator Not Found",
+    "problemSetsBy": "Problem sets by {name}",
+    "views": "views",
+    "likes": "likes",
+    "copies": "copies",
+    "listedSets": "Listed Problem Sets ({count})",
+    "noListedSets": "This creator hasn't listed any public problem sets yet."
+  },
+  "Social": {
+    "views": "Views",
+    "copies": "Copies",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied to clipboard",
+    "failedToCopyLink": "Failed to copy link",
+    "reportThisSet": "Report this set",
+    "like": "Like",
+    "unlike": "Unlike",
+    "loginToLike": "Log in to like this set",
+    "addToFavourites": "Add to favourites",
+    "removeFromFavourites": "Remove from favourites",
+    "loginToSave": "Log in to save this set"
+  },
+  "ReportDialog": {
+    "title": "Report Problem Set",
+    "description": "Help us keep our community safe. Your report will be reviewed by our team.",
+    "reasonLabel": "Reason",
+    "detailsLabel": "Additional details (optional)",
+    "detailsPlaceholder": "Provide any additional context...",
+    "cancel": "Cancel",
+    "submit": "Submit Report",
+    "submitting": "Submitting...",
+    "success": "Report submitted. Thank you for helping keep our community safe.",
+    "alreadyReported": "You have already reported this problem set.",
+    "error": "Failed to submit report. Please try again.",
+    "reasons": {
+      "inappropriate": "Inappropriate content",
+      "spam": "Spam or advertising",
+      "misleading": "Misleading or incorrect",
+      "other": "Other"
+    }
+  },
+  "DiscoverySubjects": {
+    "Biology": "Biology",
+    "Business Studies": "Business Studies",
+    "Chemistry": "Chemistry",
+    "Economics": "Economics",
+    "English": "English",
+    "Geography": "Geography",
+    "History": "History",
+    "Languages": "Languages",
+    "Legal Studies": "Legal Studies",
+    "Mathematics": "Mathematics",
+    "Music": "Music",
+    "Physics": "Physics",
+    "Software Engineering": "Software Engineering",
+    "Visual Arts": "Visual Arts",
+    "Other": "Other"
+  },
+  "ListedToggle": {
+    "showInDiscovery": "Show in Discovery",
+    "subjectCategory": "Subject category",
+    "selectSubject": "Select a subject...",
+    "setUsernameFirst": "Set a username first — click your avatar in the top-right to open your profile.",
+    "emptySetHint": "This set has no problems yet. It won't appear in Discovery until you add some.",
+    "discoverableHint": "This set is discoverable by other students.",
+    "directLinkOnly": "This set is only accessible via direct link."
   }
 }

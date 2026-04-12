@@ -276,12 +276,44 @@ export const PROBLEM_CONSTANTS = {
 // =====================================================
 // Problem Set Constants
 // =====================================================
+export const DISCOVERY_SUBJECTS = [
+  'Biology',
+  'Business Studies',
+  'Chemistry',
+  'Economics',
+  'English',
+  'Geography',
+  'History',
+  'Languages',
+  'Legal Studies',
+  'Mathematics',
+  'Music',
+  'Physics',
+  'Software Engineering',
+  'Visual Arts',
+  'Other',
+] as const;
+
+export type DiscoverySubject = (typeof DISCOVERY_SUBJECTS)[number];
+
 export const PROBLEM_SET_CONSTANTS = {
   SHARING_LEVELS: {
     PRIVATE: 'private',
     LIMITED: 'limited',
     PUBLIC: 'public',
   },
+  DISCOVERY_PAGE_SIZE: 20,
+  DISCOVERY_MAX_PAGE_SIZE: 50,
+  REPORT_REASONS: [
+    'inappropriate',
+    'spam',
+    'misleading',
+    'other',
+  ] as readonly string[],
+  /** Delay before a page view counts — filters out bounces. */
+  VIEW_TRACKING_DELAY_MS: 3000,
+  /** Window during which repeat views from the same viewer are deduplicated server-side. */
+  VIEW_DEDUP_WINDOW_MS: 15 * 60 * 1000,
 } as const;
 
 // =====================================================
@@ -589,22 +621,29 @@ const ICON_COMPONENT_MAP: Record<SubjectIcon, LucideIcon> = {
 // Attempt & Reflection Constants
 // =====================================================
 export const ATTEMPT_CONSTANTS = {
+  /**
+   * Sentinel stored in `attempts.submitted_answer` when the user self-assessed
+   * without providing a textual response. Kept in English because it is an
+   * internal identifier (not user-facing) — comparisons must match the literal
+   * stored value, never a translated label.
+   */
+  SELF_ASSESSED_PLACEHOLDER: 'Self-assessed',
   CAUSE_CATEGORIES: {
     INCORRECT: [
-      { value: 'careless', label: 'Careless mistake' },
-      { value: 'misread', label: 'Misread the question' },
-      { value: 'knowledge_gap', label: 'Knowledge gap' },
-      { value: 'forgot_method', label: 'Forgot the method' },
-      { value: 'ran_out_of_time', label: 'Ran out of time' },
-      { value: 'guessed', label: 'Guessed' },
-      { value: 'other', label: 'Other' },
+      { value: 'careless', labelKey: 'causes.careless' },
+      { value: 'misread', labelKey: 'causes.misread' },
+      { value: 'knowledge_gap', labelKey: 'causes.knowledge_gap' },
+      { value: 'forgot_method', labelKey: 'causes.forgot_method' },
+      { value: 'ran_out_of_time', labelKey: 'causes.ran_out_of_time' },
+      { value: 'guessed', labelKey: 'causes.guessed' },
+      { value: 'other', labelKey: 'causes.other' },
     ],
     CORRECT: [
-      { value: 'confident', label: 'Confident' },
-      { value: 'educated_guess', label: 'Educated guess' },
-      { value: 'elimination', label: 'Process of elimination' },
-      { value: 'lucky', label: 'Got lucky' },
-      { value: 'other', label: 'Other' },
+      { value: 'confident', labelKey: 'causes.confident' },
+      { value: 'educated_guess', labelKey: 'causes.educated_guess' },
+      { value: 'elimination', labelKey: 'causes.elimination' },
+      { value: 'lucky', labelKey: 'causes.lucky' },
+      { value: 'other', labelKey: 'causes.other' },
     ],
   },
   CONFIDENCE_LABELS: {

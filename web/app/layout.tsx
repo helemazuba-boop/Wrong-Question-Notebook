@@ -14,9 +14,16 @@ const defaultUrl = process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('Metadata');
+  const siteName = t('siteName');
   return {
     metadataBase: new URL(defaultUrl),
-    title: `${t('siteName')} – ${t('siteDescription')}`,
+    title: {
+      default: `${siteName} – ${t('siteDescription')}`,
+      // Child pages return just their local title; the template appends the
+      // localised site name so `<title>` stays consistent without each page
+      // hard-coding the brand suffix.
+      template: `%s – ${siteName}`,
+    },
     description: t('siteFullDescription'),
   };
 }
@@ -39,9 +46,9 @@ export default async function RootLayout({
   // Only pass root-level messages to avoid duplicating the full bundle
   // (the [locale] layout's provider supplies the complete set)
   const rootMessages = {
-    CookieConsent: (messages as { CookieConsent: Record<string, string> })
-      .CookieConsent,
-  };
+    Common: (messages as Record<string, unknown>).Common,
+    CookieConsent: (messages as Record<string, unknown>).CookieConsent,
+  } as typeof messages;
 
   return (
     <html lang={locale} suppressHydrationWarning>

@@ -11,7 +11,12 @@ import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 import { getFilteredProblems } from '@/lib/review-utils';
 import { FilterConfig } from '@/lib/types';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { revalidateUserProblemSets } from '@/lib/cache-invalidation';
+import {
+  revalidateUserProblemSets,
+  revalidateDiscovery,
+} from '@/lib/cache-invalidation';
+import { checkContentLimit } from '@/lib/content-limits';
+import { CONTENT_LIMIT_CONSTANTS, ERROR_MESSAGES } from '@/lib/constants';
 import { z } from 'zod';
 
 const CopyProblemSetBody = z.object({
@@ -168,6 +173,41 @@ async function copyProblemSet(
       return NextResponse.json(
         createApiErrorResponse('No problems to copy', 400),
         { status: 400 }
+      );
+    }
+
+    // Check content limits before proceeding with inserts
+    const [problemSetLimit, problemLimit] = await Promise.all([
+      checkContentLimit(
+        user.id,
+        CONTENT_LIMIT_CONSTANTS.RESOURCE_TYPES.PROBLEM_SETS
+      ),
+      checkContentLimit(
+        user.id,
+        CONTENT_LIMIT_CONSTANTS.RESOURCE_TYPES.PROBLEMS_PER_SUBJECT,
+        { subjectId: target_subject_id }
+      ),
+    ]);
+
+    if (!problemSetLimit.allowed) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          ERROR_MESSAGES.CONTENT_LIMIT_REACHED,
+          403,
+          problemSetLimit
+        ),
+        { status: 403 }
+      );
+    }
+
+    if (problemLimit.remaining < sourceProblems.length) {
+      return NextResponse.json(
+        createApiErrorResponse(ERROR_MESSAGES.CONTENT_LIMIT_REACHED, 403, {
+          ...problemLimit,
+          allowed: false,
+          copy_count: sourceProblems.length,
+        }),
+        { status: 403 }
       );
     }
 
@@ -384,8 +424,17 @@ async function copyProblemSet(
       );
     }
 
+    // Record unique copy (idempotent per user per set)
+    await serviceClient.rpc('record_problem_set_copy', {
+      p_problem_set_id: id,
+      p_user_id: user.id,
+    });
+
     // Invalidate cache
-    await revalidateUserProblemSets(user.id);
+    await Promise.all([
+      revalidateUserProblemSets(user.id),
+      revalidateDiscovery(),
+    ]);
 
     return NextResponse.json(
       createApiSuccessResponse({

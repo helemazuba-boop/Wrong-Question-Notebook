@@ -24,6 +24,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Copy, Info, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { VALIDATION_CONSTANTS } from '@/lib/constants';
 import { Subject } from '@/lib/types';
 
 interface CopyProblemSetDialogProps {
@@ -83,8 +84,19 @@ export default function CopyProblemSetDialog({
 
     // Create new subject if needed
     if (createNewSubject) {
-      if (!newSubjectName.trim()) {
+      const trimmed = newSubjectName.trim();
+      if (!trimmed) {
         toast.error(t('pleaseEnterSubjectName'));
+        return;
+      }
+      if (
+        trimmed.length > VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX
+      ) {
+        toast.error(
+          t('subjectNameTooLong', {
+            max: VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX,
+          })
+        );
         return;
       }
 
@@ -93,17 +105,26 @@ export default function CopyProblemSetDialog({
         const res = await fetch('/api/subjects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newSubjectName.trim() }),
+          body: JSON.stringify({ name: trimmed }),
         });
 
         if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          if (res.status === 403 && err?.details?.resource_type) {
+            const d = err.details;
+            throw new Error(
+              t('subjectLimitReached', { current: d.current, limit: d.limit })
+            );
+          }
           throw new Error(t('failedToCreateSubject'));
         }
 
         const data = await res.json();
         subjectId = data.data.id;
-      } catch {
-        toast.error(t('failedToCreateSubject'));
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('failedToCreateSubject')
+        );
         setIsLoading(false);
         return;
       }
@@ -126,14 +147,28 @@ export default function CopyProblemSetDialog({
       });
 
       if (!res.ok) {
-        let errorMessage = t('failedToCopySet');
-        try {
-          const error = await res.json();
-          errorMessage = error.message || errorMessage;
-        } catch {
-          errorMessage = res.statusText || errorMessage;
+        const body = await res.json().catch(() => null);
+        if (res.status === 403 && body?.details?.resource_type) {
+          const d = body.details;
+          const msg =
+            d.resource_type === 'problems_per_subject'
+              ? d.copy_count
+                ? t('problemLimitReachedWithCopy', {
+                    current: d.current,
+                    limit: d.limit,
+                    copyCount: d.copy_count,
+                  })
+                : t('problemLimitReached', {
+                    current: d.current,
+                    limit: d.limit,
+                  })
+              : t('problemSetLimitReached', {
+                  current: d.current,
+                  limit: d.limit,
+                });
+          throw new Error(msg);
         }
-        throw new Error(errorMessage);
+        throw new Error(body?.error || t('failedToCopySet'));
       }
 
       const data = await res.json();
@@ -224,13 +259,26 @@ export default function CopyProblemSetDialog({
             )}
 
             {createNewSubject && (
-              <Input
-                value={newSubjectName}
-                onChange={e => setNewSubjectName(e.target.value)}
-                placeholder={t('enterSubjectName')}
-                maxLength={50}
-                autoFocus
-              />
+              <div className="space-y-1">
+                <Input
+                  value={newSubjectName}
+                  onChange={e => setNewSubjectName(e.target.value)}
+                  placeholder={t('enterSubjectName')}
+                  maxLength={
+                    VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX
+                  }
+                  autoFocus
+                />
+                {newSubjectName.length >=
+                  VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX - 5 && (
+                  <p
+                    className={`text-xs text-right ${newSubjectName.length >= VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX ? 'text-destructive' : 'text-muted-foreground'}`}
+                  >
+                    {newSubjectName.length}/
+                    {VALIDATION_CONSTANTS.STRING_LIMITS.SUBJECT_NAME_MAX}
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
