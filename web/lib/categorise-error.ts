@@ -269,9 +269,14 @@ export async function performErrorCategorisation(
     [];
 
   // Build prompt and call Gemini
-  const systemPrompt = buildSystemPrompt(problem, subject.name, tags);
+  const problemForPrompt = {
+    ...problem,
+    content: problem.content ?? '',
+    answer_config: problem.answer_config as AnswerConfig | null,
+  };
+  const systemPrompt = buildSystemPrompt(problemForPrompt, subject.name, tags);
   const userPrompt = buildUserPrompt(
-    problem,
+    problemForPrompt,
     attempt,
     previousAttempts,
     existingLabels

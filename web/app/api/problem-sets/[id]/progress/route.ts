@@ -83,13 +83,16 @@ async function getProblemSetProgress(
 
     if (problemSet.is_smart && problemSet.filter_config) {
       // Smart set: query problems via filter using owner's ID
+      const rawFilter = problemSet.filter_config as Record<string, unknown>;
       const filterConfig: FilterConfig = {
-        tag_ids: problemSet.filter_config.tag_ids ?? [],
-        statuses: problemSet.filter_config.statuses ?? [],
-        problem_types: problemSet.filter_config.problem_types ?? [],
-        days_since_review: problemSet.filter_config.days_since_review ?? null,
+        tag_ids: (rawFilter.tag_ids as string[]) ?? [],
+        statuses: (rawFilter.statuses as FilterConfig['statuses']) ?? [],
+        problem_types:
+          (rawFilter.problem_types as FilterConfig['problem_types']) ?? [],
+        days_since_review:
+          (rawFilter.days_since_review as number | null) ?? null,
         include_never_reviewed:
-          problemSet.filter_config.include_never_reviewed ?? true,
+          (rawFilter.include_never_reviewed as boolean) ?? true,
       };
       // For non-owner access (shared or anonymous), use service client to bypass RLS
       const problemQueryClient = isOwner ? supabase : createServiceClient();
