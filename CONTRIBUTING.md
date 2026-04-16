@@ -64,7 +64,14 @@ Open `.env.local` and fill in the values printed by `supabase start`:
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). You should see the landing page. Sign up with any email — Mailpit at `http://127.0.0.1:54324` captures confirmation emails locally.
+Open [http://localhost:3000](http://localhost:3000). You should see the landing page. Two test accounts are pre-seeded:
+
+| Account      | Email               | Password      | Role  |
+| ------------ | ------------------- | ------------- | ----- |
+| Regular user | `test@example.com`  | `password123` | user  |
+| Admin        | `admin@example.com` | `password123` | admin |
+
+You can also sign up with any email — Mailpit at `http://127.0.0.1:54324` captures confirmation emails locally.
 
 ## Database Workflow
 
