@@ -543,7 +543,9 @@ export async function categoriseSingleAttempt(
   userId: string,
   attempt: UncategorisedAttempt,
   cachedLabels?: string[]
-): Promise<Database['public']['Tables']['error_categorisations']['Row'] | null> {
+): Promise<
+  Database['public']['Tables']['error_categorisations']['Row'] | null
+> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     logger.warn('GEMINI_API_KEY not configured, skipping categorisation', {

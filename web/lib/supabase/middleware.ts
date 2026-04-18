@@ -112,11 +112,10 @@ export async function updateSession(request: NextRequest) {
         .eq('id', user.sub)
         .single();
 
+      const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN] as const;
       if (
-        !profile ||
-        !([USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN] as string[]).includes(
-          profile.user_role ?? ''
-        )
+        !profile?.user_role ||
+        !adminRoles.includes(profile.user_role as (typeof adminRoles)[number])
       ) {
         // Redirect to subjects page if not admin
         const url = request.nextUrl.clone();

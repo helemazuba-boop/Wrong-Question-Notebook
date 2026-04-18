@@ -188,9 +188,7 @@ export async function updateUserProfile(
 
   const { data, error } = await serviceSupabase
     .from('user_profiles')
-    .update(
-      updates as Database['public']['Tables']['user_profiles']['Update']
-    )
+    .update(updates as Database['public']['Tables']['user_profiles']['Update'])
     .eq('id', userId)
     .select()
     .single();
