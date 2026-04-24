@@ -7,10 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from '@/i18n/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useRef, useState } from 'react';
-import { ROUTES, ERROR_MESSAGES, CAPTCHA_CONSTANTS } from '@/lib/constants';
+import { useState } from 'react';
+import { ROUTES, ERROR_MESSAGES } from '@/lib/constants';
 import { LogIn, Eye, EyeOff } from 'lucide-react';
-import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { useTranslations } from 'next-intl';
 
 interface LoginFormProps extends React.ComponentPropsWithoutRef<'div'> {
@@ -19,25 +18,12 @@ interface LoginFormProps extends React.ComponentPropsWithoutRef<'div'> {
 
 export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
   const t = useTranslations('Auth');
-  const tCommon = useTranslations('Common');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState<string | undefined>(
-    undefined
-  );
-  const [captchaError, setCaptchaError] = useState<string | null>(null);
-  const [captchaReady, setCaptchaReady] = useState(false);
-  const captchaRef = useRef<TurnstileInstance>(null);
   const router = useRouter();
-
-  useEffect(() => {
-    if (!captchaReady) return;
-    const timer = setTimeout(() => setCaptchaReady(false), 2200);
-    return () => clearTimeout(timer);
-  }, [captchaReady]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,18 +35,14 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: { captchaToken },
       });
       if (error) throw error;
-      // Redirect to intended destination or subjects page after successful login
       const destination = redirectTo || ROUTES.SUBJECTS;
       router.push(destination);
     } catch (error: unknown) {
       setError(
         error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR
       );
-      setCaptchaToken(undefined);
-      captchaRef.current?.reset();
       setIsLoading(false);
     }
   };
@@ -130,41 +112,10 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
             </div>
           </div>
           {error && <p className="form-error">{error}</p>}
-          <div className="flex flex-col items-center gap-1">
-            <Turnstile
-              ref={captchaRef}
-              siteKey={CAPTCHA_CONSTANTS.TURNSTILE_SITE_KEY}
-              onSuccess={token => {
-                setCaptchaToken(token);
-                setCaptchaError(null);
-                setCaptchaReady(true);
-              }}
-              onExpire={() => setCaptchaToken(undefined)}
-              onError={() => {
-                setCaptchaToken(undefined);
-                setCaptchaError(t('securityVerificationFailed'));
-              }}
-            />
-            {captchaError && (
-              <p className="form-error text-center">
-                {captchaError}{' '}
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => {
-                    setCaptchaError(null);
-                    captchaRef.current?.reset();
-                  }}
-                >
-                  {tCommon('tryAgain')}
-                </button>
-              </p>
-            )}
-          </div>
           <Button
             type="submit"
-            className={`w-full btn-cta-primary${captchaReady ? ' captcha-ready-glow' : ''}`}
-            disabled={isLoading || !captchaToken}
+            className="w-full btn-cta-primary"
+            disabled={isLoading}
           >
             {isLoading ? t('loggingIn') : t('login')}
           </Button>

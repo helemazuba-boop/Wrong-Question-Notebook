@@ -71,6 +71,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+!.env.production.template
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -145,6 +146,7 @@ vite.config.ts.timestamp-*
 
 # Cursor
 .cursor
+doc
 
 # Claude
 .claude/settings.local.json

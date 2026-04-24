@@ -157,7 +157,6 @@
     "updatePassword": "更新密码",
     "updating": "更新中...",
     "passwordUpdated": "密码更新成功",
-    "securityVerificationFailed": "安全验证失败。",
     "internalServerError": "服务器内部错误",
     "accountCreated": "账号创建成功！",
     "youCanNowSignIn": "现在可以使用新账号登录了",
@@ -1150,7 +1149,8 @@
     "yourPreferences": "你的 Cookie 偏好设置",
     "analytics": "分析 Cookie",
     "analyticsDesc": "帮助我们了解如何改进",
-    "vercelAnalytics": "Vercel Analytics 和 Speed Insights",
+    "vercelAnalytics": "网站分析服务",
+    "analyticsService": "网站分析服务（可自行替换）",
     "savePreferences": "保存偏好设置"
   },
   "Profile": {

@@ -157,7 +157,6 @@
     "updatePassword": "Update password",
     "updating": "Updating...",
     "passwordUpdated": "Password updated successfully",
-    "securityVerificationFailed": "Security verification failed.",
     "internalServerError": "Internal server error",
     "accountCreated": "Account created!",
     "youCanNowSignIn": "You can now sign in with your new account",
@@ -1150,7 +1149,8 @@
     "yourPreferences": "Your cookie preferences",
     "analytics": "Analytics",
     "analyticsDesc": "Help us understand how to improve",
-    "vercelAnalytics": "Vercel Analytics & Speed Insights",
+    "vercelAnalytics": "Website Analytics",
+    "analyticsService": "Website analytics service",
     "savePreferences": "Save preferences"
   },
   "Profile": {
