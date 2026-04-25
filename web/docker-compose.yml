@@ -1,0 +1,51 @@
+# ============================================================
+# WQN Docker Compose — Standalone Mode
+# ============================================================
+# Intended for low-memory environments:
+#   - Home router (1GB RAM)
+#   - Alibaba Cloud ECS (2GB RAM)
+#
+# All state is stored in the Supabase cloud database.
+# No local database is required.
+#
+# Usage:
+#   cp .env.production.template .env.production
+#   # Edit .env.production with your real values
+#   docker compose -f docker-compose.yml up -d
+#
+# Or with env file override:
+#   docker compose -f docker-compose.yml --env-file .env.production up -d
+# ============================================================
+
+services:
+  wqn:
+    image: ${IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: ${CONTAINER_NODE_OPTIONS:---max-old-space-size=200}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      # Supabase — injected from .env.production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Gemini AI
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Site URL for sitemap generation
+      SITE_URL: ${SITE_URL:-http://localhost:3000}
+    # Memory guard: hard-limit the container's RAM to protect the host.
+    # Adjust --memory to match the available RAM on your machine.
+    # For 1GB router use 512m, for 2GB ECS use 1024m.
+    mem_limit: ${CONTAINER_MEM_LIMIT:-1024m}
+    memswap_limit: ${CONTAINER_MEM_LIMIT:-1024m}
+    shm_size: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
