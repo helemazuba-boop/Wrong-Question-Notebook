@@ -5,13 +5,14 @@
  * narrative generation, and persists the resulting InsightDigest.
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { createAIClient } from '@/lib/ai/client';
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   INSIGHT_CONSTANTS,
   ERROR_CATEGORY_VALUES,
   PROBLEM_CONSTANTS,
   USAGE_QUOTA_CONSTANTS,
+  AI_CONSTANTS,
 } from '@/lib/constants';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
@@ -543,15 +544,6 @@ export async function categoriseSingleAttempt(
   attempt: UncategorisedAttempt,
   cachedLabels?: string[]
 ): Promise<Record<string, unknown> | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    logger.warn('GEMINI_API_KEY not configured, skipping categorisation', {
-      component: 'DigestGenerator',
-      action: 'categoriseSingleAttempt',
-    });
-    return null;
-  }
-
   const supabase = createServiceClient();
 
   // Use cached labels if provided, otherwise fetch from DB
@@ -569,7 +561,7 @@ export async function categoriseSingleAttempt(
     ];
   }
 
-  const genai = new GoogleGenAI({ apiKey });
+  const genai = createAIClient(AI_CONSTANTS);
 
   const userPrompt = buildCategorisationPrompt(attempt, existingLabels);
 
@@ -594,8 +586,8 @@ export async function categoriseSingleAttempt(
     ] as const,
   };
 
-  const response = await genai.models.generateContent({
-    model: 'gemini-2.5-flash',
+  const { text } = await genai.generateContent({
+    model: AI_CONSTANTS.MODELS.CATEGORISATION,
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
     config: {
       systemInstruction: CATEGORISATION_SYSTEM_PROMPT,
@@ -604,7 +596,6 @@ export async function categoriseSingleAttempt(
     },
   });
 
-  const text = response.text;
   if (!text) return null;
 
   let parsed: {
@@ -1321,14 +1312,7 @@ async function generateNarratives(
   rawAggregationData: Record<string, unknown>,
   tier: DigestTier
 ): Promise<GeminiNarrativeResponse> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      'GEMINI_API_KEY not configured — cannot generate narrative insights'
-    );
-  }
-
-  const genai = new GoogleGenAI({ apiKey });
+  const genai = createAIClient(AI_CONSTANTS);
 
   const hasPreviousDigest = rawAggregationData.previous_digest != null;
   const continuityNote = hasPreviousDigest
@@ -1355,8 +1339,8 @@ ${tierNote}
 
 IMPORTANT: For subject_error_patterns, subject_health, topic_cluster_narratives, and progress_narratives, generate exactly one entry per subject using the subject_id values from the "subject_names" field above.`;
 
-  const response = await genai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+  const { text } = await genai.generateContent({
+    model: AI_CONSTANTS.MODELS.DIGEST,
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
     config: {
       systemInstruction: NARRATIVE_SYSTEM_PROMPT,
@@ -1365,9 +1349,8 @@ IMPORTANT: For subject_error_patterns, subject_health, topic_cluster_narratives,
     },
   });
 
-  const text = response.text;
   if (!text) {
-    throw new Error('Gemini returned empty narrative response');
+    throw new Error('AI returned empty narrative response');
   }
 
   try {

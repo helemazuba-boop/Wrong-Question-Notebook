@@ -1,5 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
-import { ERROR_CATEGORY_VALUES, USAGE_QUOTA_CONSTANTS } from '@/lib/constants';
+import { createAIClient } from '@/lib/ai/client';
+import {
+  ERROR_CATEGORY_VALUES,
+  USAGE_QUOTA_CONSTANTS,
+  AI_CONSTANTS,
+} from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { normaliseTopicLabel } from '@/lib/insights-utils';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
@@ -160,11 +164,6 @@ export interface CategoriseErrorResult {
 export async function performErrorCategorisation(
   params: CategoriseErrorParams
 ): Promise<CategoriseErrorResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('AI categorisation service not configured');
-  }
-
   const { attempt_id, problem_id, subject_id, user_id } = params;
 
   // Check daily categorisation quota before making any Gemini calls
@@ -277,10 +276,10 @@ export async function performErrorCategorisation(
     existingLabels
   );
 
-  const genai = new GoogleGenAI({ apiKey });
+  const genai = createAIClient(AI_CONSTANTS);
 
-  const response = await genai.models.generateContent({
-    model: 'gemini-2.5-flash',
+  const response = await genai.generateContent({
+    model: AI_CONSTANTS.MODELS.CATEGORISATION,
     contents: [
       {
         role: 'user',

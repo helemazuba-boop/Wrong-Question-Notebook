@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { GoogleGenAI } from '@google/genai';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { withSecurity } from '@/lib/security-middleware';
 import {
@@ -11,6 +10,7 @@ import {
 import { AI_CONSTANTS, CONTENT_LIMIT_CONSTANTS } from '@/lib/constants';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
+import { createAIClient } from '@/lib/ai/client';
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -213,14 +213,6 @@ async function extractProblem(req: Request) {
   const { user, supabase } = await requireUser();
   if (!user) return unauthorised();
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      createApiErrorResponse('AI extraction service not configured', 500),
-      { status: 500 }
-    );
-  }
-
   let body;
   try {
     body = await req.json();
@@ -293,10 +285,10 @@ async function extractProblem(req: Request) {
   }
 
   try {
-    const genai = new GoogleGenAI({ apiKey });
+    const genai = createAIClient(AI_CONSTANTS);
 
-    const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const { text } = await genai.generateContent({
+      model: AI_CONSTANTS.MODELS.EXTRACTION,
       contents: [
         {
           role: 'user',
@@ -320,7 +312,6 @@ async function extractProblem(req: Request) {
       },
     });
 
-    const text = response.text;
     if (!text) {
       return NextResponse.json(
         createApiErrorResponse('AI returned empty response', 500),

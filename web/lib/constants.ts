@@ -316,6 +316,7 @@ export const CAPTCHA_CONSTANTS = {
 // AI Constants
 // =====================================================
 export const AI_CONSTANTS = {
+  PROVIDER: (process.env.AI_PROVIDER as 'google' | 'anthropic' | 'openai') ?? 'google',
   EXTRACTION: {
     MAX_IMAGE_SIZE: FILE_CONSTANTS.MAX_FILE_SIZE.IMAGE,
     ALLOWED_MIME_TYPES: [
@@ -333,7 +334,14 @@ export const AI_CONSTANTS = {
       MAX_NEW: 3,
     },
   },
+  MODELS: {
+    EXTRACTION: process.env.AI_MODEL_EXTRACTION ?? 'gemini-2.5-flash',
+    CATEGORISATION: process.env.AI_MODEL_CATEGORISATION ?? 'gemini-2.5-flash',
+    DIGEST: process.env.AI_MODEL_DIGEST ?? 'gemini-3-flash-preview',
+  },
 } as const;
+
+export type AI_CONSTANTS_TYPE = typeof AI_CONSTANTS;
 
 // =====================================================
 // Usage Quota Constants
