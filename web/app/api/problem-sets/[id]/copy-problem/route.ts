@@ -17,7 +17,10 @@ import {
   revalidateSubjectProblems,
   revalidateUserTags,
   revalidateSubjectTags,
+  revalidateDiscovery,
 } from '@/lib/cache-invalidation';
+import { checkContentLimit } from '@/lib/content-limits';
+import { CONTENT_LIMIT_CONSTANTS, ERROR_MESSAGES } from '@/lib/constants';
 import { z } from 'zod';
 
 const CopyProblemBody = z.object({
@@ -258,6 +261,23 @@ async function copyProblem(
       tagCount = Object.keys(tagMapping).length;
     }
 
+    // Check content limit before inserting
+    const problemLimit = await checkContentLimit(
+      user.id,
+      CONTENT_LIMIT_CONSTANTS.RESOURCE_TYPES.PROBLEMS_PER_SUBJECT,
+      { subjectId: target_subject_id }
+    );
+    if (!problemLimit.allowed) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          ERROR_MESSAGES.CONTENT_LIMIT_REACHED,
+          403,
+          problemLimit
+        ),
+        { status: 403 }
+      );
+    }
+
     // Insert the copied problem
     const { data: copiedProblem, error: insertError } = await supabase
       .from('problems')
@@ -322,6 +342,15 @@ async function copyProblem(
           ]
         : []),
     ]);
+
+    // Record unique copy on the source problem set (idempotent per user)
+    await serviceClient.rpc('record_problem_set_copy', {
+      p_problem_set_id: id,
+      p_user_id: user.id,
+    });
+
+    // Copy counts affect discovery ranking
+    await revalidateDiscovery();
 
     return NextResponse.json(
       createApiSuccessResponse({

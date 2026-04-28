@@ -98,34 +98,17 @@ export default async function Home({
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
                 {isSignedIn ? (
-                  <>
-                    <Button asChild size="lg" className="btn-cta-primary">
-                      <Link href="/subjects">{t('goToShelf')}</Link>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      size="lg"
-                      className="btn-cta"
-                    >
-                      <Link href="/problem-sets">{t('viewProblemSets')}</Link>
-                    </Button>
-                  </>
+                  <Button asChild size="lg" className="btn-cta-primary">
+                    <Link href="/subjects">{t('goToShelf')}</Link>
+                  </Button>
                 ) : (
-                  <>
-                    <Button asChild size="lg" className="btn-cta-primary">
-                      <Link href="/auth/sign-up">{t('startYourNotebook')}</Link>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      size="lg"
-                      className="btn-cta"
-                    >
-                      <Link href="/auth/login">{t('signIn')}</Link>
-                    </Button>
-                  </>
+                  <Button asChild size="lg" className="btn-cta-primary">
+                    <Link href="/auth/sign-up">{t('startYourNotebook')}</Link>
+                  </Button>
                 )}
+                <Button asChild variant="outline" size="lg" className="btn-cta">
+                  <Link href="/discover">{t('discoverProblemSets')}</Link>
+                </Button>
               </div>
             </div>
 

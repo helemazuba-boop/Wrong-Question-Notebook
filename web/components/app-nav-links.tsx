@@ -7,6 +7,7 @@ import {
   Menu,
   BookOpen,
   FolderOpen,
+  Globe,
   BarChart3,
   Lightbulb,
   type LucideIcon,
@@ -36,6 +37,13 @@ const APP_LINKS = [
     icon: FolderOpen,
     iconBg: 'bg-blue-500/10 dark:bg-blue-500/20',
     iconColor: 'text-blue-600 dark:text-blue-400',
+  },
+  {
+    href: '/discover',
+    labelKey: 'discover' as const,
+    icon: Globe,
+    iconBg: 'bg-purple-500/10 dark:bg-purple-500/20',
+    iconColor: 'text-purple-600 dark:text-purple-400',
   },
   {
     href: '/statistics',

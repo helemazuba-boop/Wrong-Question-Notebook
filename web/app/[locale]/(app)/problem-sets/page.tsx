@@ -1,7 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/supabase/requireUser';
+import { createServiceClient } from '@/lib/supabase-utils';
 import ProblemSetsPageClient from './problem-sets-page-client';
 import type { Metadata } from 'next';
+import { getTranslations } from 'next-intl/server';
 import { unstable_cache } from 'next/cache';
 import {
   CACHE_DURATIONS,
@@ -23,18 +25,24 @@ type ProblemSetRow = ProblemSet & {
   problem_set_shares: ProblemSetShare[];
 };
 
-export const metadata: Metadata = {
-  title: 'All Problem Sets – Wrong Question Notebook',
-  description:
-    'View and manage your problem sets. Problem sets enable you to group problems together to review or to share with others.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('Metadata');
+  return {
+    title: t('allProblemSetsMetaTitle'),
+    description: t('allProblemSetsMetaDescription'),
+  };
+}
 
 async function loadProblemSets() {
   const supabase = await createClient();
   const { user } = await requireUser();
 
   if (!user) {
-    return { data: [] as ProblemSetWithDetails[] };
+    return {
+      data: [] as ProblemSetWithDetails[],
+      statsMap: {},
+      hasUsername: false,
+    };
   }
 
   const cachedLoadProblemSets = unstable_cache(
@@ -56,7 +64,11 @@ async function loadProblemSets() {
 
       if (problemSetsError) {
         console.error('Error loading problem sets:', problemSetsError);
-        return { data: [] as ProblemSetWithDetails[] };
+        return {
+          data: [] as ProblemSetWithDetails[],
+          statsMap: {},
+          hasUsername: false,
+        };
       }
 
       const rows: ProblemSetRow[] = problemSets || [];
@@ -99,7 +111,39 @@ async function loadProblemSets() {
         };
       });
 
-      return { data: problemSetsWithData };
+      // Fetch social stats for non-private sets (service client, same cache)
+      const nonPrivateIds = problemSetsWithData
+        .filter(ps => ps.sharing_level !== 'private')
+        .map(ps => ps.id);
+      const statsMap: Record<
+        string,
+        { view_count: number; like_count: number; copy_count: number }
+      > = {};
+      if (nonPrivateIds.length > 0) {
+        const serviceClient = createServiceClient();
+        const { data: statsRows } = await serviceClient
+          .from('problem_set_stats')
+          .select('problem_set_id, view_count, like_count, copy_count')
+          .in('problem_set_id', nonPrivateIds);
+        for (const row of statsRows || []) {
+          statsMap[row.problem_set_id] = {
+            view_count: row.view_count,
+            like_count: row.like_count,
+            copy_count: row.copy_count,
+          };
+        }
+      }
+
+      // Check if user has a username (for ListedToggle)
+      const serviceClient = createServiceClient();
+      const { data: profile } = await serviceClient
+        .from('user_profiles')
+        .select('username')
+        .eq('id', userId)
+        .single();
+      const hasUsername = !!profile?.username;
+
+      return { data: problemSetsWithData, statsMap, hasUsername };
     },
     [`problem-sets-${user.id}`],
     {
@@ -115,7 +159,13 @@ async function loadProblemSets() {
 }
 
 export default async function ProblemSetsPage() {
-  const { data } = await loadProblemSets();
+  const { data, statsMap, hasUsername } = await loadProblemSets();
 
-  return <ProblemSetsPageClient initialProblemSets={data} />;
+  return (
+    <ProblemSetsPageClient
+      initialProblemSets={data}
+      statsMap={statsMap}
+      hasUsername={hasUsername}
+    />
+  );
 }

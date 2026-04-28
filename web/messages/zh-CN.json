@@ -2,7 +2,21 @@
   "Metadata": {
     "siteName": "错题本",
     "siteDescription": "掌握你的学习",
-    "siteFullDescription": "按科目组织题目，跟踪学习进度，系统化建立知识体系"
+    "siteFullDescription": "按科目组织题目，跟踪学习进度，系统化建立知识体系",
+    "shelfMetaTitle": "你的笔记本书架",
+    "allProblemSetsMetaTitle": "全部题目集",
+    "allProblemSetsMetaDescription": "查看和管理你的题目集。题目集可以把相关题目组合起来，方便复习或与他人分享。",
+    "problemSetNotFoundMetaTitle": "题目集未找到",
+    "subjectProblemsMetaTitle": "{subject} – 题目",
+    "reviewSummaryMetaTitle": "复习总结",
+    "reviewItemMetaTitle": "复习 {name}",
+    "spacedReviewMetaTitle": "间隔复习",
+    "statisticsMetaTitle": "统计",
+    "statisticsMetaDescription": "追踪你的学习进度、掌握情况和连续天数",
+    "insightsMetaTitle": "洞察",
+    "subjectInsightsMetaTitle": "科目洞察",
+    "adminMetaTitle": "管理后台",
+    "creatorMetaTitle": "@{username}"
   },
   "Common": {
     "appName": "错题本",
@@ -79,7 +93,8 @@
     "minutesAgo": "{n} 分钟前",
     "hoursAgo": "{n} 小时前",
     "daysAgo": "{n} 天前",
-    "weeksAgo": "{n} 周前"
+    "weeksAgo": "{n} 周前",
+    "problemCount": "{count}道题目"
   },
   "Navigation": {
     "subjects": "笔记本",
@@ -93,7 +108,8 @@
     "signIn": "登录",
     "signUp": "注册",
     "legal": "法律",
-    "privacyPolicy": "隐私政策"
+    "privacyPolicy": "隐私政策",
+    "discover": "发现"
   },
   "Auth": {
     "welcomeBack": "欢迎回来",
@@ -254,7 +270,8 @@
     "heroMastered": "已掌握",
     "heroWrong": "错误",
     "heroReview": "复习",
-    "heroProgress": "进度"
+    "heroProgress": "进度",
+    "discoverProblemSets": "发现题目集"
   },
   "Onboarding": {
     "welcomeTitle": "欢迎使用错题本！",
@@ -552,7 +569,17 @@
     "failedToAddProblemToSet": "添加题目到集合失败",
     "problemAddedToSetSuccessfully": "题目已成功添加到集合",
     "createProblemSet": "创建题目集",
-    "problems": "题目"
+    "problems": "题目",
+    "openMenu": "打开菜单",
+    "answerChoices": "答案选项",
+    "correctAnswerTooltip": "正确答案",
+    "clickToMarkCorrect": "点击设为正确答案",
+    "optionPlaceholder": "选项 {id}...",
+    "editChoice": "编辑选项 {id}：{text}",
+    "removeChoice": "删除选项 {id}",
+    "addChoice": "添加选项",
+    "markCorrectAnswer": "点击字母标记正确答案",
+    "mathTip": "提示：使用 $...$ 表示数学公式，例如 $x^2 + 1$"
   },
   "ProblemSets": {
     "title": "题目集",
@@ -664,7 +691,9 @@
     "pleaseEnterNameForProblemSet": "请输入题目集名称",
     "pleaseSelectAtLeastOneProblem": "请至少选择一道题目",
     "invalidSubject": "无效的科目",
-    "problemSetCreatedSuccessfully": "题目集创建成功"
+    "problemSetCreatedSuccessfully": "题目集创建成功",
+    "mySets": "我的题目集",
+    "favourites": "收藏"
   },
   "Review": {
     "smart": "智能",
@@ -767,6 +796,19 @@
     "cause": "原因：",
     "notesLabel": "备注：",
     "selfAssessed": "自我评估",
+    "causes": {
+      "careless": "粗心大意",
+      "misread": "看错题目",
+      "knowledge_gap": "知识点不足",
+      "forgot_method": "忘记解法",
+      "ran_out_of_time": "时间不够",
+      "guessed": "纯猜的",
+      "confident": "有把握",
+      "educated_guess": "合理推测",
+      "elimination": "排除法",
+      "lucky": "运气好",
+      "other": "其他"
+    },
     "aiDiagnosis": "AI 诊断",
     "howDidYouGetRight": "你是怎么答对的？",
     "whatWentWrong": "哪里出了问题？",
@@ -1144,7 +1186,8 @@
     "fileTypeNotAllowed": "不支持的文件类型。请使用 JPEG、PNG、WEBP 或 GIF。",
     "fileTooLarge": "文件过大。最大支持 2MB。",
     "failedToRemove": "移除头像失败",
-    "failedToSave": "保存资料失败"
+    "failedToSave": "保存资料失败",
+    "usernameRequired": "用户名为必填项"
   },
   "Upload": {
     "title": "上传照片",
@@ -1247,7 +1290,12 @@
     "copying": "复制中...",
     "failedToCopy": "复制失败",
     "adding": "添加中...",
-    "addToNotebook": "添加到笔记本"
+    "addToNotebook": "添加到笔记本",
+    "problemLimitReached": "已达上限：此科目中 {current}/{limit} 道题目",
+    "problemLimitReachedWithCopy": "已达上限：此科目中 {current}/{limit} 道题目（尝试复制 {copyCount} 道）",
+    "problemSetLimitReached": "已达上限：{current}/{limit} 个题目集",
+    "subjectLimitReached": "已达上限：{current}/{limit} 个科目",
+    "subjectNameTooLong": "科目名称最多 {max} 个字符"
   },
   "FileManager": {
     "clickToUpload": "点击上传",
@@ -1343,7 +1391,10 @@
     "toolbarHeading2": "标题2",
     "toolbarHeading3": "标题3",
     "toolbarUndo": "撤销",
-    "toolbarRedo": "重做"
+    "toolbarRedo": "重做",
+    "characterCount": "{current} / {max} 个字符",
+    "characterCountNoLimit": "{current} 个字符",
+    "textLimitExceeded": "超出文字限制"
   },
   "DataTable": {
     "rowsPerPage": "每页行数",
@@ -1362,5 +1413,88 @@
     "noResultsFound": "无结果",
     "selectedCount": "已选",
     "createSet": "创建集"
+  },
+  "Discover": {
+    "title": "发现",
+    "subtitle": "浏览其他同学分享的题目集",
+    "searchPlaceholder": "搜索题目集...",
+    "all": "全部",
+    "trending": "热门",
+    "newest": "最新",
+    "mostLiked": "最多点赞",
+    "mostCopied": "最多复制",
+    "noSetsFound": "未找到题目集",
+    "adjustFilters": "请尝试调整搜索或筛选条件。",
+    "beFirstToShare": "成为第一个分享题目集的人！",
+    "metaTitle": "发现题目集",
+    "metaDescription": "浏览和搜索学生创建的各科目题目集。发现其他同学分享的学习资料。"
+  },
+  "Creator": {
+    "notFound": "未找到创作者",
+    "problemSetsBy": "{name}的题目集",
+    "views": "浏览",
+    "likes": "点赞",
+    "copies": "复制",
+    "listedSets": "已列出的题目集 ({count})",
+    "noListedSets": "该创作者尚未列出任何公开题目集。"
+  },
+  "Social": {
+    "views": "浏览",
+    "copies": "复制",
+    "copyLink": "复制链接",
+    "linkCopied": "链接已复制到剪贴板",
+    "failedToCopyLink": "复制链接失败",
+    "reportThisSet": "举报此题目集",
+    "like": "点赞",
+    "unlike": "取消点赞",
+    "loginToLike": "登录后点赞",
+    "addToFavourites": "添加到收藏",
+    "removeFromFavourites": "从收藏中移除",
+    "loginToSave": "登录后收藏"
+  },
+  "ReportDialog": {
+    "title": "举报题目集",
+    "description": "帮助我们维护社区安全。您的举报将由我们的团队审核。",
+    "reasonLabel": "举报原因",
+    "detailsLabel": "补充说明（可选）",
+    "detailsPlaceholder": "请提供任何补充信息...",
+    "cancel": "取消",
+    "submit": "提交举报",
+    "submitting": "提交中...",
+    "success": "举报已提交。感谢您帮助维护社区安全。",
+    "alreadyReported": "您已经举报过此题目集。",
+    "error": "提交举报失败，请重试。",
+    "reasons": {
+      "inappropriate": "不当内容",
+      "spam": "垃圾信息或广告",
+      "misleading": "误导或错误信息",
+      "other": "其他"
+    }
+  },
+  "DiscoverySubjects": {
+    "Biology": "生物学",
+    "Business Studies": "商业学",
+    "Chemistry": "化学",
+    "Economics": "经济学",
+    "English": "英语",
+    "Geography": "地理",
+    "History": "历史",
+    "Languages": "语言",
+    "Legal Studies": "法律",
+    "Mathematics": "数学",
+    "Music": "音乐",
+    "Physics": "物理",
+    "Software Engineering": "软件工程",
+    "Visual Arts": "视觉艺术",
+    "Other": "其他"
+  },
+  "ListedToggle": {
+    "showInDiscovery": "在发现页展示",
+    "subjectCategory": "科目分类",
+    "selectSubject": "选择科目...",
+    "setUsernameFirst": "请先设置用户名 — 点击右上角的头像打开个人资料。",
+    "emptySetHint": "此题目集暂无题目，添加题目后才会出现在发现页。",
+    "discoverableHint": "其他同学可以在发现页看到此题目集。",
+    "directLinkOnly": "此题目集仅可通过直接链接访问。"
   }
 }
