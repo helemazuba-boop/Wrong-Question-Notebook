@@ -3,6 +3,7 @@
 import { PenLine, ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
+import { useTranslations } from 'next-intl';
 
 interface ProblemFabProps {
   hidden: boolean;
@@ -15,6 +16,7 @@ export default function ProblemFab({
   onAddManually,
   onAddScan,
 }: ProblemFabProps) {
+  const t = useTranslations('Subjects');
   if (hidden) return null;
 
   return (
@@ -30,7 +32,7 @@ export default function ProblemFab({
           className="rounded-none border-r border-amber-300/40 dark:border-amber-700/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 transition-colors px-5 py-5 font-medium"
         >
           <PenLine className="h-4 w-4 mr-2" />
-          Write
+          {t('write')}
           <Kbd className="hidden md:inline-flex ml-2 translate-x-0.5 bg-amber-200/50 text-amber-700 dark:bg-amber-800/40 dark:text-amber-300">
             ⏎
           </Kbd>
@@ -42,7 +44,7 @@ export default function ProblemFab({
           className="rounded-none text-blue-700 dark:text-blue-300 hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors px-5 py-5 font-medium"
         >
           <ScanLine className="h-4 w-4 mr-2" />
-          Scan
+          {t('scan')}
           <Kbd className="hidden md:inline-flex ml-2 translate-x-0.5 bg-blue-200/50 text-blue-700 dark:bg-blue-800/40 dark:text-blue-300">
             ⇧⏎
           </Kbd>

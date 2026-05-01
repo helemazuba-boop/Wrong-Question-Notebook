@@ -246,7 +246,7 @@ export function createAIClient(AI_CONSTANTS: AI_CONSTANTS_TYPE): AIClient {
     const apiKey = process.env.AI_PROVIDER_API_KEY;
     if (!baseUrl) throw new Error('AI_PROVIDER_BASE_URL is not configured');
     if (!apiKey) throw new Error('AI_PROVIDER_API_KEY is not configured');
-    return createOpenAICompatClient(baseUrl, apiKey);
+    return createOpenAICompatClient(baseUrl.trim(), apiKey.trim());
   }
 
   // Default: google

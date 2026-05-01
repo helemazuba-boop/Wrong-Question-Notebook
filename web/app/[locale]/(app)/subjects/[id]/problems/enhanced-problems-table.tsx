@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '@/i18n/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { DataTable } from '@/components/problems/data-table';
 import { createColumns } from './columns';
 import CompactSearchFilter from '@/components/problems/compact-search-filter';
@@ -44,6 +44,7 @@ export default function EnhancedProblemsTable({
   const isMobile = useIsMobile();
   const t = useTranslations('Problems');
   const tCommon = useTranslations('Common');
+  const locale = useLocale();
   const { initialFilters, updateUrl } = useFilterParams();
   const [problems, setProblems] = useState<Problem[]>(initialProblems);
   const [tagsByProblem, setTagsByProblem] = useState(initialTagsByProblem);
@@ -460,7 +461,7 @@ export default function EnhancedProblemsTable({
         />
       ) : (
         <DataTable
-          columns={createColumns(t)}
+          columns={createColumns(t, locale)}
           data={tableProblems}
           onEdit={onEditProblem ? handleEdit : undefined}
           onDelete={handleDeleteClick}
