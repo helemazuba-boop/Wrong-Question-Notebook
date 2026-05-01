@@ -23,7 +23,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PROBLEM_TYPE_VALUES, type ProblemType } from '@/lib/schemas';
-import { getProblemTypeDisplayName } from '@/lib/common-utils';
+import { getProblemTypeDisplayName, isValidUuid } from '@/lib/common-utils';
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/editor';
 import { MCQChoiceEditor } from '@/components/ui/mcq-choice-editor';
 import {
@@ -682,7 +682,10 @@ export default function ProblemForm({
       // Add subject_id and problem_id for create operations
       if (!isEditMode) {
         (payload as any).subject_id = subjectId;
-        (payload as any).id = problemUuid; // Use client-generated UUID
+        // Only send client-generated UUID if it's a valid UUID (not the fallback rnd- timestamp)
+        if (problemUuid && isValidUuid(problemUuid)) {
+          (payload as any).id = problemUuid;
+        }
       }
 
       const url = isEditMode ? `/api/problems/${problem.id}` : '/api/problems';
