@@ -761,8 +761,8 @@ export function ImageScanUploader({
 
   // ── Result state ──
   if (state === 'result' && extractionResult) {
-    const { confidence } = extractionResult;
-    const warnings = confidence.warnings || [];
+    const confidence = extractionResult.confidence;
+    const warnings = confidence?.warnings || [];
 
     const problemTypeLabel =
       extractionResult.problem_type === 'mcq'
@@ -791,18 +791,18 @@ export function ImageScanUploader({
           {/* Confidence badges */}
           <div className="mb-3 flex flex-wrap gap-2">
             <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence.problem_type_confidence)}`}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence?.problem_type_confidence ?? 'medium')}`}
             >
-              {t('confidence', { level: confidence.problem_type_confidence })}
+              {t('confidence', { level: confidence?.problem_type_confidence ?? 'medium' })}
             </span>
             <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence.content_quality)}`}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence?.content_quality ?? 'clear')}`}
             >
               {t('quality', {
-                level: confidence.content_quality.replace('_', ' '),
+                level: (confidence?.content_quality ?? 'clear').replace('_', ' '),
               })}
             </span>
-            {confidence.has_math && (
+            {confidence?.has_math && (
               <span className="inline-flex items-center rounded-full border border-blue-200/50 bg-blue-100/80 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:border-blue-800/40 dark:bg-blue-900/30 dark:text-blue-300">
                 {t('containsEquations')}
               </span>

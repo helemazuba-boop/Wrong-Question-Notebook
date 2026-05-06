@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Geist } from 'next/font/google';
-import { ThemeProvider } from 'next-themes';
+import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { ConsentProvider } from '@/components/cookie-consent/consent-provider';
 import { NextIntlClientProvider } from 'next-intl';
@@ -51,22 +51,23 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <body className={`${geistSans.className} antialiased`}>
+      <body className={`${geistSans.className} antialiased`} suppressHydrationWarning>
         <a href="#main-content" className="skip-link">
           {t('skipToMainContent')}
         </a>
-        <ThemeProvider
+        <NextThemesProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
           <NextIntlClientProvider locale={locale} messages={rootMessages}>
-              <ConsentProvider>
-                {children}
-              </ConsentProvider>
-            </NextIntlClientProvider>
-        </ThemeProvider>
+            <ConsentProvider>
+              {children}
+              <ConditionalAnalytics />
+            </ConsentProvider>
+          </NextIntlClientProvider>
+        </NextThemesProvider>
         <Toaster />
         <script
           dangerouslySetInnerHTML={{

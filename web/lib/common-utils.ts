@@ -31,13 +31,19 @@ export function formatDisplayDateTime(
   locale?: string
 ): string {
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      date = new Date(dateString + 'T00:00:00Z');
+    } else {
+      date = new Date(dateString);
+    }
     return date.toLocaleString(resolveIntlLocale(locale), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'UTC',
     });
   } catch (error) {
     logger.error('Error formatting date', error, {
@@ -50,11 +56,17 @@ export function formatDisplayDateTime(
 
 export function formatDisplayDate(dateString: string, locale?: string): string {
   try {
-    const date = new Date(dateString);
+    let date: Date;
+    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      date = new Date(dateString + 'T00:00:00Z');
+    } else {
+      date = new Date(dateString);
+    }
     return date.toLocaleDateString(resolveIntlLocale(locale), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'UTC',
     });
   } catch (error) {
     logger.error('Error formatting date', error, {

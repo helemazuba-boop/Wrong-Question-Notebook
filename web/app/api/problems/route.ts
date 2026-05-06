@@ -273,6 +273,11 @@ async function createProblem(req: Request) {
     ...problem
   } = parsed.data;
 
+  // Defensively validate client-provided ID — treat invalid UUIDs as if no ID was provided
+  const safeProblemId = clientProvidedId && isValidUuid(clientProvidedId)
+    ? clientProvidedId
+    : undefined;
+
   // Reject asset paths that don't belong to the current user
   if (!hasOnlyOwnedAssetPaths(user.id, assets, solution_assets)) {
     return NextResponse.json(
@@ -320,7 +325,7 @@ async function createProblem(req: Request) {
   }
 
   // Use client-provided ID if available, otherwise let database generate one
-  const problemId = clientProvidedId || undefined;
+  const problemId = safeProblemId || undefined;
 
   // 1) Create problem with assets already in permanent location
   try {
