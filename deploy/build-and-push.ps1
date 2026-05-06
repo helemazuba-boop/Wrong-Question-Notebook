@@ -1,18 +1,12 @@
 # ============================================================
 # WQN Build & Push Script (Windows PowerShell)
 # ============================================================
-# Builds Docker images for BOTH architectures in PARALLEL and
-# pushes each to Alibaba Cloud ACR (personal tier) immediately
-# after the respective build finishes:
-#   - :{tag}-arm64  →  Home Router (Rockchip ARMv8, 1GB RAM)
-#   - :{tag}-amd64  →  Alibaba Cloud ECS (x86_64, 2GB RAM)
+# Builds the Docker image for linux/amd64 and pushes it to
+# Alibaba Cloud ACR (personal tier).
 #
-# NOTE: ACR Personal does not support manifest lists, so we
-# use architecture-specific tags instead. Each deployment
-# machine pulls its own tag.
+# NOTE: ACR Personal does not support manifest lists.
 #
-# Docker Buildx handles cross-compilation via QEMU on the
-# local x86_64 machine.
+# Docker Buildx handles the build on the local x86_64 machine.
 #
 # PREREQUISITES:
 #   - Docker Desktop installed and running
@@ -70,12 +64,12 @@ if ($missing) {
     exit 1
 }
 
-# ---------- Validate required memory tuning fields ----------
-$memRequired = @('ARM64_CONTAINER_NODE_OPTIONS', 'AMD64_CONTAINER_NODE_OPTIONS')
+# ---------- Validate required memory tuning field ----------
+$memRequired = @('AMD64_CONTAINER_NODE_OPTIONS')
 $memMissing = $memRequired | Where-Object { [string]::IsNullOrWhiteSpace($envVars[$_]) }
 if ($memMissing) {
     Write-Host ""
-    Write-Host "  [ERROR] Missing memory tuning fields in .env.production:" -ForegroundColor Red
+    Write-Host "  [ERROR] Missing memory tuning field in .env.production:" -ForegroundColor Red
     $memMissing | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
     exit 1
 }
@@ -86,14 +80,10 @@ $AcrRepo      = $envVars['ACR_REPO']
 $AcrUsername  = $envVars['ACR_USERNAME']
 $AcrPassword  = $envVars['ACR_PASSWORD']
 
-# ---------- Per-architecture build args ----------
-# Memory tuning — read from .env.production so values are explicit and auditable.
-$ArchNodeOptions = @{
-    'amd64' = $envVars['AMD64_CONTAINER_NODE_OPTIONS']
-    'arm64' = $envVars['ARM64_CONTAINER_NODE_OPTIONS']
-}
+# ---------- Build args ----------
+$NodeOptions = $envVars['AMD64_CONTAINER_NODE_OPTIONS']
 
-# App env vars forwarded as --build-arg for ALL architectures.
+# App env vars forwarded as --build-arg.
 $appVarKeys = @(
     'NEXT_PUBLIC_SUPABASE_URL',
     'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
@@ -103,25 +93,22 @@ $appVarKeys = @(
 )
 
 function Build-Arg-List {
-    param([string]$Arch)
     $args = @()
     foreach ($key in $appVarKeys) {
         if (-not [string]::IsNullOrWhiteSpace($envVars[$key])) {
-            $escaped = $envVars[$key] -replace '\\', '\\\\'
-            $args += "--build-arg ${key}=${escaped}"
+            $escaped = $envVars[$key] -replace '\\', '\\\\' -replace '"', '\"'
+            $args += "--build-arg ${key}=`"${escaped}`""
         }
     }
-    $escapedOpts = $ArchNodeOptions[$Arch] -replace '\\', '\\\\'
-    $args += "--build-arg CONTAINER_NODE_OPTIONS=${escapedOpts}"
+    $escapedOpts = $NodeOptions -replace '\\', '\\\\' -replace '"', '\"'
+    $args += "--build-arg CONTAINER_NODE_OPTIONS=`"${escapedOpts}`""
     return $args
 }
 
-$Amd64BuildArgs = Build-Arg-List -Arch 'amd64'
-$Arm64BuildArgs = Build-Arg-List -Arch 'arm64'
+$BuildArgs = Build-Arg-List
 
 $ImageBase = "${AcrServer}/${AcrNamespace}/${AcrRepo}"
-$Amd64Tag = "${ImageBase}:${Tag}-amd64"
-$Arm64Tag = "${ImageBase}:${Tag}-arm64"
+$ImageTag = "${ImageBase}:${Tag}"
 
 # ============================================================
 # Helper functions
@@ -162,7 +149,7 @@ function Initialize-Buildx {
 
     docker buildx use $builderName 2>&1 | Out-Null
 
-    Write-Step "Bootstrapping builder (downloads QEMU if needed)..." -ForegroundColor Yellow
+    Write-Step "Bootstrapping builder..." -ForegroundColor Yellow
     docker buildx inspect $builderName --bootstrap 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  [ERROR] Builder bootstrap failed." -ForegroundColor Red
@@ -171,61 +158,19 @@ function Initialize-Buildx {
     Write-Step "Builder ready." "Green"
 }
 
-function Invoke-Build {
-    param(
-        [string]$Arch,
-        [string]$Tag,
-        [string]$Platform,
-        [string[]]$BuildArgs
-    )
-
-    Write-Step "Building $Arch image ($Platform)..." "Yellow"
-    Write-Host "    Tag: $Tag" "DarkGray"
-
-    $argLine = ($BuildArgs | ForEach-Object { $_.Replace("--build-arg ", "") }) -join ' '
-    Write-Step "Build args: $argLine" "DarkGray"
-
-    Push-Location $WebDir
-    try {
-        docker buildx build `
-            --platform $Platform `
-            --builder wqn-builder `
-            --push `
-            -t $Tag `
-            -f $Dockerfile `
-            $BuildArgs `
-            .
-
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host ""
-            Write-Host "  [ERROR] Build failed for $Arch ($Platform)." -ForegroundColor Red
-            Pop-Location
-            return $false
-        }
-    } finally {
-        Pop-Location
-    }
-
-    Write-Step "Build + push complete: $Arch" "Green"
-    return $true
-}
-
 # ============================================================
 # Main
 # ============================================================
 
 Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Cyan
-Write-Host "  WQN Multi-Arch Build & Push to ACR" -ForegroundColor Cyan
+Write-Host "  WQN Build & Push to ACR" -ForegroundColor Cyan
 Write-Host "  ================================================" -ForegroundColor Cyan
 Write-Host "  ACR Server:   $AcrServer" -ForegroundColor White
 Write-Host "  Namespace:     $AcrNamespace" -ForegroundColor White
 Write-Host "  Repo:         $AcrRepo" -ForegroundColor White
 Write-Host "  Tag:          $Tag" -ForegroundColor White
-Write-Host "  ARM64:        $Arm64Tag" -ForegroundColor DarkGray
-Write-Host "               NODE_OPTIONS=$($ArchNodeOptions['arm64'])" -ForegroundColor DarkGray
-Write-Host "  AMD64:        $Amd64Tag" -ForegroundColor DarkGray
-Write-Host "               NODE_OPTIONS=$($ArchNodeOptions['amd64'])" -ForegroundColor DarkGray
+Write-Host "  Image:        $ImageTag" -ForegroundColor DarkGray
 Write-Host ""
 
 # Step 1: Login
@@ -243,85 +188,28 @@ Write-Host "  [Step 2/4] Checking Docker Buildx..." -ForegroundColor Yellow
 Test-DockerBuildx
 Initialize-Buildx
 
-# Step 3: Build both architectures IN PARALLEL
+# Step 3: Build
 Write-Host ""
-Write-Host "  [Step 3/4] Building and pushing in parallel..." -ForegroundColor Yellow
+Write-Host "  [Step 3/4] Building image..." -ForegroundColor Yellow
 
-$amd64Job = Start-Job -ScriptBlock {
-    param($Arch, $Tag, $Platform, $BuildArgs, $WebDir, $Dockerfile)
-    Push-Location $WebDir
-    try {
-        docker buildx build `
-            --platform $Platform `
-            --builder wqn-builder `
-            --push `
-            -t $Tag `
-            -f $Dockerfile `
-            $BuildArgs `
-            .
-        $exitCode = $LASTEXITCODE
-    } finally {
-        Pop-Location
-    }
-    @{ ExitCode = $exitCode; Arch = $Arch; Tag = $Tag }
-} -ArgumentList 'amd64', $Amd64Tag, 'linux/amd64', $Amd64BuildArgs, $WebDir, $Dockerfile
+$buildCmd = "docker buildx build --platform linux/amd64 --builder wqn-builder --push -t `"$ImageTag`" -f `"$Dockerfile`" " + ($BuildArgs -join ' ') + " ."
 
-$arm64Job = Start-Job -ScriptBlock {
-    param($Arch, $Tag, $Platform, $BuildArgs, $WebDir, $Dockerfile)
-    Push-Location $WebDir
-    try {
-        docker buildx build `
-            --platform $Platform `
-            --builder wqn-builder `
-            --push `
-            -t $Tag `
-            -f $Dockerfile `
-            $BuildArgs `
-            .
-        $exitCode = $LASTEXITCODE
-    } finally {
-        Pop-Location
-    }
-    @{ ExitCode = $exitCode; Arch = $Arch; Tag = $Tag }
-} -ArgumentList 'arm64', $Arm64Tag, 'linux/arm64', $Arm64BuildArgs, $WebDir, $Dockerfile
-
-# Wait for each job and report as it completes
-$jobs = @($amd64Job, $arm64Job)
-while ($jobs.Count -gt 0) {
-    $completed = $jobs | Where-Object { $_.State -eq 'Completed' -or $_.State -eq 'Failed' }
-    foreach ($job in $completed) {
-        $result = Receive-Job -Job $job
-        if ($result.ExitCode -eq 0) {
-            Write-Step "Build + push complete: $($result.Arch) → $($result.Tag)" "Green"
-        } else {
-            Write-Host ""
-            Write-Host "  [ERROR] Build failed for $($result.Arch)." -ForegroundColor Red
-            Write-Host "  Exiting." -ForegroundColor Red
-            # Clean up remaining jobs
-            $jobs | Stop-Job
-            $jobs | Remove-Job
-            exit 1
-        }
-        Remove-Job -Job $job
-        $jobs = @($jobs | Where-Object { $_ -ne $job })
-    }
-    if ($jobs.Count -gt 0) {
-        Start-Sleep -Milliseconds 500
-    }
-}
+Push-Location $WebDir
+try {
+    Invoke-Expression $buildCmd
+    if ($LASTEXITCODE -ne 0) { Write-Host "  [ERROR] build failed." -ForegroundColor Red; exit 1 }
+} finally { Pop-Location }
+Write-Step "Build + push complete." "Green"
 
 Write-Host ""
-Write-Host "  [Step 4/4] All builds complete." -ForegroundColor Green
+Write-Host "  [Step 4/4] Done." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Cyan
-Write-Host "  Done! Both images are available in ACR." -ForegroundColor Cyan
+Write-Host "  Done! Image is available in ACR." -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Pull on Router (ARM64):" -ForegroundColor Yellow
-Write-Host "    docker pull $Arm64Tag" -ForegroundColor White
-Write-Host ""
-Write-Host "  Pull on ECS (amd64):" -ForegroundColor Yellow
-Write-Host "    docker pull $Amd64Tag" -ForegroundColor White
+Write-Host "  Pull on ECS:" -ForegroundColor Yellow
+Write-Host "    docker pull $ImageTag" -ForegroundColor White
 Write-Host ""
 Write-Host "  ================================================" -ForegroundColor Cyan
 Write-Host ""

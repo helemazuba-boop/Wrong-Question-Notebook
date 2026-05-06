@@ -26,7 +26,7 @@ export default function AssetPreview({ asset }: AssetPreviewProps) {
   if (isImage) {
     if (imageError) {
       return (
-        <div className="border border-border rounded-lg overflow-hidden">
+        <div className="border border-border rounded-lg overflow-hidden print-asset-img">
           <div className="p-4 text-center text-muted-foreground bg-muted">
             <p className="text-sm">{t('imagePreviewUnavailable')}</p>
             <a
@@ -60,7 +60,7 @@ export default function AssetPreview({ asset }: AssetPreviewProps) {
             alt={getFileName(asset.path)}
             width={800}
             height={256}
-            className="w-auto h-auto object-contain bg-muted"
+            className="w-auto h-auto object-contain bg-muted print-asset-img"
             priority
             unoptimized
             onError={() => setImageError(true)}

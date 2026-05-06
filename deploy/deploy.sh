@@ -5,10 +5,6 @@
 # Pulls the Docker image from Alibaba Cloud ACR and starts
 # the WQN container via docker-compose.
 #
-# Auto-detects CPU architecture and pulls the correct image:
-#   - ARM64 (软路由)  →  :{tag}-arm64
-#   - x86_64 (ECS)    →  :{tag}-amd64
-#
 # PREREQUISITES:
 #   - Docker and Docker Compose installed
 #   - Network access to ACR
@@ -26,31 +22,6 @@
 
 set -e
 
-# ---------- Detect CPU architecture ----------
-detect_arch() {
-    local arch=$(uname -m)
-    case "$arch" in
-        aarch64|arm64)
-            echo "arm64"
-            ;;
-        x86_64|amd64)
-            echo "amd64"
-            ;;
-        *)
-            echo "unknown"
-            ;;
-    esac
-}
-
-ARCH=$(detect_arch)
-
-if [[ "$ARCH" == "unknown" ]]; then
-    echo "[ERROR] Unknown CPU architecture: $(uname -m)" >&2
-    exit 1
-fi
-
-echo "[INFO] Detected architecture: $ARCH"
-
 # ---------- Config (fill in your values) ----------
 ACR_SERVER="registry.cn-hangzhou.aliyuncs.com"   # e.g. registry.cn-hangzhou.aliyuncs.com
 ACR_NAMESPACE="your-namespace"                    # e.g. wqn
@@ -58,18 +29,11 @@ ACR_REPO="wqn"                                   # e.g. wqn
 ACR_USERNAME="your-access-key-id"                # e.g. yourAccessKeyID
 ACR_PASSWORD="your-access-key-secret"             # e.g. yourAccessKeySecret
 
-IMAGE_VERSION="latest"    # Base version tag (without -arm64/-amd64 suffix)
+IMAGE_VERSION="latest"
 
-# Memory limit for the container
-# 1GB router  (arm64) → CONTAINER_MEM_LIMIT=512m,  CONTAINER_NODE_OPTIONS=--max-old-space-size=200
-# 2GB ECS     (amd64) → CONTAINER_MEM_LIMIT=1024m, CONTAINER_NODE_OPTIONS=--max-old-space-size=512
-if [[ "$ARCH" == "arm64" ]]; then
-    CONTAINER_MEM_LIMIT="512m"
-    CONTAINER_NODE_OPTIONS="--max-old-space-size=200"
-else
-    CONTAINER_MEM_LIMIT="1024m"
-    CONTAINER_NODE_OPTIONS="--max-old-space-size=512"
-fi
+# Memory limit for the container (2GB ECS: CONTAINER_MEM_LIMIT=1024m, CONTAINER_NODE_OPTIONS=--max-old-space-size=512)
+CONTAINER_MEM_LIMIT="1024m"
+CONTAINER_NODE_OPTIONS="--max-old-space-size=512"
 
 # Site URL for sitemap and canonical URLs
 SITE_URL="http://localhost:3000"
@@ -83,8 +47,7 @@ SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 GEMINI_API_KEY="your-gemini-api-key"
 
 # ---------- Derived ----------
-# Architecture-specific tag (ACR personal does not support manifest list)
-export IMAGE="${ACR_SERVER}/${ACR_NAMESPACE}/${ACR_REPO}:${IMAGE_VERSION}-${ARCH}"
+export IMAGE="${ACR_SERVER}/${ACR_NAMESPACE}/${ACR_REPO}:${IMAGE_VERSION}"
 COMPOSE_FILE="docker-compose.yml"
 ENV_FILE=".env.production"
 
@@ -107,7 +70,6 @@ usage() {
     echo ""
     echo "No option → pull + start (default)"
     echo ""
-    echo "Detected: ARCH=$ARCH, IMAGE=$IMAGE"
 }
 
 log_info()  { echo -e "\033[34m[INFO]\033[0m  $*"; }

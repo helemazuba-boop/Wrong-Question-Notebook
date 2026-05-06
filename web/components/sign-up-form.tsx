@@ -70,9 +70,12 @@ export function SignUpForm({
 
       router.push(`/auth/sign-up-success?email=${encodeURIComponent(email)}`);
     } catch (error: unknown) {
-      setError(
-        error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR
-      );
+      let message =
+        error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR;
+      if (message === 'Password should be at least 6 characters.') {
+        message = t('passwordTooShort');
+      }
+      setError(message);
       setIsLoading(false);
     }
   };

@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
 import MathText from '@/components/ui/math-text';
+import AssetPreview from './asset-preview';
 import { useTranslations } from 'next-intl';
 import { SolutionRevealProps } from '@/lib/types';
 import type {
@@ -130,14 +131,14 @@ export default function SolutionReveal({
       </div>
 
       {!hasSolution ? (
-        <div className="text-center py-8 text-muted-foreground">
+        <div className="text-center py-8 text-muted-foreground print-reveal-placeholder">
           <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center">
             <span className="text-2xl">📝</span>
           </div>
           <p className="text-sm">{t('noSolutionProvided')}</p>
         </div>
       ) : isRevealed ? (
-        <div className="space-y-4">
+        <div className="space-y-4 print-reveal-content">
           {/* Correct Answer */}
           {(hasStructuredAnswer ||
             (correctAnswer !== undefined && correctAnswer !== null)) && (
@@ -169,9 +170,18 @@ export default function SolutionReveal({
               </div>
             </div>
           )}
+
+          {/* Solution Assets */}
+          {solutionAssets && solutionAssets.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {solutionAssets.map((asset, i) => (
+                <AssetPreview key={i} asset={asset} />
+              ))}
+            </div>
+          )}
         </div>
       ) : (
-        <div className="text-center py-8 text-muted-foreground">
+        <div className="text-center py-8 text-muted-foreground print-reveal-placeholder">
           <p className="text-sm">{t('clickToRevealSolution')}</p>
         </div>
       )}

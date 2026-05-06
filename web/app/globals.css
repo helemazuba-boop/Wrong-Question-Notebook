@@ -1377,3 +1377,209 @@ html body[data-scroll-locked] {
     animation: none !important;
   }
 }
+
+/* =============================================
+   Print styles for problem review page
+   ============================================= */
+@media print {
+  /* Prevent color stripping from icons etc */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Force white background, remove dark mode artifacts */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  html, body {
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Hide everything except the main review content */
+  .review-header-sticky,
+  .review-section-amber,
+  .review-section-rose,
+  .review-section-violet,
+  .no-print,
+  [data-print-hide="true"] {
+    display: none !important;
+  }
+
+  /* Expand full content area */
+  .space-y-4 {
+    padding: 0 !important;
+  }
+
+  /* Two-column grid becomes single column */
+  .grid.lg\:grid-cols-\[1fr_320px\] {
+    display: block !important;
+  }
+
+  /* Remove sidebar sticky behavior */
+  .lg\:sticky {
+    position: static !important;
+  }
+
+  /* Card backgrounds: white with clean border */
+  .review-section-blue,
+  .review-section-green {
+    background: white !important;
+    border: 1px solid #d0d0d0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 1rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  /* Rich text content */
+  .rich-text-content {
+    font-size: 11pt !important;
+    line-height: 1.6 !important;
+  }
+
+  .rich-text-content img {
+    max-width: 100% !important;
+    height: auto !important;
+    page-break-inside: avoid;
+  }
+
+  /* KaTeX formula sizing */
+  .katex {
+    font-size: 1.05em !important;
+  }
+
+  /* ---- Print header (student name / date) ---- */
+  .print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #000;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 11pt;
+  }
+
+  /* ---- Answer reveal section ---- */
+  .print-reveal-placeholder {
+    display: block;
+  }
+  .print-reveal-content {
+    display: none;
+  }
+
+  /* ---- Answer placement modes (controlled by data-print-mode on <html>) ---- */
+
+  /* Mode: end — hide inline answers, show appendix at the end */
+  [data-print-mode="end"] .print-answer-inline {
+    display: none !important;
+  }
+  [data-print-mode="end"] .print-answer-appendix {
+    display: block !important;
+    page-break-before: always;
+    padding-top: 1.5rem;
+  }
+  [data-print-mode="end"] .print-reveal-placeholder {
+    display: none !important;
+  }
+  [data-print-mode="end"] .print-reveal-content {
+    display: block !important;
+  }
+
+  /* Mode: below — show inline answer area, hide appendix */
+  [data-print-mode="below"] .print-answer-inline {
+    display: flex !important;
+  }
+  [data-print-mode="below"] .print-answer-appendix {
+    display: none !important;
+  }
+
+  /* Mode: none — hide all answers */
+  [data-print-mode="none"] .print-answer-inline {
+    display: none !important;
+  }
+  [data-print-mode="none"] .print-answer-appendix {
+    display: none !important;
+  }
+
+  /* Inline answer area (题下 mode): answer label + blank line */
+  .print-answer-inline {
+    display: none; /* hidden by default */
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed #999;
+    font-size: 11pt;
+  }
+  .print-answer-inline-label {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .print-answer-inline-line {
+    flex: 1;
+    border-bottom: 1px solid #333;
+    min-height: 1.8rem;
+  }
+
+  /* MCQ inline mode: show option letters */
+  .print-mcq-inline-answer {
+    font-weight: bold;
+    font-size: 11pt;
+    margin-top: 0.5rem;
+  }
+
+  /* Appendix answer block (末尾 mode) */
+  .print-answer-appendix {
+    display: none; /* hidden by default */
+  }
+  .print-answer-appendix h2 {
+    font-size: 14pt;
+    font-weight: bold;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #000;
+    padding-bottom: 0.25rem;
+  }
+  .print-answer-appendix-item {
+    margin-bottom: 0.5rem;
+    font-size: 11pt;
+  }
+  .print-answer-appendix-item strong {
+    font-weight: bold;
+  }
+
+  /* Print solution appendix */
+  .print-solution-appendix {
+    display: none;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 2px solid #000;
+    page-break-inside: avoid;
+  }
+  [data-print-mode="end"] .print-solution-appendix {
+    display: block !important;
+    page-break-before: auto;
+  }
+
+  /* Page break control */
+  .review-section-blue {
+    page-break-inside: avoid;
+  }
+  .review-section-green {
+    page-break-before: auto;
+    page-break-inside: avoid;
+  }
+  .review-icon-small {
+    display: none !important;
+  }
+
+  /* Hide submit / reveal button text in cards */
+  .review-section-blue button,
+  .review-section-green button {
+    display: none !important;
+  }
+}
+

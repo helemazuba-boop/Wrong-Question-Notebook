@@ -131,6 +131,7 @@
     "privacyPolicyAgreement": "I have read and agree to the",
     "privacyPolicyRequired": "You must agree to the Privacy Policy to create an account.",
     "passwordsDoNotMatch": "Passwords do not match",
+    "passwordTooShort": "Password should be at least 6 characters.",
     "creatingAccount": "Creating account...",
     "alreadyHaveAccount": "Already have an account?",
     "checkYourEmail": "Check your email!",

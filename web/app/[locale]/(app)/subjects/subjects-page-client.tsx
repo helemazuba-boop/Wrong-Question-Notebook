@@ -26,6 +26,7 @@ export default function SubjectsPageClient({
   initialSubjects: SubjectWithMetadata[];
 }) {
   const t = useTranslations('Subjects');
+  const tCommon = useTranslations('Common');
   const router = useRouter();
   const [subjects, setSubjects] = useState(initialSubjects);
   const [query, setQuery] = useState('');
@@ -90,6 +91,7 @@ export default function SubjectsPageClient({
         problemCount,
       }),
       confirmText: t('removeNotebook'),
+      cancelText: tCommon('cancel'),
       variant: 'destructive',
       onConfirm: async () => {
         try {

@@ -131,6 +131,7 @@
     "privacyPolicyAgreement": "我已阅读并同意",
     "privacyPolicyRequired": "你必须同意隐私政策才能创建账号。",
     "passwordsDoNotMatch": "两次输入的密码不一致",
+    "passwordTooShort": "密码至少需要 6 个字符。",
     "creatingAccount": "创建账号中...",
     "alreadyHaveAccount": "已有账号？",
     "checkYourEmail": "查收邮件！",

@@ -52,9 +52,6 @@ RUN npm run build
 FROM node:24-alpine AS runner
 
 # Runtime build arguments — injected at container start via --build-arg.
-# CONTAINER_NODE_OPTIONS is passed with a different value per architecture:
-#   ARM64 → --max-old-space-size=200
-#   AMD64 → --max-old-space-size=512
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
 ARG SUPABASE_SERVICE_ROLE_KEY

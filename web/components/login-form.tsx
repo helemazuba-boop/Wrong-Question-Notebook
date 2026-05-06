@@ -40,9 +40,12 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
       const destination = redirectTo || ROUTES.SUBJECTS;
       router.push(destination);
     } catch (error: unknown) {
-      setError(
-        error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR
-      );
+      let message =
+        error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR;
+      if (message === 'Password should be at least 6 characters.') {
+        message = t('passwordTooShort');
+      }
+      setError(message);
       setIsLoading(false);
     }
   };
