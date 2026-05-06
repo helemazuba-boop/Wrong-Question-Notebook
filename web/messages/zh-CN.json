@@ -365,6 +365,8 @@
     "failedToRemove": "移除笔记本失败",
     "emptyStateTitle": "暂无题目",
     "emptyStateDescription": "添加你的第一道错题，开始建立你的复习笔记本",
+    "write": "输入",
+    "scan": "扫描",
     "writeManually": "手动输入",
     "scanFromImage": "从图片扫描",
     "pageDescription": "开始在这本笔记本中记录题目吧！",
