@@ -3,6 +3,7 @@ import { Geist } from 'next/font/google';
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { ConsentProvider } from '@/components/cookie-consent/consent-provider';
+import { ConditionalAnalytics } from '@/components/cookie-consent/conditional-analytics';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import './globals.css';

@@ -1,0 +1,7 @@
+{
+  "registry-config": {
+    "registry.docker.io": {
+      "mirrors": ["https://mirror.ccs.tencentyun.com"]
+    }
+  }
+}

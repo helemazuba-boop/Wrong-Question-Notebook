@@ -1499,5 +1499,31 @@
     "emptySetHint": "此题目集暂无题目，添加题目后才会出现在发现页。",
     "discoverableHint": "其他同学可以在发现页看到此题目集。",
     "directLinkOnly": "此题目集仅可通过直接链接访问。"
+  },
+  "ESP32": {
+    "title": "ESP32 设备",
+    "devices": "已配对设备",
+    "pairNewDevice": "配对新设备",
+    "pairingInstructions": "在 ESP32 上找到 MAC 地址，然后在下方输入进行配对。配对成功后设备将自动连接。",
+    "macAddress": "MAC 地址",
+    "macFormatHint": "格式：AA:BB:CC:DD:EE:FF",
+    "invalidMacFormat": "无效的 MAC 地址格式",
+    "startPairing": "开始配对",
+    "pairing": "配对中...",
+    "pairingSuccess": "配对成功！",
+    "pairingSuccessHint": "请在 ESP32 上重新连接以完成配对。",
+    "pairFailed": "配对失败，请重试",
+    "unpair": "解绑",
+    "unpairing": "解绑中...",
+    "unpairSuccess": "设备已解绑",
+    "howToFindMac": "如何找到 MAC 地址",
+    "macExplanation": "在 ESP32 的启动日志中查看，或者在设置页面找到 WiFi MAC 地址。",
+    "lastSeen": "上次连接：{time}",
+    "never": "从未连接",
+    "justNow": "刚刚",
+    "minutesAgo": "{n} 分钟前",
+    "hoursAgo": "{n} 小时前",
+    "daysAgo": "{n} 天前",
+    "weeksAgo": "{n} 周前"
   }
 }

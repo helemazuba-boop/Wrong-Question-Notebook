@@ -149,13 +149,24 @@ function Initialize-Buildx {
 
     docker buildx use $builderName 2>&1 | Out-Null
 
-    Write-Step "Bootstrapping builder..." -ForegroundColor Yellow
-    docker buildx inspect $builderName --bootstrap 2>&1 | Out-Null
+    Write-Step "Checking builder status..." -ForegroundColor Yellow
+    $inspectOutput = docker buildx inspect $builderName 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [ERROR] Builder bootstrap failed." -ForegroundColor Red
+        Write-Host "  [ERROR] Cannot inspect builder: $inspectOutput" -ForegroundColor Red
         exit 1
     }
-    Write-Step "Builder ready." "Green"
+
+    if ($inspectOutput -match "Status:\s*running") {
+        Write-Step "Builder is running." "Green"
+    } else {
+        Write-Step "Bootstrapping builder..." -ForegroundColor Yellow
+        docker buildx inspect $builderName --bootstrap 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] Builder bootstrap failed." -ForegroundColor Red
+            exit 1
+        }
+        Write-Step "Builder ready." "Green"
+    }
 }
 
 # ============================================================
