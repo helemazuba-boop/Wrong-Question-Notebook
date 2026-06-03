@@ -6,6 +6,10 @@ import {
   handleAsyncError,
   isValidUuid,
 } from '@/lib/common-utils';
+import {
+  getEsp32RequestOrigin,
+  serializeEsp32ProblemContent,
+} from '@/lib/esp32-content';
 import { createServiceClient } from '@/lib/supabase-utils';
 
 async function authenticateDevice(
@@ -103,6 +107,8 @@ async function getProblems(req: Request) {
       );
     }
 
+    const origin = getEsp32RequestOrigin(req);
+
     // Transform to ESP32-friendly format
     const transformed = (problems || []).map(p => ({
       id: p.id,
@@ -115,7 +121,13 @@ async function getProblems(req: Request) {
         p.problem_type === 'mcq'
           ? { mode: (p.answer_config as any)?.mode || 'choice' }
           : p.answer_config,
-      solution_text: p.solution_text,
+      ...serializeEsp32ProblemContent(
+        p.content,
+        p.solution_text,
+        p.assets,
+        p.solution_assets,
+        origin
+      ),
     }));
 
     return NextResponse.json(

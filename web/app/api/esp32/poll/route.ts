@@ -34,6 +34,9 @@ async function pollDevice(req: Request) {
   try {
     const svc = createServiceClient();
 
+    // TODO(production): Do not return an existing token solely from MAC replay.
+    // Return an already_paired/non-token state unless completing a pending pairing.
+    // This must be fixed before enabling privileged ESP32 AI behavior.
     // Check if already paired (return existing token)
     const { data: existingDevice } = await svc
       .from('esp32_devices')
@@ -60,7 +63,7 @@ async function pollDevice(req: Request) {
     // Check pending pairing request
     const { data: pending } = await svc
       .from('esp32_pairing_pending')
-      .select('user_id, mac_address')
+      .select('user_id, mac_address, created_at')
       .eq('mac_address', normalizedMac)
       .single();
 
@@ -74,9 +77,15 @@ async function pollDevice(req: Request) {
     }
 
     // Check if pending entry is too old (older than 30 minutes)
-    const pendingAge = Date.now() - new Date(pending.created_at).getTime();
+    const pendingCreatedAt = pending.created_at
+      ? new Date(pending.created_at)
+      : new Date(0);
+    const pendingAge = Date.now() - pendingCreatedAt.getTime();
     if (pendingAge > 30 * 60 * 1000) {
-      await svc.from('esp32_pairing_pending').delete().eq('mac_address', normalizedMac);
+      await svc
+        .from('esp32_pairing_pending')
+        .delete()
+        .eq('mac_address', normalizedMac);
       return NextResponse.json(
         createApiSuccessResponse({
           status: 'expired',
@@ -103,7 +112,10 @@ async function pollDevice(req: Request) {
     }
 
     // Remove pending entry
-    await svc.from('esp32_pairing_pending').delete().eq('mac_address', normalizedMac);
+    await svc
+      .from('esp32_pairing_pending')
+      .delete()
+      .eq('mac_address', normalizedMac);
 
     return NextResponse.json(
       createApiSuccessResponse({
@@ -120,4 +132,7 @@ async function pollDevice(req: Request) {
   }
 }
 
-export const GET = withSecurity(pollDevice, { enableRateLimit: false, enableRequestValidation: false });
+export const GET = withSecurity(pollDevice, {
+  enableRateLimit: false,
+  enableRequestValidation: false,
+});

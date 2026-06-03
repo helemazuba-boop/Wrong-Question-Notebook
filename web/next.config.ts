@@ -1,11 +1,21 @@
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import * as path from 'node:path';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
+const projectRoot = path.resolve(__dirname);
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
+
+  // Keep Turbopack scoped to the app package even when the repo root also has a lockfile.
+  turbopack: {
+    root: projectRoot,
+  },
+
+  // Allow the dev client to load HMR resources when accessed through the local bridge host.
+  allowedDevOrigins: ['172.21.128.1'],
 
   // Enable experimental features for better performance
   experimental: {

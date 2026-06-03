@@ -50,7 +50,6 @@ function StatusIcon({ type, label }: { type: StatusIconType; label: string }) {
 
 export function ComparisonTable() {
   const t = useTranslations('Comparison');
-  const tCommon = useTranslations('Common');
 
   const statusLabel = (type: StatusIconType) => {
     if (type === 'check') return t('supported');
@@ -61,8 +60,11 @@ export function ComparisonTable() {
   const rows = [
     {
       feature: t('recordWrongQuestions'),
-      physical: { icon: 'check' as StatusIconType, label: t('handwrite') },
-      digital: { icon: 'check' as StatusIconType, label: t('photoScreenshot') },
+      physical: { icon: 'partial' as StatusIconType, label: t('handwrite') },
+      digital: {
+        icon: 'partial' as StatusIconType,
+        label: t('photoScreenshot'),
+      },
       wqn: { icon: 'check' as StatusIconType, label: t('structuredForm') },
     },
     {
@@ -99,7 +101,7 @@ export function ComparisonTable() {
       feature: t('trackMasteryProgress'),
       physical: { icon: 'cross' as StatusIconType, label: t('tallyMarks') },
       digital: {
-        icon: 'cross' as StatusIconType,
+        icon: 'partial' as StatusIconType,
         label: t('manualTracking'),
       },
       wqn: {
@@ -110,12 +112,12 @@ export function ComparisonTable() {
     {
       feature: t('reviewSessions'),
       physical: {
-        icon: 'partial' as StatusIconType,
-        label: t('selfDirected'),
+        icon: 'cross' as StatusIconType,
+        label: t('physicalReview'),
       },
       digital: {
-        icon: 'partial' as StatusIconType,
-        label: t('selfDirected'),
+        icon: 'cross' as StatusIconType,
+        label: t('digitalReview'),
       },
       wqn: {
         icon: 'check' as StatusIconType,
@@ -124,8 +126,11 @@ export function ComparisonTable() {
     },
     {
       feature: t('analyticsInsights'),
-      physical: { icon: 'cross' as StatusIconType, label: tCommon('none') },
-      digital: { icon: 'cross' as StatusIconType, label: tCommon('none') },
+      physical: { icon: 'cross' as StatusIconType, label: t('noDataSupport') },
+      digital: {
+        icon: 'cross' as StatusIconType,
+        label: t('subjectiveFeeling'),
+      },
       wqn: {
         icon: 'check' as StatusIconType,
         label: t('chartsHeatmapsStreaks'),
@@ -135,7 +140,7 @@ export function ComparisonTable() {
       feature: t('shareWithOthers'),
       physical: { icon: 'cross' as StatusIconType, label: t('photocopy') },
       digital: {
-        icon: 'check' as StatusIconType,
+        icon: 'partial' as StatusIconType,
         label: t('shareDocLink'),
       },
       wqn: {
@@ -146,8 +151,11 @@ export function ComparisonTable() {
     {
       feature: t('accessAnywhere'),
       physical: { icon: 'cross' as StatusIconType, label: t('carryIt') },
-      digital: { icon: 'check' as StatusIconType, label: t('anyBrowser') },
-      wqn: { icon: 'check' as StatusIconType, label: t('anyBrowser') },
+      digital: {
+        icon: 'partial' as StatusIconType,
+        label: t('localDeviceSync'),
+      },
+      wqn: { icon: 'check' as StatusIconType, label: t('cloudSyncBrowser') },
     },
   ];
 

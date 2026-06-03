@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { unstable_cache } from 'next/cache';
 import { CACHE_TAGS, CACHE_DURATIONS } from '@/lib/cache-config';
 
+export const dynamic = 'force-dynamic';
+
 const BASE_URL = process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
   ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
   : 'https://wqn.magicworks.app';

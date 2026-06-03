@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Link } from '@/i18n/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { useState } from 'react';
-import { ROUTES, ERROR_MESSAGES } from '@/lib/constants';
+import { ERROR_MESSAGES } from '@/lib/constants';
+import { getSafeAuthRedirect } from '@/lib/auth-redirect';
 import { LogIn, Eye, EyeOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -37,8 +38,9 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
         password,
       });
       if (error) throw error;
-      const destination = redirectTo || ROUTES.SUBJECTS;
-      router.push(destination);
+      const destination = getSafeAuthRedirect(redirectTo);
+      router.replace(destination);
+      router.refresh();
     } catch (error: unknown) {
       let message =
         error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR;

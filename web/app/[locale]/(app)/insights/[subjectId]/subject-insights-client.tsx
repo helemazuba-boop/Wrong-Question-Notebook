@@ -14,6 +14,7 @@ import {
   Play,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { BackLink } from '@/components/back-link';
 import { PageHeader } from '@/components/page-header';
@@ -51,6 +52,7 @@ export default function SubjectInsightsClient({
   reviewSessions,
 }: SubjectInsightsClientProps) {
   const router = useRouter();
+  const t = useTranslations('Statistics');
   const [reviewingCluster, setReviewingCluster] = useState<string | null>(null);
 
   const safeColor =
@@ -107,9 +109,9 @@ export default function SubjectInsightsClient({
   return (
     <div className="section-container">
       <PageHeader
-        title={`${subject.name} Insights`}
-        description={`Detailed analysis for ${subject.name}.`}
-        actions={<BackLink href="/insights">Back to Insights</BackLink>}
+        title={t('subjectInsights', { subject: subject.name })}
+        description={t('subjectInsightsDesc', { subject: subject.name })}
+        actions={<BackLink href="/statistics">{t('backToInsights')}</BackLink>}
       />
 
       {/* No digest or no data */}
@@ -119,19 +121,18 @@ export default function SubjectInsightsClient({
             <Lightbulb className="h-8 w-8 text-orange-600 dark:text-orange-400" />
           </div>
           <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-            No insights for this subject yet
+            {t('noInsightsForSubject')}
           </h3>
           <p className="mb-6 max-w-sm text-sm text-gray-600 dark:text-gray-400">
-            Generate insights from the main Insights page to see detailed
-            analysis for {subject.name}.
+            {t('generateInsightsHint', { subject: subject.name })}
           </p>
           <Button
             variant="outline"
-            onClick={() => router.push('/insights')}
+            onClick={() => router.push('/statistics')}
             className="rounded-xl border-orange-200/50 dark:border-orange-800/40"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Go to Insights
+            {t('goToInsights')}
           </Button>
         </div>
       ) : (

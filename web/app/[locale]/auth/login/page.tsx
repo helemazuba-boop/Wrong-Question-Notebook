@@ -1,7 +1,7 @@
 import { LoginForm } from '@/components/login-form';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { ROUTES } from '@/lib/constants';
+import { getSafeAuthRedirect } from '@/lib/auth-redirect';
 
 interface PageProps {
   searchParams: Promise<{ redirect?: string }>;
@@ -13,8 +13,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const { redirect: redirectParam } = await searchParams;
 
   if (data?.claims) {
-    const destination = redirectParam || ROUTES.SUBJECTS;
-    redirect(destination);
+    redirect(getSafeAuthRedirect(redirectParam));
   }
 
   return (

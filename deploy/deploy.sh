@@ -31,10 +31,6 @@ ACR_PASSWORD="your-access-key-secret"             # e.g. yourAccessKeySecret
 
 IMAGE_VERSION="latest"
 
-# Memory limit for the container (2GB ECS: CONTAINER_MEM_LIMIT=1024m, CONTAINER_NODE_OPTIONS=--max-old-space-size=512)
-CONTAINER_MEM_LIMIT="1024m"
-CONTAINER_NODE_OPTIONS="--max-old-space-size=512"
-
 # Site URL for sitemap and canonical URLs
 SITE_URL="http://localhost:3000"
 
@@ -122,8 +118,6 @@ start_container() {
     ACR_SERVER="$ACR_SERVER" \
     ACR_NAMESPACE="$ACR_NAMESPACE" \
     ACR_REPO="$ACR_REPO" \
-    CONTAINER_MEM_LIMIT="$CONTAINER_MEM_LIMIT" \
-    CONTAINER_NODE_OPTIONS="$CONTAINER_NODE_OPTIONS" \
     SITE_URL="$SITE_URL" \
     NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY" \

@@ -92,6 +92,45 @@ ACR_PASSWORD=your-acr-password       # 你在 ACR 里设置的固定密码
 
 # 指定版本 tag（推荐，方便回滚）
 .\deploy\build-and-push.ps1 -Tag "v1.0.0"
+
+# 构建推送后自动部署到 SSH Host `aliyun`
+.\deploy\build-and-push.ps1 -DeployAliyun
+
+# 或使用双击友好的 bat 入口，默认会构建、推送并部署到 SSH Host `aliyun`
+.\deploy\build.bat
+
+# bat 入口带其他参数时仍会默认部署到阿里云
+.\deploy\build.bat -Tag "v1.0.0"
+```
+
+### 可选：自动推送到阿里云 ECS
+
+本地 OpenSSH 配置需要包含 `aliyun` Host：
+
+```sshconfig
+Host aliyun
+    HostName 121.43.145.73
+    User root
+    IdentityFile C:\Users\ZhuanZ\.ssh\PC-LEGION.pem
+```
+
+带 `-DeployAliyun` 参数时（或直接运行 `deploy\build.bat` 时），脚本会在镜像推送成功后执行远程部署：
+
+```bash
+docker pull <本次构建的镜像>
+docker stop wqn-app || true
+docker rm wqn-app || true
+docker run -d --name wqn-app -p 3000:3000 <本次构建的镜像>
+docker image prune -f
+```
+
+可选参数：
+
+```powershell
+.\deploy\build-and-push.ps1 -DeployAliyun `
+  -AliyunSshHost aliyun `
+  -AliyunContainerName wqn-app `
+  -AliyunPortMap 3000:3000
 ```
 
 ### 验证镜像已推送
@@ -124,10 +163,6 @@ ACR_PASSWORD=your-access-key-secret
 
 # 镜像
 IMAGE=registry.cn-hangzhou.aliyuncs.com/your-namespace/wqn:latest
-
-# 内存限制
-CONTAINER_MEM_LIMIT=1024m
-CONTAINER_NODE_OPTIONS=--max-old-space-size=512
 
 # Supabase（从 Supabase 控制台获取）
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
@@ -185,13 +220,9 @@ docker pull registry.cn-hangzhou.aliyuncs.com/your-namespace/wqn:latest
 docker run -d \
   --name wqn \
   --restart unless-stopped \
-  --memory 1024m \
-  --memory-swap 1024m \
-  --shm-size 64m \
   -p 3000:3000 \
   -e NODE_ENV=production \
   -e NEXT_TELEMETRY_DISABLED=1 \
-  -e NODE_OPTIONS="--max-old-space-size=512" \
   -e NEXT_PUBLIC_SUPABASE_URL="https://xxx.supabase.co" \
   -e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="xxx" \
   -e SUPABASE_SERVICE_ROLE_KEY="xxx" \

@@ -37,8 +37,6 @@ import type { UserProfileType } from '@/lib/schemas';
 import { Loader2, Camera, X, Check, BarChart3, LogOut } from 'lucide-react';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import { UsageLimitsDialog } from '@/components/usage-limits-dialog';
-import { Esp32DeviceCard } from '@/components/esp32/esp32-device-card';
-import { Esp32PairingDialog } from '@/components/esp32/esp32-pairing-dialog';
 
 interface ProfileSheetProps {
   initialProfile: UserProfileType | null;
@@ -49,7 +47,6 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
   const router = useRouter();
   const t = useTranslations('Profile');
   const tCommon = useTranslations('Common');
-  const tEsp32 = useTranslations('ESP32');
 
   // Sheet open state (controlled so we can intercept close)
   const [open, setOpen] = useState(false);
@@ -103,12 +100,6 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
   // Usage dialog state
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
 
-  // ESP32 device state
-  const [devices, setDevices] = useState<any[]>([]);
-  const [devicesLoading, setDevicesLoading] = useState(false);
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
-  const [unpairingId, setUnpairingId] = useState<string | null>(null);
-
   // Save state
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -160,28 +151,6 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
   }, []);
-
-  // Load ESP32 devices when sheet opens
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setDevicesLoading(true);
-    fetch('/api/esp32/devices')
-      .then(r => r.json())
-      .then(json => {
-        if (cancelled) return;
-        if (json.success) setDevices(json.data.devices || []);
-      })
-      .catch(() => {
-        if (cancelled) return;
-      })
-      .finally(() => {
-        if (!cancelled) setDevicesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, pairingDialogOpen]);
 
   const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -433,7 +402,7 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
             {/* Public visibility notice */}
             <p className="text-xs text-muted-foreground rounded-lg bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/40 dark:border-amber-800/30 px-3 py-2">
               Your username, name, and bio are publicly visible on shared
-              problem sets and your creator profile.
+              wrong-question books and your creator profile.
             </p>
 
             {/* Username */}
@@ -593,85 +562,6 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
             {saveError && (
               <p className="text-xs text-destructive">{saveError}</p>
             )}
-
-            {/* ESP32 Devices Section */}
-            <div className="border-t pt-4 mt-2 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4 text-muted-foreground"
-                  >
-                    <rect width="18" height="12" x="3" y="6" rx="2" ry="2" />
-                    <path d="M3 12h18" />
-                    <circle cx="7" cy="12" r="1" fill="currentColor" />
-                  </svg>
-                  <span className="text-sm font-medium">{tEsp32('title')}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setPairingDialogOpen(true)}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-3 w-3 mr-1"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="M12 5v14" />
-                  </svg>
-                  {tEsp32('pairNewDevice')}
-                </Button>
-              </div>
-
-              {devicesLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {tCommon('loading')}
-                </div>
-              ) : devices.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {tEsp32('devices')}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {devices.map(device => (
-                    <Esp32DeviceCard
-                      key={device.id}
-                      device={device}
-                      unpairing={unpairingId === device.id}
-                      onUnpair={async (deviceId: string) => {
-                        setUnpairingId(deviceId);
-                        try {
-                          const res = await fetch(
-                            `/api/esp32/devices?id=${deviceId}`,
-                            { method: 'DELETE' }
-                          );
-                          if (res.ok) {
-                            setDevices(prev => prev.filter(d => d.id !== deviceId));
-                          }
-                        } finally {
-                          setUnpairingId(null);
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
 
           <SheetFooter className="flex-col gap-2 px-4 pb-4">
@@ -729,20 +619,6 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
       <UsageLimitsDialog
         open={usageDialogOpen}
         onOpenChange={setUsageDialogOpen}
-      />
-
-      <Esp32PairingDialog
-        open={pairingDialogOpen}
-        onOpenChange={setPairingDialogOpen}
-        onPairSuccess={() => {
-          setDevicesLoading(true);
-          fetch('/api/esp32/devices')
-            .then(r => r.json())
-            .then(json => {
-              if (json.success) setDevices(json.data.devices || []);
-            })
-            .finally(() => setDevicesLoading(false));
-        }}
       />
 
       <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>

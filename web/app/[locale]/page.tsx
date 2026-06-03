@@ -60,6 +60,7 @@ export default async function Home({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'Landing' });
+  const tNav = await getTranslations({ locale, namespace: 'Navigation' });
   const isSignedIn = await (async () => {
     if (!hasEnvVars) return false;
     const supabase = await createClient();
@@ -103,7 +104,7 @@ export default async function Home({
                   </Button>
                 ) : (
                   <Button asChild size="lg" className="btn-cta-primary">
-                    <Link href="/auth/sign-up">{t('startYourNotebook')}</Link>
+                    <Link href="/auth/sign-up">{t('startFree')}</Link>
                   </Button>
                 )}
                 <Button asChild variant="outline" size="lg" className="btn-cta">
@@ -139,6 +140,13 @@ export default async function Home({
                   >
                     {t('writeMath')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('writeMathDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -206,7 +214,7 @@ export default async function Home({
                   <ScreenshotFrame
                     src="/features/editor-math.png"
                     darkSrc="/features/editor-math-dark.png"
-                    alt="TipTap editor showing a math formula with toolbar"
+                    alt={t('richTextEditorAlt')}
                     placeholderLabel={t('richTextEditor')}
                     accentColor="rose"
                   />
@@ -293,7 +301,7 @@ export default async function Home({
                   <ScreenshotFrame
                     src="/features/smart-sets.png"
                     darkSrc="/features/smart-sets-dark.png"
-                    alt="Smart problem set creation dialog with filter options"
+                    alt={t('smartSetsAlt')}
                     placeholderLabel={t('smartSetsScreenshot')}
                     accentColor="blue"
                   />
@@ -314,6 +322,13 @@ export default async function Home({
                   >
                     {t('problemSetsBuild')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-right"
+                  >
+                    {t('problemSetsBuildDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -454,6 +469,13 @@ export default async function Home({
                   {t('autoClassifies')}
                 </span>
               </div>
+
+              <p
+                className="opacity-0 text-center text-base text-gray-600 dark:text-gray-400 max-w-3xl mx-auto leading-relaxed"
+                data-animate="features-fade-in-up"
+              >
+                {t('snapPhotoDetail')}
+              </p>
             </div>
           </section>
 
@@ -476,6 +498,13 @@ export default async function Home({
                   >
                     {t('studySessions')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('studySessionsDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -544,7 +573,7 @@ export default async function Home({
                     src="/features/review-session.png"
                     darkSrc="/features/review-session-dark.png"
                     alt={t('reviewScreenshot')}
-                    placeholderLabel="Interactive review session"
+                    placeholderLabel={t('reviewScreenshot')}
                     accentColor="green"
                   />
                 </div>
@@ -584,6 +613,13 @@ export default async function Home({
                   >
                     {t('seeProgress')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-right"
+                  >
+                    {t('seeProgressDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -842,7 +878,7 @@ export default async function Home({
               {/* Product links */}
               <div className="flex flex-col items-center md:items-start gap-2">
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Product
+                  {tNav('product')}
                 </h4>
                 <div className="flex flex-col items-center md:items-start gap-1.5 text-sm">
                   <Link
@@ -863,7 +899,7 @@ export default async function Home({
               {/* Legal links */}
               <div className="flex flex-col items-center md:items-start gap-2">
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Legal
+                  {tNav('legal')}
                 </h4>
                 <div className="flex flex-col items-center md:items-start gap-1.5 text-sm">
                   <Link

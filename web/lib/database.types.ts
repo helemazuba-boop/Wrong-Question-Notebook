@@ -144,6 +144,76 @@ export type Database = {
         };
         Relationships: [];
       };
+      esp32_devices: {
+        Row: {
+          access_token: string;
+          created_at: string | null;
+          device_name: string | null;
+          firmware_version: string | null;
+          id: string;
+          last_seen_at: string | null;
+          last_sync_at: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Insert: {
+          access_token: string;
+          created_at?: string | null;
+          device_name?: string | null;
+          firmware_version?: string | null;
+          id?: string;
+          last_seen_at?: string | null;
+          last_sync_at?: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Update: {
+          access_token?: string;
+          created_at?: string | null;
+          device_name?: string | null;
+          firmware_version?: string | null;
+          id?: string;
+          last_seen_at?: string | null;
+          last_sync_at?: string | null;
+          mac_address?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_devices_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      esp32_pairing_pending: {
+        Row: {
+          created_at: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string | null;
+          mac_address?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_pairing_pending_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -589,6 +659,272 @@ export type Database = {
             columns: ['problem_set_id'];
             isOneToOne: false;
             referencedRelation: 'problem_sets';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebook_ai_access: {
+        Row: {
+          can_create: boolean;
+          can_read: boolean;
+          can_update: boolean;
+          created_at: string;
+          id: string;
+          notebook_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          id?: string;
+          notebook_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          id?: string;
+          notebook_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebook_ai_access_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebook_notes: {
+        Row: {
+          archived_at: string | null;
+          content: string;
+          created_at: string;
+          id: string;
+          linked_problem_id: string | null;
+          metadata: Json;
+          notebook_id: string;
+          source: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          content: string;
+          created_at?: string;
+          id?: string;
+          linked_problem_id?: string | null;
+          metadata?: Json;
+          notebook_id: string;
+          source?: string;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          content?: string;
+          created_at?: string;
+          id?: string;
+          linked_problem_id?: string | null;
+          metadata?: Json;
+          notebook_id?: string;
+          source?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebook_notes_linked_problem_id_fkey';
+            columns: ['linked_problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'notebook_notes_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebooks: {
+        Row: {
+          archived_at: string | null;
+          color: string | null;
+          created_at: string;
+          description: string | null;
+          icon: string | null;
+          id: string;
+          subject_id: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          color?: string | null;
+          created_at?: string;
+          description?: string | null;
+          icon?: string | null;
+          id?: string;
+          subject_id: string;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          color?: string | null;
+          created_at?: string;
+          description?: string | null;
+          icon?: string | null;
+          id?: string;
+          subject_id?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebooks_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      todos: {
+        Row: {
+          archived_at: string | null;
+          cancelled_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          created_by: string;
+          description: string | null;
+          due_at: string | null;
+          id: string;
+          metadata: Json;
+          note_id: string | null;
+          notebook_id: string | null;
+          priority: string;
+          problem_id: string | null;
+          problem_set_id: string | null;
+          reminder_at: string | null;
+          source: string;
+          source_conversation_id: string | null;
+          source_device_id: string | null;
+          status: string;
+          subject_id: string | null;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          created_by?: string;
+          description?: string | null;
+          due_at?: string | null;
+          id?: string;
+          metadata?: Json;
+          note_id?: string | null;
+          notebook_id?: string | null;
+          priority?: string;
+          problem_id?: string | null;
+          problem_set_id?: string | null;
+          reminder_at?: string | null;
+          source?: string;
+          source_conversation_id?: string | null;
+          source_device_id?: string | null;
+          status?: string;
+          subject_id?: string | null;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          created_by?: string;
+          description?: string | null;
+          due_at?: string | null;
+          id?: string;
+          metadata?: Json;
+          note_id?: string | null;
+          notebook_id?: string | null;
+          priority?: string;
+          problem_id?: string | null;
+          problem_set_id?: string | null;
+          reminder_at?: string | null;
+          source?: string;
+          source_conversation_id?: string | null;
+          source_device_id?: string | null;
+          status?: string;
+          subject_id?: string | null;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'todos_note_id_fkey';
+            columns: ['note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebook_notes';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_problem_set_id_fkey';
+            columns: ['problem_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_source_device_id_fkey';
+            columns: ['source_device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
             referencedColumns: ['id'];
           },
         ];
