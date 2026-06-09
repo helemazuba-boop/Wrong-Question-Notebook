@@ -44,7 +44,8 @@ type Esp32AiErrorCode =
   | 'rate_limited'
   | 'disabled'
   | 'notebook_permission_denied'
-  | 'todo_failed';
+  | 'todo_failed'
+  | 'word_failed';
 
 function getClientIp(req: NextRequest): string {
   return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';

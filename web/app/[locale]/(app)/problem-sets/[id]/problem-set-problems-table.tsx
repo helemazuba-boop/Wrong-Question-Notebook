@@ -33,6 +33,7 @@ interface ProblemSetProblemsTableProps {
   onProblemsRemoved: (problemIds: string[]) => void;
   allowCopying?: boolean;
   isAuthenticated?: boolean;
+  fromHref?: string;
 }
 
 export default function ProblemSetProblemsTable({
@@ -43,6 +44,7 @@ export default function ProblemSetProblemsTable({
   onProblemsRemoved,
   allowCopying,
   isAuthenticated,
+  fromHref,
 }: ProblemSetProblemsTableProps) {
   const router = useRouter();
   const t = useTranslations('Problems');
@@ -160,8 +162,10 @@ export default function ProblemSetProblemsTable({
 
   const getRowHref = useCallback(
     (problem: Problem) =>
-      `/problem-sets/${problemSetId}/review?problemId=${problem.id}`,
-    [problemSetId]
+      `/problem-sets/${problemSetId}/review?problemId=${problem.id}${
+        fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+      }`,
+    [problemSetId, fromHref]
   );
 
   const handleRowClick = useCallback(
@@ -242,6 +246,7 @@ export default function ProblemSetProblemsTable({
       isSmart,
       allowCopying,
       isAuthenticated,
+      fromHref,
     }),
     [
       handleRemoveFromSet,
@@ -250,6 +255,7 @@ export default function ProblemSetProblemsTable({
       isSmart,
       allowCopying,
       isAuthenticated,
+      fromHref,
     ]
   );
 

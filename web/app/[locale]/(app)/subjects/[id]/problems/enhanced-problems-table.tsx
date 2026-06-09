@@ -28,6 +28,7 @@ export default function EnhancedProblemsTable({
   problemSetProblemIds = [],
   isAddToSetMode = false,
   targetProblemSetId = null,
+  returnToProblemSetHref,
 }: {
   initialProblems: Problem[];
   initialTagsByProblem: Record<string, SimpleTag[]>;
@@ -39,6 +40,7 @@ export default function EnhancedProblemsTable({
   problemSetProblemIds?: string[];
   isAddToSetMode?: boolean;
   targetProblemSetId?: string | null;
+  returnToProblemSetHref?: string;
 }) {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -317,7 +319,9 @@ export default function EnhancedProblemsTable({
         setResetSelection(true);
 
         setTimeout(() => {
-          router.push(`/problem-sets/${targetProblemSetId}`);
+          router.push(
+            returnToProblemSetHref || `/problem-sets/${targetProblemSetId}`
+          );
         }, 1000);
       } catch (error) {
         console.error('Error adding problems to set:', error);

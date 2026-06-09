@@ -2,7 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 
-export type NotebookShelfItemType = 'problem_set' | 'notebook';
+export type NotebookShelfItemType = 'problem_set' | 'notebook' | 'word_deck';
 
 export interface NotebookShelfItem {
   id: string;
@@ -13,6 +13,13 @@ export interface NotebookShelfItem {
   description: string | null;
   count: number;
   updated_at: string | null;
+  metadata?: {
+    source?: string;
+    language?: string;
+    target_language?: string;
+    lexicon_type?: string;
+    is_system?: boolean;
+  };
   ai_access?: {
     can_read: boolean;
     can_create: boolean;
@@ -57,7 +64,7 @@ export async function loadNotebookShelf(
   supabase: SupabaseClient<Database>,
   userId: string
 ): Promise<NotebookShelfItem[]> {
-  const [problemSetsResult, notebooksResult] = await Promise.all([
+  const [problemSetsResult, notebooksResult, wordDecksResult] = await Promise.all([
     supabase
       .from('problem_sets')
       .select('id, name, description, subject_id, updated_at, subjects(name), problem_set_problems(count)')
@@ -67,6 +74,12 @@ export async function loadNotebookShelf(
       .select('id, title, description, subject_id, updated_at, subjects(name), notebook_notes(count), notebook_ai_access(can_read, can_create, can_update)')
       .eq('user_id', userId)
       .is('archived_at', null),
+    (supabase as SupabaseClient<any>)
+      .from('word_decks')
+      .select('id, title, description, source, subject_id, subjects(name), language, target_language, lexicon_type, is_system, updated_at, word_entries(count)')
+      .is('archived_at', null)
+      .eq('is_active', true)
+      .or(`user_id.eq.${userId},is_system.eq.true`),
   ]);
 
   if (problemSetsResult.error) {
@@ -80,6 +93,13 @@ export async function loadNotebookShelf(
     throw new NotebookToolError(
       'database_error',
       notebooksResult.error.message,
+      500
+    );
+  }
+  if (wordDecksResult.error) {
+    throw new NotebookToolError(
+      'database_error',
+      wordDecksResult.error.message,
       500
     );
   }
@@ -116,7 +136,25 @@ export async function loadNotebookShelf(
     };
   });
 
-  return [...problemSets, ...notebooks].sort((a, b) => {
+  const wordDecks = (wordDecksResult.data || []).map((item: any) => ({
+    id: item.id,
+    type: 'word_deck' as const,
+    title: item.title,
+    subject_id: item.subject_id || '',
+    subject_name: item.subjects?.name || '',
+    description: item.description,
+    count: normalizeCount(item.word_entries),
+    updated_at: item.updated_at,
+    metadata: {
+      source: item.source || 'user',
+      language: item.language || 'en',
+      target_language: item.target_language || 'zh-CN',
+      lexicon_type: item.lexicon_type || 'english_word',
+      is_system: Boolean(item.is_system),
+    },
+  }));
+
+  return [...problemSets, ...notebooks, ...wordDecks].sort((a, b) => {
     const left = a.updated_at ? Date.parse(a.updated_at) : 0;
     const right = b.updated_at ? Date.parse(b.updated_at) : 0;
     return right - left;

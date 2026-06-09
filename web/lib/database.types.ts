@@ -808,6 +808,227 @@ export type Database = {
           },
         ];
       };
+      word_deck_ai_access: {
+        Row: {
+          can_create: boolean;
+          can_read: boolean;
+          can_update: boolean;
+          created_at: string;
+          deck_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          deck_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          deck_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_deck_ai_access_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_decks: {
+        Row: {
+          archived_at: string | null;
+          created_at: string;
+          description: string | null;
+          id: string;
+          is_active: boolean;
+          is_system: boolean;
+          language: string;
+          lexicon_type: string;
+          metadata: Json;
+          revision: number;
+          source: string;
+          subject_id: string | null;
+          target_language: string;
+          title: string;
+          updated_at: string;
+          user_id: string | null;
+        };
+        Insert: {
+          archived_at?: string | null;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          is_system?: boolean;
+          language?: string;
+          lexicon_type?: string;
+          metadata?: Json;
+          revision?: number;
+          source?: string;
+          subject_id?: string | null;
+          target_language?: string;
+          title: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          archived_at?: string | null;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          is_system?: boolean;
+          language?: string;
+          lexicon_type?: string;
+          metadata?: Json;
+          revision?: number;
+          source?: string;
+          subject_id?: string | null;
+          target_language?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_decks_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_entries: {
+        Row: {
+          created_at: string;
+          deck_id: string;
+          example: string | null;
+          example_translation: string | null;
+          id: string;
+          meaning: string;
+          metadata: Json;
+          normalized_word: string;
+          part_of_speech: string | null;
+          phonetic: string | null;
+          revision: number;
+          sort_index: number;
+          tags: string[];
+          updated_at: string;
+          word: string;
+        };
+        Insert: {
+          created_at?: string;
+          deck_id: string;
+          example?: string | null;
+          example_translation?: string | null;
+          id?: string;
+          meaning: string;
+          metadata?: Json;
+          normalized_word: string;
+          part_of_speech?: string | null;
+          phonetic?: string | null;
+          revision?: number;
+          sort_index?: number;
+          tags?: string[];
+          updated_at?: string;
+          word: string;
+        };
+        Update: {
+          created_at?: string;
+          deck_id?: string;
+          example?: string | null;
+          example_translation?: string | null;
+          id?: string;
+          meaning?: string;
+          metadata?: Json;
+          normalized_word?: string;
+          part_of_speech?: string | null;
+          phonetic?: string | null;
+          revision?: number;
+          sort_index?: number;
+          tags?: string[];
+          updated_at?: string;
+          word?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_entries_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_packs: {
+        Row: {
+          byte_size: number;
+          compression: string;
+          created_at: string;
+          deck_id: string;
+          entry_count: number;
+          format: string;
+          id: string;
+          revision: number;
+          schema_version: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          updated_at: string;
+        };
+        Insert: {
+          byte_size: number;
+          compression?: string;
+          created_at?: string;
+          deck_id: string;
+          entry_count: number;
+          format?: string;
+          id?: string;
+          revision: number;
+          schema_version?: number;
+          sha256: string;
+          status?: string;
+          storage_path: string;
+          updated_at?: string;
+        };
+        Update: {
+          byte_size?: number;
+          compression?: string;
+          created_at?: string;
+          deck_id?: string;
+          entry_count?: number;
+          format?: string;
+          id?: string;
+          revision?: number;
+          schema_version?: number;
+          sha256?: string;
+          status?: string;
+          storage_path?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_packs_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       todos: {
         Row: {
           archived_at: string | null;

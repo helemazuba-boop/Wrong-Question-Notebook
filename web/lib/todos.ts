@@ -40,7 +40,23 @@ export interface Esp32TodoItem {
   priority: TodoPriority;
   due_at: string | null;
   reminder_at: string | null;
+  timeline_at: string | null;
   subject_name: string;
+  updated_at: string;
+}
+
+export interface Esp32TodoTimeline {
+  scope: 'timeline';
+  todos: Esp32TodoItem[];
+  selected_index: number;
+  selected_todo_id: string | null;
+  previous_cursor: string | null;
+  next_cursor: string | null;
+  has_earlier: boolean;
+  has_later: boolean;
+  has_more: boolean;
+  total: number;
+  server_time: string;
 }
 
 export interface TodoCreatedAction {
@@ -81,6 +97,9 @@ export class TodoToolError extends Error {
 
 const VALID_STATUSES: TodoStatus[] = ['pending', 'completed', 'cancelled'];
 const VALID_PRIORITIES: TodoPriority[] = ['low', 'normal', 'high'];
+const TODO_SELECT_COLUMNS =
+  'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)';
+const ESP32_TIMELINE_MAX_ROWS = 200;
 
 function normalizeStatus(value: string): TodoStatus {
   if (VALID_STATUSES.includes(value as TodoStatus)) {
@@ -136,6 +155,15 @@ function sanitizeTimestamp(value?: string | null): string | null {
 function limitWithin(value: number | undefined, min: number, max: number): number {
   if (!Number.isFinite(value)) return max;
   return Math.min(Math.max(Math.trunc(value || max), min), max);
+}
+
+function parseOptionalTimestamp(value?: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TodoToolError('invalid_request', 'Invalid timestamp', 400);
+  }
+  return parsed.toISOString();
 }
 
 function mapTodoRow(row: any): TodoListItem {
@@ -279,23 +307,24 @@ export async function loadTodos(
   filters: {
     status?: TodoStatus | 'all';
     subject_id?: string | null;
+    due_before?: string | null;
     limit?: number;
   } = {}
 ): Promise<TodoListItem[]> {
   const status = filters.status || 'pending';
-  const limit = limitWithin(filters.limit, 1, 100);
+  const limit = limitWithin(filters.limit, 1, 50);
+  const dueBefore = parseOptionalTimestamp(filters.due_before);
 
   let query = supabase
     .from('todos')
-    .select(
-      'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)'
-    )
+    .select(TODO_SELECT_COLUMNS)
     .eq('user_id', userId)
     .is('archived_at', null)
     .limit(limit);
 
   if (status !== 'all') query = query.eq('status', status);
   if (filters.subject_id) query = query.eq('subject_id', filters.subject_id);
+  if (dueBefore) query = query.lte('due_at', dueBefore);
 
   const { data, error } = await query
     .order('status', { ascending: false })
@@ -313,9 +342,7 @@ export async function getTodoById(
 ): Promise<TodoListItem> {
   const { data, error } = await supabase
     .from('todos')
-    .select(
-      'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)'
-    )
+    .select(TODO_SELECT_COLUMNS)
     .eq('id', todoId)
     .eq('user_id', userId)
     .is('archived_at', null)
@@ -374,9 +401,7 @@ export async function createTodo(
   const { data, error } = await supabase
     .from('todos')
     .insert(insertPayload)
-    .select(
-      'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)'
-    )
+    .select(TODO_SELECT_COLUMNS)
     .single();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
@@ -428,9 +453,7 @@ export async function updateTodo(
     .update(updatePayload)
     .eq('id', todoId)
     .eq('user_id', userId)
-    .select(
-      'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)'
-    )
+    .select(TODO_SELECT_COLUMNS)
     .single();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
@@ -458,9 +481,7 @@ export async function updateTodoStatus(
     .update(updatePayload)
     .eq('id', todoId)
     .eq('user_id', userId)
-    .select(
-      'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)'
-    )
+    .select(TODO_SELECT_COLUMNS)
     .single();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
@@ -488,12 +509,71 @@ export async function loadEsp32TodayTodos(
   userId: string,
   limit = 8
 ): Promise<Esp32TodoItem[]> {
-  const todos = await loadTodos(supabase, userId, {
-    status: 'pending',
-    limit: limitWithin(limit, 1, 8),
+  const timeline = await loadEsp32TodoTimeline(supabase, userId, { limit });
+
+  return timeline.todos;
+}
+
+function getTodoTimelineAt(todo: TodoListItem): string | null {
+  return todo.due_at || todo.reminder_at || todo.created_at || todo.updated_at || null;
+}
+
+function getTodoTimelineTime(todo: TodoListItem): number {
+  const timestamp = getTodoTimelineAt(todo);
+  const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function compareTodoTimeline(a: TodoListItem, b: TodoListItem): number {
+  const timeDiff = getTodoTimelineTime(a) - getTodoTimelineTime(b);
+  if (timeDiff !== 0) return timeDiff;
+  return Date.parse(a.updated_at) - Date.parse(b.updated_at);
+}
+
+function encodeTodoCursor(offset: number, selected: 'first' | 'last'): string {
+  return Buffer.from(JSON.stringify({ offset, selected }), 'utf8').toString(
+    'base64url'
+  );
+}
+
+function parseTodoCursor(
+  value?: string | null
+): { offset: number; selected?: 'first' | 'last' } | null {
+  if (!value) return null;
+  const numericOffset = Number.parseInt(value, 10);
+  if (Number.isFinite(numericOffset)) {
+    return { offset: Math.max(numericOffset, 0) };
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    const offset = Number.parseInt(String(parsed?.offset ?? 0), 10);
+    const selected = parsed?.selected === 'last' ? 'last' : 'first';
+    return { offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0, selected };
+  } catch {
+    throw new TodoToolError('invalid_request', 'Invalid Todo cursor', 400);
+  }
+}
+
+function findClosestTodoIndex(todos: TodoListItem[], serverTime: string): number {
+  if (todos.length === 0) return -1;
+  const now = Date.parse(serverTime);
+  let selectedIndex = 0;
+  let selectedDistance = Number.POSITIVE_INFINITY;
+
+  todos.forEach((todo, index) => {
+    const distance = Math.abs(getTodoTimelineTime(todo) - now);
+    if (distance < selectedDistance) {
+      selectedIndex = index;
+      selectedDistance = distance;
+    }
   });
 
-  return todos.map(todo => ({
+  return selectedIndex;
+}
+
+function mapEsp32TodoItem(todo: TodoListItem): Esp32TodoItem {
+  return {
     id: todo.id,
     title: todo.title,
     description: todo.description || '',
@@ -501,8 +581,74 @@ export async function loadEsp32TodayTodos(
     priority: todo.priority,
     due_at: todo.due_at,
     reminder_at: todo.reminder_at,
+    timeline_at: getTodoTimelineAt(todo),
     subject_name: todo.subject_name,
-  }));
+    updated_at: todo.updated_at,
+  };
+}
+
+export async function loadEsp32TodoTimeline(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  input: { limit?: number; cursor?: string | null; server_time?: string | null } = {}
+): Promise<Esp32TodoTimeline> {
+  const limit = limitWithin(input.limit, 1, 24);
+  const serverTime = parseOptionalTimestamp(input.server_time) || new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('todos')
+    .select(TODO_SELECT_COLUMNS)
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .is('archived_at', null)
+    .order('due_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+    .limit(ESP32_TIMELINE_MAX_ROWS);
+
+  if (error) throw new TodoToolError('database_error', error.message, 500);
+
+  const allTodos = (data || []).map(mapTodoRow).sort(compareTodoTimeline);
+  const total = allTodos.length;
+  const maxStart = Math.max(total - limit, 0);
+  const closestIndex = findClosestTodoIndex(allTodos, serverTime);
+  const cursor = parseTodoCursor(input.cursor);
+  const defaultStart =
+    closestIndex >= 0 ? closestIndex - Math.floor(limit / 2) : 0;
+  const start = Math.min(Math.max(cursor?.offset ?? defaultStart, 0), maxStart);
+  const windowTodos = allTodos.slice(start, start + limit);
+
+  let selectedIndex = -1;
+  if (windowTodos.length > 0) {
+    if (cursor?.selected === 'last') {
+      selectedIndex = windowTodos.length - 1;
+    } else if (cursor?.selected === 'first') {
+      selectedIndex = 0;
+    } else {
+      selectedIndex = Math.min(Math.max(closestIndex - start, 0), windowTodos.length - 1);
+    }
+  }
+
+  const hasEarlier = start > 0;
+  const hasLater = start + windowTodos.length < total;
+
+  return {
+    scope: 'timeline',
+    todos: windowTodos.map(mapEsp32TodoItem),
+    selected_index: selectedIndex,
+    selected_todo_id:
+      selectedIndex >= 0 ? windowTodos[selectedIndex]?.id ?? null : null,
+    previous_cursor: hasEarlier
+      ? encodeTodoCursor(Math.max(start - limit, 0), 'last')
+      : null,
+    next_cursor: hasLater
+      ? encodeTodoCursor(Math.min(start + limit, maxStart), 'first')
+      : null,
+    has_earlier: hasEarlier,
+    has_later: hasLater,
+    has_more: hasLater,
+    total,
+    server_time: serverTime,
+  };
 }
 
 export async function completeTodoFromDevice(

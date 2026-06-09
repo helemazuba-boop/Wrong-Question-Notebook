@@ -13,6 +13,7 @@ import {
   createProblemSetCacheTag,
   createUserCacheTag,
 } from '@/lib/cache-config';
+import { isSafeInternalHref } from '@/lib/navigation-context';
 
 export async function generateMetadata({
   params,
@@ -192,10 +193,7 @@ export default async function ProblemSetPage({
   }
 
   // Sanitize `from` param to prevent open-redirect via external URLs
-  const backHref =
-    from && from.startsWith('/') && !from.startsWith('//')
-      ? from
-      : '/problem-sets';
+  const backHref = isSafeInternalHref(from) ? from : '/subjects';
 
   return (
     <ProblemSetPageClient

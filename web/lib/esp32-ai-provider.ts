@@ -21,6 +21,18 @@ import {
   type TodoStatus,
   type TodoToolContext,
 } from '@/lib/todos';
+import {
+  addWordEntryToDeck,
+  createWordDeck,
+  listAuthorizedWordDecks,
+  recordWordReview,
+  searchWords,
+  WordToolError,
+  type WordAiAction,
+  type WordReviewMode,
+  type WordReviewOutcome,
+  type WordToolContext,
+} from '@/lib/words';
 import { createServiceClient } from '@/lib/supabase-utils';
 
 export type Esp32AiProviderErrorCode =
@@ -30,7 +42,8 @@ export type Esp32AiProviderErrorCode =
   | 'model_failed'
   | 'rate_limited'
   | 'notebook_permission_denied'
-  | 'todo_failed';
+  | 'todo_failed'
+  | 'word_failed';
 
 export class Esp32AiProviderError extends Error {
   constructor(
@@ -64,8 +77,18 @@ export interface Esp32AiProviderResult {
   functionCalls: Esp32AiFunctionCallSummary[];
 }
 
-type Esp32AiAction = NotebookAiAction | TodoAiAction;
-type Esp32AiToolContext = NotebookToolContext & TodoToolContext;
+export interface Esp32WordAiLookupResult {
+  word: string;
+  normalized_word: string;
+  meaning: string;
+  example: string | null;
+  example_translation: string | null;
+  part_of_speech: string | null;
+  temporary: true;
+}
+
+type Esp32AiAction = NotebookAiAction | TodoAiAction | WordAiAction;
+type Esp32AiToolContext = NotebookToolContext & TodoToolContext & WordToolContext;
 
 type Esp32AiTraceStatus =
   | 'started'
@@ -208,7 +231,11 @@ function createStatusTracker(startedAt = Date.now()): StatusTracker {
 }
 
 function actionTitle(action: Esp32AiAction): string {
-  return action.title?.trim() || (action.type === 'notebook_note_created' ? '笔记' : 'Todo');
+  if ('title' in action && action.title?.trim()) return action.title.trim();
+  if (action.type === 'notebook_note_created') return '笔记';
+  if (action.type.startsWith('word_') && 'word' in action) return action.word;
+  if (action.type.startsWith('word_')) return '单词';
+  return 'Todo';
 }
 
 function summarizeAction(action: Esp32AiAction): string {
@@ -229,6 +256,18 @@ function summarizeAction(action: Esp32AiAction): string {
       return `已恢复 Todo：${actionTitle(action)}`;
     }
     return `已更新 Todo：${actionTitle(action)}`;
+  }
+  if (action.type === 'word_deck_created') {
+    return `已创建词库：${actionTitle(action)}`;
+  }
+  if (action.type === 'word_added_to_deck') {
+    return `已加入词库：${actionTitle(action)}`;
+  }
+  if (action.type === 'word_review_recorded') {
+    return `已记录单词：${actionTitle(action)}`;
+  }
+  if (action.type === 'word_added_to_mistakes') {
+    return `已加入错词本：${actionTitle(action)}`;
   }
   return '已完成操作';
 }
@@ -254,6 +293,11 @@ function safeToolCallDisplay(name: string): string {
   if (name === 'list_todos') return '读取 Todo';
   if (name === 'create_todo') return '创建 Todo';
   if (name === 'update_todo_status') return '更新 Todo';
+  if (name === 'list_word_decks') return '读取词库';
+  if (name === 'create_word_deck') return '创建词库';
+  if (name === 'add_word_to_deck') return '添加单词';
+  if (name === 'search_words') return '查询单词';
+  if (name === 'record_word_review') return '记录单词复习';
   return name ? `调用工具：${name}` : '调用工具';
 }
 
@@ -326,6 +370,9 @@ const AI_TOOL_PROMPT = [
   '不要声称已经写入笔记或 Todo，除非 create_notebook_note、create_todo 或 update_todo_status 工具返回成功。',
   '错题本只用于读取错题名称和详情；空白笔记本才允许创建笔记。',
   'Todo 是顶层行动清单，不属于笔记本架。Todo 状态只允许 pending、completed、cancelled。',
+  '词库是笔记本架中的第三类内容，类型是 word_deck；它不是 Notebook。设备端仍通过 Word 顶层学习页复习词库。',
+  '用户标记不认识的单词时，只能通过 record_word_review outcome=unknown 让服务器加入预设错词本，不要手写错题或笔记。',
+  '不要声称已经创建词库、添加单词或记录复习，除非 create_word_deck、add_word_to_deck 或 record_word_review 工具返回成功。',
   '如果没有合适授权或缺少 ID，直接说明需要用户先授权或选择目标。不要编造 notebook_id、problem_id 或 todo_id。',
 ].join('\n');
 
@@ -394,7 +441,104 @@ const TODO_TOOLS = [
   },
 ] as const;
 
-const AI_TOOLS = [...NOTEBOOK_TOOLS, ...TODO_TOOLS] as const;
+const WORD_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_word_decks',
+      description: '列出当前用户可访问或授权给 AI 的词库。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_word_deck',
+      description: '为当前用户创建一个空白词库。词库会出现在笔记本架中，类型是 word_deck，不是 Notebook。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '词库名称，最大 120 字符' },
+          description: { type: 'string', description: '可选说明，最大 1000 字符' },
+          subject_id: { type: 'string', description: '可选科目/归档 ID' },
+          language: { type: 'string', description: '源语言，默认 en' },
+          target_language: { type: 'string', description: '目标语言，默认 zh-CN' },
+          lexicon_type: {
+            type: 'string',
+            enum: ['english_word', 'classical_chinese_term'],
+            description: '词库类型。本阶段默认 english_word；classical_chinese_term 仅作预留。',
+          },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_word_to_deck',
+      description: '向用户拥有的非系统词库添加或更新一个单词。',
+      parameters: {
+        type: 'object',
+        properties: {
+          deck_id: { type: 'string', description: '目标词库 ID' },
+          word: { type: 'string', description: '英文单词或短语' },
+          phonetic: { type: 'string', description: '可选音标' },
+          meaning: { type: 'string', description: '中文释义' },
+          example: { type: 'string', description: '可选例句' },
+          example_translation: { type: 'string', description: '可选例句翻译' },
+          part_of_speech: { type: 'string', description: '可选词性' },
+        },
+        required: ['deck_id', 'word', 'meaning'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_words',
+      description: '按前缀或关键词查询当前用户可访问的词库单词。',
+      parameters: {
+        type: 'object',
+        properties: {
+          q: { type: 'string', description: '查询关键词' },
+          prefix: { type: 'string', description: '单词前缀' },
+          deck_id: { type: 'string', description: '可选词库 ID' },
+          limit: { type: 'number', description: '返回数量，最大 20' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'record_word_review',
+      description: '记录用户对一个单词的复习结果。unknown 会由服务器加入预设错词本。',
+      parameters: {
+        type: 'object',
+        properties: {
+          word_entry_id: { type: 'string', description: '单词条目 ID' },
+          outcome: {
+            type: 'string',
+            enum: ['known', 'unknown', 'skip'],
+            description: '复习结果',
+          },
+          mode: {
+            type: 'string',
+            enum: ['sequential', 'random', 'dictionary'],
+            description: '复习模式，默认 sequential',
+          },
+        },
+        required: ['word_entry_id', 'outcome'],
+      },
+    },
+  },
+] as const;
+
+const AI_TOOLS = [...NOTEBOOK_TOOLS, ...TODO_TOOLS, ...WORD_TOOLS] as const;
 
 function isDashScopeProviderConfigured(): boolean {
   return (
@@ -403,6 +547,10 @@ function isDashScopeProviderConfigured(): boolean {
     (process.env.WQN_ESP32_AI_CHAT_PROVIDER || DASH_SCOPE_PROVIDER) ===
       DASH_SCOPE_PROVIDER
   );
+}
+
+function normalizeLookupWord(value: string): string {
+  return value.trim().slice(0, 80).toLocaleLowerCase('en-US');
 }
 
 function getPositiveIntegerEnv(name: string, fallback: number): number {
@@ -496,6 +644,39 @@ function extractChatText(response: DashScopeChatResponse): string {
   if (messageText) return messageText;
 
   return (response.output?.text || '').trim();
+}
+
+function extractJsonObject(text: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // fall through to provider error below
+      }
+    }
+  }
+
+  throw new Esp32AiProviderError(
+    'model_failed',
+    'AI lookup response was not valid JSON',
+    500
+  );
+}
+
+function optionalLookupString(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, max);
+  return trimmed || null;
 }
 
 function extractTranscriptFromUnknown(value: unknown): string {
@@ -995,6 +1176,39 @@ function todoPriorityArg(
   );
 }
 
+function wordReviewOutcomeArg(
+  args: Record<string, unknown>,
+  key: string,
+  required = false
+): WordReviewOutcome | null {
+  const value = stringArg(args, key, required);
+  if (!value) return null;
+  if (['known', 'unknown', 'skip'].includes(value)) {
+    return value as WordReviewOutcome;
+  }
+  throw new WordToolError(
+    'invalid_tool_arguments',
+    `Invalid word review outcome: ${value}`,
+    400
+  );
+}
+
+function wordReviewModeArg(
+  args: Record<string, unknown>,
+  key: string
+): WordReviewMode | undefined {
+  const value = stringArg(args, key);
+  if (!value) return undefined;
+  if (['sequential', 'random', 'dictionary'].includes(value)) {
+    return value as WordReviewMode;
+  }
+  throw new WordToolError(
+    'invalid_tool_arguments',
+    `Invalid word review mode: ${value}`,
+    400
+  );
+}
+
 function safeToolErrorPayload(error: unknown) {
   if (error instanceof NotebookToolError) {
     return {
@@ -1011,6 +1225,15 @@ function safeToolErrorPayload(error: unknown) {
       message:
         error.code === 'database_error'
           ? 'Todo database operation failed'
+          : error.message,
+    };
+  }
+  if (error instanceof WordToolError) {
+    return {
+      code: error.code,
+      message:
+        error.code === 'database_error'
+          ? 'Word database operation failed'
           : error.message,
     };
   }
@@ -1150,6 +1373,86 @@ async function executeAiToolCall(
       actions.push(result.action);
       functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
       return { success: true, data: result.todo };
+    }
+
+    if (name === 'list_word_decks') {
+      const data = await listAuthorizedWordDecks(ctx);
+      functionCalls?.push({
+        name,
+        status: 'succeeded',
+        display: safeToolCallDisplay(name),
+      });
+      return { success: true, data };
+    }
+
+    if (name === 'create_word_deck') {
+      const beforeCount = actions.length;
+      const result = await createWordDeck(ctx.supabase, ctx.userId, {
+        title: stringArg(args, 'title', true)!,
+        description: stringArg(args, 'description'),
+        subject_id: stringArg(args, 'subject_id'),
+        language: stringArg(args, 'language') || undefined,
+        target_language: stringArg(args, 'target_language') || undefined,
+        lexicon_type:
+          stringArg(args, 'lexicon_type') === 'classical_chinese_term'
+            ? 'classical_chinese_term'
+            : 'english_word',
+        source: 'ai',
+      });
+      actions.push(result.action);
+      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
+      return { success: true, data: result.deck };
+    }
+
+    if (name === 'add_word_to_deck') {
+      const beforeCount = actions.length;
+      const result = await addWordEntryToDeck(
+        ctx.supabase,
+        ctx.userId,
+        stringArg(args, 'deck_id', true)!,
+        {
+          word: stringArg(args, 'word', true)!,
+          phonetic: stringArg(args, 'phonetic'),
+          meaning: stringArg(args, 'meaning', true)!,
+          example: stringArg(args, 'example'),
+          example_translation: stringArg(args, 'example_translation'),
+          part_of_speech: stringArg(args, 'part_of_speech'),
+        }
+      );
+      actions.push(result.action);
+      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
+      return { success: true, data: result.entry };
+    }
+
+    if (name === 'search_words') {
+      const data = await searchWords(ctx.supabase, ctx.userId, {
+        q: stringArg(args, 'q'),
+        prefix: stringArg(args, 'prefix'),
+        deck_id: stringArg(args, 'deck_id'),
+        limit: numberArg(args, 'limit'),
+      });
+      functionCalls?.push({
+        name,
+        status: 'succeeded',
+        display: safeToolCallDisplay(name),
+      });
+      return { success: true, data: { words: data } };
+    }
+
+    if (name === 'record_word_review') {
+      const beforeCount = actions.length;
+      const outcome = wordReviewOutcomeArg(args, 'outcome', true)!;
+      const result = await recordWordReview(ctx, {
+        word_entry_id: stringArg(args, 'word_entry_id', true)!,
+        outcome,
+        mode: wordReviewModeArg(args, 'mode'),
+      });
+      actions.push(result.action, ...result.extra_actions);
+      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
+      return {
+        success: true,
+        data: { action: result.action, actions: [result.action, ...result.extra_actions] },
+      };
     }
 
     functionCalls?.push({
@@ -1300,6 +1603,86 @@ async function runDashScopeChat(
 
 export function isEsp32AiProviderConfigured(): boolean {
   return Boolean(getProviderConfig());
+}
+
+export async function runEsp32WordAiLookup(input: {
+  word: string;
+  context?: string | null;
+}): Promise<Esp32WordAiLookupResult> {
+  const config = getProviderConfig();
+  if (!config) {
+    throw new Esp32AiProviderError(
+      'disabled',
+      'ESP32 word AI lookup is disabled',
+      503
+    );
+  }
+
+  const word = input.word.trim().slice(0, 80);
+  if (!word) {
+    throw new Esp32AiProviderError(
+      'model_failed',
+      'Lookup word is required',
+      400
+    );
+  }
+
+  const response = await fetchJsonWithTimeout<DashScopeChatResponse>(
+    `${config.openAiBaseUrl}/chat/completions`,
+    {
+      method: 'POST',
+      headers: createDashScopeAuthHeaders(config),
+      body: JSON.stringify({
+        model: config.chatModel,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Return only compact JSON for an English vocabulary lookup. Schema: {"meaning":"中文释义","example":"English example","example_translation":"中文例句翻译","part_of_speech":"词性"}. Do not include markdown.',
+          },
+          {
+            role: 'user',
+            content: input.context
+              ? `word: ${word}\ncontext: ${input.context.slice(0, 500)}`
+              : `word: ${word}`,
+          },
+        ],
+        stream: false,
+        temperature: 0.2,
+      }),
+    },
+    config.timeoutMs,
+    'chat'
+  );
+
+  const raw = extractChatText(response);
+  if (!raw) {
+    throw new Esp32AiProviderError(
+      'model_failed',
+      'AI lookup response was empty',
+      500
+    );
+  }
+
+  const parsed = extractJsonObject(raw);
+  const meaning = optionalLookupString(parsed.meaning, 1000);
+  if (!meaning) {
+    throw new Esp32AiProviderError(
+      'model_failed',
+      'AI lookup response did not contain meaning',
+      500
+    );
+  }
+
+  return {
+    word,
+    normalized_word: normalizeLookupWord(word),
+    meaning,
+    example: optionalLookupString(parsed.example, 1000),
+    example_translation: optionalLookupString(parsed.example_translation, 1000),
+    part_of_speech: optionalLookupString(parsed.part_of_speech, 64),
+    temporary: true,
+  };
 }
 
 export async function runEsp32AiProvider(

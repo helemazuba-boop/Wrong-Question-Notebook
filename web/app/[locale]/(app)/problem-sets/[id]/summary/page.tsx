@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/supabase/requireUser';
 import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import SummaryClient from './summary-client';
+import { isSafeInternalHref } from '@/lib/navigation-context';
 
 export async function generateMetadata() {
   const t = await getTranslations('Metadata');
@@ -14,10 +15,10 @@ export default async function SummaryPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ sessionId?: string }>;
+  searchParams: Promise<{ sessionId?: string; from?: string }>;
 }) {
   const { id } = await params;
-  const { sessionId } = await searchParams;
+  const { sessionId, from } = await searchParams;
 
   if (!sessionId) {
     notFound();
@@ -47,6 +48,7 @@ export default async function SummaryPage({
       sessionId={sessionId}
       problemSetName={problemSet.name}
       subjectName={(problemSet as any).subjects?.name || 'Unknown'}
+      fromHref={isSafeInternalHref(from) ? from : '/subjects'}
     />
   );
 }

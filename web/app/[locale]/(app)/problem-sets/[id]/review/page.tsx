@@ -8,6 +8,7 @@ import { BackLink } from '@/components/back-link';
 import { getFilteredProblems } from '@/lib/review-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { FilterConfig } from '@/lib/types';
+import { appendFromParam, isSafeInternalHref } from '@/lib/navigation-context';
 
 export async function generateMetadata({
   params,
@@ -148,17 +149,23 @@ export default async function ProblemSetReviewPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ problemId?: string; sessionId?: string }>;
+  searchParams: Promise<{ problemId?: string; sessionId?: string; from?: string }>;
 }) {
   const t = await getTranslations('ProblemSets');
   const { id } = await params;
-  const { problemId, sessionId } = await searchParams;
+  const { problemId, sessionId, from } = await searchParams;
   const { user } = await requireUser();
+  const backHref = isSafeInternalHref(from) ? from : '/subjects';
+  const problemSetHref = appendFromParam(`/problem-sets/${id}`, backHref);
 
   // Session-based review requires authentication (sessions are tied to user_id)
   if (sessionId) {
     if (!user) {
-      redirect(`/auth/login?redirect=/problem-sets/${id}/review`);
+      redirect(
+        `/auth/login?redirect=${encodeURIComponent(
+          appendFromParam(`/problem-sets/${id}/review`, backHref)
+        )}`
+      );
     }
 
     const problemSet = await loadProblemSet(id);
@@ -174,6 +181,7 @@ export default async function ProblemSetReviewPage({
         subjectName={problemSet.subject_name}
         isReadOnly={!problemSet.isOwner}
         allowCopying={!problemSet.isOwner && problemSet.allow_copying}
+        fromHref={backHref}
       />
     );
   }
@@ -183,7 +191,11 @@ export default async function ProblemSetReviewPage({
   if (!problemSet) {
     // If no user and problem set not found (could be private), redirect to login
     if (!user) {
-      redirect(`/auth/login?redirect=/problem-sets/${id}/review`);
+      redirect(
+        `/auth/login?redirect=${encodeURIComponent(
+          appendFromParam(`/problem-sets/${id}/review`, backHref)
+        )}`
+      );
     }
     notFound();
   }
@@ -203,7 +215,7 @@ export default async function ProblemSetReviewPage({
           <p className="text-muted-foreground mb-4">
             {t('thisProblemSetHasNoProblemsYet')}
           </p>
-          <BackLink href={`/problem-sets/${id}`}>{t('backToSet')}</BackLink>
+          <BackLink href={problemSetHref}>{t('backToSet')}</BackLink>
         </div>
       </div>
     );
@@ -219,7 +231,10 @@ export default async function ProblemSetReviewPage({
             {t('redirectingToFirstProblem')}
           </p>
           <script>
-            {`window.location.href = '/problem-sets/${id}/review?problemId=${problems[0].id}';`}
+            {`window.location.href = '${appendFromParam(
+              `/problem-sets/${id}/review?problemId=${problems[0].id}`,
+              backHref
+            )}';`}
           </script>
         </div>
       </div>
@@ -252,6 +267,8 @@ export default async function ProblemSetReviewPage({
       allowCopying={!problemSet.isOwner && problemSet.allow_copying}
       copyProblemSetId={id}
       isAuthenticated={!!user}
+      backHref={problemSetHref}
+      fromHref={backHref}
     />
   );
 }

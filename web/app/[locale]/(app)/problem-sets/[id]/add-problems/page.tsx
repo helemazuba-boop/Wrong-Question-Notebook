@@ -87,10 +87,13 @@ async function loadProblemSetProblems(problemSetId: string) {
 
 export default async function AddProblemsToSetPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
 
   const problemSet = await loadProblemSet(id);
   if (!problemSet) {
@@ -110,6 +113,7 @@ export default async function AddProblemsToSetPage({
       tagsByProblem={tagsByProblem}
       availableTags={availableTags}
       problemSetProblemIds={problemSetProblemIds}
+      fromHref={from}
     />
   );
 }

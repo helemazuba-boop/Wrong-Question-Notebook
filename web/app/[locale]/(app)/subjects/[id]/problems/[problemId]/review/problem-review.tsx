@@ -94,6 +94,10 @@ interface ProblemReviewProps {
   copyProblemSetId?: string;
   /** Whether the current viewer is authenticated */
   isAuthenticated?: boolean;
+  /** Explicit destination for the built-in back link. */
+  backHref?: string;
+  /** Original list/source route to keep when navigating inside a problem set. */
+  fromHref?: string;
 }
 
 export default function ProblemReview({
@@ -115,6 +119,8 @@ export default function ProblemReview({
   allowCopying,
   copyProblemSetId,
   isAuthenticated = true,
+  backHref,
+  fromHref,
 }: ProblemReviewProps) {
   const tProblemSets = useTranslations('ProblemSets');
   const tProblems = useTranslations('Problems');
@@ -289,7 +295,9 @@ export default function ProblemReview({
   const navigateToProblem = (problemId: string) => {
     if (isProblemSetMode && problemSetId) {
       router.push(
-        `/problem-sets/${problemSetId}/review?problemId=${problemId}`
+        `/problem-sets/${problemSetId}/review?problemId=${problemId}${
+          fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+        }`
       );
     } else {
       router.push(`/subjects/${subject.id}/problems/${problemId}/review`);
@@ -381,7 +389,7 @@ export default function ProblemReview({
               <BackLink
                 href={
                   isProblemSetMode
-                    ? `/problem-sets/${problemSetId}`
+                    ? backHref || `/problem-sets/${problemSetId}`
                     : `/subjects/${subject.id}/problems`
                 }
               >
@@ -664,8 +672,11 @@ export default function ProblemReview({
                   if (isAuthenticated) {
                     setCopyDialogOpen(true);
                   } else {
+                    const redirectHref = `/problem-sets/${copyProblemSetId}/review?problemId=${problem.id}${
+                      fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+                    }`;
                     router.push(
-                      `/auth/sign-up?redirect=${encodeURIComponent(`/problem-sets/${copyProblemSetId}/review?problemId=${problem.id}`)}`
+                      `/auth/sign-up?redirect=${encodeURIComponent(redirectHref)}`
                     );
                   }
                 }}

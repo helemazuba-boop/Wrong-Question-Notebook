@@ -29,8 +29,8 @@ const CreateTodoSchema = z.object({
 });
 
 function parseLimit(value: string | null): number {
-  const parsed = Number.parseInt(value || '50', 10);
-  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 50;
+  const parsed = Number.parseInt(value || '20', 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 50) : 20;
 }
 
 export async function GET(req: Request) {
@@ -48,6 +48,7 @@ export async function GET(req: Request) {
     const todos = await loadTodos(supabase, user.id, {
       status: status.data as TodoStatus | 'all',
       subject_id: searchParams.get('subject_id'),
+      due_before: searchParams.get('due_before'),
       limit: parseLimit(searchParams.get('limit')),
     });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTodoFromAi,
+  loadEsp32TodoTimeline,
   TodoToolError,
   updateTodoStatusFromAi,
 } from '@/lib/todos';
@@ -50,6 +51,16 @@ function createUpdateQuery(result: unknown) {
     eq: vi.fn().mockReturnThis(),
     select: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue(result),
+  };
+}
+
+function createTimelineQuery(result: unknown) {
+  return {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue(result),
   };
 }
 
@@ -138,5 +149,90 @@ describe('Todo AI helpers', () => {
     await expect(
       createTodoFromAi({ userId: 'user-1', supabase }, { title: '   ' })
     ).rejects.toBeInstanceOf(TodoToolError);
+  });
+
+  it('selects the pending Todo closest to server time for ESP32 timeline', async () => {
+    const supabase = {
+      from: vi.fn(() =>
+        createTimelineQuery({
+          data: [
+            {
+              ...TODO_ROW,
+              id: 'todo-early',
+              due_at: '2026-06-01T08:00:00.000Z',
+            },
+            {
+              ...TODO_ROW,
+              id: 'todo-nearest',
+              due_at: '2026-06-01T12:10:00.000Z',
+            },
+            {
+              ...TODO_ROW,
+              id: 'todo-late',
+              due_at: '2026-06-01T20:00:00.000Z',
+            },
+          ],
+          error: null,
+        })
+      ),
+    } as any;
+
+    const result = await loadEsp32TodoTimeline(supabase, 'user-1', {
+      limit: 3,
+      server_time: '2026-06-01T12:00:00.000Z',
+    });
+
+    expect(result.scope).toBe('timeline');
+    expect(result.selected_todo_id).toBe('todo-nearest');
+    expect(result.todos.map(todo => todo.id)).toEqual([
+      'todo-early',
+      'todo-nearest',
+      'todo-late',
+    ]);
+  });
+
+  it('returns cursor windows with edge selection for ESP32 timeline browsing', async () => {
+    const supabase = {
+      from: vi.fn(() =>
+        createTimelineQuery({
+          data: Array.from({ length: 6 }, (_, index) => ({
+            ...TODO_ROW,
+            id: `todo-${index}`,
+            due_at: `2026-06-01T0${index}:00:00.000Z`,
+          })),
+          error: null,
+        })
+      ),
+    } as any;
+
+    const initial = await loadEsp32TodoTimeline(supabase, 'user-1', {
+      limit: 2,
+      server_time: '2026-06-01T03:00:00.000Z',
+    });
+
+    expect(initial.todos.map(todo => todo.id)).toEqual(['todo-2', 'todo-3']);
+    expect(initial.selected_todo_id).toBe('todo-3');
+    expect(initial.has_earlier).toBe(true);
+    expect(initial.has_later).toBe(true);
+    expect(initial.previous_cursor).toBeTruthy();
+    expect(initial.next_cursor).toBeTruthy();
+
+    const previous = await loadEsp32TodoTimeline(supabase, 'user-1', {
+      limit: 2,
+      cursor: initial.previous_cursor,
+      server_time: '2026-06-01T03:00:00.000Z',
+    });
+    expect(previous.todos.map(todo => todo.id)).toEqual(['todo-0', 'todo-1']);
+    expect(previous.selected_index).toBe(1);
+    expect(previous.selected_todo_id).toBe('todo-1');
+
+    const next = await loadEsp32TodoTimeline(supabase, 'user-1', {
+      limit: 2,
+      cursor: initial.next_cursor,
+      server_time: '2026-06-01T03:00:00.000Z',
+    });
+    expect(next.todos.map(todo => todo.id)).toEqual(['todo-4', 'todo-5']);
+    expect(next.selected_index).toBe(0);
+    expect(next.selected_todo_id).toBe('todo-4');
   });
 });

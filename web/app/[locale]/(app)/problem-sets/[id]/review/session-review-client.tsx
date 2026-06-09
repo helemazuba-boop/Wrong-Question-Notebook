@@ -14,6 +14,7 @@ import ProblemReview, {
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Problem } from '@/lib/types';
 import { formatDuration } from '@/lib/common-utils';
+import { appendFromParam } from '@/lib/navigation-context';
 
 interface SessionReviewClientProps {
   problemSetId: string;
@@ -22,6 +23,7 @@ interface SessionReviewClientProps {
   subjectName: string;
   isReadOnly: boolean;
   allowCopying?: boolean;
+  fromHref?: string;
 }
 
 interface SessionData {
@@ -47,6 +49,7 @@ export default function SessionReviewClient({
   subjectName,
   isReadOnly,
   allowCopying,
+  fromHref,
 }: SessionReviewClientProps) {
   const t = useTranslations('Review');
   const router = useRouter();
@@ -268,7 +271,7 @@ export default function SessionReviewClient({
 
   const handleCompleteSession = async () => {
     if (isReadOnly) {
-      router.push(`/problem-sets/${problemSetId}`);
+      router.push(appendFromParam(`/problem-sets/${problemSetId}`, fromHref));
       return;
     }
 
@@ -278,7 +281,10 @@ export default function SessionReviewClient({
       });
       if (!res.ok) throw new Error('Failed to complete session');
       router.push(
-        `/problem-sets/${problemSetId}/summary?sessionId=${sessionId}`
+        appendFromParam(
+          `/problem-sets/${problemSetId}/summary?sessionId=${sessionId}`,
+          fromHref
+        )
       );
     } catch {
       toast.error(t('failedToCompleteSession'));
@@ -305,7 +311,7 @@ export default function SessionReviewClient({
         // Best effort
       }
     }
-    router.push(`/problem-sets/${problemSetId}`);
+    router.push(appendFromParam(`/problem-sets/${problemSetId}`, fromHref));
   };
 
   if (loading || !sessionData) {
@@ -330,7 +336,13 @@ export default function SessionReviewClient({
       <div className="section-container text-center py-12">
         <h2 className="text-xl font-bold mb-2">{t('problemNotFound')}</h2>
         <p className="text-muted-foreground mb-4">{t('problemNotFoundDesc')}</p>
-        <BackLink onClick={() => router.push(`/problem-sets/${problemSetId}`)}>
+        <BackLink
+          onClick={() =>
+            router.push(
+              appendFromParam(`/problem-sets/${problemSetId}`, fromHref)
+            )
+          }
+        >
           {t('backToSet')}
         </BackLink>
       </div>
@@ -389,6 +401,8 @@ export default function SessionReviewClient({
           }
           allowCopying={allowCopying}
           copyProblemSetId={problemSetId}
+          backHref={appendFromParam(`/problem-sets/${problemSetId}`, fromHref)}
+          fromHref={fromHref}
           sessionNav={{
             currentIndex,
             totalProblems: problemIds.length,

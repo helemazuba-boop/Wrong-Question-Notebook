@@ -39,6 +39,7 @@ import {
 import type { SubjectWithMetadata } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
+  BookA,
   BookOpen,
   Bot,
   CheckCircle2,
@@ -50,17 +51,19 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-type CreateKind = 'problem_set' | 'notebook';
-type TypeFilter = 'all' | CreateKind;
+type CreateKind = 'problem_set' | 'notebook' | 'word_deck';
+type ShelfContentType = CreateKind;
+type TypeFilter = 'all' | ShelfContentType;
 
 interface SubjectsPageClientProps {
   initialSubjects: SubjectWithMetadata[];
   initialShelfItems: NotebookShelfItem[];
 }
 
-const typeLabels: Record<CreateKind, string> = {
+const typeLabels: Record<ShelfContentType, string> = {
   problem_set: '错题本',
   notebook: '空白笔记',
+  word_deck: '词库',
 };
 
 function formatUpdatedAt(value: string | null) {
@@ -162,7 +165,11 @@ export default function SubjectsPageClient({
     setCreateBusy(true);
     try {
       const endpoint =
-        createKind === 'notebook' ? '/api/notebooks' : '/api/problem-sets';
+        createKind === 'notebook'
+          ? '/api/notebooks'
+          : createKind === 'word_deck'
+            ? '/api/words/decks'
+            : '/api/problem-sets';
       const body =
         createKind === 'notebook'
           ? {
@@ -170,14 +177,24 @@ export default function SubjectsPageClient({
               title: createTitle.trim(),
               description: createDescription.trim() || null,
             }
-          : {
-              subject_id: createSubjectId,
-              name: createTitle.trim(),
-              description: createDescription.trim() || '',
-              sharing_level: 'private',
-              problem_ids: [],
-              allow_copying: false,
-            };
+          : createKind === 'word_deck'
+            ? {
+                subject_id: createSubjectId,
+                title: createTitle.trim(),
+                description: createDescription.trim() || null,
+                source: 'user',
+                language: 'en',
+                target_language: 'zh-CN',
+                lexicon_type: 'english_word',
+              }
+            : {
+                subject_id: createSubjectId,
+                name: createTitle.trim(),
+                description: createDescription.trim() || '',
+                sharing_level: 'private',
+                problem_ids: [],
+                allow_copying: false,
+              };
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -193,16 +210,25 @@ export default function SubjectsPageClient({
       setCreateTitle('');
       setCreateDescription('');
       toast.success(
-        createKind === 'notebook' ? '空白笔记已创建' : '错题本已创建'
+        createKind === 'notebook'
+          ? '空白笔记已创建'
+          : createKind === 'word_deck'
+            ? '词库已创建'
+            : '错题本已创建'
       );
       await refreshShelf();
 
-      const createdId = payload?.data?.notebook?.id || payload?.data?.id;
+      const createdId =
+        payload?.data?.notebook?.id ||
+        payload?.data?.deck?.id ||
+        payload?.data?.id;
       if (createdId) {
         router.push(
           createKind === 'notebook'
             ? `/notebooks/${createdId}`
-            : `/problem-sets/${createdId}`
+            : createKind === 'word_deck'
+              ? `/words/decks/${createdId}`
+              : `/problem-sets/${createdId}?from=${encodeURIComponent('/subjects')}`
         );
       }
     } catch (error) {
@@ -257,7 +283,9 @@ export default function SubjectsPageClient({
   function openItem(item: NotebookShelfItem) {
     router.push(
       item.type === 'problem_set'
-        ? `/problem-sets/${item.id}`
+        ? `/problem-sets/${item.id}?from=${encodeURIComponent('/subjects')}`
+        : item.type === 'word_deck'
+          ? `/words/decks/${item.id}`
         : `/notebooks/${item.id}`
     );
   }
@@ -324,6 +352,7 @@ export default function SubjectsPageClient({
                   <SelectItem value="all">全部类型</SelectItem>
                   <SelectItem value="problem_set">错题本</SelectItem>
                   <SelectItem value="notebook">空白笔记</SelectItem>
+                  <SelectItem value="word_deck">词库</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -394,7 +423,7 @@ export default function SubjectsPageClient({
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Button
                 type="button"
                 variant={createKind === 'problem_set' ? 'default' : 'outline'}
@@ -411,6 +440,14 @@ export default function SubjectsPageClient({
                 <FileText className="mr-2 h-4 w-4" />
                 空白笔记
               </Button>
+              <Button
+                type="button"
+                variant={createKind === 'word_deck' ? 'default' : 'outline'}
+                onClick={() => setCreateKind('word_deck')}
+              >
+                <BookA className="mr-2 h-4 w-4" />
+                词库
+              </Button>
             </div>
             <div className="space-y-2">
               <Label htmlFor="notebook-title">名称</Label>
@@ -420,7 +457,11 @@ export default function SubjectsPageClient({
                 onChange={event => setCreateTitle(event.target.value)}
                 maxLength={80}
                 placeholder={
-                  createKind === 'notebook' ? '课堂摘记' : '函数错题本'
+                  createKind === 'notebook'
+                    ? '课堂摘记'
+                    : createKind === 'word_deck'
+                      ? '高中 3500'
+                      : '函数错题本'
                 }
               />
             </div>
@@ -478,6 +519,8 @@ export default function SubjectsPageClient({
                   ? '创建中...'
                   : createKind === 'problem_set'
                     ? '创建错题本'
+                    : createKind === 'word_deck'
+                      ? '创建词库'
                     : '创建空白笔记'}
               </Button>
             </DialogFooter>
@@ -500,6 +543,7 @@ function ShelfItemCard({
   onAiAccessChange: (checked: boolean) => void;
 }) {
   const isProblemSet = item.type === 'problem_set';
+  const isWordDeck = item.type === 'word_deck';
   const isAiWritable = Boolean(item.ai_access?.can_create);
 
   return (
@@ -508,7 +552,9 @@ function ShelfItemCard({
         'group cursor-pointer overflow-hidden rounded-lg border shadow-sm transition-colors hover:border-primary/40 hover:bg-muted/30',
         isProblemSet
           ? 'border-l-4 border-l-primary'
-          : 'border-l-4 border-l-sky-500'
+          : isWordDeck
+            ? 'border-l-4 border-l-emerald-500'
+            : 'border-l-4 border-l-sky-500'
       )}
       onClick={onOpen}
     >
@@ -520,11 +566,15 @@ function ShelfItemCard({
                 'mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md',
                 isProblemSet
                   ? 'bg-primary/10 text-primary'
-                  : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                  : isWordDeck
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
               )}
             >
               {isProblemSet ? (
                 <BookOpen className="h-5 w-5" />
+              ) : isWordDeck ? (
+                <BookA className="h-5 w-5" />
               ) : (
                 <FileText className="h-5 w-5" />
               )}
@@ -541,7 +591,7 @@ function ShelfItemCard({
               </div>
             </div>
           </div>
-          {!isProblemSet && isAiWritable ? (
+          {!isProblemSet && !isWordDeck && isAiWritable ? (
             <Badge
               variant="outline"
               className="shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
@@ -557,12 +607,14 @@ function ShelfItemCard({
           {item.description ||
             (isProblemSet
               ? '用于保存和复习这一类错题，适合集中整理练习记录。'
+              : isWordDeck
+                ? '用于管理单词、释义和例句，设备会通过词库资源包同步到本地学习。'
               : '用于记录知识点、摘记和临时想法，不参与错题复习流程。')}
         </p>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-md bg-muted/60 px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              {isProblemSet ? '题目数' : '笔记数'}
+              {isProblemSet ? '题目数' : isWordDeck ? '词条数' : '笔记数'}
             </p>
             <p className="mt-1 font-semibold">{item.count}</p>
           </div>
@@ -574,7 +626,7 @@ function ShelfItemCard({
           </div>
         </div>
       </CardContent>
-      {!isProblemSet ? (
+      {!isProblemSet && !isWordDeck ? (
         <CardFooter
           className="justify-between gap-4 border-t bg-muted/20 px-5 py-4"
           onClick={event => event.stopPropagation()}

@@ -605,6 +605,7 @@ export interface AddProblemsToSetClientProps {
   tagsByProblem: Record<string, SimpleTag[]>;
   availableTags: SimpleTag[];
   problemSetProblemIds: string[];
+  fromHref?: string;
 }
 
 // =====================================================

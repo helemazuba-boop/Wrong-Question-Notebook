@@ -35,6 +35,7 @@ import { UserProfileCard } from '@/components/user-profile-card';
 import { SocialActionsBar } from '@/components/social-actions-bar';
 import { FilterConfig, SessionConfig } from '@/lib/types';
 import { useReviewSession } from '@/lib/hooks/useReviewSession';
+import { appendFromParam } from '@/lib/navigation-context';
 
 export default function ProblemSetPageClient({
   initialProblemSet,
@@ -43,7 +44,7 @@ export default function ProblemSetPageClient({
   initialStats,
   initialSocialState,
   hasUsername = true,
-  backHref = '/problem-sets',
+  backHref = '/subjects',
 }: ProblemSetPageClientProps) {
   const t = useTranslations('ProblemSets');
   const tCommon = useTranslations('Common');
@@ -119,7 +120,9 @@ export default function ProblemSetPageClient({
   }, [fetchProgress, problemSet.isOwner]);
 
   const handleAddProblems = () => {
-    router.push(`/problem-sets/${problemSet.id}/add-problems`);
+    router.push(
+      appendFromParam(`/problem-sets/${problemSet.id}/add-problems`, backHref)
+    );
   };
 
   const getSharingIcon = (sharingLevel: ProblemSetSharingLevel) => {
@@ -264,7 +267,7 @@ export default function ProblemSetPageClient({
             )}
           {isAuthenticated ? (
             <Button
-              onClick={() => startReview(problemSet.id)}
+              onClick={() => startReview(problemSet.id, { from: backHref })}
               disabled={!!sessionLoading}
             >
               <Play className="h-4 w-4 mr-2" />
@@ -403,6 +406,7 @@ export default function ProblemSetPageClient({
           onProblemsRemoved={handleProblemsRemoved}
           allowCopying={problemSet.allow_copying}
           isAuthenticated={isAuthenticated}
+          fromHref={backHref}
         />
       )}
 
@@ -412,8 +416,8 @@ export default function ProblemSetPageClient({
           open={resumeDialog.open}
           onOpenChange={setResumeDialogOpen}
           session={resumeDialog.session}
-          onResume={resumeSession}
-          onStartNew={startNewSession}
+          onResume={sessionId => resumeSession(sessionId, { from: backHref })}
+          onStartNew={() => startNewSession({ from: backHref })}
           isLoading={!!sessionLoading}
         />
       )}
