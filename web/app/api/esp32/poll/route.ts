@@ -34,38 +34,42 @@ async function pollDevice(req: Request) {
   try {
     const svc = createServiceClient();
 
-    // TODO(production): Do not return an existing token solely from MAC replay.
-    // Return an already_paired/non-token state unless completing a pending pairing.
-    // This must be fixed before enabling privileged ESP32 AI behavior.
-    // Check if already paired (return existing token)
-    const { data: existingDevice } = await svc
-      .from('esp32_devices')
-      .select('*')
-      .eq('mac_address', normalizedMac)
-      .single();
+    // MAC alone is not a secret. Never echo an existing access_token just
+    // because a caller claims a known MAC. A token is only minted when there
+    // is a matching pending pairing record that an authenticated web user has
+    // just created via POST /api/esp32/pair.
+    const [{ data: existingDevice }, { data: pending }] = await Promise.all([
+      svc
+        .from('esp32_devices')
+        .select('id, user_id, device_name')
+        .eq('mac_address', normalizedMac)
+        .maybeSingle(),
+      svc
+        .from('esp32_pairing_pending')
+        .select('user_id, mac_address, created_at')
+        .eq('mac_address', normalizedMac)
+        .maybeSingle(),
+    ]);
 
-    if (existingDevice) {
-      // Update last_seen
+    if (existingDevice && !pending) {
+      // Already paired and no pending re-pair request: do NOT return the
+      // token. The user must unpair from the web (DELETE /api/esp32/devices)
+      // and create a fresh pairing request before the device can receive a
+      // new credential. We still bump last_seen so the web UI shows liveness.
       await svc
         .from('esp32_devices')
         .update({ last_seen_at: new Date().toISOString() })
-        .eq('mac_address', normalizedMac);
+        .eq('id', existingDevice.id);
 
       return NextResponse.json(
         createApiSuccessResponse({
-          status: 'paired',
-          access_token: existingDevice.access_token,
+          status: 'already_paired',
           device_name: existingDevice.device_name,
+          message:
+            'Device is already paired. Unpair from the web before requesting a new token.',
         })
       );
     }
-
-    // Check pending pairing request
-    const { data: pending } = await svc
-      .from('esp32_pairing_pending')
-      .select('user_id, mac_address, created_at')
-      .eq('mac_address', normalizedMac)
-      .single();
 
     if (!pending) {
       return NextResponse.json(
@@ -94,21 +98,42 @@ async function pollDevice(req: Request) {
       );
     }
 
-    // Complete the pairing
+    // Complete the pairing. If a device row already exists for this MAC we
+    // rotate the token (re-pair flow): the previous owner's token stops
+    // working, and only this caller (which has a fresh pending request from
+    // an authenticated web session) gets the new credential.
     const accessToken = randomBytes(32).toString('hex');
 
-    const { error: insertError } = await svc.from('esp32_devices').insert({
-      mac_address: normalizedMac,
-      user_id: pending.user_id,
-      access_token: accessToken,
-      device_name: 'ESP32',
-    });
+    if (existingDevice) {
+      const { error: updateError } = await svc
+        .from('esp32_devices')
+        .update({
+          user_id: pending.user_id,
+          access_token: accessToken,
+          last_seen_at: new Date().toISOString(),
+        })
+        .eq('id', existingDevice.id);
 
-    if (insertError) {
-      return NextResponse.json(
-        createApiErrorResponse('Failed to register device', 500),
-        { status: 500 }
-      );
+      if (updateError) {
+        return NextResponse.json(
+          createApiErrorResponse('Failed to rotate device token', 500),
+          { status: 500 }
+        );
+      }
+    } else {
+      const { error: insertError } = await svc.from('esp32_devices').insert({
+        mac_address: normalizedMac,
+        user_id: pending.user_id,
+        access_token: accessToken,
+        device_name: 'ESP32',
+      });
+
+      if (insertError) {
+        return NextResponse.json(
+          createApiErrorResponse('Failed to register device', 500),
+          { status: 500 }
+        );
+      }
     }
 
     // Remove pending entry
@@ -121,7 +146,7 @@ async function pollDevice(req: Request) {
       createApiSuccessResponse({
         status: 'paired',
         access_token: accessToken,
-        device_name: 'ESP32',
+        device_name: existingDevice?.device_name || 'ESP32',
       })
     );
   } catch (error) {
@@ -132,7 +157,15 @@ async function pollDevice(req: Request) {
   }
 }
 
+// /poll is unauthenticated, but the firmware polls every 2 s for up to a
+// 2-minute pairing window, so the bucket has to be sized for a real device.
+// 'auth' (5 req / 15 min) was far too tight and made every retry burst hit
+// HTTP 429. Use the dedicated 'esp32Poll' bucket (180 req / 5 min, IP-keyed)
+// which still deters MAC enumeration but lets a single device finish pairing.
+// Request validation stays off because ESP32 firmware sends a minimal header
+// set.
 export const GET = withSecurity(pollDevice, {
-  enableRateLimit: false,
+  rateLimitType: 'esp32Poll',
+  rateLimitKey: 'ip',
   enableRequestValidation: false,
 });

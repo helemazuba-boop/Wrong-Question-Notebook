@@ -166,7 +166,7 @@ async function loadEntries(
     .eq('deck_id', deckId)
     .order('sort_index', { ascending: true })
     .order('normalized_word', { ascending: true })
-    .limit(200);
+    .limit(500);
 
   if (error) {
     console.warn(`Failed to load word entries: ${error.message}`);

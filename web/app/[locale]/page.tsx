@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from '@/i18n/navigation';
 import {
   ArrowRight,
+  ArrowUpRight,
   Award,
   BarChart3,
   BookOpen,
@@ -30,6 +31,9 @@ import {
   Target,
   TrendingUp,
   Type,
+  Wifi,
+  WifiOff,
+  Zap,
 } from 'lucide-react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
@@ -678,6 +682,121 @@ export default async function Home({
                       </span>
                     </li>
                   </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* WQN Note 4 */}
+          <section className="landing-section">
+            <div className="landing-section-inner">
+              <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+                <div className="space-y-6">
+                  <FeatureBadge
+                    icon={Wifi}
+                    label={t('note4Section')}
+                    color="blue"
+                    className="opacity-0"
+                    data-animate="features-fade-in-left"
+                  />
+
+                  <h2
+                    className="opacity-0 text-3xl md:text-4xl font-bold text-gray-900 dark:text-white"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('note4Title')}
+                  </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('note4Desc')}
+                  </p>
+
+                  <ul
+                    className="opacity-0 features-bullet-list"
+                    data-animate="features-fade-in-left"
+                  >
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <ArrowUpRight className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Screen')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4ScreenDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <WifiOff className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Offline')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4OfflineDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Target className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Wrong')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4WrongDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Ai')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4AiDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4CloudSync')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4CloudSyncDesc')}
+                        </span>
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div
+                  className="opacity-0"
+                  data-animate="features-fade-in-right"
+                >
+                  <ScreenshotFrame
+                    src="/features/note4-device.png"
+                    darkSrc="/features/note4-device-dark.png"
+                    alt={t('note4ScreenshotAlt')}
+                    placeholderLabel={t('note4Screenshot')}
+                    accentColor="blue"
+                  />
                 </div>
               </div>
             </div>

@@ -6,6 +6,7 @@ import {
   createAuthRateLimit,
   getUserKey,
   createProblemCreationRateLimit,
+  createEsp32PollRateLimit,
 } from './rate-limit';
 import { validateRequest, getSecurityHeaders } from './request-validation';
 import { validateFileUpload } from './file-security';
@@ -22,7 +23,8 @@ export interface SecurityConfig {
     | 'auth'
     | 'custom'
     | 'readOnly'
-    | 'problemCreation';
+    | 'problemCreation'
+    | 'esp32Poll';
   /** How to identify the requester for rate limiting.
    *  - 'user': extract user ID from Supabase JWT cookie (falls back to IP)
    *  - 'ip': use client IP address
@@ -102,6 +104,9 @@ export function createSecurityMiddleware(config: SecurityConfig = {}) {
           case 'problemCreation':
             rateLimitResponse =
               createProblemCreationRateLimit(keyGenerator)(req);
+            break;
+          case 'esp32Poll':
+            rateLimitResponse = createEsp32PollRateLimit(keyGenerator)(req);
             break;
           case 'api':
           default:

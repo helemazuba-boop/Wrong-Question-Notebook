@@ -218,3 +218,8 @@ export const createProblemCreationRateLimit = (keyGenerator?: KeyGenerator) =>
     ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.problemCreation,
     keyGenerator,
   });
+export const createEsp32PollRateLimit = (keyGenerator?: KeyGenerator) =>
+  createRateLimit({
+    ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32Poll,
+    keyGenerator,
+  });

@@ -41,7 +41,6 @@ import { cn } from '@/lib/utils';
 import {
   BookA,
   BookOpen,
-  Bot,
   CheckCircle2,
   FileText,
   NotebookPen,
@@ -78,6 +77,24 @@ function formatUpdatedAt(value: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp));
+}
+
+function createdMessage(kind: CreateKind) {
+  if (kind === 'notebook') return '空白笔记已创建';
+  if (kind === 'word_deck') return '词库已创建';
+  return '错题本已创建';
+}
+
+function createSubmitLabel(kind: CreateKind) {
+  if (kind === 'notebook') return '创建空白笔记';
+  if (kind === 'word_deck') return '创建词库';
+  return '创建错题本';
+}
+
+function defaultTitlePlaceholder(kind: CreateKind) {
+  if (kind === 'notebook') return '课堂摘记';
+  if (kind === 'word_deck') return '高中 3500';
+  return '函数错题本';
 }
 
 export default function SubjectsPageClient({
@@ -144,7 +161,7 @@ export default function SubjectsPageClient({
   async function refreshShelf() {
     const response = await fetch('/api/notebook-shelf', { cache: 'no-store' });
     if (!response.ok) {
-      throw new Error('Failed to refresh notebook shelf');
+      throw new Error('刷新笔记本架失败');
     }
     const payload = await response.json();
     setItems(payload.data?.items || []);
@@ -209,13 +226,7 @@ export default function SubjectsPageClient({
       setCreateOpen(false);
       setCreateTitle('');
       setCreateDescription('');
-      toast.success(
-        createKind === 'notebook'
-          ? '空白笔记已创建'
-          : createKind === 'word_deck'
-            ? '词库已创建'
-            : '错题本已创建'
-      );
+      toast.success(createdMessage(createKind));
       await refreshShelf();
 
       const createdId =
@@ -272,7 +283,7 @@ export default function SubjectsPageClient({
             : prevItem
         )
       );
-      toast.success(enabled ? '已授权 AI 写入' : '已取消 AI 授权');
+      toast.success(enabled ? '已允许 AI 写入' : '已取消 AI 授权');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '更新 AI 授权失败');
     } finally {
@@ -286,7 +297,7 @@ export default function SubjectsPageClient({
         ? `/problem-sets/${item.id}?from=${encodeURIComponent('/subjects')}`
         : item.type === 'word_deck'
           ? `/words/decks/${item.id}`
-        : `/notebooks/${item.id}`
+          : `/notebooks/${item.id}`
     );
   }
 
@@ -306,7 +317,7 @@ export default function SubjectsPageClient({
       <div className="section-container">
         <PageHeader
           title="笔记本架"
-          description="错题本和空白笔记都放在这里。归档只用于筛选和整理，不是进入内容前必须经过的层级。"
+          description="错题本、空白笔记和词库都放在这里。科目只用于筛选和整理，不是进入内容前必须经过的层级。"
           actions={
             <Button onClick={() => openCreateDialog()}>
               <Plus className="mr-2 h-4 w-4" />
@@ -323,17 +334,17 @@ export default function SubjectsPageClient({
                 ref={searchInputRef}
                 value={query}
                 onChange={event => setQuery(event.target.value)}
-                placeholder="搜索错题本、空白笔记或归档"
+                placeholder="搜索错题本、空白笔记、词库或科目"
                 className="pl-10"
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:w-[29rem]">
               <Select value={subjectFilter} onValueChange={setSubjectFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="筛选归档" />
+                  <SelectValue placeholder="筛选科目" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部归档</SelectItem>
+                  <SelectItem value="all">全部科目</SelectItem>
                   {subjects.map(subject => (
                     <SelectItem key={subject.id} value={subject.id}>
                       {subject.name}
@@ -364,13 +375,11 @@ export default function SubjectsPageClient({
               <span>当前显示 {filteredItems.length} 个</span>
               {hasFilters ? <Badge variant="outline">已筛选</Badge> : null}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {hasFilters ? (
-                <Button variant="ghost" size="sm" onClick={resetFilters}>
-                  清除筛选
-                </Button>
-              ) : null}
-            </div>
+            {hasFilters ? (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                清除筛选
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -385,17 +394,17 @@ export default function SubjectsPageClient({
               </h3>
               <p className="text-sm text-muted-foreground">
                 {items.length === 0
-                  ? '先建立一个错题本收纳题目，或建立空白笔记记录普通内容。'
-                  : '换一个关键词、归档或类型筛选，通常能更快找到目标内容。'}
+                  ? '先建立一个错题本收纳题目、建立空白笔记记录知识，或创建词库导入单词。'
+                  : '换一个关键词、科目或类型筛选，通常能更快找到目标内容。'}
               </p>
             </div>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {items.length === 0 ? null : (
+            {items.length === 0 ? null : (
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
                 <Button variant="outline" onClick={resetFilters}>
                   清除筛选
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -417,9 +426,9 @@ export default function SubjectsPageClient({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建本子</DialogTitle>
+            <DialogTitle>新建内容</DialogTitle>
             <DialogDescription>
-              选择本子类型并填写名称。细分整理留到题目和笔记内容里完成。
+              选择类型并填写名称。创建后可以进入对应页面继续整理题目、笔记或词条。
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4">
@@ -456,13 +465,7 @@ export default function SubjectsPageClient({
                 value={createTitle}
                 onChange={event => setCreateTitle(event.target.value)}
                 maxLength={80}
-                placeholder={
-                  createKind === 'notebook'
-                    ? '课堂摘记'
-                    : createKind === 'word_deck'
-                      ? '高中 3500'
-                      : '函数错题本'
-                }
+                placeholder={defaultTitlePlaceholder(createKind)}
               />
             </div>
             <div className="space-y-2">
@@ -484,7 +487,7 @@ export default function SubjectsPageClient({
               </Select>
               {subjects.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  当前还没有可用归档，暂时无法创建本子。
+                  当前还没有可用科目，暂时无法创建内容。
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
@@ -515,13 +518,7 @@ export default function SubjectsPageClient({
                 type="submit"
                 disabled={createBusy || subjects.length === 0}
               >
-                {createBusy
-                  ? '创建中...'
-                  : createKind === 'problem_set'
-                    ? '创建错题本'
-                    : createKind === 'word_deck'
-                      ? '创建词库'
-                    : '创建空白笔记'}
+                {createBusy ? '创建中...' : createSubmitLabel(createKind)}
               </Button>
             </DialogFooter>
           </form>
@@ -609,7 +606,7 @@ function ShelfItemCard({
               ? '用于保存和复习这一类错题，适合集中整理练习记录。'
               : isWordDeck
                 ? '用于管理单词、释义和例句，设备会通过词库资源包同步到本地学习。'
-              : '用于记录知识点、摘记和临时想法，不参与错题复习流程。')}
+                : '用于记录知识点、摘要和临时想法，不参与错题复习流程。')}
         </p>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-md bg-muted/60 px-3 py-2">
