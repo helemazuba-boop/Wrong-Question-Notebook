@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from '@/i18n/navigation';
 import {
   ArrowRight,
+  ArrowUpRight,
   Award,
   BarChart3,
   BookOpen,
@@ -30,6 +31,9 @@ import {
   Target,
   TrendingUp,
   Type,
+  Wifi,
+  WifiOff,
+  Zap,
 } from 'lucide-react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
@@ -60,6 +64,7 @@ export default async function Home({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'Landing' });
+  const tNav = await getTranslations({ locale, namespace: 'Navigation' });
   const isSignedIn = await (async () => {
     if (!hasEnvVars) return false;
     const supabase = await createClient();
@@ -103,7 +108,7 @@ export default async function Home({
                   </Button>
                 ) : (
                   <Button asChild size="lg" className="btn-cta-primary">
-                    <Link href="/auth/sign-up">{t('startYourNotebook')}</Link>
+                    <Link href="/auth/sign-up">{t('startFree')}</Link>
                   </Button>
                 )}
                 <Button asChild variant="outline" size="lg" className="btn-cta">
@@ -139,6 +144,13 @@ export default async function Home({
                   >
                     {t('writeMath')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('writeMathDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -206,7 +218,7 @@ export default async function Home({
                   <ScreenshotFrame
                     src="/features/editor-math.png"
                     darkSrc="/features/editor-math-dark.png"
-                    alt="TipTap editor showing a math formula with toolbar"
+                    alt={t('richTextEditorAlt')}
                     placeholderLabel={t('richTextEditor')}
                     accentColor="rose"
                   />
@@ -293,7 +305,7 @@ export default async function Home({
                   <ScreenshotFrame
                     src="/features/smart-sets.png"
                     darkSrc="/features/smart-sets-dark.png"
-                    alt="Smart problem set creation dialog with filter options"
+                    alt={t('smartSetsAlt')}
                     placeholderLabel={t('smartSetsScreenshot')}
                     accentColor="blue"
                   />
@@ -314,6 +326,13 @@ export default async function Home({
                   >
                     {t('problemSetsBuild')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-right"
+                  >
+                    {t('problemSetsBuildDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -454,6 +473,13 @@ export default async function Home({
                   {t('autoClassifies')}
                 </span>
               </div>
+
+              <p
+                className="opacity-0 text-center text-base text-gray-600 dark:text-gray-400 max-w-3xl mx-auto leading-relaxed"
+                data-animate="features-fade-in-up"
+              >
+                {t('snapPhotoDetail')}
+              </p>
             </div>
           </section>
 
@@ -476,6 +502,13 @@ export default async function Home({
                   >
                     {t('studySessions')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('studySessionsDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -544,7 +577,7 @@ export default async function Home({
                     src="/features/review-session.png"
                     darkSrc="/features/review-session-dark.png"
                     alt={t('reviewScreenshot')}
-                    placeholderLabel="Interactive review session"
+                    placeholderLabel={t('reviewScreenshot')}
                     accentColor="green"
                   />
                 </div>
@@ -584,6 +617,13 @@ export default async function Home({
                   >
                     {t('seeProgress')}
                   </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-right"
+                  >
+                    {t('seeProgressDesc')}
+                  </p>
 
                   <ul
                     className="opacity-0 features-bullet-list"
@@ -642,6 +682,121 @@ export default async function Home({
                       </span>
                     </li>
                   </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* WQN Note 4 */}
+          <section className="landing-section">
+            <div className="landing-section-inner">
+              <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+                <div className="space-y-6">
+                  <FeatureBadge
+                    icon={Wifi}
+                    label={t('note4Section')}
+                    color="blue"
+                    className="opacity-0"
+                    data-animate="features-fade-in-left"
+                  />
+
+                  <h2
+                    className="opacity-0 text-3xl md:text-4xl font-bold text-gray-900 dark:text-white"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('note4Title')}
+                  </h2>
+
+                  <p
+                    className="opacity-0 text-lg text-gray-600 dark:text-gray-400 leading-relaxed"
+                    data-animate="features-fade-in-left"
+                  >
+                    {t('note4Desc')}
+                  </p>
+
+                  <ul
+                    className="opacity-0 features-bullet-list"
+                    data-animate="features-fade-in-left"
+                  >
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <ArrowUpRight className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Screen')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4ScreenDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <WifiOff className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Offline')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4OfflineDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Target className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Wrong')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4WrongDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4Ai')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4AiDesc')}
+                        </span>
+                      </span>
+                    </li>
+                    <li className="features-bullet-item">
+                      <span className="features-bullet-icon bg-blue-500/10 dark:bg-blue-500/20">
+                        <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </span>
+                      <span>
+                        <strong className="text-gray-900 dark:text-white">
+                          {t('note4CloudSync')}
+                        </strong>{' '}
+                        <span className="text-gray-600 dark:text-gray-400">
+                          &mdash; {t('note4CloudSyncDesc')}
+                        </span>
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div
+                  className="opacity-0"
+                  data-animate="features-fade-in-right"
+                >
+                  <ScreenshotFrame
+                    src="/features/note4-device.png"
+                    darkSrc="/features/note4-device-dark.png"
+                    alt={t('note4ScreenshotAlt')}
+                    placeholderLabel={t('note4Screenshot')}
+                    accentColor="blue"
+                  />
                 </div>
               </div>
             </div>
@@ -842,7 +997,7 @@ export default async function Home({
               {/* Product links */}
               <div className="flex flex-col items-center md:items-start gap-2">
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Product
+                  {tNav('product')}
                 </h4>
                 <div className="flex flex-col items-center md:items-start gap-1.5 text-sm">
                   <Link
@@ -863,7 +1018,7 @@ export default async function Home({
               {/* Legal links */}
               <div className="flex flex-col items-center md:items-start gap-2">
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Legal
+                  {tNav('legal')}
                 </h4>
                 <div className="flex flex-col items-center md:items-start gap-1.5 text-sm">
                   <Link

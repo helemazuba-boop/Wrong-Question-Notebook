@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist } from 'next/font/google';
-import { ThemeProvider } from 'next-themes';
+import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { ConsentProvider } from '@/components/cookie-consent/consent-provider';
 import { ConditionalAnalytics } from '@/components/cookie-consent/conditional-analytics';
@@ -28,12 +27,6 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  display: 'swap',
-  subsets: ['latin'],
-});
-
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -52,11 +45,11 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <body className={`${geistSans.className} antialiased`}>
+      <body className="antialiased" suppressHydrationWarning>
         <a href="#main-content" className="skip-link">
           {t('skipToMainContent')}
         </a>
-        <ThemeProvider
+        <NextThemesProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
@@ -68,7 +61,7 @@ export default async function RootLayout({
               <ConditionalAnalytics />
             </ConsentProvider>
           </NextIntlClientProvider>
-        </ThemeProvider>
+        </NextThemesProvider>
         <Toaster />
         <script
           dangerouslySetInnerHTML={{

@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/api-utils';
+import { appendFromParam } from '@/lib/navigation-context';
 
 interface ResumeDialogState {
   open: boolean;
@@ -23,7 +24,10 @@ export function useReviewSession() {
   // Ref to track current fetch abort controller
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const startReview = async (problemSetId: string) => {
+  const startReview = async (
+    problemSetId: string,
+    options?: { from?: string }
+  ) => {
     // Cancel any existing in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -52,7 +56,10 @@ export function useReviewSession() {
         });
       } else {
         router.push(
-          `/problem-sets/${problemSetId}/review?sessionId=${result.sessionId}`
+          appendFromParam(
+            `/problem-sets/${problemSetId}/review?sessionId=${result.sessionId}`,
+            options?.from
+          )
         );
       }
     } catch (error) {
@@ -74,13 +81,18 @@ export function useReviewSession() {
     }
   };
 
-  const resumeSession = (sessionId: string) => {
+  const resumeSession = (sessionId: string, options?: { from?: string }) => {
     const psId = resumeDialog.problemSetId;
     setResumeDialog({ open: false, session: null, problemSetId: null });
-    router.push(`/problem-sets/${psId}/review?sessionId=${sessionId}`);
+    router.push(
+      appendFromParam(
+        `/problem-sets/${psId}/review?sessionId=${sessionId}`,
+        options?.from
+      )
+    );
   };
 
-  const startNewSession = async () => {
+  const startNewSession = async (options?: { from?: string }) => {
     const psId = resumeDialog.problemSetId;
     const oldSessionId = resumeDialog.session?.id;
 
@@ -112,7 +124,10 @@ export function useReviewSession() {
       }
       const data = await res.json();
       router.push(
-        `/problem-sets/${psId}/review?sessionId=${data.data.sessionId}`
+        appendFromParam(
+          `/problem-sets/${psId}/review?sessionId=${data.data.sessionId}`,
+          options?.from
+        )
       );
     } catch (error) {
       // Ignore abort errors and "Failed to fetch" which can happen on navigation

@@ -23,7 +23,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PROBLEM_TYPE_VALUES, type ProblemType } from '@/lib/schemas';
-import { getProblemTypeDisplayName } from '@/lib/common-utils';
+import { getProblemTypeDisplayName, isValidUuid } from '@/lib/common-utils';
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/editor';
 import { MCQChoiceEditor } from '@/components/ui/mcq-choice-editor';
 import {
@@ -41,7 +41,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import {
-  Tag,
+  SimpleTag,
   ProblemFormProps,
   MCQChoice,
   AnswerConfig,
@@ -84,27 +84,11 @@ export default function ProblemForm({
   // Key for remounting editors on form reset
   const [editorKey, setEditorKey] = useState(0);
 
-  // Helper function to transform SimpleTag to Tag
-  const transformSimpleTagsToTags = useCallback(
-    (simpleTags: typeof availableTags): Tag[] => {
-      return (
-        simpleTags?.map(tag => ({
-          ...tag,
-          subject_id: subjectId,
-          created_at: new Date().toISOString(),
-        })) || []
-      );
-    },
-    [subjectId]
-  );
-
   // Use provided tags or fallback to client-side fetching
-  const [tags, setTags] = useState<Tag[]>(
-    transformSimpleTagsToTags(availableTags)
-  );
+  const [tags, setTags] = useState<SimpleTag[]>(availableTags ?? []);
   useEffect(() => {
     if (availableTags && availableTags.length > 0) {
-      setTags(transformSimpleTagsToTags(availableTags));
+      setTags(availableTags);
     } else {
       // Fallback to client-side fetching if no tags provided
       fetch(apiUrl(`/api/tags?subject_id=${subjectId}`))
@@ -112,7 +96,7 @@ export default function ProblemForm({
         .then(j => setTags(j.data ?? []))
         .catch(() => {});
     }
-  }, [availableTags, subjectId, transformSimpleTagsToTags]);
+  }, [availableTags, subjectId]);
 
   // Tag picker - initialize with problem's existing tags if available
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(() => {
@@ -154,7 +138,7 @@ export default function ProblemForm({
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j?.error ?? 'Failed to create tag');
 
-      const created: Tag = j.data;
+      const created: SimpleTag = j.data;
       setTags(prev => [...prev, created]);
       setSelectedTagIds(prev => [...prev, created.id]);
       setNewTagName('');
@@ -636,7 +620,7 @@ export default function ProblemForm({
             });
             const j = await res.json().catch(() => ({}));
             if (res.ok && j.data) {
-              const created: Tag = j.data;
+              const created: SimpleTag = j.data;
               setTags(prev => [...prev, created]);
               finalTagIds.push(created.id);
               createdTagNames.push(tagName);
@@ -682,7 +666,10 @@ export default function ProblemForm({
       // Add subject_id and problem_id for create operations
       if (!isEditMode) {
         (payload as any).subject_id = subjectId;
-        (payload as any).id = problemUuid; // Use client-generated UUID
+        // Only send client-generated UUID if it's a valid UUID (not the fallback rnd- timestamp)
+        if (problemUuid && isValidUuid(problemUuid)) {
+          (payload as any).id = problemUuid;
+        }
       }
 
       const url = isEditMode ? `/api/problems/${problem.id}` : '/api/problems';

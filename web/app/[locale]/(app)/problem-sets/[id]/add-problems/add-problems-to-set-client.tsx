@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { BackLink } from '@/components/back-link';
 import EnhancedProblemsTable from '../../../subjects/[id]/problems/enhanced-problems-table';
 import { AddProblemsToSetClientProps } from '@/lib/types';
+import { appendFromParam } from '@/lib/navigation-context';
 
 export default function AddProblemsToSetClient({
   problemSet,
@@ -12,9 +13,14 @@ export default function AddProblemsToSetClient({
   tagsByProblem,
   availableTags,
   problemSetProblemIds,
+  fromHref,
 }: AddProblemsToSetClientProps) {
   const t = useTranslations('ProblemSets');
   const router = useRouter();
+  const backToSetHref = appendFromParam(
+    `/problem-sets/${problemSet.id}`,
+    fromHref
+  );
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -27,7 +33,7 @@ export default function AddProblemsToSetClient({
             <strong>&quot;{problemSet.name}&quot;</strong>
           </p>
         </div>
-        <BackLink onClick={() => router.push(`/problem-sets/${problemSet.id}`)}>
+        <BackLink onClick={() => router.push(backToSetHref)}>
           Back to Problem Set
         </BackLink>
       </div>
@@ -42,6 +48,7 @@ export default function AddProblemsToSetClient({
         problemSetProblemIds={problemSetProblemIds} // Pass existing problem IDs
         isAddToSetMode={true} // Flag to indicate this is add-to-set mode
         targetProblemSetId={problemSet.id} // Pass the target problem set ID
+        returnToProblemSetHref={backToSetHref}
       />
     </div>
   );

@@ -27,12 +27,14 @@ interface InsightsPageClientProps {
   initialDigest: InsightDigest | null;
   initialIsGenerating?: boolean;
   subjects: Array<{ id: string; name: string; color: string | null }>;
+  embedded?: boolean;
 }
 
 export default function InsightsPageClient({
   initialDigest,
   initialIsGenerating = false,
   subjects,
+  embedded = false,
 }: InsightsPageClientProps) {
   const router = useRouter();
   const t = useTranslations('Statistics');
@@ -170,8 +172,10 @@ export default function InsightsPageClient({
   const subjectHealth = digest?.subject_health || {};
 
   return (
-    <div className="section-container">
-      <PageHeader title={t('insights')} description={t('insightsSubtitle')} />
+    <div className={embedded ? 'space-y-6' : 'section-container'}>
+      {!embedded ? (
+        <PageHeader title={t('insights')} description={t('insightsSubtitle')} />
+      ) : null}
 
       {/* Empty / Generating / Insufficient data states */}
       {(!digest || isGenerating || hasInsufficientData) && (

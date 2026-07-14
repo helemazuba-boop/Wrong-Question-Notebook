@@ -1,0 +1,107 @@
+# ============================================================
+# WQN Docker Compose — Standalone Mode
+# ============================================================
+# All state is stored in the Supabase cloud database.
+# No local database is required.
+#
+# Usage:
+#   cp .env.production.template .env.production
+#   # Edit .env.production with your real values
+#   docker compose -f docker-compose.yml up -d
+#
+# Or with env file override:
+#   docker compose -f docker-compose.yml --env-file .env.production up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # Next.js web app (main API + UI)
+  # ============================================================
+  wqn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${IMAGE_WQN:-${IMAGE}}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      # Supabase — injected from .env.production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
+      # Gemini AI
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # ESP32 Voice AI
+      WQN_ESP32_AI_ASR_PROVIDER: ${WQN_ESP32_AI_ASR_PROVIDER:-dashscope}
+      WQN_ESP32_AI_CHAT_PROVIDER: ${WQN_ESP32_AI_CHAT_PROVIDER:-dashscope}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      DASHSCOPE_OPENAI_BASE_URL: ${DASHSCOPE_OPENAI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_ASR_MODEL: ${DASHSCOPE_ASR_MODEL:-paraformer-v2}
+      DASHSCOPE_ASR_TASK_URL: ${DASHSCOPE_ASR_TASK_URL:-https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription}
+      DASHSCOPE_TASK_STATUS_BASE_URL: ${DASHSCOPE_TASK_STATUS_BASE_URL:-https://dashscope.aliyuncs.com/api/v1/tasks}
+      DASHSCOPE_ASR_LANGUAGE_HINTS: ${DASHSCOPE_ASR_LANGUAGE_HINTS:-zh,en}
+      DASHSCOPE_ASR_POLL_INTERVAL_MS: ${DASHSCOPE_ASR_POLL_INTERVAL_MS:-800}
+      DASHSCOPE_ASR_POLL_ATTEMPTS: ${DASHSCOPE_ASR_POLL_ATTEMPTS:-45}
+      DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:-qwen-plus}
+      WQN_ESP32_AI_PROVIDER_TIMEOUT_MS: ${WQN_ESP32_AI_PROVIDER_TIMEOUT_MS:-60000}
+      WQN_ESP32_AI_PUBLIC_BASE_URL: ${WQN_ESP32_AI_PUBLIC_BASE_URL:-}
+      WQN_ESP32_AI_AUDIO_URL_SECRET: ${WQN_ESP32_AI_AUDIO_URL_SECRET:-}
+      WQN_ESP32_AI_AUDIO_TMP_DIR: ${WQN_ESP32_AI_AUDIO_TMP_DIR:-/tmp/wqn-esp32-ai-audio}
+      WQN_ESP32_AI_AUDIO_URL_TTL_MS: ${WQN_ESP32_AI_AUDIO_URL_TTL_MS:-300000}
+      # Site URL for sitemap generation
+      SITE_URL: ${SITE_URL:-http://localhost:3000}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================================
+  # WQN Flash Realtime proxy (Bun + StepFun Realtime WebSocket)
+  # ============================================================
+  # Listens on 8080 internally — nginx proxies /api/esp32/realtime
+  # to it via the wqn network. We do NOT publish 8080 to the host
+  # because nginx can reach this container by service name instead.
+  wqn-realtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.realtime
+    image: ${IMAGE_WQN_REALTIME:-wqn-realtime:latest}
+    restart: unless-stopped
+    # No host-published port — nginx connects over the compose network.
+    expose:
+      - "8080"
+    networks:
+      - default
+    environment:
+      NODE_ENV: production
+      # Supabase (for Bearer-token device lookup)
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # StepFun upstream
+      STEP_API_KEY: ${STEP_API_KEY}
+      STEP_TTS_REALTIME_URL: ${STEP_TTS_REALTIME_URL:-wss://api.stepfun.ai/v1/realtime/audio}
+      STEP_TTS_MODEL: ${STEP_TTS_MODEL:-stepaudio-2.5-realtime}
+      # Internal auth to call wqn-app's execute-tool endpoint
+      WQN_REALTIME_PROXY_SECRET: ${WQN_REALTIME_PROXY_SECRET}
+      WQN_INTERNAL_API_BASE: ${WQN_INTERNAL_API_BASE:-http://wqn:3000}
+      WQN_FLASH_PROXY_BIND: "0.0.0.0"
+      WQN_FLASH_PROXY_PORT: "8080"
+      WQN_FLASH_ALLOWED_VOICES: ${WQN_FLASH_ALLOWED_VOICES:-qingchunshaonv,cixingnansheng}
+      WQN_AI_REALTIME_ENABLED: ${WQN_AI_REALTIME_ENABLED:-true}
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    # nginx proxies WebSocket traffic to wqn-realtime:8080. Compose service
+    # discovery gives us the DNS name for free.

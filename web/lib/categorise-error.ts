@@ -1,10 +1,15 @@
-import { GoogleGenAI } from '@google/genai';
-import { ERROR_CATEGORY_VALUES, USAGE_QUOTA_CONSTANTS } from '@/lib/constants';
+import { createAIClient } from '@/lib/ai/client';
+import {
+  ERROR_CATEGORY_VALUES,
+  USAGE_QUOTA_CONSTANTS,
+  AI_CONSTANTS,
+} from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { normaliseTopicLabel } from '@/lib/insights-utils';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
 import type { AnswerConfig } from '@/lib/types';
+import type { Database } from '@/lib/database.types';
 
 const RESPONSE_SCHEMA = {
   type: 'object' as const,
@@ -146,7 +151,7 @@ export interface CategoriseErrorParams {
 
 export interface CategoriseErrorResult {
   already_exists?: boolean;
-  categorisation?: Record<string, unknown>;
+  categorisation?: Database['public']['Tables']['error_categorisations']['Row'];
   quota_exceeded?: boolean;
 }
 
@@ -160,11 +165,6 @@ export interface CategoriseErrorResult {
 export async function performErrorCategorisation(
   params: CategoriseErrorParams
 ): Promise<CategoriseErrorResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('AI categorisation service not configured');
-  }
-
   const { attempt_id, problem_id, subject_id, user_id } = params;
 
   // Check daily categorisation quota before making any Gemini calls
@@ -269,18 +269,23 @@ export async function performErrorCategorisation(
     [];
 
   // Build prompt and call Gemini
-  const systemPrompt = buildSystemPrompt(problem, subject.name, tags);
+  const problemForPrompt = {
+    ...problem,
+    content: problem.content ?? '',
+    answer_config: problem.answer_config as AnswerConfig | null,
+  };
+  const systemPrompt = buildSystemPrompt(problemForPrompt, subject.name, tags);
   const userPrompt = buildUserPrompt(
-    problem,
+    problemForPrompt,
     attempt,
     previousAttempts,
     existingLabels
   );
 
-  const genai = new GoogleGenAI({ apiKey });
+  const genai = createAIClient(AI_CONSTANTS);
 
-  const response = await genai.models.generateContent({
-    model: 'gemini-2.5-flash',
+  const response = await genai.generateContent({
+    model: AI_CONSTANTS.MODELS.CATEGORISATION,
     contents: [
       {
         role: 'user',
@@ -323,5 +328,5 @@ export async function performErrorCategorisation(
     throw new Error(`Failed to insert categorisation: ${insertError.message}`);
   }
 
-  return { categorisation: categorisation as Record<string, unknown> };
+  return { categorisation };
 }

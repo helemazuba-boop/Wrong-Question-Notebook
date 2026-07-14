@@ -106,9 +106,9 @@ export function ConsentDialog({ open, onOpenChange }: ConsentDialogProps) {
             <ul className="mt-2.5 space-y-1 text-xs text-gray-500 dark:text-gray-400 pl-11">
               <li>
                 <code className="text-[11px] bg-blue-200/30 dark:bg-blue-800/20 rounded px-1">
-                  _vercel_*
+                  analytics_*
                 </code>{' '}
-                &mdash; Vercel Analytics &amp; Speed Insights
+                &mdash; {t('analyticsService')}
               </li>
             </ul>
           </div>

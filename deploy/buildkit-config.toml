@@ -1,0 +1,11 @@
+# Optional Docker Hub mirror for BuildKit.
+#
+# The previous USTC mirror can fail DNS resolution inside Docker Desktop's
+# BuildKit container on some networks. Leave this file comment-only to use
+# Docker's default registry resolution.
+#
+# If your network requires a registry mirror, uncomment and replace the URL
+# below with a mirror that is reachable from Docker Desktop:
+#
+# [registry."docker.io"]
+#   mirrors = ["https://your-dockerhub-mirror.example.com"]

@@ -1,0 +1,24 @@
+{
+  "name": "@wqn/realtime-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WQN Flash Realtime relay — bridges ESP32 wss to StepFun Realtime.",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "bun-types": "latest",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

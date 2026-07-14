@@ -298,7 +298,6 @@ const validateImgSrc: sanitizeHtml.Transformer = (tagName, attribs) => {
     attribs.src.startsWith('/api/files/');
 
   if (isDangerous || !isAllowed) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { src: _removed, ...safeAttribs } = attribs;
     return { tagName, attribs: safeAttribs };
   }

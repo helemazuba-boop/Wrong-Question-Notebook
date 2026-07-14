@@ -14,6 +14,7 @@ import {
   hasOnlyOwnedAssetPaths,
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES, CONTENT_LIMIT_CONSTANTS } from '@/lib/constants';
+import type { Database } from '@/lib/database.types';
 import { checkContentLimit } from '@/lib/content-limits';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
@@ -182,12 +183,18 @@ async function getProblems(req: Request) {
 
   // Apply problem type filter
   if (problemTypes.length > 0) {
-    query = query.in('problem_type', problemTypes);
+    query = query.in(
+      'problem_type',
+      problemTypes as Database['public']['Enums']['problem_type_enum'][]
+    );
   }
 
   // Apply status filter
   if (statuses.length > 0) {
-    query = query.in('status', statuses);
+    query = query.in(
+      'status',
+      statuses as Database['public']['Enums']['problem_status_enum'][]
+    );
   }
 
   try {
@@ -266,6 +273,12 @@ async function createProblem(req: Request) {
     ...problem
   } = parsed.data;
 
+  // Defensively validate client-provided ID — treat invalid UUIDs as if no ID was provided
+  const safeProblemId =
+    clientProvidedId && isValidUuid(clientProvidedId)
+      ? clientProvidedId
+      : undefined;
+
   // Reject asset paths that don't belong to the current user
   if (!hasOnlyOwnedAssetPaths(user.id, assets, solution_assets)) {
     return NextResponse.json(
@@ -313,7 +326,7 @@ async function createProblem(req: Request) {
   }
 
   // Use client-provided ID if available, otherwise let database generate one
-  const problemId = clientProvidedId || undefined;
+  const problemId = safeProblemId || undefined;
 
   // 1) Create problem with assets already in permanent location
   try {

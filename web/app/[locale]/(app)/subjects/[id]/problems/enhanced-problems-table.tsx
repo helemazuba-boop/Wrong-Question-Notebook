@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '@/i18n/navigation';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { DataTable } from '@/components/problems/data-table';
 import { createColumns } from './columns';
 import CompactSearchFilter from '@/components/problems/compact-search-filter';
@@ -11,13 +11,7 @@ import { toast } from 'sonner';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import ProblemSetCreationDialog from '@/components/problem-set-creation-dialog';
 import AddToSetDialog from '@/components/add-to-set-dialog';
-import {
-  SearchFilters,
-  Problem,
-  SimpleTag,
-  Tag,
-  TagFilterMode,
-} from '@/lib/types';
+import { SearchFilters, Problem, SimpleTag, TagFilterMode } from '@/lib/types';
 import { useIsMobile } from '@/lib/hooks/useMediaQuery';
 import { useFilterParams } from '@/lib/hooks/useFilterParams';
 import { confirmUnsavedNavigation } from '@/lib/hooks/useUnsavedChanges';
@@ -34,9 +28,10 @@ export default function EnhancedProblemsTable({
   problemSetProblemIds = [],
   isAddToSetMode = false,
   targetProblemSetId = null,
+  returnToProblemSetHref,
 }: {
   initialProblems: Problem[];
-  initialTagsByProblem: Record<string, Tag[]>;
+  initialTagsByProblem: Record<string, SimpleTag[]>;
   subjectId: string;
   availableTags: SimpleTag[];
   onProblemDeleted?: ((problemId: string) => void) | null;
@@ -45,11 +40,13 @@ export default function EnhancedProblemsTable({
   problemSetProblemIds?: string[];
   isAddToSetMode?: boolean;
   targetProblemSetId?: string | null;
+  returnToProblemSetHref?: string;
 }) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const t = useTranslations('Problems');
   const tCommon = useTranslations('Common');
+  const locale = useLocale();
   const { initialFilters, updateUrl } = useFilterParams();
   const [problems, setProblems] = useState<Problem[]>(initialProblems);
   const [tagsByProblem, setTagsByProblem] = useState(initialTagsByProblem);
@@ -322,7 +319,9 @@ export default function EnhancedProblemsTable({
         setResetSelection(true);
 
         setTimeout(() => {
-          router.push(`/problem-sets/${targetProblemSetId}`);
+          router.push(
+            returnToProblemSetHref || `/problem-sets/${targetProblemSetId}`
+          );
         }, 1000);
       } catch (error) {
         console.error('Error adding problems to set:', error);
@@ -466,7 +465,7 @@ export default function EnhancedProblemsTable({
         />
       ) : (
         <DataTable
-          columns={createColumns(t)}
+          columns={createColumns(t, locale)}
           data={tableProblems}
           onEdit={onEditProblem ? handleEdit : undefined}
           onDelete={handleDeleteClick}

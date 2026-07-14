@@ -9,7 +9,9 @@ import {
   createUserCacheTag,
 } from '@/lib/cache-config';
 import { getUserTimezone } from '@/lib/timezone-utils';
+import { loadInsightReportData } from '@/lib/insights';
 import type {
+  InsightDigest,
   StatisticsData,
   StatisticsOverview,
   StudyStreaks,
@@ -25,6 +27,15 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: t('statisticsMetaTitle'),
     description: t('statisticsMetaDescription'),
+  };
+}
+
+interface StatisticsPagePayload {
+  statistics: StatisticsData;
+  insights: {
+    digest: InsightDigest | null;
+    isGenerating: boolean;
+    subjects: Array<{ id: string; name: string; color: string | null }>;
   };
 }
 
@@ -50,13 +61,16 @@ const emptyData: StatisticsData = {
   timezone: 'UTC',
 };
 
-async function loadStatistics() {
+async function loadStatistics(): Promise<StatisticsPagePayload> {
   const supabase = await createClient();
   const { data: authData } = await supabase.auth.getUser();
   const userId = authData.user?.id;
 
   if (!userId) {
-    return emptyData;
+    return {
+      statistics: emptyData,
+      insights: { digest: null, isGenerating: false, subjects: [] },
+    };
   }
 
   const userTz = await getUserTimezone(userId);
@@ -132,10 +146,22 @@ async function loadStatistics() {
     }
   );
 
-  return await cachedLoad(userId, userTz, supabase);
+  const [statistics, insights] = await Promise.all([
+    cachedLoad(userId, userTz, supabase),
+    loadInsightReportData(supabase, userId),
+  ]);
+
+  return { statistics, insights };
 }
 
 export default async function StatisticsPage() {
   const data = await loadStatistics();
-  return <StatisticsPageClient data={data} />;
+  return (
+    <StatisticsPageClient
+      data={data.statistics}
+      insightDigest={data.insights.digest}
+      insightIsGenerating={data.insights.isGenerating}
+      insightSubjects={data.insights.subjects}
+    />
+  );
 }

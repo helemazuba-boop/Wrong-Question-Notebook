@@ -26,6 +26,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import CopyProblemDialog from '@/components/copy-problem-dialog';
+import PrintDialog from './print-dialog';
 
 interface AllProblem {
   id: string;
@@ -92,6 +93,10 @@ interface ProblemReviewProps {
   copyProblemSetId?: string;
   /** Whether the current viewer is authenticated */
   isAuthenticated?: boolean;
+  /** Explicit destination for the built-in back link. */
+  backHref?: string;
+  /** Original list/source route to keep when navigating inside a problem set. */
+  fromHref?: string;
 }
 
 export default function ProblemReview({
@@ -113,6 +118,8 @@ export default function ProblemReview({
   allowCopying,
   copyProblemSetId,
   isAuthenticated = true,
+  backHref,
+  fromHref,
 }: ProblemReviewProps) {
   const tProblemSets = useTranslations('ProblemSets');
   const tProblems = useTranslations('Problems');
@@ -160,6 +167,30 @@ export default function ProblemReview({
     setLastAttemptCorrect(cached?.isCorrect ?? null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [problem.id]);
+
+  // Force KaTeX to render before printing, so math is visible on paper.
+  useEffect(() => {
+    const renderKatex = () => {
+      import('katex').then(({ default: katex }) => {
+        document
+          .querySelectorAll(
+            '[data-type="inline-math"], [data-type="block-math"]'
+          )
+          .forEach(el => {
+            const latex = el.getAttribute('data-latex') || el.textContent || '';
+            const displayMode = el.getAttribute('data-type') === 'block-math';
+            if (!el.querySelector('.katex')) {
+              el.innerHTML = katex.renderToString(latex, {
+                displayMode,
+                throwOnError: false,
+              });
+            }
+          });
+      });
+    };
+    window.addEventListener('beforeprint', renderKatex);
+    return () => window.removeEventListener('beforeprint', renderKatex);
+  }, []);
 
   // Get current problem index for navigation
   const currentIndex = allProblems.findIndex(p => p.id === problem.id);
@@ -265,7 +296,9 @@ export default function ProblemReview({
   const navigateToProblem = (problemId: string) => {
     if (isProblemSetMode && problemSetId) {
       router.push(
-        `/problem-sets/${problemSetId}/review?problemId=${problemId}`
+        `/problem-sets/${problemSetId}/review?problemId=${problemId}${
+          fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+        }`
       );
     } else {
       router.push(`/subjects/${subject.id}/problems/${problemId}/review`);
@@ -288,6 +321,15 @@ export default function ProblemReview({
 
   return (
     <div className="space-y-4">
+      {/* Print-only header: name / date / subject */}
+      <div className="print-header">
+        <span className="font-semibold">错题练习卷</span>
+        <span className="text-sm">
+          姓名：__________ &nbsp;&nbsp; 班级：__________ &nbsp;&nbsp;{' '}
+          {subject.name}
+        </span>
+      </div>
+
       {/* Sticky Header with gradient */}
       <div className="review-header-sticky">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -304,6 +346,12 @@ export default function ProblemReview({
 
           {/* Actions: inline tags + toggle button + exit/back link */}
           <div className="flex flex-wrap items-center gap-2">
+            <PrintDialog
+              problem={problem}
+              subject={subject}
+              showSolution={showSolution}
+              setShowSolution={setShowSolution}
+            />
             {/* Tags appear inline to the left of the button when expanded */}
             {problem.tags && problem.tags.length > 0 && (
               <div
@@ -343,7 +391,7 @@ export default function ProblemReview({
               <BackLink
                 href={
                   isProblemSetMode
-                    ? `/problem-sets/${problemSetId}`
+                    ? backHref || `/problem-sets/${problemSetId}`
                     : `/subjects/${subject.id}/problems`
                 }
               >
@@ -381,6 +429,24 @@ export default function ProblemReview({
 
             {/* Divider */}
             <div className="border-t border-blue-200/30 dark:border-blue-800/20 my-4" />
+
+            {/* Print: inline answer area (题下 mode) */}
+            <div className="print-answer-inline">
+              <span className="print-answer-inline-label">答案：</span>
+              <div className="print-answer-inline-line" />
+            </div>
+            {problem.answer_config?.type === 'mcq' &&
+              (() => {
+                const mcq = problem.answer_config as MCQAnswerConfig;
+                const correct = mcq.choices.find(
+                  c => c.id === mcq.correct_choice_id
+                );
+                return (
+                  <div className="print-mcq-inline-answer print-answer-inline">
+                    正确选项：{mcq.correct_choice_id}. {correct?.text}
+                  </div>
+                );
+              })()}
 
             {/* Answer Section */}
             <div>
@@ -525,7 +591,10 @@ export default function ProblemReview({
           </div>
 
           {/* Solution Card (GREEN gradient) */}
-          <div className="rounded-2xl overflow-hidden border border-green-200/40 dark:border-green-800/30">
+          <div
+            className="rounded-2xl overflow-hidden border border-green-200/40 dark:border-green-800/30"
+            data-print-hide="true"
+          >
             <SolutionReveal
               solutionText={problem.solution_text || undefined}
               solutionAssets={problem.solution_assets || []}
@@ -537,6 +606,43 @@ export default function ProblemReview({
               wrapperClassName="bg-gradient-to-br from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20 p-4"
             />
           </div>
+
+          {/* Print-only: answer appendix (末尾 mode) */}
+          <div className="print-answer-appendix">
+            <h2>参考答案</h2>
+            <div className="print-answer-appendix-item">
+              <strong>题目：</strong>
+              {(() => {
+                if (!problem.answer_config) return '—';
+                const cfg = problem.answer_config;
+                if (cfg.type === 'mcq') {
+                  const mcq = cfg as MCQAnswerConfig;
+                  const correct = mcq.choices.find(
+                    c => c.id === mcq.correct_choice_id
+                  );
+                  return `${mcq.correct_choice_id}. ${correct?.text}`;
+                }
+                if (cfg.type === 'short') {
+                  return (
+                    <span className="font-mono">
+                      {JSON.stringify(problem.correct_answer)}
+                    </span>
+                  );
+                }
+                return JSON.stringify(problem.correct_answer);
+              })()}
+            </div>
+          </div>
+
+          {/* Print-only: solution appendix (末尾 mode) */}
+          {problem.solution_text && (
+            <div className="print-solution-appendix">
+              <h2 className="text-base font-bold mb-2">解题思路</h2>
+              <div className="prose max-w-none rich-text-content text-sm">
+                <RichTextDisplay content={problem.solution_text} />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* RIGHT COLUMN - Sticky Sidebar */}
@@ -568,8 +674,11 @@ export default function ProblemReview({
                   if (isAuthenticated) {
                     setCopyDialogOpen(true);
                   } else {
+                    const redirectHref = `/problem-sets/${copyProblemSetId}/review?problemId=${problem.id}${
+                      fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+                    }`;
                     router.push(
-                      `/auth/sign-up?redirect=${encodeURIComponent(`/problem-sets/${copyProblemSetId}/review?problemId=${problem.id}`)}`
+                      `/auth/sign-up?redirect=${encodeURIComponent(redirectHref)}`
                     );
                   }
                 }}

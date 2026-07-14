@@ -80,6 +80,14 @@ export const RATE_LIMIT_CONSTANTS = {
       windowMs: 60 * 60 * 1000, // 1 hour
       maxRequests: 60, // 60 problems per hour
     },
+    // ESP32 /poll is unauthenticated and is hit ~once every 2 s during a
+    // 2-minute pairing window. Keep an IP bucket large enough for a full
+    // pairing flow plus a small retry burst, but tight enough to deter MAC
+    // enumeration: ~180 reqs / 5 min ~= 0.6 polls/sec from a single IP.
+    esp32Poll: {
+      windowMs: 5 * 60 * 1000,
+      maxRequests: 180,
+    },
   },
 
   // Cleanup intervals
@@ -337,17 +345,11 @@ export const ANSWER_CONFIG_CONSTANTS = {
 } as const;
 
 // =====================================================
-// CAPTCHA Constants
-// =====================================================
-export const CAPTCHA_CONSTANTS = {
-  // Cloudflare Turnstile site key
-  TURNSTILE_SITE_KEY: '0x4AAAAAACgUHR0HEEo3h1J4',
-} as const;
-
-// =====================================================
 // AI Constants
 // =====================================================
 export const AI_CONSTANTS = {
+  PROVIDER:
+    (process.env.AI_PROVIDER as 'google' | 'anthropic' | 'openai') ?? 'google',
   EXTRACTION: {
     MAX_IMAGE_SIZE: FILE_CONSTANTS.MAX_FILE_SIZE.IMAGE,
     ALLOWED_MIME_TYPES: [
@@ -365,7 +367,14 @@ export const AI_CONSTANTS = {
       MAX_NEW: 3,
     },
   },
+  MODELS: {
+    EXTRACTION: process.env.AI_MODEL_EXTRACTION ?? 'gemini-2.5-flash',
+    CATEGORISATION: process.env.AI_MODEL_CATEGORISATION ?? 'gemini-2.5-flash',
+    DIGEST: process.env.AI_MODEL_DIGEST ?? 'gemini-3-flash-preview',
+  },
 } as const;
+
+export type AI_CONSTANTS_TYPE = typeof AI_CONSTANTS;
 
 // =====================================================
 // Usage Quota Constants

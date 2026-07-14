@@ -34,7 +34,18 @@ export type ProblemSetTableMeta = {
   isSmart: boolean;
   allowCopying?: boolean;
   isAuthenticated?: boolean;
+  fromHref?: string;
 };
+
+function problemSetReviewHref(
+  problemSetId: string,
+  problemId: string,
+  fromHref?: string
+) {
+  return `/problem-sets/${problemSetId}/review?problemId=${problemId}${
+    fromHref ? `&from=${encodeURIComponent(fromHref)}` : ''
+  }`;
+}
 
 // Tag capsules component
 function TagCapsules({ tags }: { tags: { id: string; name: string }[] }) {
@@ -283,7 +294,11 @@ const ownerActionsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
             <DropdownMenuItem
               onClick={e => {
                 e.stopPropagation();
-                window.location.href = `/problem-sets/${meta.problemSetId}/review?problemId=${problem.id}`;
+                window.location.href = problemSetReviewHref(
+                  meta.problemSetId,
+                  problem.id,
+                  meta.fromHref
+                );
               }}
             >
               {t('reviewProblem')}
@@ -348,7 +363,11 @@ function ViewerActionsCell({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
-              window.location.href = `/problem-sets/${meta.problemSetId}/review?problemId=${problem.id}`;
+              window.location.href = problemSetReviewHref(
+                meta.problemSetId,
+                problem.id,
+                meta.fromHref
+              );
             }}
           >
             {t('reviewProblem')}

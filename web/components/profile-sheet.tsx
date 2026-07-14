@@ -402,7 +402,7 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
             {/* Public visibility notice */}
             <p className="text-xs text-muted-foreground rounded-lg bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200/40 dark:border-amber-800/30 px-3 py-2">
               Your username, name, and bio are publicly visible on shared
-              problem sets and your creator profile.
+              wrong-question books and your creator profile.
             </p>
 
             {/* Username */}

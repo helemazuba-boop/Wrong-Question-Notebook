@@ -12,10 +12,7 @@ export default async function ProblemsChooser() {
 
   return (
     <div className="section-container">
-      <PageHeader
-        title="Problems"
-        description="Pick a subject to browse and review problems."
-      />
+      <PageHeader title="题目" description="选择一个笔记本进入题目列表。" />
 
       <Card className="card-section">
         <CardContent className="card-section-content pt-6">
@@ -34,14 +31,14 @@ export default async function ProblemsChooser() {
 
           <div className="mt-6 border-t pt-4">
             <p className="text-body-sm text-muted-foreground">
-              Tip: add a subject first on the{' '}
+              提示：如需新建分类，请先进入{' '}
               <Link
                 href="/subjects"
                 className="underline text-primary hover:text-primary/80 transition-colors"
               >
-                Subjects
+                笔记本架
               </Link>{' '}
-              page.
+              。
             </p>
           </div>
         </CardContent>

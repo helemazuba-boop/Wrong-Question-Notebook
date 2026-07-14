@@ -6,10 +6,10 @@ import { usePathname } from '@/i18n/navigation';
 import {
   Menu,
   BookOpen,
-  FolderOpen,
   Globe,
   BarChart3,
-  Lightbulb,
+  Cpu,
+  ListTodo,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -23,20 +23,40 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-const APP_LINKS = [
+type NavLabelKey = 'subjects' | 'todos' | 'statistics' | 'discover' | 'esp32';
+
+type AppLink = {
+  href: string;
+  labelKey: NavLabelKey;
+  icon: LucideIcon;
+  iconBg: string;
+  iconColor: string;
+  activeHrefs?: string[];
+};
+
+const APP_LINKS: AppLink[] = [
   {
     href: '/subjects',
     labelKey: 'subjects' as const,
     icon: BookOpen,
     iconBg: 'bg-amber-500/10 dark:bg-amber-500/20',
     iconColor: 'text-amber-600 dark:text-amber-400',
+    activeHrefs: ['/problem-sets', '/notebooks'],
   },
   {
-    href: '/problem-sets',
-    labelKey: 'problemSets' as const,
-    icon: FolderOpen,
-    iconBg: 'bg-blue-500/10 dark:bg-blue-500/20',
-    iconColor: 'text-blue-600 dark:text-blue-400',
+    href: '/todos',
+    labelKey: 'todos' as const,
+    icon: ListTodo,
+    iconBg: 'bg-emerald-500/10 dark:bg-emerald-500/20',
+    iconColor: 'text-emerald-600 dark:text-emerald-400',
+  },
+  {
+    href: '/statistics',
+    labelKey: 'statistics' as const,
+    icon: BarChart3,
+    iconBg: 'bg-green-500/10 dark:bg-green-500/20',
+    iconColor: 'text-green-600 dark:text-green-400',
+    activeHrefs: ['/insights'],
   },
   {
     href: '/discover',
@@ -46,24 +66,23 @@ const APP_LINKS = [
     iconColor: 'text-purple-600 dark:text-purple-400',
   },
   {
-    href: '/statistics',
-    labelKey: 'statistics' as const,
-    icon: BarChart3,
-    iconBg: 'bg-green-500/10 dark:bg-green-500/20',
-    iconColor: 'text-green-600 dark:text-green-400',
-  },
-  {
-    href: '/insights',
-    labelKey: 'insights' as const,
-    icon: Lightbulb,
-    iconBg: 'bg-orange-500/10 dark:bg-orange-500/20',
-    iconColor: 'text-orange-600 dark:text-orange-400',
+    href: '/esp32',
+    labelKey: 'esp32' as const,
+    icon: Cpu,
+    iconBg: 'bg-rose-500/10 dark:bg-rose-500/20',
+    iconColor: 'text-rose-600 dark:text-rose-400',
   },
 ];
 
-function isActivePath(pathname: string | null, href: string) {
+function isActivePath(
+  pathname: string | null,
+  href: string,
+  activeHrefs: string[] = []
+) {
   if (!pathname) return false;
-  return pathname === href || pathname.startsWith(`${href}/`);
+  return [href, ...activeHrefs].some(
+    path => pathname === path || pathname.startsWith(`${path}/`)
+  );
 }
 
 function NavLink({
@@ -75,11 +94,16 @@ function NavLink({
 }) {
   const t = useTranslations('Navigation');
   const pathname = usePathname();
-  const active = isActivePath(pathname, href);
+  const active = isActivePath(
+    pathname,
+    href,
+    APP_LINKS.find(link => link.href === href)?.activeHrefs
+  );
 
   return (
     <Link
       href={href}
+      prefetch={false}
       className={cn(
         'text-base text-muted-foreground hover:text-foreground transition-all duration-200 border-b-2 border-transparent pb-0.5 hover:border-amber-300/50 dark:hover:border-amber-700/50',
         active &&
@@ -109,11 +133,16 @@ function MobileNavLink({
 }) {
   const t = useTranslations('Navigation');
   const pathname = usePathname();
-  const active = isActivePath(pathname, href);
+  const active = isActivePath(
+    pathname,
+    href,
+    APP_LINKS.find(link => link.href === href)?.activeHrefs
+  );
 
   return (
     <Link
       href={href}
+      prefetch={false}
       onClick={onClick}
       className={cn(
         'flex w-full items-center gap-3 text-gray-600 dark:text-gray-400',

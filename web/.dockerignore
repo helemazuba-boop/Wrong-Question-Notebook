@@ -1,0 +1,65 @@
+# Dependencies
+node_modules
+
+# Next.js build artifacts
+.web
+out/
+build/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+# Include .env.production for build-time env vars (Supabase URLs, etc.)
+# Credentials (ACR, passwords) are passed via --build-arg, not baked in.
+.env
+.env.local
+.env.development
+.env.test
+!.env.production
+
+# Test & coverage
+coverage/
+*.test.ts
+*.test.tsx
+vitest.config.ts
+
+# Dev config not needed at runtime
+.eslintrc*
+.prettierrc*
+eslint.config.mjs
+components.json
+vite.config.ts
+
+# Documentation
+*.md
+!README.md
+
+# Supabase local dev (not needed at runtime)
+supabase/
+
+# Husky
+.husky/
+
+# Scripts (dev helper only)
+scripts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Temporary
+.turbo/
+.cache/

@@ -88,6 +88,7 @@ export default function SubjectRow({
         title: tSubjects('deleteSubject'),
         message: tSubjects('confirmDeleteSubject', { name: subject.name }),
         confirmText: tCommon('delete'),
+        cancelText: tCommon('cancel'),
         variant: 'destructive',
         onConfirm: async () => {
           setDeleting(true);

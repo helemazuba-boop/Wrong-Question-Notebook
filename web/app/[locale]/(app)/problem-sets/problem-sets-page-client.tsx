@@ -553,11 +553,10 @@ export default function ProblemSetsPageClient({
               <Bookmark className="h-10 w-10 text-amber-600 dark:text-amber-400" />
             </div>
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              No favourites yet
+              {t('noFavouriteSets')}
             </h3>
             <p className="text-gray-600 dark:text-gray-400 max-w-md text-center">
-              You haven&apos;t favourited any problem sets yet. Browse the
-              Discover page to find sets to save.
+              {t('noFavouriteSetsDesc')}
             </p>
           </div>
         )}

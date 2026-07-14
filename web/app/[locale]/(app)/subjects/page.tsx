@@ -2,60 +2,62 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import SubjectsPageClient from './subjects-page-client';
 import { createClient } from '@/lib/supabase/server';
-import { unstable_cache } from 'next/cache';
-import {
-  CACHE_DURATIONS,
-  CACHE_TAGS,
-  createUserCacheTag,
-} from '@/lib/cache-config';
 import { SubjectWithMetadata } from '@/lib/types';
+import { loadNotebookShelf, type NotebookShelfItem } from '@/lib/notebooks';
+import {
+  ensurePresetSubjects,
+  prepareSubjectsForNotebookShelf,
+} from '@/lib/subject-presets';
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('Metadata');
   return { title: t('shelfMetaTitle') };
 }
 
-async function loadSubjects() {
+async function loadShelfData() {
   const supabase = await createClient();
 
-  // Get user for cache key
   const { data: authData } = await supabase.auth.getUser();
   const userId = authData.user?.id;
 
   if (!userId) {
-    return { data: [] as SubjectWithMetadata[] };
+    return {
+      subjects: [] as SubjectWithMetadata[],
+      shelfItems: [] as NotebookShelfItem[],
+    };
   }
 
-  const cachedLoadSubjects = unstable_cache(
-    async (userId: string, supabaseClient: any) => {
-      // Use database function to fetch subjects with metadata in a single query
-      const { data: subjects, error } = await supabaseClient.rpc(
-        'get_subjects_with_metadata'
-      );
+  try {
+    await ensurePresetSubjects(supabase, userId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Failed to ensure preset subjects: ${message}`);
+  }
 
-      // RLS ensures we only see the signed-in user's rows via auth.uid() in the function
-      if (error) {
-        // Fail soft so the page still renders
-        return { data: [] as SubjectWithMetadata[] };
-      }
+  const [subjectsResult, shelfItems] = await Promise.all([
+    supabase.rpc('get_subjects_with_metadata'),
+    loadNotebookShelf(supabase, userId).catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to load notebook shelf: ${message}`);
+      return [] as NotebookShelfItem[];
+    }),
+  ]);
 
-      return { data: subjects || [] };
-    },
-    [`subjects-${userId}`],
-    {
-      tags: [
-        CACHE_TAGS.SUBJECTS,
-        createUserCacheTag(CACHE_TAGS.USER_SUBJECTS, userId),
-      ],
-      revalidate: CACHE_DURATIONS.SUBJECTS,
-    }
-  );
-
-  return await cachedLoadSubjects(userId, supabase);
+  return {
+    subjects: prepareSubjectsForNotebookShelf(
+      (subjectsResult.data || []) as SubjectWithMetadata[]
+    ),
+    shelfItems,
+  };
 }
 
 export default async function SubjectsPage() {
-  const { data } = await loadSubjects();
+  const { subjects, shelfItems } = await loadShelfData();
 
-  return <SubjectsPageClient initialSubjects={data} />;
+  return (
+    <SubjectsPageClient
+      initialSubjects={subjects}
+      initialShelfItems={shelfItems}
+    />
+  );
 }

@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from '@/i18n/navigation';
-import { useRef, useState } from 'react';
-import { ERROR_MESSAGES, CAPTCHA_CONSTANTS } from '@/lib/constants';
+import { useState } from 'react';
+import { ERROR_MESSAGES } from '@/lib/constants';
 import { KeyRound, Mail } from 'lucide-react';
-import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { useTranslations } from 'next-intl';
 
 export function ForgotPasswordForm({
@@ -17,16 +16,10 @@ export function ForgotPasswordForm({
   ...props
 }: React.ComponentPropsWithoutRef<'div'>) {
   const t = useTranslations('Auth');
-  const tCommon = useTranslations('Common');
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState<string | undefined>(
-    undefined
-  );
-  const [captchaError, setCaptchaError] = useState<string | null>(null);
-  const captchaRef = useRef<TurnstileInstance>(null);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,10 +28,8 @@ export function ForgotPasswordForm({
     setError(null);
 
     try {
-      // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/update-password`,
-        captchaToken,
       });
       if (error) throw error;
       setSuccess(true);
@@ -46,8 +37,6 @@ export function ForgotPasswordForm({
       setError(
         error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_ERROR
       );
-      setCaptchaToken(undefined);
-      captchaRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -112,40 +101,10 @@ export function ForgotPasswordForm({
               />
             </div>
             {error && <p className="form-error">{error}</p>}
-            <div className="flex flex-col items-center gap-1">
-              <Turnstile
-                ref={captchaRef}
-                siteKey={CAPTCHA_CONSTANTS.TURNSTILE_SITE_KEY}
-                onSuccess={token => {
-                  setCaptchaToken(token);
-                  setCaptchaError(null);
-                }}
-                onExpire={() => setCaptchaToken(undefined)}
-                onError={() => {
-                  setCaptchaToken(undefined);
-                  setCaptchaError(t('securityVerificationFailed'));
-                }}
-              />
-              {captchaError && (
-                <p className="form-error text-center">
-                  {captchaError}{' '}
-                  <button
-                    type="button"
-                    className="underline"
-                    onClick={() => {
-                      setCaptchaError(null);
-                      captchaRef.current?.reset();
-                    }}
-                  >
-                    {tCommon('tryAgain')}
-                  </button>
-                </p>
-              )}
-            </div>
             <Button
               type="submit"
               className="w-full btn-cta-primary"
-              disabled={isLoading || !captchaToken}
+              disabled={isLoading}
             >
               {isLoading ? t('sending') : t('sendResetEmail')}
             </Button>

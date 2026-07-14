@@ -19,12 +19,14 @@ import {
 import { ReviewSessionSummary } from '@/lib/types';
 import { formatDisplayDateTime, formatDuration } from '@/lib/common-utils';
 import StatusPieChart from '@/components/review/status-pie-chart';
+import { appendFromParam } from '@/lib/navigation-context';
 
 interface SummaryClientProps {
   problemSetId: string;
   sessionId: string;
   problemSetName: string;
   subjectName: string;
+  fromHref?: string;
 }
 
 function DeltaBadge({ delta }: { delta: number }) {
@@ -55,6 +57,7 @@ export default function SummaryClient({
   sessionId,
   problemSetName,
   subjectName,
+  fromHref,
 }: SummaryClientProps) {
   const t = useTranslations('Review');
   const tProblemSets = useTranslations('ProblemSets');
@@ -141,7 +144,13 @@ export default function SummaryClient({
     return (
       <div className="section-container text-center py-12">
         <p className="text-muted-foreground mb-4">{t('failedToLoadSummary')}</p>
-        <BackLink onClick={() => router.push(`/problem-sets/${problemSetId}`)}>
+        <BackLink
+          onClick={() =>
+            router.push(
+              appendFromParam(`/problem-sets/${problemSetId}`, fromHref)
+            )
+          }
+        >
           {tProblemSets('backToSet')}
         </BackLink>
       </div>
@@ -314,7 +323,13 @@ export default function SummaryClient({
 
       {/* Actions */}
       <div className="flex justify-center">
-        <BackLink onClick={() => router.push(`/problem-sets/${problemSetId}`)}>
+        <BackLink
+          onClick={() =>
+            router.push(
+              appendFromParam(`/problem-sets/${problemSetId}`, fromHref)
+            )
+          }
+        >
           {tProblemSets('backToSet')}
         </BackLink>
       </div>

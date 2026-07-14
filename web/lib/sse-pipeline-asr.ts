@@ -1,0 +1,293 @@
+// sse-pipeline-asr.ts
+// Sync ASR (Paraformer-v2) wrapped so the v2 SSE pipeline can emit
+// `asr.complete` and `stage(asr_*)` events. Reuses the v1 staging path
+// via `stageEsp32AiAudioFile` to keep the upload-to-DashScope behavior
+// identical to v1.
+
+import { Esp32AiProviderError } from './esp32-ai-provider';
+import type { PipelinePusher } from './sse-pipeline-types';
+
+export interface AsrResult {
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+}
+
+export interface AsrConfig {
+  dashScopeApiKey: string;
+  asrTaskUrl: string;
+  asrTaskStatusBaseUrl: string;
+  asrModel: string;
+  asrLanguageHints: string[];
+  asrTimeoutMs: number;
+  asrPollIntervalMs: number;
+  asrPollAttempts: number;
+  audioUrlTtlMs: number;
+  publicBaseUrl: string;
+}
+
+export async function runPipelineAsr(
+  config: AsrConfig,
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number,
+  pusher: PipelinePusher
+): Promise<AsrResult> {
+  if (sampleRate !== 16000) {
+    throw new Esp32AiProviderError(
+      'invalid_audio',
+      'Unsupported audio format for DashScope ASR provider',
+      415
+    );
+  }
+
+  const mod = await import('./esp32-ai-audio-staging');
+  const { stageEsp32AiAudioFile, AudioStagingError } = mod;
+
+  const startedAt = Date.now();
+  pusher.emitStage('audio_received', { elapsed_ms: Date.now() - startedAt });
+  pusher.emitStage('asr_started', { elapsed_ms: Date.now() - startedAt });
+
+  let stagedAudio:
+    | Awaited<ReturnType<typeof stageEsp32AiAudioFile>>
+    | undefined;
+  try {
+    stagedAudio = await stageEsp32AiAudioFile({
+      audio,
+      sampleRate,
+      channels,
+      publicBaseUrl: config.publicBaseUrl,
+      ttlMs: config.audioUrlTtlMs,
+    });
+
+    const headers = {
+      Authorization: 'Bearer ' + config.dashScopeApiKey,
+      'Content-Type': 'application/json',
+      'X-DashScope-Async': 'enable',
+    };
+    const parameters: Record<string, unknown> = {};
+    if (config.asrLanguageHints.length > 0) {
+      parameters.language_hints = config.asrLanguageHints;
+    }
+    const submitResp = await fetchJsonWithTimeout<{
+      request_id?: string;
+      output?: { task_id?: string; task_status?: string };
+    }>(
+      config.asrTaskUrl,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: config.asrModel,
+          input: { file_urls: [stagedAudio.url] },
+          parameters,
+        }),
+      },
+      config.asrTimeoutMs,
+      'asr'
+    );
+    const taskId = submitResp.output?.task_id;
+    if (!taskId) {
+      throw new Esp32AiProviderError(
+        'asr_failed',
+        'DashScope ASR submit missing task_id',
+        500
+      );
+    }
+
+    for (let attempt = 0; attempt < config.asrPollAttempts; attempt += 1) {
+      if (attempt > 0) await sleep(config.asrPollIntervalMs);
+      if (pusher.shouldEmitAsrPoll(Date.now())) {
+        pusher.emitStage('asr_polling', {
+          elapsed_ms: Date.now() - startedAt,
+          attempt: attempt + 1,
+          progress: Math.round((attempt / config.asrPollAttempts) * 100),
+        });
+      }
+      const poll = await fetchJsonWithTimeout<{
+        output?: {
+          task_status?: string;
+          code?: string;
+          message?: string;
+          text?: string;
+          transcription_url?: string;
+          results?: Array<{ text?: string }>;
+        };
+      }>(
+        config.asrTaskStatusBaseUrl + '/' + encodeURIComponent(taskId),
+        {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + config.dashScopeApiKey },
+        },
+        config.asrTimeoutMs,
+        'asr'
+      );
+      const status = (poll.output?.task_status || '').toUpperCase();
+      if (status === 'SUCCEEDED') {
+        let transcript = poll.output?.text || '';
+        if (!transcript && poll.output?.transcription_url) {
+          try {
+            const r = await fetchJsonWithTimeout<unknown>(
+              poll.output.transcription_url,
+              { method: 'GET' },
+              config.asrTimeoutMs,
+              'asr'
+            );
+            transcript = extractTranscriptFromUnknown(r);
+          } catch {
+            // fall through
+          }
+        }
+        if (!transcript && Array.isArray(poll.output?.results)) {
+          transcript = poll
+            .output!.results!.map(function (r) {
+              return r.text || '';
+            })
+            .filter(Boolean)
+            .join('');
+        }
+        if (!transcript) {
+          throw new Esp32AiProviderError(
+            'asr_failed',
+            'DashScope ASR returned no transcript',
+            500
+          );
+        }
+        const elapsedMs = Date.now() - startedAt;
+        pusher.emitStage('asr_done', {
+          elapsed_ms: elapsedMs,
+          text_bytes: Buffer.byteLength(transcript, 'utf8'),
+        });
+        return {
+          transcript,
+          requestId: submitResp.request_id || taskId,
+          elapsedMs,
+        };
+      }
+      if (status === 'FAILED' || status === 'CANCELED') {
+        const code = String(poll.output?.code || '').toLowerCase();
+        const message = String(poll.output?.message || '').toLowerCase();
+        if (
+          code.indexOf('no_speech') >= 0 ||
+          message.indexOf('no speech') >= 0 ||
+          message.indexOf('silence') >= 0
+        ) {
+          throw new Esp32AiProviderError(
+            'no_speech',
+            'DashScope ASR detected no speech',
+            422
+          );
+        }
+        throw new Esp32AiProviderError(
+          'asr_failed',
+          'DashScope ASR task failed (' +
+            status +
+            ' ' +
+            (poll.output?.code || '') +
+            ')',
+          500
+        );
+      }
+    }
+    throw new Esp32AiProviderError(
+      'asr_timeout',
+      'DashScope ASR task timed out',
+      504
+    );
+  } catch (error) {
+    if (error instanceof AudioStagingError) {
+      throw new Esp32AiProviderError(
+        error.code === 'disabled' ? 'disabled' : 'asr_failed',
+        error.message,
+        error.status
+      );
+    }
+    throw error;
+  } finally {
+    await stagedAudio?.cleanup();
+  }
+}
+
+function extractTranscriptFromUnknown(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === 'string' && record.text.trim()) {
+    return record.text.trim();
+  }
+  if (Array.isArray(record.transcripts)) {
+    return record.transcripts
+      .map(function (t) {
+        return extractTranscriptFromUnknown(t);
+      })
+      .filter(Boolean)
+      .join('')
+      .trim();
+  }
+  if (Array.isArray(record.results)) {
+    return record.results
+      .map(function (t) {
+        return extractTranscriptFromUnknown(t);
+      })
+      .filter(Boolean)
+      .join('')
+      .trim();
+  }
+  return '';
+}
+
+export async function fetchJsonWithTimeout<T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  stage: 'asr' | 'chat'
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(function () {
+    controller.abort();
+  }, timeoutMs);
+  try {
+    const r = await fetch(
+      url,
+      Object.assign({}, init, { signal: controller.signal })
+    );
+    if (!r.ok) {
+      const code =
+        r.status === 429
+          ? 'rate_limited'
+          : r.status >= 500
+            ? 'provider_unavailable'
+            : stage === 'asr'
+              ? 'asr_failed'
+              : 'model_failed';
+      throw new Esp32AiProviderError(
+        code,
+        'Upstream ' + stage + ' HTTP ' + r.status,
+        r.status
+      );
+    }
+    return (await r.json()) as T;
+  } catch (error) {
+    if (error instanceof Esp32AiProviderError) throw error;
+    const isAbort = error instanceof Error && error.name === 'AbortError';
+    throw new Esp32AiProviderError(
+      isAbort
+        ? stage === 'asr'
+          ? 'asr_timeout'
+          : 'chat_timeout'
+        : stage === 'asr'
+          ? 'asr_failed'
+          : 'model_failed',
+      isAbort ? stage + ' request timed out' : stage + ' request failed',
+      isAbort ? 504 : 500
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(function (r) {
+    setTimeout(r, ms);
+  });
+}
