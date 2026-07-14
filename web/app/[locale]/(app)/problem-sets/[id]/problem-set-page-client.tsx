@@ -11,6 +11,7 @@ import { BackLink } from '@/components/back-link';
 import {
   Play,
   Plus,
+  PenLine,
   Settings,
   Users,
   Globe,
@@ -36,6 +37,9 @@ import { SocialActionsBar } from '@/components/social-actions-bar';
 import { FilterConfig, SessionConfig } from '@/lib/types';
 import { useReviewSession } from '@/lib/hooks/useReviewSession';
 import { appendFromParam } from '@/lib/navigation-context';
+import { toast } from 'sonner';
+import { apiUrl } from '@/lib/api-utils';
+import ProblemForm from '../../subjects/[id]/problems/problem-form';
 
 export default function ProblemSetPageClient({
   initialProblemSet,
@@ -58,6 +62,8 @@ export default function ProblemSetPageClient({
     needs_review_count: 0,
     mastered_count: 0,
   });
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [addingToSet, setAddingToSet] = useState(false);
   const [progressLoading, setProgressLoading] = useState(true);
   const [editSmartDialog, setEditSmartDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
@@ -123,6 +129,37 @@ export default function ProblemSetPageClient({
     router.push(
       appendFromParam(`/problem-sets/${problemSet.id}/add-problems`, backHref)
     );
+  };
+
+  // Create a new problem in this set's subject, then link it to the set.
+  // Using subject_id satisfies the API's "same subject as the set" constraint.
+  const handleProblemCreated = async (newProblem: { id: string }) => {
+    setAddingToSet(true);
+    try {
+      const res = await fetch(
+        apiUrl(`/api/problem-sets/${problemSet.id}/problems`),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ problem_ids: [newProblem.id] }),
+        }
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          (j?.error && (j.error.message || j.error)) ||
+          j?.message ||
+          '加入错题本失败';
+        throw new Error(typeof msg === 'string' ? msg : '加入错题本失败');
+      }
+      toast.success('已新建题目并加入错题本');
+      setCreateFormOpen(false);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '加入错题本失败');
+    } finally {
+      setAddingToSet(false);
+    }
   };
 
   const getSharingIcon = (sharingLevel: ProblemSetSharingLevel) => {
@@ -362,11 +399,31 @@ export default function ProblemSetPageClient({
 
       {/* Add Problems button (owner, non-smart) */}
       {problemSet.isOwner && !problemSet.is_smart && (
-        <div className="flex items-center mb-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Button
+            onClick={() => setCreateFormOpen(true)}
+            disabled={addingToSet}
+          >
+            <PenLine className="h-4 w-4 mr-2" />
+            新建题目
+          </Button>
           <Button onClick={handleAddProblems} variant="outline">
             <Plus className="h-4 w-4 mr-2" />
             {t('addProblems')}
           </Button>
+        </div>
+      )}
+
+      {/* Inline create-problem form (new problem auto-added to this set) */}
+      {createFormOpen && (
+        <div className="rounded-lg border bg-card p-4 md:p-6 mb-4 form-slot-enter">
+          <ProblemForm
+            key={`create-${problemSet.id}`}
+            subjectId={problemSet.subject_id}
+            alwaysExpanded
+            onCancel={() => setCreateFormOpen(false)}
+            onProblemCreated={handleProblemCreated}
+          />
         </div>
       )}
 
@@ -389,10 +446,19 @@ export default function ProblemSetPageClient({
                     : t('problemSetEmpty')}
               </p>
               {problemSet.isOwner && !problemSet.is_smart && (
-                <Button onClick={handleAddProblems}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  {t('addProblems')}
-                </Button>
+                <div className="flex justify-center gap-2">
+                  <Button
+                    onClick={() => setCreateFormOpen(true)}
+                    disabled={addingToSet}
+                  >
+                    <PenLine className="h-4 w-4 mr-2" />
+                    新建题目
+                  </Button>
+                  <Button onClick={handleAddProblems} variant="outline">
+                    <Plus className="h-4 w-4 mr-2" />
+                    {t('addProblems')}
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>

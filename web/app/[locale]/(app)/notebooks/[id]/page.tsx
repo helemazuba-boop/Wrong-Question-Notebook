@@ -48,7 +48,9 @@ async function loadNotebook(id: string) {
 
   const { data: notes, error: notesError } = await supabase
     .from('notebook_notes')
-    .select('id, notebook_id, title, content, source, linked_problem_id, created_at, updated_at')
+    .select(
+      'id, notebook_id, title, content, source, linked_problem_id, created_at, updated_at'
+    )
     .eq('notebook_id', id)
     .eq('user_id', user.id)
     .is('archived_at', null)

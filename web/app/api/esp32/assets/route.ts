@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { withSecurity } from '@/lib/security-middleware';
-import {
-  createApiErrorResponse,
-  handleAsyncError,
-} from '@/lib/common-utils';
+import { createApiErrorResponse, handleAsyncError } from '@/lib/common-utils';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
 
-async function authenticateDevice(req: Request): Promise<{ userId: string } | NextResponse> {
+async function authenticateDevice(
+  req: Request
+): Promise<{ userId: string } | NextResponse> {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return NextResponse.json(
@@ -49,16 +48,26 @@ async function getEsp32Asset(req: Request) {
   const { searchParams } = new URL(req.url);
   const path = searchParams.get('path') || '';
   if (!path) {
-    return NextResponse.json(createApiErrorResponse('Asset path is required', 400), {
-      status: 400,
-    });
+    return NextResponse.json(
+      createApiErrorResponse('Asset path is required', 400),
+      {
+        status: 400,
+      }
+    );
   }
 
   const expectedPrefix = `user/${userId}/`;
-  if (!path.startsWith(expectedPrefix) || path.includes('..') || path.includes('\\')) {
-    return NextResponse.json(createApiErrorResponse('Invalid asset path', 403), {
-      status: 403,
-    });
+  if (
+    !path.startsWith(expectedPrefix) ||
+    path.includes('..') ||
+    path.includes('\\')
+  ) {
+    return NextResponse.json(
+      createApiErrorResponse('Invalid asset path', 403),
+      {
+        status: 403,
+      }
+    );
   }
 
   try {
@@ -69,9 +78,12 @@ async function getEsp32Asset(req: Request) {
       .maybeSingle();
 
     if (problemError) {
-      return NextResponse.json(createApiErrorResponse('Failed to verify asset', 500), {
-        status: 500,
-      });
+      return NextResponse.json(
+        createApiErrorResponse('Failed to verify asset', 500),
+        {
+          status: 500,
+        }
+      );
     }
 
     if (!problemId) {

@@ -125,17 +125,53 @@ class Logger {
   }
 
   /**
-   * Log error messages
+   * Log error messages.
+   *
+   * Accepts anything as the second argument:
+   * - `Error`: stack and message preserved as-is.
+   * - PostgREST/Supabase error objects (`{ message, code, details, hint }`)
+   *   and other plain objects: serialised into a structured `error` payload
+   *   so production JSON logs show the real fields instead of "[object
+   *   Object]". Previously these went through `String(error)` and were
+   *   rendered as the useless string "[object Object]".
+   * - Anything else: stringified.
    */
   error(message: string, error?: Error | unknown, context?: LogContext): void {
-    const errorObj =
-      error instanceof Error
-        ? error
-        : error
-          ? new Error(String(error))
-          : undefined;
+    let errorObj: Error | undefined;
+    let extraContext: LogContext | undefined;
 
-    this.log(LogLevel.ERROR, message, context, errorObj);
+    if (error instanceof Error) {
+      errorObj = error;
+    } else if (error && typeof error === 'object') {
+      // Plain object — most likely a PostgREST/Supabase or fetch-style error.
+      // Pull out the canonical fields and stash everything else under
+      // `dbErrorRaw` so nothing is lost.
+      const e = error as Record<string, unknown>;
+      const synthetic = new Error(
+        typeof e.message === 'string' ? e.message : 'Non-Error object thrown'
+      );
+      synthetic.name = typeof e.name === 'string' ? e.name : 'NonErrorObject';
+      errorObj = synthetic;
+      extraContext = {
+        dbError: {
+          message: e.message,
+          code: e.code,
+          details: e.details,
+          hint: e.hint,
+          status: e.status,
+          statusCode: e.statusCode,
+        },
+      };
+    } else if (error !== undefined && error !== null) {
+      errorObj = new Error(String(error));
+    }
+
+    const mergedContext =
+      extraContext || context
+        ? { ...(context || {}), ...(extraContext || {}) }
+        : undefined;
+
+    this.log(LogLevel.ERROR, message, mergedContext, errorObj);
   }
 
   /**

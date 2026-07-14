@@ -84,7 +84,10 @@ function DataTableColumnHeader({
   );
 }
 
-export function createColumns(t: TranslatorProp, locale?: string): ColumnDef<Problem>[] {
+export function createColumns(
+  t: TranslatorProp,
+  locale?: string
+): ColumnDef<Problem>[] {
   return [
     {
       id: 'select',
@@ -247,7 +250,9 @@ export function createColumns(t: TranslatorProp, locale?: string): ColumnDef<Pro
         const lastReviewedDate = row.getValue('last_reviewed_date') as string;
         return (
           <div className="text-sm text-muted-foreground px-2">
-            {lastReviewedDate ? formatDisplayDate(lastReviewedDate, locale) : '—'}
+            {lastReviewedDate
+              ? formatDisplayDate(lastReviewedDate, locale)
+              : '—'}
           </div>
         );
       },

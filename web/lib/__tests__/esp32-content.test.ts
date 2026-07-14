@@ -32,7 +32,9 @@ describe('htmlToEsp32Content', () => {
   });
 
   it('preserves paragraphs and list boundaries', () => {
-    const result = htmlToEsp32Content('<p>第一行</p><ul><li>A</li><li>B</li></ul>');
+    const result = htmlToEsp32Content(
+      '<p>第一行</p><ul><li>A</li><li>B</li></ul>'
+    );
 
     expect(result.text).toBe('第一行\n- A\n- B');
   });

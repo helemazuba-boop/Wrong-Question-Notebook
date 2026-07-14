@@ -274,9 +274,10 @@ async function createProblem(req: Request) {
   } = parsed.data;
 
   // Defensively validate client-provided ID — treat invalid UUIDs as if no ID was provided
-  const safeProblemId = clientProvidedId && isValidUuid(clientProvidedId)
-    ? clientProvidedId
-    : undefined;
+  const safeProblemId =
+    clientProvidedId && isValidUuid(clientProvidedId)
+      ? clientProvidedId
+      : undefined;
 
   // Reject asset paths that don't belong to the current user
   if (!hasOnlyOwnedAssetPaths(user.id, assets, solution_assets)) {

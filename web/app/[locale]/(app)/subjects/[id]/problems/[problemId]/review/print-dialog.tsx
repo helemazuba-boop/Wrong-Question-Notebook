@@ -17,7 +17,6 @@ interface PrintDialogProps {
 
 export default function PrintDialog({
   problem,
-  subject,
   showSolution,
   setShowSolution,
 }: PrintDialogProps) {
@@ -72,9 +71,7 @@ export default function PrintDialog({
       );
     }
 
-    return (
-      <div className="border-b border-gray-400 w-40" />
-    );
+    return <div className="border-b border-gray-400 w-40" />;
   };
 
   return (
@@ -111,11 +108,13 @@ export default function PrintDialog({
               <p className="text-sm font-medium text-muted-foreground">
                 答案位置
               </p>
-              {([
-                ['end', '末尾（统一揭晓）'],
-                ['below', '题下（每题后）'],
-                ['none', '不要（纯练习）'],
-              ] as const).map(([value, label]) => (
+              {(
+                [
+                  ['end', '末尾（统一揭晓）'],
+                  ['below', '题下（每题后）'],
+                  ['none', '不要（纯练习）'],
+                ] as const
+              ).map(([value, label]) => (
                 <label
                   key={value}
                   className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-muted"

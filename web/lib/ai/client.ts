@@ -12,7 +12,10 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { Anthropic } from '@anthropic-ai/sdk';
-import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resources/messages/messages';
+import type {
+  ContentBlockParam,
+  MessageParam,
+} from '@anthropic-ai/sdk/resources/messages/messages';
 import type { AI_CONSTANTS_TYPE } from '@/lib/constants';
 
 // =====================================================
@@ -51,7 +54,9 @@ export interface GenerateContentResult {
 }
 
 export interface AIClient {
-  generateContent(params: GenerateContentParams): Promise<GenerateContentResult>;
+  generateContent(
+    params: GenerateContentParams
+  ): Promise<GenerateContentResult>;
 }
 
 // =====================================================
@@ -104,7 +109,10 @@ function createAnthropicClient(apiKey: string): AIClient {
                 return { type: 'text' as const, text: p.text };
               }
               if (p.inlineData) {
-                const mimeMap: Record<string, 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'> = {
+                const mimeMap: Record<
+                  string,
+                  'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+                > = {
                   'image/jpeg': 'image/jpeg',
                   'image/png': 'image/png',
                   'image/gif': 'image/gif',
@@ -162,7 +170,9 @@ function createAnthropicClient(apiKey: string): AIClient {
 function createOpenAICompatClient(baseUrl: string, apiKey: string): AIClient {
   return {
     async generateContent(params): Promise<GenerateContentResult> {
-      type MessageContent = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+      type MessageContent =
+        | { type: 'text'; text: string }
+        | { type: 'image_url'; image_url: { url: string } };
       type OpenAIMessage = { role: string; content: MessageContent[] | string };
 
       const messages: OpenAIMessage[] = [];
@@ -202,7 +212,10 @@ function createOpenAICompatClient(baseUrl: string, apiKey: string): AIClient {
       };
 
       if (params.config?.responseMimeType === 'application/json') {
-        body.response_format = { type: 'json_object', schema: params.config.responseSchema };
+        body.response_format = {
+          type: 'json_object',
+          schema: params.config.responseSchema,
+        };
       }
 
       const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -216,10 +229,14 @@ function createOpenAICompatClient(baseUrl: string, apiKey: string): AIClient {
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        throw new Error(`OpenAI-compatible API error ${res.status}: ${errText}`);
+        throw new Error(
+          `OpenAI-compatible API error ${res.status}: ${errText}`
+        );
       }
 
-      const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
       const text = json.choices?.[0]?.message?.content ?? '';
       return { text };
     },

@@ -58,7 +58,10 @@ async function completeReview(req: Request) {
 
     if (!results || !Array.isArray(results) || results.length === 0) {
       return NextResponse.json(
-        createApiErrorResponse('Results array is required and must not be empty', 400),
+        createApiErrorResponse(
+          'Results array is required and must not be empty',
+          400
+        ),
         { status: 400 }
       );
     }
@@ -93,20 +96,18 @@ async function completeReview(req: Request) {
       nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
 
       // Upsert review_schedule
-      await svc
-        .from('review_schedule')
-        .upsert(
-          {
-            problem_id: result.problem_id,
-            user_id: userId,
-            ease_factor: easeFactor,
-            interval_days: intervalDays,
-            last_reviewed_at: now,
-            next_review_at: nextReviewAt.toISOString(),
-            repetition_number: 1,
-          },
-          { onConflict: 'problem_id,user_id' }
-        );
+      await svc.from('review_schedule').upsert(
+        {
+          problem_id: result.problem_id,
+          user_id: userId,
+          ease_factor: easeFactor,
+          interval_days: intervalDays,
+          last_reviewed_at: now,
+          next_review_at: nextReviewAt.toISOString(),
+          repetition_number: 1,
+        },
+        { onConflict: 'problem_id,user_id' }
+      );
 
       // Update problem status
       await svc

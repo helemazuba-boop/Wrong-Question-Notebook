@@ -1,4 +1,7 @@
-﻿import { createApiErrorResponse, createApiSuccessResponse } from '@/lib/common-utils';
+import {
+  createApiErrorResponse,
+  createApiSuccessResponse,
+} from '@/lib/common-utils';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 
@@ -64,23 +67,30 @@ export async function loadNotebookShelf(
   supabase: SupabaseClient<Database>,
   userId: string
 ): Promise<NotebookShelfItem[]> {
-  const [problemSetsResult, notebooksResult, wordDecksResult] = await Promise.all([
-    supabase
-      .from('problem_sets')
-      .select('id, name, description, subject_id, updated_at, subjects(name), problem_set_problems(count)')
-      .eq('user_id', userId),
-    supabase
-      .from('notebooks')
-      .select('id, title, description, subject_id, updated_at, subjects(name), notebook_notes(count), notebook_ai_access(can_read, can_create, can_update)')
-      .eq('user_id', userId)
-      .is('archived_at', null),
-    (supabase as SupabaseClient<any>)
-      .from('word_decks')
-      .select('id, title, description, source, subject_id, subjects(name), language, target_language, lexicon_type, is_system, updated_at, word_entries(count)')
-      .is('archived_at', null)
-      .eq('is_active', true)
-      .or(`user_id.eq.${userId},is_system.eq.true`),
-  ]);
+  const [problemSetsResult, notebooksResult, wordDecksResult] =
+    await Promise.all([
+      supabase
+        .from('problem_sets')
+        .select(
+          'id, name, description, subject_id, updated_at, subjects(name), problem_set_problems(count)'
+        )
+        .eq('user_id', userId),
+      supabase
+        .from('notebooks')
+        .select(
+          'id, title, description, subject_id, updated_at, subjects(name), notebook_notes(count), notebook_ai_access(can_read, can_create, can_update)'
+        )
+        .eq('user_id', userId)
+        .is('archived_at', null),
+      (supabase as SupabaseClient<any>)
+        .from('word_decks')
+        .select(
+          'id, title, description, source, subject_id, subjects(name), language, target_language, lexicon_type, is_system, updated_at, word_entries(count)'
+        )
+        .is('archived_at', null)
+        .eq('is_active', true)
+        .or(`user_id.eq.${userId},is_system.eq.true`),
+    ]);
 
   if (problemSetsResult.error) {
     throw new NotebookToolError(
@@ -174,7 +184,8 @@ export async function verifySubjectOwner(
     .maybeSingle();
 
   if (error) throw new NotebookToolError('database_error', error.message, 500);
-  if (!data) throw new NotebookToolError('subject_not_found', 'Subject not found', 404);
+  if (!data)
+    throw new NotebookToolError('subject_not_found', 'Subject not found', 404);
 }
 
 export async function createNotebook(
@@ -246,14 +257,23 @@ export async function verifyNotebookOwner(
     .maybeSingle();
 
   if (error) throw new NotebookToolError('database_error', error.message, 500);
-  if (!data) throw new NotebookToolError('notebook_not_found', 'Notebook not found', 404);
+  if (!data)
+    throw new NotebookToolError(
+      'notebook_not_found',
+      'Notebook not found',
+      404
+    );
 }
 
 async function loadNotebookAiAccess(
   supabase: SupabaseClient<Database>,
   userId: string,
   notebookId: string
-): Promise<{ can_read: boolean; can_create: boolean; can_update: boolean } | null> {
+): Promise<{
+  can_read: boolean;
+  can_create: boolean;
+  can_update: boolean;
+} | null> {
   const { data, error } = await supabase
     .from('notebook_ai_access')
     .select('can_read, can_create, can_update')
@@ -268,7 +288,9 @@ async function loadNotebookAiAccess(
 export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
   const { data, error } = await ctx.supabase
     .from('notebook_ai_access')
-    .select('can_read, can_create, can_update, notebooks(id, title, description, subject_id, subjects(name), notebook_notes(count))')
+    .select(
+      'can_read, can_create, can_update, notebooks(id, title, description, subject_id, subjects(name), notebook_notes(count))'
+    )
     .eq('user_id', ctx.userId)
     .or('can_read.eq.true,can_create.eq.true,can_update.eq.true');
 
@@ -305,9 +327,16 @@ export async function createNotebookNoteFromAi(
     linked_problem_id?: string | null;
     metadata?: Json;
   }
-): Promise<{ note: { id: string; notebook_id: string; title: string; created_at: string }; action: NotebookAiAction }> {
+): Promise<{
+  note: { id: string; notebook_id: string; title: string; created_at: string };
+  action: NotebookAiAction;
+}> {
   await verifyNotebookOwner(ctx.supabase, ctx.userId, input.notebook_id);
-  const access = await loadNotebookAiAccess(ctx.supabase, ctx.userId, input.notebook_id);
+  const access = await loadNotebookAiAccess(
+    ctx.supabase,
+    ctx.userId,
+    input.notebook_id
+  );
   if (!access?.can_create) {
     throw new NotebookToolError(
       'notebook_permission_denied',
@@ -323,12 +352,20 @@ export async function createNotebookNoteFromAi(
       .eq('id', input.linked_problem_id)
       .eq('user_id', ctx.userId)
       .maybeSingle();
-    if (problemError) throw new NotebookToolError('database_error', problemError.message, 500);
-    if (!problem) throw new NotebookToolError('problem_not_found', 'Problem not found', 404);
+    if (problemError)
+      throw new NotebookToolError('database_error', problemError.message, 500);
+    if (!problem)
+      throw new NotebookToolError(
+        'problem_not_found',
+        'Problem not found',
+        404
+      );
   }
 
   const metadata = {
-    ...(input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+    ...(input.metadata &&
+    typeof input.metadata === 'object' &&
+    !Array.isArray(input.metadata)
       ? input.metadata
       : {}),
     source_conversation_id: ctx.conversationId || null,
@@ -385,14 +422,16 @@ export async function createNotebookNoteFromUser(
       throw new NotebookToolError('database_error', problemError.message, 500);
     }
     if (!problem) {
-      throw new NotebookToolError('problem_not_found', 'Problem not found', 404);
+      throw new NotebookToolError(
+        'problem_not_found',
+        'Problem not found',
+        404
+      );
     }
   }
 
   const metadata =
-    input.metadata && typeof input.metadata === 'object'
-      ? input.metadata
-      : {};
+    input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
 
   const { data, error } = await supabase
     .from('notebook_notes')
@@ -419,7 +458,9 @@ export async function searchUserProblems(
   const limit = Math.min(Math.max(input.limit || 5, 1), 5);
   let query = ctx.supabase
     .from('problems')
-    .select('id, title, subject_id, problem_type, status, updated_at, subjects(name)')
+    .select(
+      'id, title, subject_id, problem_type, status, updated_at, subjects(name)'
+    )
     .eq('user_id', ctx.userId)
     .limit(limit);
 
@@ -428,7 +469,9 @@ export async function searchUserProblems(
   if (text) {
     const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const searchTerm = `"%${escaped}%"`;
-    query = query.or(`title.ilike.${searchTerm},content.ilike.${searchTerm},solution_text.ilike.${searchTerm}`);
+    query = query.or(
+      `title.ilike.${searchTerm},content.ilike.${searchTerm},solution_text.ilike.${searchTerm}`
+    );
   }
 
   const { data, error } = await query.order('updated_at', { ascending: false });
@@ -446,16 +489,22 @@ export async function searchUserProblems(
   };
 }
 
-export async function getProblemDetail(ctx: NotebookToolContext, input: { problem_id: string }) {
+export async function getProblemDetail(
+  ctx: NotebookToolContext,
+  input: { problem_id: string }
+) {
   const { data, error } = await ctx.supabase
     .from('problems')
-    .select('id, title, content, solution_text, correct_answer, status, problem_type, subjects(name)')
+    .select(
+      'id, title, content, solution_text, correct_answer, status, problem_type, subjects(name)'
+    )
     .eq('id', input.problem_id)
     .eq('user_id', ctx.userId)
     .maybeSingle();
 
   if (error) throw new NotebookToolError('database_error', error.message, 500);
-  if (!data) throw new NotebookToolError('problem_not_found', 'Problem not found', 404);
+  if (!data)
+    throw new NotebookToolError('problem_not_found', 'Problem not found', 404);
 
   return {
     problem: {

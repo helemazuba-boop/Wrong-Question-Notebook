@@ -51,15 +51,25 @@ async function pollDevice(req: Request) {
         .maybeSingle(),
     ]);
 
-    if (existingDevice && !pending) {
-      // Already paired and no pending re-pair request: do NOT return the
-      // token. The user must unpair from the web (DELETE /api/esp32/devices)
-      // and create a fresh pairing request before the device can receive a
-      // new credential. We still bump last_seen so the web UI shows liveness.
+    if (existingDevice) {
+      // The device is already registered. This endpoint is unauthenticated and
+      // MACs are not secrets, so we must NEVER silently rotate the token or
+      // reassign ownership here — otherwise anyone who knows a MAC could
+      // hijack a device. The owner must unpair from the web first. We still
+      // bump last_seen so the web UI shows liveness.
       await svc
         .from('esp32_devices')
         .update({ last_seen_at: new Date().toISOString() })
         .eq('id', existingDevice.id);
+
+      // Drop any stray pending request for this MAC (e.g. a leftover from a
+      // blocked cross-user pair attempt) so it does not linger until expiry.
+      if (pending) {
+        await svc
+          .from('esp32_pairing_pending')
+          .delete()
+          .eq('mac_address', normalizedMac);
+      }
 
       return NextResponse.json(
         createApiSuccessResponse({
@@ -98,42 +108,24 @@ async function pollDevice(req: Request) {
       );
     }
 
-    // Complete the pairing. If a device row already exists for this MAC we
-    // rotate the token (re-pair flow): the previous owner's token stops
-    // working, and only this caller (which has a fresh pending request from
-    // an authenticated web session) gets the new credential.
+    // Complete first-time pairing for a brand-new device. An existing device
+    // row is handled by the early return above (which always requires an
+    // unpair first), so we only ever INSERT here — we never rotate a token or
+    // reassign ownership from this unauthenticated endpoint.
     const accessToken = randomBytes(32).toString('hex');
 
-    if (existingDevice) {
-      const { error: updateError } = await svc
-        .from('esp32_devices')
-        .update({
-          user_id: pending.user_id,
-          access_token: accessToken,
-          last_seen_at: new Date().toISOString(),
-        })
-        .eq('id', existingDevice.id);
+    const { error: insertError } = await svc.from('esp32_devices').insert({
+      mac_address: normalizedMac,
+      user_id: pending.user_id,
+      access_token: accessToken,
+      device_name: 'ESP32',
+    });
 
-      if (updateError) {
-        return NextResponse.json(
-          createApiErrorResponse('Failed to rotate device token', 500),
-          { status: 500 }
-        );
-      }
-    } else {
-      const { error: insertError } = await svc.from('esp32_devices').insert({
-        mac_address: normalizedMac,
-        user_id: pending.user_id,
-        access_token: accessToken,
-        device_name: 'ESP32',
-      });
-
-      if (insertError) {
-        return NextResponse.json(
-          createApiErrorResponse('Failed to register device', 500),
-          { status: 500 }
-        );
-      }
+    if (insertError) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to register device', 500),
+        { status: 500 }
+      );
     }
 
     // Remove pending entry
@@ -146,7 +138,7 @@ async function pollDevice(req: Request) {
       createApiSuccessResponse({
         status: 'paired',
         access_token: accessToken,
-        device_name: existingDevice?.device_name || 'ESP32',
+        device_name: 'ESP32',
       })
     );
   } catch (error) {

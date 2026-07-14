@@ -28,7 +28,7 @@ export async function GET(
         'Content-Type': 'application/x-ndjson; charset=utf-8',
         'Content-Length': String(pack.byte_size),
         'Cache-Control': 'private, max-age=31536000, immutable',
-        'ETag': `"${pack.sha256}"`,
+        ETag: `"${pack.sha256}"`,
         'X-WQN-Word-Pack-Id': pack.id,
         'X-WQN-Word-Deck-Id': deck.id,
         'X-WQN-Word-Deck-Title': encodeURIComponent(deck.title),

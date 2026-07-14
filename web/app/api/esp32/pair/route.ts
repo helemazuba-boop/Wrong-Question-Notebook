@@ -7,14 +7,13 @@ import {
   handleAsyncError,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { randomBytes } from 'crypto';
 
 function isValidMac(mac: string): boolean {
   return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
 }
 
 async function pairDevice(req: Request) {
-  const { user, supabase } = await requireUser();
+  const { user } = await requireUser();
   if (!user) return unauthorised();
 
   try {
@@ -44,25 +43,39 @@ async function pairDevice(req: Request) {
 
     const svc = createServiceClient();
 
-    // Check if already paired
+    // Check whether this MAC is already registered. MAC addresses are not
+    // secrets (broadcast, printed on the device, enumerable), so we must not
+    // let one user initiate a pairing/re-pair for a device owned by another
+    // account — otherwise the unauthenticated /api/esp32/poll for that MAC
+    // would silently reassign ownership to them. The owner must unpair first.
     const { data: existing } = await svc
       .from('esp32_devices')
-      .select('id, access_token')
+      .select('id, user_id')
       .eq('mac_address', normalizedMac)
-      .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
     if (existing) {
+      if (existing.user_id !== user.id) {
+        return NextResponse.json(
+          createApiErrorResponse(
+            'This device is paired to another account. The owner must unpair it first.',
+            403
+          ),
+          { status: 403 }
+        );
+      }
       return NextResponse.json(
-        createApiErrorResponse('This device is already paired to your account', 409),
+        createApiErrorResponse(
+          'This device is already paired to your account',
+          409
+        ),
         { status: 409 }
       );
     }
 
-    // Generate a secure access token
-    const accessToken = randomBytes(32).toString('hex');
-
-    // Upsert pending pairing request
+    // Upsert pending pairing request. The actual access token is minted later
+    // by /api/esp32/poll when the device picks up this request; the pending row
+    // only records which user initiated the pair.
     const { error: pendingError } = await svc
       .from('esp32_pairing_pending')
       .upsert(
@@ -85,7 +98,8 @@ async function pairDevice(req: Request) {
         mac_address: normalizedMac,
         device_name: device_name || 'ESP32',
         status: 'pending',
-        message: 'Pairing request created. Please restart your ESP32 to complete pairing.',
+        message:
+          'Pairing request created. Please restart your ESP32 to complete pairing.',
       })
     );
   } catch (error) {

@@ -12,10 +12,7 @@ export default async function ProblemsChooser() {
 
   return (
     <div className="section-container">
-      <PageHeader
-        title="题目"
-        description="选择一个笔记本进入题目列表。"
-      />
+      <PageHeader title="题目" description="选择一个笔记本进入题目列表。" />
 
       <Card className="card-section">
         <CardContent className="card-section-content pt-6">

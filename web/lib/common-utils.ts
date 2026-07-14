@@ -32,7 +32,10 @@ export function formatDisplayDateTime(
 ): string {
   try {
     let date: Date;
-    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    if (
+      typeof dateString === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateString)
+    ) {
       date = new Date(dateString + 'T00:00:00Z');
     } else {
       date = new Date(dateString);
@@ -57,7 +60,10 @@ export function formatDisplayDateTime(
 export function formatDisplayDate(dateString: string, locale?: string): string {
   try {
     let date: Date;
-    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    if (
+      typeof dateString === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateString)
+    ) {
       date = new Date(dateString + 'T00:00:00Z');
     } else {
       date = new Date(dateString);

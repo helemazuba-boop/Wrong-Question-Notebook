@@ -84,7 +84,11 @@ beforeEach(() => {
   delete process.env.WQN_ESP32_AI_AUDIO_TMP_DIR;
   delete process.env.WQN_ESP32_AI_AUDIO_URL_TTL_MS;
   delete process.env.DASHSCOPE_API_KEY;
+  delete process.env.DASHSCOPE_CHAT_API_KEY_STD;
+  delete process.env.DASHSCOPE_CHAT_API_KEY_PRO;
   delete process.env.DASHSCOPE_OPENAI_BASE_URL;
+  delete process.env.DASHSCOPE_OPENAI_BASE_URL_STD;
+  delete process.env.DASHSCOPE_OPENAI_BASE_URL_PRO;
   delete process.env.DASHSCOPE_ASR_TASK_URL;
   delete process.env.DASHSCOPE_TASK_STATUS_BASE_URL;
   delete process.env.DASHSCOPE_ASR_MODEL;
@@ -92,6 +96,8 @@ beforeEach(() => {
   delete process.env.DASHSCOPE_ASR_POLL_INTERVAL_MS;
   delete process.env.DASHSCOPE_ASR_POLL_ATTEMPTS;
   delete process.env.DASHSCOPE_CHAT_MODEL;
+  delete process.env.DASHSCOPE_CHAT_MODEL_STD;
+  delete process.env.DASHSCOPE_CHAT_MODEL_PRO;
   delete process.env.WQN_ESP32_AI_PROVIDER_TIMEOUT_MS;
   delete process.env.SITE_URL;
   audioTmpDir = null;
@@ -351,9 +357,7 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(chatUrl).toBe(
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
     );
-    expect(submitInit.headers.Authorization).toBe(
-      'Bearer test-dashscope-key'
-    );
+    expect(submitInit.headers.Authorization).toBe('Bearer test-dashscope-key');
     expect(queryInit.headers.Authorization).toBe('Bearer test-dashscope-key');
 
     const submitBody = JSON.parse(submitInit.body);
@@ -443,7 +447,10 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(body.data.status_trace).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ stage: 'function_call', status: 'started' }),
-        expect.objectContaining({ stage: 'function_call', status: 'succeeded' }),
+        expect.objectContaining({
+          stage: 'function_call',
+          status: 'succeeded',
+        }),
       ])
     );
     expect(JSON.stringify(body)).not.toContain('do-not-return');
@@ -522,7 +529,9 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     );
 
     const chatBody = JSON.parse(mockFetch.mock.calls[3][1].body);
-    expect(chatBody.messages[1].content).toContain('用户语音转写：今天复习数学。');
+    expect(chatBody.messages[1].content).toContain(
+      '用户语音转写：今天复习数学。'
+    );
     expect(chatBody.messages[1].content).not.toContain('{transcript}');
   });
 

@@ -204,7 +204,8 @@ describe('Word review helpers', () => {
         if (table === 'word_decks') {
           deckReads += 1;
           return createAsyncQuery({
-            data: deckReads === 1 ? [SYSTEM_DECK_ROW] : [{ id: SYSTEM_DECK_ID }],
+            data:
+              deckReads === 1 ? [SYSTEM_DECK_ROW] : [{ id: SYSTEM_DECK_ID }],
           });
         }
         if (table === 'word_entries') {

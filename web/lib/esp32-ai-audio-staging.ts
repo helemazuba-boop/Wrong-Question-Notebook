@@ -1,5 +1,12 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -151,7 +158,11 @@ export async function stageEsp32AiAudioFile(
   const id = randomUUID();
   const expiresAtMs = Date.now() + input.ttlMs;
   const filePath = getAudioPath(id);
-  const wav = pcmS16leToWavBuffer(input.audio, input.sampleRate, input.channels);
+  const wav = pcmS16leToWavBuffer(
+    input.audio,
+    input.sampleRate,
+    input.channels
+  );
 
   await mkdir(getTmpDir(), { recursive: true });
   await cleanupExpiredAudioFiles();

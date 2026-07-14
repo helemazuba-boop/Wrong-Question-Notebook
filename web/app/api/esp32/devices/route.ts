@@ -6,8 +6,6 @@ import {
   createApiSuccessResponse,
   handleAsyncError,
 } from '@/lib/common-utils';
-import { createServiceClient } from '@/lib/supabase-utils';
-import { revalidateUserReviewSchedule } from '@/lib/cache-invalidation';
 
 async function getDevices() {
   const { user, supabase } = await requireUser();
@@ -27,9 +25,7 @@ async function getDevices() {
       );
     }
 
-    return NextResponse.json(
-      createApiSuccessResponse({ devices: data || [] })
-    );
+    return NextResponse.json(createApiSuccessResponse({ devices: data || [] }));
   } catch (error) {
     const { message, status } = handleAsyncError(error);
     return NextResponse.json(createApiErrorResponse(message, status), {

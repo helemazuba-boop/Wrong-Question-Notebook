@@ -793,13 +793,18 @@ export function ImageScanUploader({
             <span
               className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence?.problem_type_confidence ?? 'medium')}`}
             >
-              {t('confidence', { level: confidence?.problem_type_confidence ?? 'medium' })}
+              {t('confidence', {
+                level: confidence?.problem_type_confidence ?? 'medium',
+              })}
             </span>
             <span
               className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${confidenceColor(confidence?.content_quality ?? 'clear')}`}
             >
               {t('quality', {
-                level: (confidence?.content_quality ?? 'clear').replace('_', ' '),
+                level: (confidence?.content_quality ?? 'clear').replace(
+                  '_',
+                  ' '
+                ),
               })}
             </span>
             {confidence?.has_math && (

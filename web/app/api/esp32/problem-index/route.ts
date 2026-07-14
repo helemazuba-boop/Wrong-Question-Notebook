@@ -69,7 +69,9 @@ function parseCursor(value: string | null): number | NextResponse {
   return parsed;
 }
 
-function parseStatus(value: string | null): ProblemStatus | NextResponse | null {
+function parseStatus(
+  value: string | null
+): ProblemStatus | NextResponse | null {
   if (!value) return null;
   if (VALID_STATUSES.includes(value as ProblemStatus)) {
     return value as ProblemStatus;
@@ -125,7 +127,11 @@ async function getProblemIndex(req: Request) {
     if (status) query = query.eq('status', status);
     if (subjectId) query = query.eq('subject_id', subjectId);
 
-    const { data: problems, error, count } = await query
+    const {
+      data: problems,
+      error,
+      count,
+    } = await query
       .order('updated_at', { ascending: false })
       .range(cursor, cursor + limit - 1);
 

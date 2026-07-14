@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
-import { createApiErrorResponse, createApiSuccessResponse } from '@/lib/common-utils';
+import {
+  createApiErrorResponse,
+  createApiSuccessResponse,
+} from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { loadEsp32TodoTimeline } from '@/lib/todos';
 
@@ -26,10 +29,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const timeline = await loadEsp32TodoTimeline(createServiceClient(), authResult.userId, {
-      limit: parseLimit(searchParams.get('limit')),
-      cursor: searchParams.get('cursor'),
-    });
+    const timeline = await loadEsp32TodoTimeline(
+      createServiceClient(),
+      authResult.userId,
+      {
+        limit: parseLimit(searchParams.get('limit')),
+        cursor: searchParams.get('cursor'),
+      }
+    );
 
     return NextResponse.json(createApiSuccessResponse(timeline));
   } catch {

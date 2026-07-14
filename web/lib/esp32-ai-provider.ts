@@ -34,12 +34,22 @@ import {
   type WordToolContext,
 } from '@/lib/words';
 import { createServiceClient } from '@/lib/supabase-utils';
+import {
+  appendTurns,
+  contextTurnsForLlm,
+  loadTurns,
+  mintConversationId,
+} from './esp32-ai-conversation-store';
 
 export type Esp32AiProviderErrorCode =
   | 'disabled'
   | 'no_speech'
+  | 'invalid_audio'
   | 'asr_failed'
+  | 'asr_timeout'
   | 'model_failed'
+  | 'chat_timeout'
+  | 'provider_unavailable'
   | 'rate_limited'
   | 'notebook_permission_denied'
   | 'todo_failed'
@@ -62,6 +72,7 @@ export interface Esp32AiProviderInput {
   channels: number;
   sampleFormat: 's16le';
   conversationId?: string | null;
+  tier?: string | null;
   userId?: string | null;
   deviceId?: string | null;
 }
@@ -88,7 +99,9 @@ export interface Esp32WordAiLookupResult {
 }
 
 type Esp32AiAction = NotebookAiAction | TodoAiAction | WordAiAction;
-type Esp32AiToolContext = NotebookToolContext & TodoToolContext & WordToolContext;
+type Esp32AiToolContext = NotebookToolContext &
+  TodoToolContext &
+  WordToolContext;
 
 type Esp32AiTraceStatus =
   | 'started'
@@ -122,11 +135,7 @@ export interface Esp32AiFunctionCallSummary {
 }
 
 interface StatusTracker {
-  mark: (
-    stage: string,
-    status: Esp32AiTraceStatus,
-    detail?: string
-  ) => void;
+  mark: (stage: string, status: Esp32AiTraceStatus, detail?: string) => void;
   items: Esp32AiStatusTraceItem[];
 }
 
@@ -186,14 +195,21 @@ interface DashScopeTaskResponse {
 
 interface DashScopeProviderConfig {
   apiKey: string;
+  chatApiKeyStd: string;
+  chatApiKeyPro: string;
   openAiBaseUrl: string;
+  openAiBaseUrlStd: string;
+  openAiBaseUrlPro: string;
   asrTaskUrl: string;
   taskStatusBaseUrl: string;
   asrModel: string;
   asrLanguageHints: string[];
   chatModel: string;
+  chatModelStd: string;
+  chatModelPro: string;
   systemPrompt: string;
-  timeoutMs: number;
+  asrTimeoutMs: number;
+  llmTimeoutMs: number;
   asrPollIntervalMs: number;
   asrPollAttempts: number;
   audioUrlTtlMs: number;
@@ -209,9 +225,10 @@ const DEFAULT_TASK_STATUS_BASE_URL =
   'https://dashscope.aliyuncs.com/api/v1/tasks';
 const DEFAULT_ASR_MODEL = 'paraformer-v2';
 const DEFAULT_CHAT_MODEL = 'qwen-plus';
-const DEFAULT_TIMEOUT_MS = 60_000;
-const DEFAULT_ASR_POLL_INTERVAL_MS = 800;
-const DEFAULT_ASR_POLL_ATTEMPTS = 45;
+const DEFAULT_ASR_TIMEOUT_MS = 90_000; // ASR single request: 45s typical, 90s max
+const DEFAULT_LLM_TIMEOUT_MS = 360_000; // LLM inference: 5min typical, allow 6min
+const DEFAULT_ASR_POLL_INTERVAL_MS = 1000; // 1s between ASR polls (was 800ms)
+const DEFAULT_ASR_POLL_ATTEMPTS = 90; // 90 × 1s = 90s max ASR wait (was 45 × 800ms = 36s)
 const DEFAULT_AUDIO_URL_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SYSTEM_PROMPT_UTF8 =
   '你是 WQN 错题本设备上的学习助手。根据用户语音转写内容，用简洁中文回答，优先帮助用户学习、复习错题和整理遗漏知识点。';
@@ -404,7 +421,10 @@ const TODO_TOOLS = [
         type: 'object',
         properties: {
           title: { type: 'string', description: 'Todo 标题，最大 120 字符' },
-          description: { type: 'string', description: '可选说明，最大 2000 字符' },
+          description: {
+            type: 'string',
+            description: '可选说明，最大 2000 字符',
+          },
           priority: {
             type: 'string',
             enum: ['low', 'normal', 'high'],
@@ -457,19 +477,27 @@ const WORD_TOOLS = [
     type: 'function',
     function: {
       name: 'create_word_deck',
-      description: '为当前用户创建一个空白词库。词库会出现在笔记本架中，类型是 word_deck，不是 Notebook。',
+      description:
+        '为当前用户创建一个空白词库。词库会出现在笔记本架中，类型是 word_deck，不是 Notebook。',
       parameters: {
         type: 'object',
         properties: {
           title: { type: 'string', description: '词库名称，最大 120 字符' },
-          description: { type: 'string', description: '可选说明，最大 1000 字符' },
+          description: {
+            type: 'string',
+            description: '可选说明，最大 1000 字符',
+          },
           subject_id: { type: 'string', description: '可选科目/归档 ID' },
           language: { type: 'string', description: '源语言，默认 en' },
-          target_language: { type: 'string', description: '目标语言，默认 zh-CN' },
+          target_language: {
+            type: 'string',
+            description: '目标语言，默认 zh-CN',
+          },
           lexicon_type: {
             type: 'string',
             enum: ['english_word', 'classical_chinese_term'],
-            description: '词库类型。本阶段默认 english_word；classical_chinese_term 仅作预留。',
+            description:
+              '词库类型。本阶段默认 english_word；classical_chinese_term 仅作预留。',
           },
         },
         required: ['title'],
@@ -516,7 +544,8 @@ const WORD_TOOLS = [
     type: 'function',
     function: {
       name: 'record_word_review',
-      description: '记录用户对一个单词的复习结果。unknown 会由服务器加入预设错词本。',
+      description:
+        '记录用户对一个单词的复习结果。unknown 会由服务器加入预设错词本。',
       parameters: {
         type: 'object',
         properties: {
@@ -571,6 +600,17 @@ function getProviderConfig(): DashScopeProviderConfig | null {
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
   if (!apiKey) return null;
 
+  const chatApiKeyStd = (
+    process.env.DASHSCOPE_CHAT_API_KEY_STD ||
+    process.env.DASHSCOPE_CHAT_API_KEY ||
+    apiKey
+  ).trim();
+  const chatApiKeyPro = (
+    process.env.DASHSCOPE_CHAT_API_KEY_PRO ||
+    process.env.DASHSCOPE_CHAT_API_KEY ||
+    apiKey
+  ).trim();
+
   const publicBaseUrl = (
     process.env.WQN_ESP32_AI_PUBLIC_BASE_URL ||
     process.env.SITE_URL ||
@@ -582,22 +622,42 @@ function getProviderConfig(): DashScopeProviderConfig | null {
 
   return {
     apiKey,
+    chatApiKeyStd,
+    chatApiKeyPro,
     openAiBaseUrl: (
       process.env.DASHSCOPE_OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL
     ).replace(/\/+$/, ''),
+    openAiBaseUrlStd: (
+      process.env.DASHSCOPE_OPENAI_BASE_URL_STD ||
+      process.env.DASHSCOPE_OPENAI_BASE_URL ||
+      DEFAULT_OPENAI_BASE_URL
+    ).replace(/\/+$/, ''),
+    openAiBaseUrlPro: (
+      process.env.DASHSCOPE_OPENAI_BASE_URL_PRO ||
+      process.env.DASHSCOPE_OPENAI_BASE_URL ||
+      DEFAULT_OPENAI_BASE_URL
+    ).replace(/\/+$/, ''),
     asrTaskUrl: process.env.DASHSCOPE_ASR_TASK_URL || DEFAULT_ASR_TASK_URL,
     taskStatusBaseUrl: (
-      process.env.DASHSCOPE_TASK_STATUS_BASE_URL ||
-      DEFAULT_TASK_STATUS_BASE_URL
+      process.env.DASHSCOPE_TASK_STATUS_BASE_URL || DEFAULT_TASK_STATUS_BASE_URL
     ).replace(/\/+$/, ''),
     asrModel: process.env.DASHSCOPE_ASR_MODEL || DEFAULT_ASR_MODEL,
     asrLanguageHints: getCommaSeparatedEnv('DASHSCOPE_ASR_LANGUAGE_HINTS'),
     chatModel: process.env.DASHSCOPE_CHAT_MODEL || DEFAULT_CHAT_MODEL,
+    chatModelStd:
+      process.env.DASHSCOPE_CHAT_MODEL_STD ||
+      process.env.DASHSCOPE_CHAT_MODEL ||
+      DEFAULT_CHAT_MODEL,
+    chatModelPro: process.env.DASHSCOPE_CHAT_MODEL_PRO || 'qwen-max',
     systemPrompt:
       process.env.WQN_ESP32_AI_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT_UTF8,
-    timeoutMs: getPositiveIntegerEnv(
-      'WQN_ESP32_AI_PROVIDER_TIMEOUT_MS',
-      DEFAULT_TIMEOUT_MS
+    asrTimeoutMs: getPositiveIntegerEnv(
+      'WQN_ESP32_AI_ASR_TIMEOUT_MS',
+      DEFAULT_ASR_TIMEOUT_MS
+    ),
+    llmTimeoutMs: getPositiveIntegerEnv(
+      'WQN_ESP32_AI_LLM_TIMEOUT_MS',
+      DEFAULT_LLM_TIMEOUT_MS
     ),
     asrPollIntervalMs: getPositiveIntegerEnv(
       'DASHSCOPE_ASR_POLL_INTERVAL_MS',
@@ -788,12 +848,22 @@ function providerErrorFromStatus(
     );
   }
 
+  if (status >= 500) {
+    return new Esp32AiProviderError(
+      'provider_unavailable',
+      stage === 'asr'
+        ? `DashScope ASR service error (HTTP ${status})`
+        : `DashScope chat service error (HTTP ${status})`,
+      status
+    );
+  }
+
   return new Esp32AiProviderError(
     stage === 'asr' ? 'asr_failed' : 'model_failed',
     stage === 'asr'
-      ? 'DashScope ASR request failed'
-      : 'DashScope chat request failed',
-    500
+      ? `DashScope ASR request failed (HTTP ${status})`
+      : `DashScope chat request failed (HTTP ${status})`,
+    status
   );
 }
 
@@ -823,12 +893,23 @@ async function fetchJsonWithTimeout<T>(
     }
   } catch (error) {
     if (error instanceof Esp32AiProviderError) throw error;
+    const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
-      stage === 'asr' ? 'asr_failed' : 'model_failed',
-      stage === 'asr'
-        ? 'DashScope ASR request failed'
-        : 'DashScope chat request failed',
-      500
+      isAbort
+        ? stage === 'asr'
+          ? 'asr_timeout'
+          : 'chat_timeout'
+        : stage === 'asr'
+          ? 'asr_failed'
+          : 'model_failed',
+      isAbort
+        ? stage === 'asr'
+          ? 'DashScope ASR request timed out'
+          : 'DashScope chat request timed out'
+        : stage === 'asr'
+          ? 'DashScope ASR request failed'
+          : 'DashScope chat request failed',
+      isAbort ? 504 : 500
     );
   } finally {
     clearTimeout(timeout);
@@ -839,11 +920,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function createDashScopeAuthHeaders(
-  config: DashScopeProviderConfig
-): Record<string, string> {
+function createDashScopeAuthHeaders(apiKey: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${config.apiKey}`,
+    Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   };
 }
@@ -862,7 +941,7 @@ async function submitParaformerTask(
     {
       method: 'POST',
       headers: {
-        ...createDashScopeAuthHeaders(config),
+        ...createDashScopeAuthHeaders(config.apiKey),
         'X-DashScope-Async': 'enable',
       },
       body: JSON.stringify({
@@ -873,7 +952,7 @@ async function submitParaformerTask(
         parameters,
       }),
     },
-    config.timeoutMs,
+    config.asrTimeoutMs,
     'asr'
   );
 
@@ -897,9 +976,9 @@ async function queryParaformerTask(
     `${config.taskStatusBaseUrl}/${encodeURIComponent(taskId)}`,
     {
       method: 'GET',
-      headers: createDashScopeAuthHeaders(config),
+      headers: createDashScopeAuthHeaders(config.apiKey),
     },
-    config.timeoutMs,
+    config.asrTimeoutMs,
     'asr'
   );
 }
@@ -924,7 +1003,7 @@ async function fetchTranscriptResultUrl(
   const response = await fetchJsonWithTimeout<unknown>(
     url,
     { method: 'GET' },
-    config.timeoutMs,
+    config.asrTimeoutMs,
     'asr'
   );
   return extractTranscriptFromUnknown(response);
@@ -988,8 +1067,8 @@ async function waitForParaformerTranscript(
   }
 
   throw new Esp32AiProviderError(
-    'asr_failed',
-    'DashScope ASR task timed out',
+    'asr_timeout',
+    'DashScope ASR task timed out after polling',
     504
   );
 }
@@ -998,7 +1077,11 @@ async function runParaformerAsr(
   config: DashScopeProviderConfig,
   input: Esp32AiProviderInput,
   tracker?: StatusTracker
-): Promise<{ transcript: string; requestId: string | null; elapsedMs: number }> {
+): Promise<{
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+}> {
   const startedAt = Date.now();
   if (input.sampleFormat !== 's16le' || input.sampleRate !== 16000) {
     throw new Esp32AiProviderError(
@@ -1055,7 +1138,11 @@ async function runDashScopeAsr(
   config: DashScopeProviderConfig,
   input: Esp32AiProviderInput,
   tracker?: StatusTracker
-): Promise<{ transcript: string; requestId: string | null; elapsedMs: number }> {
+): Promise<{
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+}> {
   if (config.asrModel !== 'paraformer-v2') {
     throw new Esp32AiProviderError(
       'disabled',
@@ -1142,7 +1229,9 @@ function numberArg(
   key: string
 ): number | undefined {
   const value = args[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function todoStatusArg(
@@ -1451,7 +1540,10 @@ async function executeAiToolCall(
       functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
       return {
         success: true,
-        data: { action: result.action, actions: [result.action, ...result.extra_actions] },
+        data: {
+          action: result.action,
+          actions: [result.action, ...result.extra_actions],
+        },
       };
     }
 
@@ -1484,10 +1576,17 @@ async function runDashScopeChat(
   config: DashScopeProviderConfig,
   transcript: string,
   conversationId?: string | null,
+  userId?: string | null,
+  deviceId?: string | null,
+  tier?: string | null,
   toolContext?: Esp32AiToolContext,
-  tracker?: StatusTracker
+  tracker?: StatusTracker,
+  chatModel?: string,
+  baseUrl?: string,
+  authKey?: string
 ): Promise<{
   replyText: string;
+  conversationId: string;
   requestId: string | null;
   actions: Esp32AiAction[];
   functionCalls: Esp32AiFunctionCallSummary[];
@@ -1497,29 +1596,31 @@ async function runDashScopeChat(
   const startedAt = Date.now();
   tracker?.mark('chat', 'started');
   const notebookPrompt = await buildAuthorizedNotebookPrompt(toolContext);
+  const activeConversationId = conversationId || mintConversationId();
+  const priorTurns = userId
+    ? await loadTurns(userId, activeConversationId)
+    : [];
   const messages: DashScopeRequestMessage[] = [
     {
       role: 'system',
       content: `${config.systemPrompt}\n\n${AI_TOOL_PROMPT}\n\n${notebookPrompt}`,
     },
-    {
-      role: 'user',
-      content: conversationId
-        ? `会话 ${conversationId} 的用户语音转写：${transcript}`
-        : `用户语音转写：${transcript}`,
-    },
   ];
+  for (const turn of contextTurnsForLlm(priorTurns)) {
+    messages.push({ role: turn.role, content: turn.content });
+  }
+  messages.push({ role: 'user', content: `用户语音转写：${transcript}` });
 
   let lastRequestId: string | null = null;
   for (let round = 0; round < 4; round += 1) {
     tracker?.mark('chat_round', 'started', `round=${round + 1}`);
     const response = await fetchJsonWithTimeout<DashScopeChatResponse>(
-      `${config.openAiBaseUrl}/chat/completions`,
+      `${baseUrl || config.openAiBaseUrl}/chat/completions`,
       {
         method: 'POST',
-        headers: createDashScopeAuthHeaders(config),
+        headers: createDashScopeAuthHeaders(authKey || config.chatApiKeyStd),
         body: JSON.stringify({
-          model: config.chatModel,
+          model: chatModel || config.chatModel,
           messages,
           tools: toolContext ? AI_TOOLS : undefined,
           tool_choice: toolContext ? 'auto' : undefined,
@@ -1527,7 +1628,7 @@ async function runDashScopeChat(
           temperature: 0.3,
         }),
       },
-      config.timeoutMs,
+      config.llmTimeoutMs,
       'chat'
     );
 
@@ -1548,9 +1649,27 @@ async function runDashScopeChat(
       }
 
       tracker?.mark('chat_round', 'succeeded', `round=${round + 1}`);
-      tracker?.mark('chat', 'succeeded', `elapsed_ms=${Date.now() - startedAt}`);
+      tracker?.mark(
+        'chat',
+        'succeeded',
+        `elapsed_ms=${Date.now() - startedAt}`
+      );
+      if (userId && replyText) {
+        const now = new Date().toISOString();
+        await appendTurns(
+          userId,
+          activeConversationId,
+          tier || 'std',
+          deviceId ?? null,
+          [
+            { role: 'user', content: transcript, created_at: now },
+            { role: 'assistant', content: replyText, created_at: now },
+          ]
+        );
+      }
       return {
         replyText,
+        conversationId: activeConversationId,
         requestId: lastRequestId,
         actions,
         functionCalls,
@@ -1628,12 +1747,12 @@ export async function runEsp32WordAiLookup(input: {
   }
 
   const response = await fetchJsonWithTimeout<DashScopeChatResponse>(
-    `${config.openAiBaseUrl}/chat/completions`,
+    `${config.openAiBaseUrlStd}/chat/completions`,
     {
       method: 'POST',
-      headers: createDashScopeAuthHeaders(config),
+      headers: createDashScopeAuthHeaders(config.chatApiKeyStd),
       body: JSON.stringify({
-        model: config.chatModel,
+        model: config.chatModelStd,
         messages: [
           {
             role: 'system',
@@ -1651,7 +1770,7 @@ export async function runEsp32WordAiLookup(input: {
         temperature: 0.2,
       }),
     },
-    config.timeoutMs,
+    config.llmTimeoutMs,
     'chat'
   );
 
@@ -1702,7 +1821,11 @@ export async function runEsp32AiProvider(
   tracker.mark('request', 'started');
   tracker.mark('asr', 'started');
   const asr = await runDashScopeAsr(config, input, tracker);
-  tracker.mark('asr', 'succeeded', `text_bytes=${Buffer.byteLength(asr.transcript, 'utf8')}`);
+  tracker.mark(
+    'asr',
+    'succeeded',
+    `text_bytes=${Buffer.byteLength(asr.transcript, 'utf8')}`
+  );
   const toolContext = input.userId
     ? {
         userId: input.userId,
@@ -1711,19 +1834,31 @@ export async function runEsp32AiProvider(
         supabase: createServiceClient(),
       }
     : undefined;
+  const selectedModel =
+    input.tier === 'pro' ? config.chatModelPro : config.chatModelStd;
+  const selectedBaseUrl =
+    input.tier === 'pro' ? config.openAiBaseUrlPro : config.openAiBaseUrlStd;
+  const selectedApiKey =
+    input.tier === 'pro' ? config.chatApiKeyPro : config.chatApiKeyStd;
   const chat = await runDashScopeChat(
     config,
     asr.transcript,
     input.conversationId,
+    input.userId,
+    input.deviceId,
+    input.tier,
     toolContext,
-    tracker
+    tracker,
+    selectedModel,
+    selectedBaseUrl,
+    selectedApiKey
   );
   tracker.mark('request', 'succeeded');
 
   return {
     transcript: asr.transcript,
     replyText: chat.replyText,
-    conversationId: input.conversationId || chat.requestId || asr.requestId,
+    conversationId: chat.conversationId,
     latencyMs: Date.now() - startedAt,
     actions: chat.actions,
     statusTrace: tracker.items,

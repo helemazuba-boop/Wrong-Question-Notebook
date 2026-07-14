@@ -23,7 +23,6 @@ import {
   Tag,
   ChevronLeft,
   ChevronRight,
-  Printer,
   LogOut,
 } from 'lucide-react';
 import CopyProblemDialog from '@/components/copy-problem-dialog';
@@ -174,7 +173,9 @@ export default function ProblemReview({
     const renderKatex = () => {
       import('katex').then(({ default: katex }) => {
         document
-          .querySelectorAll('[data-type="inline-math"], [data-type="block-math"]')
+          .querySelectorAll(
+            '[data-type="inline-math"], [data-type="block-math"]'
+          )
           .forEach(el => {
             const latex = el.getAttribute('data-latex') || el.textContent || '';
             const displayMode = el.getAttribute('data-type') === 'block-math';
@@ -324,7 +325,8 @@ export default function ProblemReview({
       <div className="print-header">
         <span className="font-semibold">错题练习卷</span>
         <span className="text-sm">
-          姓名：__________ &nbsp;&nbsp; 班级：__________ &nbsp;&nbsp; {subject.name}
+          姓名：__________ &nbsp;&nbsp; 班级：__________ &nbsp;&nbsp;{' '}
+          {subject.name}
         </span>
       </div>
 

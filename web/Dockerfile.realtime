@@ -1,0 +1,48 @@
+# ============================================================
+# Stage 1: install the realtime-proxy's own production deps.
+# The proxy has its own package.json (ws, dotenv, @supabase/supabase-js)
+# separate from the main Next.js app. Installing from the proxy's
+# package.json keeps the image small (~70 MB vs ~400 MB if we copied
+# the entire Next.js node_modules) and ensures ws/dotenv are present.
+# ============================================================
+FROM node:24-alpine AS deps
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat
+
+COPY server/realtime-proxy/package.json server/realtime-proxy/package-lock.json* ./
+RUN npm ci --omit=dev --ignore-scripts || npm install --omit=dev --ignore-scripts
+
+# ============================================================
+# Stage 2: runtime (Node.js, NOT Bun)
+# ============================================================
+FROM node:24-alpine AS runner
+WORKDIR /app
+
+RUN addgroup -S -g 1001 wqn 2>/dev/null || true \
+ && adduser  -S -u 1001 -G wqn wqn 2>/dev/null || true
+
+# Copy the proxy's own node_modules (ws, dotenv, supabase-js only).
+COPY --from=deps --chown=wqn:wqn /app/node_modules ./node_modules
+COPY --from=deps --chown=wqn:wqn /app/package.json ./package.json
+
+# tsx is needed to run TypeScript without a separate build step.
+# It's a devDep so --omit=dev excluded it; install explicitly.
+RUN npm install tsx --no-save
+
+# Only the relay server source is needed.
+COPY --chown=wqn:wqn server/realtime-proxy/src ./src
+
+USER wqn
+
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8080/health || exit 1
+
+WORKDIR /app
+CMD ["npx", "tsx", "src/index.ts"]

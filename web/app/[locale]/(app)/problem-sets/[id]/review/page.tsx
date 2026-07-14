@@ -149,7 +149,11 @@ export default async function ProblemSetReviewPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ problemId?: string; sessionId?: string; from?: string }>;
+  searchParams: Promise<{
+    problemId?: string;
+    sessionId?: string;
+    from?: string;
+  }>;
 }) {
   const t = await getTranslations('ProblemSets');
   const { id } = await params;
@@ -221,23 +225,19 @@ export default async function ProblemSetReviewPage({
     );
   }
 
-  // If no specific problem is requested, redirect to the first problem
+  // If no specific problem is requested, redirect to the first problem. Use a
+  // server-side redirect() instead of rendering an inline <script>: the `from`
+  // query param reaches this via appendFromParam/encodeURIComponent, which
+  // leaves apostrophes and parentheses unescaped, so interpolating it into a
+  // single-quoted JS string literal was a reflected-XSS sink (e.g.
+  // ?from=/'-alert(1)-'). redirect() sets the Location header and has no such
+  // injection surface.
   if (!problemId) {
-    return (
-      <div className="container mx-auto py-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">{t('startingReview')}</h1>
-          <p className="text-muted-foreground mb-4">
-            {t('redirectingToFirstProblem')}
-          </p>
-          <script>
-            {`window.location.href = '${appendFromParam(
-              `/problem-sets/${id}/review?problemId=${problems[0].id}`,
-              backHref
-            )}';`}
-          </script>
-        </div>
-      </div>
+    redirect(
+      appendFromParam(
+        `/problem-sets/${id}/review?problemId=${problems[0].id}`,
+        backHref
+      )
     );
   }
 

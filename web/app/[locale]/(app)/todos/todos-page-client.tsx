@@ -4,12 +4,7 @@ import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -216,7 +211,9 @@ export default function TodosPageClient({
           <>
             <Button
               variant="outline"
-              onClick={() => refreshTodos().catch(() => toast.error('刷新失败'))}
+              onClick={() =>
+                refreshTodos().catch(() => toast.error('刷新失败'))
+              }
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               刷新
@@ -262,18 +259,18 @@ export default function TodosPageClient({
       <Card className="rounded-lg shadow-sm">
         <CardHeader className="gap-3 p-4 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap gap-2">
-            {(['pending', 'completed', 'cancelled', 'all'] as StatusFilter[]).map(
-              status => (
-                <Button
-                  key={status}
-                  variant={statusFilter === status ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setStatusFilter(status)}
-                >
-                  {statusLabels[status]}
-                </Button>
-              )
-            )}
+            {(
+              ['pending', 'completed', 'cancelled', 'all'] as StatusFilter[]
+            ).map(status => (
+              <Button
+                key={status}
+                variant={statusFilter === status ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setStatusFilter(status)}
+              >
+                {statusLabels[status]}
+              </Button>
+            ))}
           </div>
           <Select value={subjectFilter} onValueChange={setSubjectFilter}>
             <SelectTrigger className="w-full md:w-48">
@@ -306,7 +303,8 @@ export default function TodosPageClient({
                 key={todo.id}
                 className={cn(
                   'flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between',
-                  todo.status === 'completed' && 'bg-green-50/60 dark:bg-green-950/10',
+                  todo.status === 'completed' &&
+                    'bg-green-50/60 dark:bg-green-950/10',
                   todo.status === 'cancelled' && 'opacity-70'
                 )}
               >
@@ -314,7 +312,9 @@ export default function TodosPageClient({
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-semibold">{todo.title}</h2>
                     <Badge variant="outline">{statusLabels[todo.status]}</Badge>
-                    <Badge variant="secondary">{priorityLabels[todo.priority]}</Badge>
+                    <Badge variant="secondary">
+                      {priorityLabels[todo.priority]}
+                    </Badge>
                     {todo.subject_name ? (
                       <Badge variant="outline">{todo.subject_name}</Badge>
                     ) : null}
@@ -355,11 +355,7 @@ export default function TodosPageClient({
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled
-                    >
+                    <Button size="sm" variant="outline" disabled>
                       已归档
                     </Button>
                   )}

@@ -67,17 +67,20 @@ function decodeHtmlEntities(input: string): string {
     quot: '"',
   };
 
-  return input.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);/g, (match, entity) => {
-    if (entity.startsWith('#x') || entity.startsWith('#X')) {
-      const value = Number.parseInt(entity.slice(2), 16);
-      return Number.isFinite(value) ? String.fromCodePoint(value) : match;
+  return input.replace(
+    /&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);/g,
+    (match, entity) => {
+      if (entity.startsWith('#x') || entity.startsWith('#X')) {
+        const value = Number.parseInt(entity.slice(2), 16);
+        return Number.isFinite(value) ? String.fromCodePoint(value) : match;
+      }
+      if (entity.startsWith('#')) {
+        const value = Number.parseInt(entity.slice(1), 10);
+        return Number.isFinite(value) ? String.fromCodePoint(value) : match;
+      }
+      return named[entity] ?? match;
     }
-    if (entity.startsWith('#')) {
-      const value = Number.parseInt(entity.slice(1), 10);
-      return Number.isFinite(value) ? String.fromCodePoint(value) : match;
-    }
-    return named[entity] ?? match;
-  });
+  );
 }
 
 function parseTag(raw: string): {
@@ -89,12 +92,15 @@ function parseTag(raw: string): {
   if (!match) return null;
 
   const attrs: Record<string, string> = {};
-  const attrRegex = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  const attrRegex =
+    /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
   let attrMatch: RegExpExecArray | null;
   while ((attrMatch = attrRegex.exec(raw)) !== null) {
     const key = attrMatch[1].toLowerCase();
     if (key === match[2].toLowerCase()) continue;
-    attrs[key] = decodeHtmlEntities(attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? '');
+    attrs[key] = decodeHtmlEntities(
+      attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? ''
+    );
   }
 
   return {
@@ -104,7 +110,10 @@ function parseTag(raw: string): {
   };
 }
 
-function readBraced(input: string, start: number): { value: string; end: number } | null {
+function readBraced(
+  input: string,
+  start: number
+): { value: string; end: number } | null {
   if (input[start] !== '{') return null;
 
   let depth = 0;
@@ -256,7 +265,9 @@ function addTextBlock(blocks: Esp32ContentBlock[], text: string) {
   blocks.push({ type: 'paragraph', text: normalized });
 }
 
-export function htmlToEsp32Content(html: string | null | undefined): Esp32ContentResult {
+export function htmlToEsp32Content(
+  html: string | null | undefined
+): Esp32ContentResult {
   if (!html) {
     return { text: '', blocks: [], has_math: false };
   }
@@ -297,7 +308,8 @@ export function htmlToEsp32Content(html: string | null | undefined): Esp32Conten
 
     const isMath =
       !tag.closing &&
-      (tag.attrs['data-type'] === 'inline-math' || tag.attrs['data-type'] === 'block-math') &&
+      (tag.attrs['data-type'] === 'inline-math' ||
+        tag.attrs['data-type'] === 'block-math') &&
       Boolean(tag.attrs['data-latex']);
     if (isMath) {
       const latex = tag.attrs['data-latex'];
@@ -373,7 +385,10 @@ function extensionOf(path: string): string {
   return dot >= 0 ? clean.slice(dot + 1).toLowerCase() : '';
 }
 
-function inferKind(path: string, explicitKind: string): 'image' | 'pdf' | 'unknown' {
+function inferKind(
+  path: string,
+  explicitKind: string
+): 'image' | 'pdf' | 'unknown' {
   if (explicitKind === 'image' || explicitKind === 'pdf') return explicitKind;
   const ext = extensionOf(path);
   if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
@@ -410,8 +425,14 @@ export function getEsp32RequestOrigin(req: Request): string {
     return process.env.SITE_URL.replace(/\/+$/, '');
   }
 
-  const forwardedProto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
-  const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const forwardedProto = req.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    ?.trim();
+  const forwardedHost = req.headers
+    .get('x-forwarded-host')
+    ?.split(',')[0]
+    ?.trim();
   const host = forwardedHost || req.headers.get('host');
   if (host) {
     return `${forwardedProto || new URL(req.url).protocol.replace(':', '')}://${host}`;
@@ -465,6 +486,10 @@ export function serializeEsp32ProblemContent(
     solution_blocks: solutionResult.blocks,
     has_math: contentResult.has_math || solutionResult.has_math,
     assets: buildEsp32AssetManifest(assets, 'problem', origin),
-    solution_assets: buildEsp32AssetManifest(solutionAssets, 'solution', origin),
+    solution_assets: buildEsp32AssetManifest(
+      solutionAssets,
+      'solution',
+      origin
+    ),
   };
 }

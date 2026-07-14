@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
-import { createApiErrorResponse, createApiSuccessResponse } from '@/lib/common-utils';
-import { createServiceClient } from '@/lib/supabase-utils';
 import {
-  completeTodoFromDevice,
-  TodoToolError,
-} from '@/lib/todos';
+  createApiErrorResponse,
+  createApiSuccessResponse,
+} from '@/lib/common-utils';
+import { createServiceClient } from '@/lib/supabase-utils';
+import { completeTodoFromDevice, TodoToolError } from '@/lib/todos';
 
 const CompleteTodoSchema = z.object({
   todo_id: z.string().uuid(),
@@ -45,7 +45,9 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof TodoToolError) {
       return NextResponse.json(
-        createApiErrorResponse(error.message, error.status, { code: error.code }),
+        createApiErrorResponse(error.message, error.status, {
+          code: error.code,
+        }),
         { status: error.status }
       );
     }

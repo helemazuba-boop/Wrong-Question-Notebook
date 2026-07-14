@@ -1,16 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -97,9 +92,30 @@ const MAX_IMPORT_ENTRIES = 4000;
 const PREVIEW_LIMIT = 10;
 
 const COLUMN_ALIASES: Record<ImportColumn, string[]> = {
-  word: ['word', 'term', 'vocabulary', 'english', 'en', '单词', '词语', '英文', '词条'],
+  word: [
+    'word',
+    'term',
+    'vocabulary',
+    'english',
+    'en',
+    '单词',
+    '词语',
+    '英文',
+    '词条',
+  ],
   phonetic: ['phonetic', 'phonetics', 'ipa', 'pronunciation', '音标', '读音'],
-  meaning: ['meaning', 'definition', 'translation', 'cn', 'zh', '释义', '含义', '中文', '解释', '翻译'],
+  meaning: [
+    'meaning',
+    'definition',
+    'translation',
+    'cn',
+    'zh',
+    '释义',
+    '含义',
+    '中文',
+    '解释',
+    '翻译',
+  ],
   example: ['example', 'sentence', 'usage', '例句', '英文例句', '用法'],
   example_translation: [
     'example_translation',
@@ -168,7 +184,10 @@ function detectDelimiter(lines: string[]): string {
   for (const delimiter of candidates) {
     const score = lines
       .slice(0, 8)
-      .reduce((sum, line) => sum + splitDelimitedLine(line, delimiter).length, 0);
+      .reduce(
+        (sum, line) => sum + splitDelimitedLine(line, delimiter).length,
+        0
+      );
     if (score > bestScore) {
       best = delimiter;
       bestScore = score;
@@ -180,7 +199,9 @@ function detectDelimiter(lines: string[]): string {
 function looksLikeWord(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > 80) return false;
-  return /^[A-Za-z][A-Za-z' -]*$/.test(trimmed) && trimmed.split(/\s+/).length <= 4;
+  return (
+    /^[A-Za-z][A-Za-z' -]*$/.test(trimmed) && trimmed.split(/\s+/).length <= 4
+  );
 }
 
 function looksLikePhonetic(value: string): boolean {
@@ -203,7 +224,11 @@ function looksLikePartOfSpeech(value: string): boolean {
   );
 }
 
-function scoreColumn(rows: string[][], index: number, scorer: (value: string) => number): number {
+function scoreColumn(
+  rows: string[][],
+  index: number,
+  scorer: (value: string) => number
+): number {
   return rows
     .slice(0, 30)
     .reduce((sum, row) => sum + scorer(row[index] || ''), 0);
@@ -233,13 +258,17 @@ function inferColumns(rows: string[][]): Partial<Record<ImportColumn, number>> {
   const columns: Partial<Record<ImportColumn, number>> = {};
   const used = new Set<number>();
 
-  const word = pickBestColumn(rows, used, value => (looksLikeWord(value) ? 5 : 0));
+  const word = pickBestColumn(rows, used, value =>
+    looksLikeWord(value) ? 5 : 0
+  );
   if (word !== undefined) {
     columns.word = word;
     used.add(word);
   }
 
-  const phonetic = pickBestColumn(rows, used, value => (looksLikePhonetic(value) ? 4 : 0));
+  const phonetic = pickBestColumn(rows, used, value =>
+    looksLikePhonetic(value) ? 4 : 0
+  );
   if (phonetic !== undefined) {
     columns.phonetic = phonetic;
     used.add(phonetic);
@@ -266,7 +295,8 @@ function inferColumns(rows: string[][]): Partial<Record<ImportColumn, number>> {
   const example = pickBestColumn(rows, used, value => {
     const text = value.trim();
     if (!text) return 0;
-    const hasLatinSentence = /[A-Za-z]/.test(text) && text.split(/\s+/).length >= 4;
+    const hasLatinSentence =
+      /[A-Za-z]/.test(text) && text.split(/\s+/).length >= 4;
     return hasLatinSentence ? Math.min(text.length, 120) / 4 : 0;
   });
   if (example !== undefined) {
@@ -292,7 +322,9 @@ function inferColumns(rows: string[][]): Partial<Record<ImportColumn, number>> {
   return columns;
 }
 
-function columnsFromHeader(header: string[]): Partial<Record<ImportColumn, number>> {
+function columnsFromHeader(
+  header: string[]
+): Partial<Record<ImportColumn, number>> {
   const columns: Partial<Record<ImportColumn, number>> = {};
   header.forEach((cell, index) => {
     const column = findColumnByHeader(cell);
@@ -301,7 +333,9 @@ function columnsFromHeader(header: string[]): Partial<Record<ImportColumn, numbe
   return columns;
 }
 
-function hasUsefulHeader(columns: Partial<Record<ImportColumn, number>>): boolean {
+function hasUsefulHeader(
+  columns: Partial<Record<ImportColumn, number>>
+): boolean {
   return columns.word !== undefined && columns.meaning !== undefined;
 }
 
@@ -339,7 +373,10 @@ function rowToImportEntry(
   };
 }
 
-function valueFromAliases(row: Record<string, unknown>, column: ImportColumn): unknown {
+function valueFromAliases(
+  row: Record<string, unknown>,
+  column: ImportColumn
+): unknown {
   for (const alias of COLUMN_ALIASES[column]) {
     const exact = row[alias];
     if (exact !== undefined) return exact;
@@ -352,7 +389,10 @@ function valueFromAliases(row: Record<string, unknown>, column: ImportColumn): u
   return undefined;
 }
 
-function normalizeJsonImportEntry(value: unknown, index: number): ImportEntry | null {
+function normalizeJsonImportEntry(
+  value: unknown,
+  index: number
+): ImportEntry | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
   const word = String(valueFromAliases(row, 'word') || '').trim();
@@ -361,7 +401,10 @@ function normalizeJsonImportEntry(value: unknown, index: number): ImportEntry | 
 
   const rawTags = valueFromAliases(row, 'tags');
   const tags = Array.isArray(rawTags)
-    ? rawTags.map(tag => String(tag).trim()).filter(Boolean).slice(0, 16)
+    ? rawTags
+        .map(tag => String(tag).trim())
+        .filter(Boolean)
+        .slice(0, 16)
     : typeof rawTags === 'string'
       ? parseTags(rawTags)
       : undefined;
@@ -386,7 +429,13 @@ function normalizeJsonImportEntry(value: unknown, index: number): ImportEntry | 
 function parseImportText(text: string): ParseResult {
   const trimmed = text.trim();
   if (!trimmed) {
-    return { entries: [], skipped: 0, hasHeader: false, delimiter: '\t', columns: {} };
+    return {
+      entries: [],
+      skipped: 0,
+      hasHeader: false,
+      delimiter: '\t',
+      columns: {},
+    };
   }
 
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
@@ -463,8 +512,17 @@ export default function WordDeckPageClient({
     delimiter: '\t',
     columns: {},
   });
-  const [lastImportedCount, setLastImportedCount] = useState<number | null>(null);
+  const [lastImportedCount, setLastImportedCount] = useState<number | null>(
+    null
+  );
   const canImport = !deck.is_system;
+  const [addWord, setAddWord] = useState('');
+  const [addMeaning, setAddMeaning] = useState('');
+  const [addPhonetic, setAddPhonetic] = useState('');
+  const [addPartOfSpeech, setAddPartOfSpeech] = useState('');
+  const [addExample, setAddExample] = useState('');
+  const [addExampleTranslation, setAddExampleTranslation] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
 
   const visibleEntries = useMemo(() => initialEntries, [initialEntries]);
   const previewEntries = parseResult.entries.slice(0, PREVIEW_LIMIT);
@@ -547,11 +605,58 @@ export default function WordDeckPageClient({
     }
   }
 
+  async function submitAddWord(event: FormEvent) {
+    event.preventDefault();
+    if (!canImport) {
+      toast.error('系统词库不能直接添加');
+      return;
+    }
+    const word = addWord.trim();
+    const meaning = addMeaning.trim();
+    if (!word || !meaning) {
+      toast.error('请填写单词和释义');
+      return;
+    }
+    setAddBusy(true);
+    try {
+      const body: Record<string, string> = { word, meaning };
+      if (addPhonetic.trim()) body.phonetic = addPhonetic.trim();
+      if (addPartOfSpeech.trim()) body.part_of_speech = addPartOfSpeech.trim();
+      if (addExample.trim()) body.example = addExample.trim();
+      if (addExampleTranslation.trim())
+        body.example_translation = addExampleTranslation.trim();
+      const response = await fetch(`/api/words/decks/${deck.id}/entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || '添加失败');
+      }
+      toast.success(`已添加「${word}」`);
+      setAddWord('');
+      setAddMeaning('');
+      setAddPhonetic('');
+      setAddPartOfSpeech('');
+      setAddExample('');
+      setAddExampleTranslation('');
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '添加失败');
+    } finally {
+      setAddBusy(false);
+    }
+  }
+
   return (
     <div className="section-container space-y-6">
       <PageHeader
         title={deck.title}
-        description={deck.description || '管理词库条目，并通过设备词库资源包同步到 WQN Note4。'}
+        description={
+          deck.description ||
+          '管理词库条目，并通过设备词库资源包同步到 WQN Note4。'
+        }
         actions={
           <Button variant="outline" asChild>
             <Link href="/subjects">
@@ -565,7 +670,9 @@ export default function WordDeckPageClient({
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">词条数</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">
+              词条数
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">
             {initialEntryCount ?? deck.word_count}
@@ -573,7 +680,9 @@ export default function WordDeckPageClient({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">类型</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">
+              类型
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <Badge variant={deck.is_system ? 'default' : 'secondary'}>
@@ -583,7 +692,9 @@ export default function WordDeckPageClient({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">归档</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">
+              归档
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-sm font-medium">
             {deck.subject_name || '未分类'}
@@ -591,7 +702,9 @@ export default function WordDeckPageClient({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Revision</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">
+              Revision
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-sm font-medium">
             {deck.revision} / {formatDate(deck.updated_at)}
@@ -624,12 +737,26 @@ export default function WordDeckPageClient({
                 <TableBody>
                   {visibleEntries.map(entry => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-medium">{entry.word}</TableCell>
+                      <TableCell className="font-medium">
+                        {entry.word}
+                      </TableCell>
                       <TableCell>{entry.phonetic || '--'}</TableCell>
-                      <TableCell className="max-w-md truncate">{entry.meaning}</TableCell>
+                      <TableCell className="max-w-md truncate">
+                        {entry.meaning}
+                      </TableCell>
                       <TableCell>{entry.part_of_speech || '--'}</TableCell>
-                      <TableCell className="max-w-md truncate" title={entry.example || ''}>{entry.example || '--'}</TableCell>
-                      <TableCell className="max-w-md truncate" title={entry.example_translation || ''}>{entry.example_translation || '--'}</TableCell>
+                      <TableCell
+                        className="max-w-md truncate"
+                        title={entry.example || ''}
+                      >
+                        {entry.example || '--'}
+                      </TableCell>
+                      <TableCell
+                        className="max-w-md truncate"
+                        title={entry.example_translation || ''}
+                      >
+                        {entry.example_translation || '--'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -638,6 +765,90 @@ export default function WordDeckPageClient({
             {initialEntryCount && initialEntryCount > initialEntries.length && (
               <p className="text-sm text-muted-foreground text-center py-2">
                 显示前 {initialEntries.length} 条 / 共 {initialEntryCount} 条
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>添加单词</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {canImport ? (
+              <form onSubmit={submitAddWord} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="add-word-word">
+                      单词 <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="add-word-word"
+                      value={addWord}
+                      onChange={event => setAddWord(event.target.value)}
+                      maxLength={80}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="add-word-phonetic">音标</Label>
+                    <Input
+                      id="add-word-phonetic"
+                      value={addPhonetic}
+                      onChange={event => setAddPhonetic(event.target.value)}
+                      maxLength={120}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="add-word-meaning">
+                    释义 <span className="text-destructive">*</span>
+                  </Label>
+                  <Textarea
+                    id="add-word-meaning"
+                    value={addMeaning}
+                    onChange={event => setAddMeaning(event.target.value)}
+                    maxLength={1000}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="add-word-pos">词性</Label>
+                  <Input
+                    id="add-word-pos"
+                    value={addPartOfSpeech}
+                    onChange={event => setAddPartOfSpeech(event.target.value)}
+                    maxLength={80}
+                    placeholder="可选，如 n. / v."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="add-word-example">例句</Label>
+                  <Textarea
+                    id="add-word-example"
+                    value={addExample}
+                    onChange={event => setAddExample(event.target.value)}
+                    maxLength={1000}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="add-word-example-tr">例句翻译</Label>
+                  <Textarea
+                    id="add-word-example-tr"
+                    value={addExampleTranslation}
+                    onChange={event =>
+                      setAddExampleTranslation(event.target.value)
+                    }
+                    maxLength={1000}
+                  />
+                </div>
+                <Button type="submit" disabled={addBusy}>
+                  {addBusy ? '添加中...' : '添加单词'}
+                </Button>
+              </form>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                系统词库由 WQN 云端维护，不能在这里直接添加。
               </p>
             )}
           </CardContent>
@@ -659,12 +870,16 @@ export default function WordDeckPageClient({
                   “单词、释义、音标、例句、例句翻译、词性、标签”，没有表头时会自动识别。
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="word-import-file">Excel / CSV / TSV / JSON 文件</Label>
+                  <Label htmlFor="word-import-file">
+                    Excel / CSV / TSV / JSON 文件
+                  </Label>
                   <Input
                     id="word-import-file"
                     type="file"
                     accept=".csv,.tsv,.txt,.json,.xlsx,.xls,application/json,text/csv,text/plain"
-                    onChange={event => handleFile(event.target.files?.[0] || null)}
+                    onChange={event =>
+                      handleFile(event.target.files?.[0] || null)
+                    }
                   />
                 </div>
                 <div className="space-y-2">
@@ -674,14 +889,19 @@ export default function WordDeckPageClient({
                     value={text}
                     onChange={event => previewImport(event.target.value)}
                     rows={12}
-                    placeholder={'单词\t释义\t音标\t例句\t例句翻译\nconsistent\t一致的；持续的\t/kənˈsɪstənt/\tShe is consistent in her work.\t她工作一直很稳定。'}
+                    placeholder={
+                      '单词\t释义\t音标\t例句\t例句翻译\nconsistent\t一致的；持续的\t/kənˈsɪstənt/\tShe is consistent in her work.\t她工作一直很稳定。'
+                    }
                   />
                 </div>
                 <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                   单次最多 {MAX_IMPORT_ENTRIES} 条。当前识别：
                   {parseResult.entries.length} 条可导入，
-                  {parseResult.skipped} 行跳过，分隔符 {delimiterLabel(parseResult.delimiter)}
-                  {parseResult.hasHeader ? '，已识别表头。' : '，按内容自动推断列。'}
+                  {parseResult.skipped} 行跳过，分隔符{' '}
+                  {delimiterLabel(parseResult.delimiter)}
+                  {parseResult.hasHeader
+                    ? '，已识别表头。'
+                    : '，按内容自动推断列。'}
                 </div>
                 {previewEntries.length > 0 ? (
                   <>
@@ -692,7 +912,10 @@ export default function WordDeckPageClient({
                       </p>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         {previewEntries.map((entry, index) => (
-                          <div key={`${entry.word}-${index}`} className="truncate">
+                          <div
+                            key={`${entry.word}-${index}`}
+                            className="truncate"
+                          >
                             {entry.word} / {entry.meaning}
                           </div>
                         ))}
@@ -700,7 +923,11 @@ export default function WordDeckPageClient({
                     </div>
                   </>
                 ) : null}
-                <Button className="w-full" onClick={submitImport} disabled={busy}>
+                <Button
+                  className="w-full"
+                  onClick={submitImport}
+                  disabled={busy}
+                >
                   {busy ? (
                     <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                   ) : (

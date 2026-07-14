@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
-import { createApiErrorResponse, createApiSuccessResponse } from '@/lib/common-utils';
+import {
+  createApiErrorResponse,
+  createApiSuccessResponse,
+} from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   loadEsp32WordSync,
@@ -19,10 +22,14 @@ export async function GET(req: Request) {
 
   try {
     const { searchParams } = new URL(req.url);
-    const result = await loadEsp32WordSync(createServiceClient(), authResult.userId, {
-      since: searchParams.get('since'),
-      limit: parseLimit(searchParams.get('limit')),
-    });
+    const result = await loadEsp32WordSync(
+      createServiceClient(),
+      authResult.userId,
+      {
+        since: searchParams.get('since'),
+        limit: parseLimit(searchParams.get('limit')),
+      }
+    );
     return NextResponse.json(createApiSuccessResponse(result));
   } catch (error) {
     if (error instanceof WordToolError) return wordErrorResponse(error);

@@ -102,7 +102,10 @@ function compactEntry(entry: WordEntryPackRow) {
   };
 }
 
-function buildPackBytes(deck: VisibleDeckRow, entries: WordEntryPackRow[]): Buffer {
+function buildPackBytes(
+  deck: VisibleDeckRow,
+  entries: WordEntryPackRow[]
+): Buffer {
   const metadata = {
     deck_id: deck.id,
     title: deck.title,
@@ -139,7 +142,9 @@ async function loadVisibleDecks(
 ): Promise<VisibleDeckRow[]> {
   const { data, error } = await supabase
     .from('word_decks')
-    .select('id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, revision, updated_at')
+    .select(
+      'id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, revision, updated_at'
+    )
     .is('archived_at', null)
     .eq('is_active', true)
     .or(`user_id.eq.${userId},is_system.eq.true`)
@@ -156,7 +161,9 @@ async function loadDeckEntries(
 ): Promise<WordEntryPackRow[]> {
   const { data, error } = await supabase
     .from('word_entries')
-    .select('id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at')
+    .select(
+      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at'
+    )
     .eq('deck_id', deckId)
     .order('sort_index', { ascending: true })
     .order('normalized_word', { ascending: true });
@@ -172,7 +179,9 @@ async function loadReadyPack(
 ): Promise<WordPackRow | null> {
   const { data, error } = await supabase
     .from('word_packs')
-    .select('id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status')
+    .select(
+      'id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status'
+    )
     .eq('deck_id', deckId)
     .eq('revision', revision)
     .eq('schema_version', WORD_PACK_SCHEMA_VERSION)
@@ -235,7 +244,9 @@ async function upsertPackRecord(
       },
       { onConflict: 'deck_id,revision,schema_version,format,compression' }
     )
-    .select('id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status')
+    .select(
+      'id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status'
+    )
     .single();
 
   if (error) databaseError('upsertPackRecord', error);
@@ -302,31 +313,52 @@ export async function getDownloadableWordPack(
   deck: Pick<VisibleDeckRow, 'id' | 'title' | 'is_system'>;
   body: ArrayBuffer;
 }> {
-  const { data, error } = await supabase
+  // Two flat queries instead of a single nested one. The previous query used
+  // a `word_decks!inner(...)` embed with `.or('word_decks.user_id.eq.X,
+  // word_decks.is_system.eq.true')`, which PostgREST rejected:
+  //   PGRST100: failed to parse logic tree (... word_decks.user_id.eq.X ...)
+  //   unexpected "u" expecting "not" or operator
+  // The `.or()` parser doesn't accept dotted embedded-resource paths the same
+  // way `.eq()` does. Splitting into pack-then-deck and enforcing ownership in
+  // JS (the same shape loadVisibleDecks already uses) sidesteps the parser
+  // limitation entirely.
+  const { data: pack, error: packError } = await supabase
     .from('word_packs')
-    .select('id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status, word_decks!inner(id, title, is_system, user_id, is_active, archived_at)')
+    .select(
+      'id, deck_id, revision, schema_version, format, compression, storage_path, sha256, byte_size, entry_count, status'
+    )
     .eq('id', packId)
     .eq('status', 'ready')
-    .or(`word_decks.user_id.eq.${userId},word_decks.is_system.eq.true`)
     .maybeSingle();
+  if (packError) databaseError('getDownloadableWordPack.lookup', packError);
+  if (!pack) {
+    throw new WordToolError('pack_not_found', 'Word pack not found', 404);
+  }
 
-  if (error) databaseError('getDownloadableWordPack.lookup', error);
-  const deck = Array.isArray(data?.word_decks)
-    ? data?.word_decks[0]
-    : data?.word_decks;
+  const { data: deck, error: deckError } = await supabase
+    .from('word_decks')
+    .select('id, title, is_system, user_id, is_active, archived_at')
+    .eq('id', pack.deck_id)
+    .maybeSingle();
+  if (deckError) databaseError('getDownloadableWordPack.deck', deckError);
 
-  if (!data || !deck?.is_active || deck?.archived_at) {
+  if (
+    !deck ||
+    !deck.is_active ||
+    deck.archived_at ||
+    !(deck.is_system || deck.user_id === userId)
+  ) {
     throw new WordToolError('pack_not_found', 'Word pack not found', 404);
   }
 
   const { data: blob, error: downloadError } = await supabase.storage
     .from(WORD_PACK_BUCKET)
-    .download(data.storage_path);
+    .download(pack.storage_path);
 
   if (downloadError || !blob) storageError('downloadPack', downloadError);
 
   return {
-    pack: data,
+    pack,
     deck,
     body: await blob.arrayBuffer(),
   };

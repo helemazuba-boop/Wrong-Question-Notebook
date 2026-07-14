@@ -7,6 +7,7 @@ import {
 } from '@/lib/esp32-ai-provider';
 import { createRateLimit } from '@/lib/rate-limit';
 import { withSecurity } from '@/lib/security-middleware';
+import { handleV2Streaming, isV2StreamingRequest } from './v2-handler';
 
 export const runtime = 'nodejs';
 
@@ -40,7 +41,10 @@ type Esp32AiErrorCode =
   | 'invalid_audio'
   | 'no_speech'
   | 'asr_failed'
+  | 'asr_timeout'
   | 'model_failed'
+  | 'chat_timeout'
+  | 'provider_unavailable'
   | 'rate_limited'
   | 'disabled'
   | 'notebook_permission_denied'
@@ -152,7 +156,7 @@ function isVoiceAiConfigured(): boolean {
   return isEsp32AiProviderConfigured();
 }
 
-async function transcribeChat(req: NextRequest) {
+async function transcribeChat(req: NextRequest): Promise<NextResponse> {
   const authRateLimitResponse = AUTH_RATE_LIMIT(req);
   if (authRateLimitResponse) {
     return createEsp32AiErrorResponse(
@@ -231,6 +235,7 @@ async function transcribeChat(req: NextRequest) {
       channels: Number(AUDIO_CHANNELS),
       sampleFormat: AUDIO_SAMPLE_FORMAT,
       conversationId: req.headers.get('x-wqn-conversation-id'),
+      tier: req.headers.get('x-wqn-ai-tier'),
       userId: authResult.userId,
       deviceId: authResult.deviceId,
     });
@@ -264,7 +269,21 @@ async function transcribeChat(req: NextRequest) {
   }
 }
 
-export const POST = withSecurity(transcribeChat, {
+async function dispatch(req: NextRequest): Promise<NextResponse> {
+  if (isV2StreamingRequest(req)) {
+    if (!isVoiceAiConfigured()) {
+      return createEsp32AiErrorResponse(
+        'disabled',
+        'ESP32 AI voice route is disabled',
+        503
+      );
+    }
+    return handleV2Streaming(req);
+  }
+  return transcribeChat(req);
+}
+
+export const POST = withSecurity(dispatch, {
   // Route-local AUTH_RATE_LIMIT and DEVICE_RATE_LIMIT keep 429 responses
   // on the ESP32 contract shape instead of the generic middleware body.
   enableRateLimit: false,

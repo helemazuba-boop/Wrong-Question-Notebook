@@ -121,10 +121,22 @@ export class WordToolError extends Error {
 }
 
 const VALID_DECK_SOURCES: WordDeckSource[] = ['system', 'user', 'import', 'ai'];
-const VALID_LEXICON_TYPES: WordLexiconType[] = ['english_word', 'classical_chinese_term'];
-const VALID_REVIEW_MODES: WordReviewMode[] = ['sequential', 'random', 'dictionary'];
+const VALID_LEXICON_TYPES: WordLexiconType[] = [
+  'english_word',
+  'classical_chinese_term',
+];
+const VALID_REVIEW_MODES: WordReviewMode[] = [
+  'sequential',
+  'random',
+  'dictionary',
+];
 const VALID_REVIEW_OUTCOMES: WordReviewOutcome[] = ['known', 'unknown', 'skip'];
-const VALID_REVIEW_STATUSES: WordReviewStatus[] = ['new', 'learning', 'review', 'mastered'];
+const VALID_REVIEW_STATUSES: WordReviewStatus[] = [
+  'new',
+  'learning',
+  'review',
+  'mastered',
+];
 const WORD_IMPORT_MAX_ENTRIES = 4000;
 const WORD_IMPORT_UPSERT_CHUNK_SIZE = 500;
 const WORD_MISTAKE_SET_TITLE = '\u9057\u5fd8\u7684\u5355\u8bcd';
@@ -138,7 +150,31 @@ function databaseError(action: string, error: unknown): never {
   throw new WordToolError('database_error', 'Word request failed', 500);
 }
 
-function limitWithin(value: number | undefined, min: number, max: number): number {
+// Returns the IDs of word decks the user can read (own + system, active, not
+// archived). Use this with `.in('deck_id', deckIds)` on `word_entries`-side
+// queries instead of an `word_decks!inner(...) + .or('word_decks.field.eq...')`
+// nested filter — PostgREST rejects the latter with PGRST100 ("failed to parse
+// logic tree", "unexpected u expecting not or operator"), because `.or()` does
+// not accept dotted embedded-resource paths.
+async function loadVisibleWordDeckIds(
+  supabase: SupabaseClient<any>,
+  userId: string
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('word_decks')
+    .select('id')
+    .is('archived_at', null)
+    .eq('is_active', true)
+    .or(`user_id.eq.${userId},is_system.eq.true`);
+  if (error) databaseError('loadVisibleWordDeckIds', error);
+  return (data || []).map((row: { id: string }) => row.id);
+}
+
+function limitWithin(
+  value: number | undefined,
+  min: number,
+  max: number
+): number {
   if (!Number.isFinite(value)) return max;
   return Math.min(Math.max(Math.trunc(value || max), min), max);
 }
@@ -177,7 +213,8 @@ function sanitizeOptionalText(value: unknown, max: number): string | null {
 
 function normalizeWord(value: string): string {
   const word = value.trim().slice(0, 80);
-  if (!word) throw new WordToolError('invalid_request', 'Word is required', 400);
+  if (!word)
+    throw new WordToolError('invalid_request', 'Word is required', 400);
   return word.toLocaleLowerCase('en-US');
 }
 
@@ -373,7 +410,8 @@ export async function verifyWordDeckWritable(
     .maybeSingle();
 
   if (error) throw new WordToolError('database_error', error.message, 500);
-  if (!data) throw new WordToolError('deck_not_found', 'Word deck not found', 404);
+  if (!data)
+    throw new WordToolError('deck_not_found', 'Word deck not found', 404);
 }
 
 export async function verifySubjectOwner(
@@ -389,7 +427,8 @@ export async function verifySubjectOwner(
     .maybeSingle();
 
   if (error) throw new WordToolError('database_error', error.message, 500);
-  if (!data) throw new WordToolError('subject_not_found', 'Subject not found', 404);
+  if (!data)
+    throw new WordToolError('subject_not_found', 'Subject not found', 404);
 }
 
 export async function addWordEntryToDeck(
@@ -414,7 +453,10 @@ export async function addWordEntryToDeck(
   const word = input.word.trim().slice(0, 80);
   const meaning = sanitizeTitle(input.meaning, 1000);
   const tags = Array.isArray(input.tags)
-    ? input.tags.map(tag => String(tag).trim()).filter(Boolean).slice(0, 16)
+    ? input.tags
+        .map(tag => String(tag).trim())
+        .filter(Boolean)
+        .slice(0, 16)
     : [];
 
   const { data, error } = await supabase
@@ -427,7 +469,10 @@ export async function addWordEntryToDeck(
         phonetic: sanitizeOptionalText(input.phonetic, 120),
         meaning,
         example: sanitizeOptionalText(input.example, 1000),
-        example_translation: sanitizeOptionalText(input.example_translation, 1000),
+        example_translation: sanitizeOptionalText(
+          input.example_translation,
+          1000
+        ),
         part_of_speech: sanitizeOptionalText(input.part_of_speech, 80),
         tags,
         sort_index: Number.isFinite(input.sort_index) ? input.sort_index : 0,
@@ -480,26 +525,32 @@ export async function importWordEntriesToDeck(
     throw new WordToolError('invalid_request', 'Too many entries', 413);
   }
 
-  const dedupedRows = new Map<string, {
-    deck_id: string;
-    word: string;
-    normalized_word: string;
-    phonetic: string | null;
-    meaning: string;
-    example: string | null;
-    example_translation: string | null;
-    part_of_speech: string | null;
-    tags: string[];
-    sort_index: number;
-    metadata: Json;
-    revision: number;
-  }>();
+  const dedupedRows = new Map<
+    string,
+    {
+      deck_id: string;
+      word: string;
+      normalized_word: string;
+      phonetic: string | null;
+      meaning: string;
+      example: string | null;
+      example_translation: string | null;
+      part_of_speech: string | null;
+      tags: string[];
+      sort_index: number;
+      metadata: Json;
+      revision: number;
+    }
+  >();
 
   entries.forEach((entry, index) => {
     const word = entry.word.trim().slice(0, 80);
     const normalized = normalizeWord(word);
     const tags = Array.isArray(entry.tags)
-      ? entry.tags.map(tag => String(tag).trim()).filter(Boolean).slice(0, 16)
+      ? entry.tags
+          .map(tag => String(tag).trim())
+          .filter(Boolean)
+          .slice(0, 16)
       : [];
 
     dedupedRows.set(normalized, {
@@ -509,12 +560,17 @@ export async function importWordEntriesToDeck(
       phonetic: sanitizeOptionalText(entry.phonetic, 120),
       meaning: sanitizeTitle(entry.meaning, 1000),
       example: sanitizeOptionalText(entry.example, 1000),
-      example_translation: sanitizeOptionalText(entry.example_translation, 1000),
+      example_translation: sanitizeOptionalText(
+        entry.example_translation,
+        1000
+      ),
       part_of_speech: sanitizeOptionalText(entry.part_of_speech, 80),
       tags,
-      sort_index: typeof entry.sort_index === 'number' && Number.isFinite(entry.sort_index)
-        ? entry.sort_index
-        : index,
+      sort_index:
+        typeof entry.sort_index === 'number' &&
+        Number.isFinite(entry.sort_index)
+          ? entry.sort_index
+          : index,
       metadata: asJsonObject(entry.metadata),
       revision: 1,
     });
@@ -522,7 +578,11 @@ export async function importWordEntriesToDeck(
 
   const rows = [...dedupedRows.values()];
   const imported: WordEntryItem[] = [];
-  for (let offset = 0; offset < rows.length; offset += WORD_IMPORT_UPSERT_CHUNK_SIZE) {
+  for (
+    let offset = 0;
+    offset < rows.length;
+    offset += WORD_IMPORT_UPSERT_CHUNK_SIZE
+  ) {
     const chunk = rows.slice(offset, offset + WORD_IMPORT_UPSERT_CHUNK_SIZE);
     const { data, error } = await supabase
       .from('word_entries')
@@ -543,22 +603,38 @@ export async function importWordEntriesToDeck(
 export async function searchWords(
   supabase: SupabaseClient<any>,
   userId: string,
-  input: { q?: string | null; prefix?: string | null; deck_id?: string | null; limit?: number }
-): Promise<{ words: ReturnType<typeof compactWordRow>[]; next_letters: string[] }> {
+  input: {
+    q?: string | null;
+    prefix?: string | null;
+    deck_id?: string | null;
+    limit?: number;
+  }
+): Promise<{
+  words: ReturnType<typeof compactWordRow>[];
+  next_letters: string[];
+}> {
   const limit = limitWithin(input.limit, 1, 50);
+  const deckIds = await loadVisibleWordDeckIds(supabase, userId);
+  if (deckIds.length === 0) {
+    return { words: [], next_letters: [] };
+  }
+
   let query = supabase
     .from('word_entries')
     .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_decks!inner(user_id, is_system, is_active, archived_at), word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
+      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
     )
+    .in('deck_id', deckIds)
     .limit(limit);
 
   if (input.deck_id) query = query.eq('deck_id', input.deck_id);
   const raw = normalizeSearchText(input.prefix || input.q || '');
-  if (raw) query = query.ilike('normalized_word', `${raw.replace(/[%_]/g, '')}%`);
-  query = query.or(`word_decks.user_id.eq.${userId},word_decks.is_system.eq.true`);
+  if (raw)
+    query = query.ilike('normalized_word', `${raw.replace(/[%_]/g, '')}%`);
 
-  const { data, error } = await query.order('normalized_word', { ascending: true });
+  const { data, error } = await query.order('normalized_word', {
+    ascending: true,
+  });
   if (error) databaseError('searchWords', error);
 
   const words = (data || []).map(mapEntryRow).map(compactWordRow);
@@ -581,13 +657,18 @@ export async function getWordDetail(
   userId: string,
   wordId: string
 ): Promise<ReturnType<typeof compactWordRow>> {
+  const deckIds = await loadVisibleWordDeckIds(supabase, userId);
+  if (deckIds.length === 0) {
+    throw new WordToolError('word_not_found', 'Word not found', 404);
+  }
+
   const { data, error } = await supabase
     .from('word_entries')
     .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_decks!inner(user_id, is_system, is_active, archived_at), word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
+      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
     )
     .eq('id', wordId)
-    .or(`word_decks.user_id.eq.${userId},word_decks.is_system.eq.true`)
+    .in('deck_id', deckIds)
     .maybeSingle();
 
   if (error) databaseError('getWordDetail', error);
@@ -631,7 +712,9 @@ export async function loadEsp32WordSync(
 
   let deckQuery = supabase
     .from('word_decks')
-    .select('id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, is_active, revision, updated_at')
+    .select(
+      'id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, is_active, revision, updated_at'
+    )
     .or(`user_id.eq.${userId},is_system.eq.true`)
     .order('updated_at', { ascending: true })
     .limit(limit);
@@ -651,7 +734,8 @@ export async function loadEsp32WordSync(
     .eq('is_active', true)
     .or(`user_id.eq.${userId},is_system.eq.true`);
 
-  if (visibleDeckError) databaseError('loadEsp32WordSync.visibleDecks', visibleDeckError);
+  if (visibleDeckError)
+    databaseError('loadEsp32WordSync.visibleDecks', visibleDeckError);
   const deckIds = (visibleDecks || []).map((deck: any) => deck.id);
 
   let entries: WordEntryItem[] = [];
@@ -677,7 +761,9 @@ export async function loadEsp32WordSync(
   let progressRows: any[] = [];
   let progressQuery = supabase
     .from('word_progress')
-    .select('word_entry_id, status, due_at, correct_streak, lapses, reviewed_count, updated_at')
+    .select(
+      'word_entry_id, status, due_at, correct_streak, lapses, reviewed_count, updated_at'
+    )
     .eq('user_id', userId)
     .order('updated_at', { ascending: true })
     .limit(limit);
@@ -694,9 +780,10 @@ export async function loadEsp32WordSync(
     ...entries.map(entry => entry.updated_at),
     ...progressRows.map(row => row.updated_at),
   ].filter(Boolean);
-  const nextCursor = cursorValues.length > 0
-    ? cursorValues.sort().at(-1)
-    : input.since || serverTime;
+  const nextCursor =
+    cursorValues.length > 0
+      ? cursorValues.sort().at(-1)
+      : input.since || serverTime;
 
   return {
     cursor: nextCursor,
@@ -748,12 +835,23 @@ export async function loadEsp32WordReview(
     throw new WordToolError('invalid_request', 'Invalid review mode', 400);
   }
 
+  const deckIds = await loadVisibleWordDeckIds(supabase, userId);
+  if (deckIds.length === 0) {
+    return {
+      mode,
+      daily_target: limit,
+      reviewed_today: 0,
+      due_count: 0,
+      words: [],
+    };
+  }
+
   let query = supabase
     .from('word_entries')
     .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_decks!inner(user_id, is_system, is_active, archived_at), word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
+      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
     )
-    .or(`word_decks.user_id.eq.${userId},word_decks.is_system.eq.true`)
+    .in('deck_id', deckIds)
     .order(mode === 'random' ? 'updated_at' : 'sort_index', { ascending: true })
     .limit(limit * 4);
 
@@ -770,9 +868,8 @@ export async function loadEsp32WordReview(
     if (!progress?.due_at) return true;
     return Date.parse(progress.due_at) <= now;
   });
-  const words = (mode === 'random'
-    ? dueWords.sort(() => Math.random() - 0.5)
-    : dueWords
+  const words = (
+    mode === 'random' ? dueWords.sort(() => Math.random() - 0.5) : dueWords
   ).slice(0, limit);
 
   const { count, error: countError } = await supabase
@@ -780,7 +877,8 @@ export async function loadEsp32WordReview(
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
-  if (countError) databaseError('loadEsp32WordReview.reviewedToday', countError);
+  if (countError)
+    databaseError('loadEsp32WordReview.reviewedToday', countError);
 
   return {
     mode,
@@ -805,14 +903,6 @@ export async function getWordReviewQueue(
   input: { deck_id?: string | null; mode?: WordReviewMode; limit?: number } = {}
 ) {
   return loadEsp32WordReview(supabase, userId, input);
-}
-
-function nextStatusAfter(outcome: WordReviewOutcome, current?: WordReviewStatus): WordReviewStatus {
-  if (outcome === 'unknown') return 'learning';
-  if (outcome === 'skip') return current || 'new';
-  if (current === 'review' || current === 'mastered') return 'mastered';
-  if (current === 'learning') return 'review';
-  return 'learning';
 }
 
 function nextProgressAfter(
@@ -925,29 +1015,42 @@ export async function recordWordReview(
     throw new WordToolError('invalid_request', 'word_id is required', 400);
   }
 
+  const deckIds = await loadVisibleWordDeckIds(ctx.supabase, ctx.userId);
+  if (deckIds.length === 0) {
+    throw new WordToolError('word_not_found', 'Word not found', 404);
+  }
+
   const { data: entry, error: entryError } = await ctx.supabase
     .from('word_entries')
-    .select('id, word, normalized_word, phonetic, meaning, example, example_translation, word_decks!inner(user_id, is_system, is_active, archived_at)')
+    .select(
+      'id, word, normalized_word, phonetic, meaning, example, example_translation'
+    )
     .eq('id', wordEntryId)
-    .or(`word_decks.user_id.eq.${ctx.userId},word_decks.is_system.eq.true`)
+    .in('deck_id', deckIds)
     .maybeSingle();
   if (entryError) databaseError('recordWordReview.entry', entryError);
   if (!entry) throw new WordToolError('word_not_found', 'Word not found', 404);
 
-  const { data: existingProgress, error: progressReadError } = await ctx.supabase
-    .from('word_progress')
-    .select('*')
-    .eq('user_id', ctx.userId)
-    .eq('word_entry_id', wordEntryId)
-    .maybeSingle();
+  const { data: existingProgress, error: progressReadError } =
+    await ctx.supabase
+      .from('word_progress')
+      .select('*')
+      .eq('user_id', ctx.userId)
+      .eq('word_entry_id', wordEntryId)
+      .maybeSingle();
   if (progressReadError) {
     databaseError('recordWordReview.progressRead', progressReadError);
   }
 
-  const reviewedAt = input.reviewed_at && !Number.isNaN(Date.parse(input.reviewed_at))
-    ? new Date(input.reviewed_at).toISOString()
-    : new Date().toISOString();
-  const nextProgress = nextProgressAfter(input.outcome, existingProgress, reviewedAt);
+  const reviewedAt =
+    input.reviewed_at && !Number.isNaN(Date.parse(input.reviewed_at))
+      ? new Date(input.reviewed_at).toISOString()
+      : new Date().toISOString();
+  const nextProgress = nextProgressAfter(
+    input.outcome,
+    existingProgress,
+    reviewedAt
+  );
 
   const { error: eventError } = await ctx.supabase
     .from('word_review_events')
@@ -985,7 +1088,8 @@ export async function recordWordReview(
       )
       .select('*')
       .single();
-    if (progressError) databaseError('recordWordReview.progressUpsert', progressError);
+    if (progressError)
+      databaseError('recordWordReview.progressUpsert', progressError);
     persisted = data;
   }
 
@@ -999,7 +1103,9 @@ export async function recordWordReview(
   };
   const extra_actions: WordAiAction[] = [];
   if (input.outcome === 'unknown') {
-    extra_actions.push(await ensureWrongWordLink(ctx, wordEntryId, entry.word, entry));
+    extra_actions.push(
+      await ensureWrongWordLink(ctx, wordEntryId, entry.word, entry)
+    );
   }
 
   return {
@@ -1024,7 +1130,8 @@ async function ensureWrongWordLink(
     .eq('user_id', ctx.userId)
     .eq('word_entry_id', wordEntryId)
     .maybeSingle();
-  if (existingError) databaseError('ensureWrongWordLink.existing', existingError);
+  if (existingError)
+    databaseError('ensureWrongWordLink.existing', existingError);
 
   if (existing) {
     const { error: updateProblemError } = await ctx.supabase
@@ -1155,7 +1262,8 @@ async function ensureEnglishSubject(
     .in('name', [DEFAULT_ENGLISH_SUBJECT, 'English Vocabulary'])
     .limit(1)
     .maybeSingle();
-  if (existingError) databaseError('ensureEnglishSubject.existing', existingError);
+  if (existingError)
+    databaseError('ensureEnglishSubject.existing', existingError);
   if (existing) return existing.id;
 
   const { data, error } = await supabase
@@ -1184,7 +1292,8 @@ async function ensureWrongWordProblemSet(
     .eq('type', 'word_mistakes')
     .limit(1)
     .maybeSingle();
-  if (existingError) databaseError('ensureWrongWordProblemSet.existing', existingError);
+  if (existingError)
+    databaseError('ensureWrongWordProblemSet.existing', existingError);
   if (existing) return existing.id;
 
   const { data, error } = await supabase
@@ -1236,7 +1345,9 @@ function buildWrongWordContent(entry: any): string {
 function isUniqueConflict(error: any): boolean {
   return (
     error?.code === '23505' ||
-    String(error?.message || '').toLowerCase().includes('duplicate key')
+    String(error?.message || '')
+      .toLowerCase()
+      .includes('duplicate key')
   );
 }
 
@@ -1263,28 +1374,34 @@ async function deleteProblemBestEffort(
 export async function listAuthorizedWordDecks(ctx: WordToolContext) {
   const { data, error } = await ctx.supabase
     .from('word_deck_ai_access')
-    .select('can_read, can_create, can_update, word_decks(id, title, description, source, subject_id, subjects(name), language, target_language, lexicon_type, word_entries(count))')
+    .select(
+      'can_read, can_create, can_update, word_decks(id, title, description, source, subject_id, subjects(name), language, target_language, lexicon_type, word_entries(count))'
+    )
     .eq('user_id', ctx.userId)
     .or('can_read.eq.true,can_create.eq.true,can_update.eq.true');
   if (error) throw new WordToolError('database_error', error.message, 500);
   return {
-    decks: (data || []).map((row: any) => ({
-      id: row.word_decks?.id,
-      title: row.word_decks?.title,
-      description: row.word_decks?.description || '',
-      source: row.word_decks?.source || 'user',
-      subject_id: row.word_decks?.subject_id || null,
-      subject_name: row.word_decks?.subjects?.name || null,
-      language: row.word_decks?.language || 'en',
-      target_language: row.word_decks?.target_language || 'zh-CN',
-      lexicon_type: normalizeLexiconType(row.word_decks?.lexicon_type || 'english_word'),
-      word_count: normalizeCount(row.word_decks?.word_entries),
-      permissions: {
-        can_read: Boolean(row.can_read),
-        can_create: Boolean(row.can_create),
-        can_update: Boolean(row.can_update),
-      },
-    })).filter((deck: any) => deck.id),
+    decks: (data || [])
+      .map((row: any) => ({
+        id: row.word_decks?.id,
+        title: row.word_decks?.title,
+        description: row.word_decks?.description || '',
+        source: row.word_decks?.source || 'user',
+        subject_id: row.word_decks?.subject_id || null,
+        subject_name: row.word_decks?.subjects?.name || null,
+        language: row.word_decks?.language || 'en',
+        target_language: row.word_decks?.target_language || 'zh-CN',
+        lexicon_type: normalizeLexiconType(
+          row.word_decks?.lexicon_type || 'english_word'
+        ),
+        word_count: normalizeCount(row.word_decks?.word_entries),
+        permissions: {
+          can_read: Boolean(row.can_read),
+          can_create: Boolean(row.can_create),
+          can_update: Boolean(row.can_update),
+        },
+      }))
+      .filter((deck: any) => deck.id),
   };
 }
 

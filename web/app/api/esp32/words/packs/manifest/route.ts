@@ -5,6 +5,7 @@ import {
   createApiSuccessResponse,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { getEsp32RequestOrigin } from '@/lib/esp32-content';
 import { loadWordPackManifest } from '@/lib/word-packs';
 import { WordToolError, wordErrorResponse } from '@/lib/words';
 
@@ -15,7 +16,7 @@ export async function GET(req: Request) {
   if (authResult instanceof NextResponse) return authResult;
 
   try {
-    const origin = new URL(req.url).origin;
+    const origin = getEsp32RequestOrigin(req);
     const manifest = await loadWordPackManifest(
       createServiceClient(),
       authResult.userId,

@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
-import { createApiErrorResponse, createApiSuccessResponse } from '@/lib/common-utils';
-import { createServiceClient } from '@/lib/supabase-utils';
 import {
-  getWordDetail,
-  wordErrorResponse,
-  WordToolError,
-} from '@/lib/words';
+  createApiErrorResponse,
+  createApiSuccessResponse,
+} from '@/lib/common-utils';
+import { createServiceClient } from '@/lib/supabase-utils';
+import { getWordDetail, wordErrorResponse, WordToolError } from '@/lib/words';
 
 const ParamsSchema = z.object({
   id: z.string().uuid(),

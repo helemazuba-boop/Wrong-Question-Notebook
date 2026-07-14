@@ -152,7 +152,11 @@ function sanitizeTimestamp(value?: string | null): string | null {
   return parsed.toISOString();
 }
 
-function limitWithin(value: number | undefined, min: number, max: number): number {
+function limitWithin(
+  value: number | undefined,
+  min: number,
+  max: number
+): number {
   if (!Number.isFinite(value)) return max;
   return Math.min(Math.max(Math.trunc(value || max), min), max);
 }
@@ -204,7 +208,8 @@ async function ensureSubjectOwner(
     .maybeSingle();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
-  if (!data) throw new TodoToolError('subject_not_found', 'Subject not found', 404);
+  if (!data)
+    throw new TodoToolError('subject_not_found', 'Subject not found', 404);
 }
 
 async function ensureProblemSetOwner(
@@ -222,7 +227,11 @@ async function ensureProblemSetOwner(
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
   if (!data) {
-    throw new TodoToolError('problem_set_not_found', 'Problem set not found', 404);
+    throw new TodoToolError(
+      'problem_set_not_found',
+      'Problem set not found',
+      404
+    );
   }
 }
 
@@ -240,7 +249,8 @@ async function ensureProblemOwner(
     .maybeSingle();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
-  if (!data) throw new TodoToolError('problem_not_found', 'Problem not found', 404);
+  if (!data)
+    throw new TodoToolError('problem_not_found', 'Problem not found', 404);
 }
 
 async function ensureNotebookOwner(
@@ -258,7 +268,8 @@ async function ensureNotebookOwner(
     .maybeSingle();
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
-  if (!data) throw new TodoToolError('notebook_not_found', 'Notebook not found', 404);
+  if (!data)
+    throw new TodoToolError('notebook_not_found', 'Notebook not found', 404);
 }
 
 async function ensureNotebookNoteOwner(
@@ -277,7 +288,11 @@ async function ensureNotebookNoteOwner(
 
   if (error) throw new TodoToolError('database_error', error.message, 500);
   if (!data) {
-    throw new TodoToolError('notebook_note_not_found', 'Notebook note not found', 404);
+    throw new TodoToolError(
+      'notebook_note_not_found',
+      'Notebook note not found',
+      404
+    );
   }
 }
 
@@ -430,21 +445,26 @@ export async function updateTodo(
   await verifyTodoLinks(supabase, userId, input);
 
   const updatePayload: Database['public']['Tables']['todos']['Update'] = {};
-  if (input.title !== undefined) updatePayload.title = sanitizeTitle(input.title);
+  if (input.title !== undefined)
+    updatePayload.title = sanitizeTitle(input.title);
   if (input.description !== undefined) {
     updatePayload.description = sanitizeDescription(input.description);
   }
   if (input.priority !== undefined) updatePayload.priority = input.priority;
-  if (input.due_at !== undefined) updatePayload.due_at = sanitizeTimestamp(input.due_at);
+  if (input.due_at !== undefined)
+    updatePayload.due_at = sanitizeTimestamp(input.due_at);
   if (input.reminder_at !== undefined) {
     updatePayload.reminder_at = sanitizeTimestamp(input.reminder_at);
   }
-  if (input.subject_id !== undefined) updatePayload.subject_id = input.subject_id;
+  if (input.subject_id !== undefined)
+    updatePayload.subject_id = input.subject_id;
   if (input.problem_set_id !== undefined) {
     updatePayload.problem_set_id = input.problem_set_id;
   }
-  if (input.problem_id !== undefined) updatePayload.problem_id = input.problem_id;
-  if (input.notebook_id !== undefined) updatePayload.notebook_id = input.notebook_id;
+  if (input.problem_id !== undefined)
+    updatePayload.problem_id = input.problem_id;
+  if (input.notebook_id !== undefined)
+    updatePayload.notebook_id = input.notebook_id;
   if (input.note_id !== undefined) updatePayload.note_id = input.note_id;
   if (input.metadata !== undefined) updatePayload.metadata = input.metadata;
 
@@ -515,7 +535,13 @@ export async function loadEsp32TodayTodos(
 }
 
 function getTodoTimelineAt(todo: TodoListItem): string | null {
-  return todo.due_at || todo.reminder_at || todo.created_at || todo.updated_at || null;
+  return (
+    todo.due_at ||
+    todo.reminder_at ||
+    todo.created_at ||
+    todo.updated_at ||
+    null
+  );
 }
 
 function getTodoTimelineTime(todo: TodoListItem): number {
@@ -549,13 +575,19 @@ function parseTodoCursor(
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
     const offset = Number.parseInt(String(parsed?.offset ?? 0), 10);
     const selected = parsed?.selected === 'last' ? 'last' : 'first';
-    return { offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0, selected };
+    return {
+      offset: Number.isFinite(offset) ? Math.max(offset, 0) : 0,
+      selected,
+    };
   } catch {
     throw new TodoToolError('invalid_request', 'Invalid Todo cursor', 400);
   }
 }
 
-function findClosestTodoIndex(todos: TodoListItem[], serverTime: string): number {
+function findClosestTodoIndex(
+  todos: TodoListItem[],
+  serverTime: string
+): number {
   if (todos.length === 0) return -1;
   const now = Date.parse(serverTime);
   let selectedIndex = 0;
@@ -590,10 +622,15 @@ function mapEsp32TodoItem(todo: TodoListItem): Esp32TodoItem {
 export async function loadEsp32TodoTimeline(
   supabase: SupabaseClient<Database>,
   userId: string,
-  input: { limit?: number; cursor?: string | null; server_time?: string | null } = {}
+  input: {
+    limit?: number;
+    cursor?: string | null;
+    server_time?: string | null;
+  } = {}
 ): Promise<Esp32TodoTimeline> {
   const limit = limitWithin(input.limit, 1, 24);
-  const serverTime = parseOptionalTimestamp(input.server_time) || new Date().toISOString();
+  const serverTime =
+    parseOptionalTimestamp(input.server_time) || new Date().toISOString();
 
   const { data, error } = await supabase
     .from('todos')
@@ -624,7 +661,10 @@ export async function loadEsp32TodoTimeline(
     } else if (cursor?.selected === 'first') {
       selectedIndex = 0;
     } else {
-      selectedIndex = Math.min(Math.max(closestIndex - start, 0), windowTodos.length - 1);
+      selectedIndex = Math.min(
+        Math.max(closestIndex - start, 0),
+        windowTodos.length - 1
+      );
     }
   }
 
@@ -636,7 +676,7 @@ export async function loadEsp32TodoTimeline(
     todos: windowTodos.map(mapEsp32TodoItem),
     selected_index: selectedIndex,
     selected_todo_id:
-      selectedIndex >= 0 ? windowTodos[selectedIndex]?.id ?? null : null,
+      selectedIndex >= 0 ? (windowTodos[selectedIndex]?.id ?? null) : null,
     previous_cursor: hasEarlier
       ? encodeTodoCursor(Math.max(start - limit, 0), 'last')
       : null,

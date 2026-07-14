@@ -29,7 +29,7 @@ import type {
   UncategorisedAttempt,
   WeakSpot,
 } from '@/lib/types';
-import type { Database, Json } from '@/lib/database.types';
+import type { Json } from '@/lib/database.types';
 
 // =====================================================
 // Types local to the generator
