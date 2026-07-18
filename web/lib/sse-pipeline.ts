@@ -142,7 +142,21 @@ export async function runStreamingPipeline(
       baseUrl,
       model: chatModel,
       llmTimeoutMs: options.llmTimeoutMs,
-      systemPrompt: options.systemPrompt,
+      systemPrompt:
+        options.input.reasoningEffort === 'high'
+          ? `${options.systemPrompt}\nThink carefully, validate key assumptions, and prioritize correctness.`
+          : options.systemPrompt,
+      enableThinking: options.input.enableThinking,
+      thinkingBudget:
+        options.input.enableThinking === false
+          ? undefined
+          : options.input.reasoningEffort === 'low'
+            ? 1024
+            : options.input.reasoningEffort === 'high'
+              ? 8192
+              : options.input.reasoningEffort === 'medium'
+                ? 4096
+                : undefined,
     },
     {
       transcript: asrResult.transcript,

@@ -129,6 +129,42 @@ function validateRequiredAudioHeaders(req: Request): NextResponse | null {
   return null;
 }
 
+function validateV2ControlHeaders(req: Request): NextResponse | null {
+  const tier = req.headers.get('x-wqn-ai-tier');
+  if (tier !== null && tier !== 'std' && tier !== 'pro') {
+    return createEsp32AiErrorResponse('invalid_audio', 'Invalid AI tier', 422);
+  }
+
+  const enableThinking = req.headers.get('x-wqn-enable-thinking');
+  if (
+    enableThinking !== null &&
+    enableThinking !== 'true' &&
+    enableThinking !== 'false'
+  ) {
+    return createEsp32AiErrorResponse(
+      'invalid_audio',
+      'Invalid thinking mode',
+      422
+    );
+  }
+
+  const reasoningEffort = req.headers.get('x-wqn-reasoning-effort');
+  if (
+    reasoningEffort !== null &&
+    reasoningEffort !== 'low' &&
+    reasoningEffort !== 'medium' &&
+    reasoningEffort !== 'high'
+  ) {
+    return createEsp32AiErrorResponse(
+      'invalid_audio',
+      'Invalid reasoning effort',
+      422
+    );
+  }
+
+  return null;
+}
+
 function getContentLength(req: Request): number | null {
   const contentLength = req.headers.get('content-length');
   if (!contentLength) return null;
@@ -269,16 +305,60 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
   }
 }
 
+async function transcribeChatV2(req: NextRequest): Promise<NextResponse> {
+  const authRateLimitResponse = AUTH_RATE_LIMIT(req);
+  if (authRateLimitResponse) {
+    return createEsp32AiErrorResponse(
+      'rate_limited',
+      'Rate limit exceeded',
+      429,
+      { headers: authRateLimitResponse.headers }
+    );
+  }
+
+  const authResult = await authenticateEsp32Device(req);
+  if (authResult instanceof NextResponse) return authResult;
+
+  const deviceRateLimitResponse = DEVICE_RATE_LIMIT(
+    cloneHeadersWithDeviceId(req, authResult.deviceId)
+  );
+  if (deviceRateLimitResponse) {
+    return createEsp32AiErrorResponse(
+      'rate_limited',
+      'Rate limit exceeded',
+      429,
+      { headers: deviceRateLimitResponse.headers }
+    );
+  }
+
+  const headerError =
+    validateRequiredAudioHeaders(req) ?? validateV2ControlHeaders(req);
+  if (headerError) return headerError;
+
+  const contentLength = getContentLength(req);
+  if (contentLength !== null && contentLength > MAX_AUDIO_BODY_BYTES) {
+    return createTooLargeResponse();
+  }
+
+  if (!isVoiceAiConfigured()) {
+    return createEsp32AiErrorResponse(
+      'disabled',
+      'ESP32 AI voice route is disabled',
+      503
+    );
+  }
+
+  const audio = await req.arrayBuffer();
+  if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
+    return createTooLargeResponse();
+  }
+
+  return handleV2Streaming(req, undefined, { authResult, audio });
+}
+
 async function dispatch(req: NextRequest): Promise<NextResponse> {
   if (isV2StreamingRequest(req)) {
-    if (!isVoiceAiConfigured()) {
-      return createEsp32AiErrorResponse(
-        'disabled',
-        'ESP32 AI voice route is disabled',
-        503
-      );
-    }
-    return handleV2Streaming(req);
+    return transcribeChatV2(req);
   }
   return transcribeChat(req);
 }

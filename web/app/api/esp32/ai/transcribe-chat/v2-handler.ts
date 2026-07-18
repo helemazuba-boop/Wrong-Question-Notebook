@@ -3,7 +3,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
+import {
+  authenticateEsp32Device,
+  type Esp32DeviceAuthContext,
+} from '@/lib/esp32-device-auth';
 import { createSseResponse, SseWriter } from '@/lib/ai-stream';
 import { runStreamingPipeline } from '@/lib/sse-pipeline';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
@@ -38,6 +41,11 @@ export interface V2RuntimeConfig {
   stepfunAsrLanguage: string;
   stepfunAsrHotwords: string[];
   stepfunAsrEnableItn: boolean;
+}
+
+export interface V2RequestContext {
+  authResult: Esp32DeviceAuthContext;
+  audio: ArrayBuffer;
 }
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -135,14 +143,26 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 
 export async function handleV2Streaming(
   req: NextRequest,
-  config?: V2RuntimeConfig
+  config?: V2RuntimeConfig,
+  requestContext?: V2RequestContext
 ): Promise<NextResponse> {
   const resolvedConfig = config || loadV2RuntimeConfig();
 
-  const authResult = await authenticateEsp32Device(req);
+  const authResult =
+    requestContext?.authResult ?? (await authenticateEsp32Device(req));
   if (authResult instanceof Response) return authResult;
 
-  const audio = await req.arrayBuffer();
+  const audio = requestContext?.audio ?? (await req.arrayBuffer());
+  const enableThinkingHeader = req.headers.get('x-wqn-enable-thinking');
+  const reasoningEffortHeader = req.headers.get('x-wqn-reasoning-effort');
+  const enableThinking =
+    enableThinkingHeader === null ? undefined : enableThinkingHeader === 'true';
+  const reasoningEffort =
+    reasoningEffortHeader === 'low' ||
+    reasoningEffortHeader === 'medium' ||
+    reasoningEffortHeader === 'high'
+      ? reasoningEffortHeader
+      : undefined;
 
   let toolExecutor: ToolExecutor | undefined;
   if (authResult.userId) {
@@ -167,6 +187,8 @@ export async function handleV2Streaming(
           tier: req.headers.get('x-wqn-ai-tier'),
           userId: authResult.userId,
           deviceId: authResult.deviceId,
+          enableThinking,
+          reasoningEffort,
         },
         asrModel: resolvedConfig.asrModel,
         chatModelStd: resolvedConfig.chatModelStd,

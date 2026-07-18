@@ -26,6 +26,8 @@ export interface ChatStreamConfig {
   model: string;
   llmTimeoutMs: number;
   systemPrompt: string;
+  enableThinking?: boolean;
+  thinkingBudget?: number;
 }
 
 export interface ChatStreamInput {
@@ -200,12 +202,18 @@ async function fetchStreamingCompletion(
     controller.abort();
   }, config.llmTimeoutMs);
   try {
-    const body = {
+    const body: Record<string, unknown> = {
       model: config.model,
       messages,
       stream: true,
       temperature: 0.3,
     };
+    if (typeof config.enableThinking === 'boolean') {
+      body.enable_thinking = config.enableThinking;
+    }
+    if (config.enableThinking !== false && config.thinkingBudget) {
+      body.thinking_budget = config.thinkingBudget;
+    }
     const r = await fetch(config.baseUrl + '/chat/completions', {
       method: 'POST',
       headers: {
@@ -253,6 +261,15 @@ async function consumeOpenAiSse(
   let requestId: string | null = null;
   const acc: AccumulatedToolCall[] = [];
   let firstDeltaEmitted = false;
+  let reasoningStarted = false;
+  let reasoningDone = false;
+  let reasoning = '';
+  function finishReasoning(): void {
+    if (reasoningStarted && !reasoningDone) {
+      pusher.emitThinkingDone(reasoning);
+      reasoningDone = true;
+    }
+  }
   function handleEvent(text: string): void {
     const lines = text.split('\n');
     let data = '';
@@ -270,7 +287,19 @@ async function consumeOpenAiSse(
     const choice = json.choices && json.choices[0];
     if (!choice) return;
     const delta = choice.delta || {};
+    if (
+      typeof delta.reasoning_content === 'string' &&
+      delta.reasoning_content.length > 0
+    ) {
+      if (!reasoningStarted) {
+        pusher.emitThinkingStart();
+        reasoningStarted = true;
+      }
+      reasoning += delta.reasoning_content;
+      pusher.emitThinkingDelta(delta.reasoning_content);
+    }
     if (typeof delta.content === 'string' && delta.content.length > 0) {
+      finishReasoning();
       if (!firstDeltaEmitted) {
         pusher.openSentence();
         firstDeltaEmitted = true;
@@ -283,6 +312,7 @@ async function consumeOpenAiSse(
       applyToolCallDelta(acc, delta.tool_calls);
     }
     if (choice.finish_reason) {
+      finishReasoning();
       if (firstDeltaEmitted) pusher.closeSentence();
     }
   }
@@ -296,6 +326,7 @@ async function consumeOpenAiSse(
       buf = nextEvent.rest;
     }
   }
+  finishReasoning();
   return {
     requestId,
     content: content || null,

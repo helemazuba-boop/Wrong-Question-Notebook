@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **ESP32 voice AI**
   - Add StepFun ASR selection for standard and professional voice sessions.
   - Accept both LF and CRLF event framing from upstream SSE providers.
+  - Align v2 uploads on validated raw PCM headers and forward bounded thinking controls.
+  - Translate provider reasoning chunks into device-visible thinking SSE events.
 
 ### Fixed
 
@@ -29,3 +31,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Remove temporary logging of Authorization header prefixes.
 - **Provider errors**
   - Report upstream service failures consistently as `provider_unavailable` with HTTP 502.
+- **Streaming request safety**
+  - Apply authentication, rate limits, audio validation, and body-size limits to the v2 path.

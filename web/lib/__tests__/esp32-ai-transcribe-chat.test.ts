@@ -311,6 +311,92 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('streams raw PCM with bounded thinking controls and reasoning events', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+
+    const upstreamSse = [
+      'data: {"id":"chat-stream-1","choices":[{"delta":{"reasoning_content":"先分析"},"finish_reason":null}]}',
+      '',
+      'data: {"id":"chat-stream-1","choices":[{"delta":{"content":"答案"},"finish_reason":null}]}',
+      '',
+      'data: {"id":"chat-stream-1","choices":[{"delta":{},"finish_reason":"stop"}]}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ output: { task_id: 'task-v2' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: {
+            task_status: 'SUCCEEDED',
+            results: [{ text: '请回答。' }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(upstreamSse));
+            controller.close();
+          },
+        }),
+      });
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({
+          'x-wqn-protocol': 'v2-streaming',
+          'x-wqn-ai-tier': 'pro',
+          'x-wqn-enable-thinking': 'true',
+          'x-wqn-reasoning-effort': 'high',
+          'x-wqn-conversation-id': 'conv-v2',
+        })
+      )
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(body).toContain('event: thinking.start');
+    expect(body).toContain('event: thinking.delta');
+    expect(body).toContain('"delta":"先分析"');
+    expect(body).toContain('event: thinking.done');
+    expect(body).toContain('event: final');
+
+    const chatBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+    expect(chatBody.enable_thinking).toBe(true);
+    expect(chatBody.thinking_budget).toBe(8192);
+    expect(chatBody.messages[0].content).toContain('validate key assumptions');
+    expect(chatBody.messages.at(-1).content).toBe('请回答。');
+  });
+
+  it('rejects unbounded v2 thinking controls before provider calls', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({
+          'x-wqn-protocol': 'v2-streaming',
+          'x-wqn-reasoning-effort': 'xhigh',
+        })
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe('invalid_audio');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('stages PCM as a signed WAV URL, calls paraformer-v2, then calls chat', async () => {
     mockAuthenticatedDevice();
     await configureParaformerProvider();
