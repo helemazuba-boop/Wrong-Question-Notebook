@@ -6,46 +6,10 @@ import {
   handleAsyncError,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { hashDeviceToken } from '@/lib/esp32-token';
-
-async function authenticateDevice(
-  req: Request
-): Promise<{ userId: string; deviceId: string } | NextResponse> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return NextResponse.json(
-      createApiErrorResponse('Missing or invalid Authorization header', 401),
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.slice(7);
-  if (!token) {
-    return NextResponse.json(
-      createApiErrorResponse('Access token is required', 401),
-      { status: 401 }
-    );
-  }
-
-  const svc = createServiceClient();
-  const { data: device } = await svc
-    .from('esp32_devices')
-    .select('id, user_id')
-    .eq('access_token_hash', hashDeviceToken(token))
-    .single();
-
-  if (!device) {
-    return NextResponse.json(
-      createApiErrorResponse('Invalid access token', 401),
-      { status: 401 }
-    );
-  }
-
-  return { userId: device.user_id, deviceId: device.id };
-}
+import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 
 async function syncDueProblems(req: Request) {
-  const authResult = await authenticateDevice(req);
+  const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
   const { userId, deviceId } = authResult;
@@ -63,13 +27,20 @@ async function syncDueProblems(req: Request) {
     const now = new Date().toISOString();
 
     // Get due problems (next_review_at <= now)
-    const { data: dueProblems } = await svc
+    const { data: dueProblems, error: dueProblemsError } = await svc
       .from('review_schedule')
       .select('problem_id, next_review_at')
       .eq('user_id', userId)
       .lte('next_review_at', now)
       .order('next_review_at', { ascending: true })
       .limit(queryLimit);
+
+    if (dueProblemsError) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to load due problems', 500),
+        { status: 500 }
+      );
+    }
 
     if (!dueProblems || dueProblems.length === 0) {
       // Update device last_seen even if no problems

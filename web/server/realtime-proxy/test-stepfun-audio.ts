@@ -35,7 +35,9 @@ let audioEnd = 0;
 let audioCount = 0;
 
 ws.addEventListener('open', () => {
-  console.log(`[+${Math.round(performance.now() - t0)}ms] connected to StepFun`);
+  console.log(
+    `[+${Math.round(performance.now() - t0)}ms] connected to StepFun`
+  );
   ws.send(
     JSON.stringify({
       type: 'session.update',
@@ -88,7 +90,8 @@ ws.addEventListener('message', (event: MessageEvent) => {
   const evt = JSON.parse(event.data as string);
   const t = Math.round(performance.now() - t0);
 
-  if (evt.type === 'response.thinking.delta' && !thinkingStart) thinkingStart = t;
+  if (evt.type === 'response.thinking.delta' && !thinkingStart)
+    thinkingStart = t;
   if (evt.type === 'response.thinking.done') thinkingEnd = t;
   if (evt.type === 'response.audio_transcript.delta' && !transcriptStart)
     transcriptStart = t;
@@ -102,7 +105,8 @@ ws.addEventListener('message', (event: MessageEvent) => {
     const gap = lastAudioPerf > 0 ? now - lastAudioPerf : 0;
     lastAudioPerf = now;
     if (gap > 0) gaps.push(gap);
-    if (gap > 100) console.log(`[+${t}ms] audio.delta gapMs=${Math.round(gap)} <- STOP`);
+    if (gap > 100)
+      console.log(`[+${t}ms] audio.delta gapMs=${Math.round(gap)} <- STOP`);
   }
 
   if (evt.type === 'response.audio.done') {
@@ -130,9 +134,13 @@ ws.addEventListener('message', (event: MessageEvent) => {
       const stops = gaps.filter(g => g > 100).map(g => Math.round(g));
       console.log(`stops >100ms: ${stops.length} [${stops.join(', ')}]`);
       if (stops.length === 0) {
-        console.log('RESULT: continuous (audio input) -> text input was the trigger');
+        console.log(
+          'RESULT: continuous (audio input) -> text input was the trigger'
+        );
       } else {
-        console.log('RESULT: segmented (audio input) -> StepFun segments regardless');
+        console.log(
+          'RESULT: segmented (audio input) -> StepFun segments regardless'
+        );
       }
     }
     ws.close();

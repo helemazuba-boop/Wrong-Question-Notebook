@@ -39,7 +39,7 @@ async function pollDevice(req: Request) {
     // because a caller claims a known MAC. A token is only minted when there
     // is a matching pending pairing record that an authenticated web user has
     // just created via POST /api/esp32/pair.
-    const [{ data: existingDevice }, { data: pending }] = await Promise.all([
+    const [existingResult, pendingResult] = await Promise.all([
       svc
         .from('esp32_devices')
         .select('id, user_id, device_name')
@@ -51,6 +51,16 @@ async function pollDevice(req: Request) {
         .eq('mac_address', normalizedMac)
         .maybeSingle(),
     ]);
+
+    if (existingResult.error || pendingResult.error) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to check pairing state', 500),
+        { status: 500 }
+      );
+    }
+
+    const existingDevice = existingResult.data;
+    const pending = pendingResult.data;
 
     if (existingDevice) {
       // The device is already registered. This endpoint is unauthenticated and
@@ -139,7 +149,7 @@ async function pollDevice(req: Request) {
       createApiSuccessResponse({
         status: 'paired',
         access_token: accessToken,
-        device_name: 'ESP32',
+        device_name: pending.device_name || 'ESP32',
       })
     );
   } catch (error) {

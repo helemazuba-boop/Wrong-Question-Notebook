@@ -18,6 +18,7 @@ import {
   type OaiChatChunk,
   type PipelinePusher,
 } from './sse-pipeline-types';
+import { takeNextSseEvent } from './sse-events';
 
 export interface ChatStreamConfig {
   apiKey: string;
@@ -225,7 +226,7 @@ async function fetchStreamingCompletion(
       throw new Esp32AiProviderError(
         code,
         'DashScope chat HTTP ' + r.status,
-        r.status
+        code === 'provider_unavailable' ? 502 : r.status
       );
     }
     return await consumeOpenAiSse(r.body, pusher, hasTools);
@@ -289,11 +290,10 @@ async function consumeOpenAiSse(
     const chunk = await reader.read();
     if (chunk.done) break;
     buf += decoder.decode(chunk.value, { stream: true });
-    let idx;
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const eventText = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      handleEvent(eventText);
+    let nextEvent;
+    while ((nextEvent = takeNextSseEvent(buf)) !== null) {
+      handleEvent(nextEvent.event);
+      buf = nextEvent.rest;
     }
   }
   return {

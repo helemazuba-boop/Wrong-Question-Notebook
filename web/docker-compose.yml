@@ -24,12 +24,12 @@ services:
     image: ${IMAGE_WQN:-${IMAGE}}
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      - '${PORT:-3000}:3000'
     environment:
       NODE_ENV: production
-      NEXT_TELEMETRY_DISABLED: "1"
-      PORT: "3000"
-      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: '1'
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
       # Supabase — injected from .env.production
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
@@ -57,7 +57,8 @@ services:
       # Site URL for sitemap generation
       SITE_URL: ${SITE_URL:-http://localhost:3000}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health || exit 1"]
+      test:
+        ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -77,7 +78,7 @@ services:
     restart: unless-stopped
     # No host-published port — nginx connects over the compose network.
     expose:
-      - "8080"
+      - '8080'
     networks:
       - default
     environment:
@@ -92,13 +93,13 @@ services:
       # Internal auth to call wqn-app's execute-tool endpoint
       WQN_REALTIME_PROXY_SECRET: ${WQN_REALTIME_PROXY_SECRET}
       WQN_INTERNAL_API_BASE: ${WQN_INTERNAL_API_BASE:-http://wqn:3000}
-      WQN_FLASH_PROXY_BIND: "0.0.0.0"
-      WQN_FLASH_PROXY_PORT: "8080"
+      WQN_FLASH_PROXY_BIND: '0.0.0.0'
+      WQN_FLASH_PROXY_PORT: '8080'
       WQN_FLASH_ALLOWED_VOICES: ${WQN_FLASH_ALLOWED_VOICES:-qingchunshaonv,cixingnansheng}
       WQN_AI_REALTIME_ENABLED: ${WQN_AI_REALTIME_ENABLED:-true}
       LOG_LEVEL: info
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health || exit 1"]
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8080/health || exit 1']
       interval: 30s
       timeout: 3s
       retries: 3

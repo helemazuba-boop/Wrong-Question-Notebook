@@ -7,41 +7,16 @@ import {
   isValidUuid,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { hashDeviceToken } from '@/lib/esp32-token';
 import { revalidateUserReviewSchedule } from '@/lib/cache-invalidation';
 import type { Json } from '@/lib/database.types';
+import { updateReviewSchedule } from '@/lib/spaced-repetition';
+import { getUserTimezone } from '@/lib/timezone-utils';
+import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 
-async function authenticateDevice(
-  req: Request
-): Promise<{ userId: string; deviceId: string } | NextResponse> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return NextResponse.json(
-      createApiErrorResponse('Missing or invalid Authorization header', 401),
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.slice(7);
-  const svc = createServiceClient();
-  const { data: device } = await svc
-    .from('esp32_devices')
-    .select('id, user_id')
-    .eq('access_token_hash', hashDeviceToken(token))
-    .single();
-
-  if (!device) {
-    return NextResponse.json(
-      createApiErrorResponse('Invalid access token', 401),
-      { status: 401 }
-    );
-  }
-
-  return { userId: device.user_id, deviceId: device.id };
-}
+const MAX_RESULTS_PER_REQUEST = 200;
 
 async function completeReview(req: Request) {
-  const authResult = await authenticateDevice(req);
+  const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
   const { userId } = authResult;
@@ -67,63 +42,59 @@ async function completeReview(req: Request) {
       );
     }
 
+    if (results.length > MAX_RESULTS_PER_REQUEST) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          `Results array must contain at most ${MAX_RESULTS_PER_REQUEST} items`,
+          400
+        ),
+        { status: 400 }
+      );
+    }
+
     const svc = createServiceClient();
-    const now = new Date().toISOString();
-    const validStatuses = ['wrong', 'needs_review', 'mastered'];
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const userTimezone = await getUserTimezone(userId);
+    const validStatuses = new Set(['wrong', 'needs_review', 'mastered']);
+    let processed = 0;
 
     for (const result of results) {
       if (!isValidUuid(result.problem_id)) continue;
-      if (!validStatuses.includes(result.selected_status)) continue;
+      if (!validStatuses.has(result.selected_status)) continue;
 
-      // Upsert review_schedule for each problem
-      // Calculate next review interval based on status
-      let intervalDays: number;
-      let easeFactor: number;
+      const { data: problem, error: problemError } = await svc
+        .from('problems')
+        .select('id')
+        .eq('id', result.problem_id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (result.selected_status === 'mastered') {
-        // Long interval for mastered
-        intervalDays = 30;
-        easeFactor = 2.5;
-      } else if (result.selected_status === 'needs_review') {
-        intervalDays = 3;
-        easeFactor = 2.0;
-      } else {
-        // Wrong - shorter interval
-        intervalDays = 1;
-        easeFactor = 1.3;
-      }
+      if (problemError) throw problemError;
+      if (!problem) continue;
 
-      const nextReviewAt = new Date();
-      nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
-
-      // Upsert review_schedule
-      await svc.from('review_schedule').upsert(
-        {
-          problem_id: result.problem_id,
-          user_id: userId,
-          ease_factor: easeFactor,
-          interval_days: intervalDays,
-          last_reviewed_at: now,
-          next_review_at: nextReviewAt.toISOString(),
-          repetition_number: 1,
-        },
-        { onConflict: 'problem_id,user_id' }
+      await updateReviewSchedule(
+        svc,
+        userId,
+        result.problem_id,
+        result.selected_status,
+        userTimezone
       );
 
-      // Update problem status
-      await svc
+      const { error: updateError } = await svc
         .from('problems')
         .update({
           status: result.selected_status,
-          last_reviewed_date: now.split('T')[0],
-          updated_at: now,
+          last_reviewed_date: nowIso,
+          updated_at: nowIso,
         })
         .eq('id', result.problem_id)
         .eq('user_id', userId);
 
-      // Insert attempt record
+      if (updateError) throw updateError;
+
       if (result.submitted_answer !== undefined) {
-        await svc.from('attempts').insert({
+        const { error: attemptError } = await svc.from('attempts').insert({
           problem_id: result.problem_id,
           user_id: userId,
           submitted_answer: result.submitted_answer,
@@ -131,7 +102,10 @@ async function completeReview(req: Request) {
           is_self_assessed: true,
           selected_status: result.selected_status,
         });
+        if (attemptError) throw attemptError;
       }
+
+      processed += 1;
     }
 
     // Invalidate cache
@@ -144,7 +118,7 @@ async function completeReview(req: Request) {
     return NextResponse.json(
       createApiSuccessResponse({
         message: 'Review results saved',
-        processed: results.length,
+        processed,
       })
     );
   } catch (error) {

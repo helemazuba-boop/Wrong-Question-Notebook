@@ -34,6 +34,7 @@ curl localhost:8080/health
 ```
 
 The server expects:
+
 - `STEP_API_KEY` — StepFun API key (server-side only, never sent to the device)
 - `STEP_TTS_REALTIME_URL` — defaults to `wss://api.stepfun.com/v1/realtime`
 - `STEP_TTS_MODEL` — defaults to `stepaudio-2.5-realtime`
@@ -51,12 +52,12 @@ services:
   wqn-app:
     # existing
   wqn-realtime:
-    image: registry.cn-<region>.aliyuncs.com/<ns>/wqn:latest   # same image, different CMD
+    image: registry.cn-<region>.aliyuncs.com/<ns>/wqn:latest # same image, different CMD
     container_name: wqn-realtime
-    command: ["bun", "server/realtime-proxy/src/index.ts"]
+    command: ['bun', 'server/realtime-proxy/src/index.ts']
     env_file: .env.production
     ports:
-      - "127.0.0.1:8080:8080"   # nginx only — never expose publicly
+      - '127.0.0.1:8080:8080' # nginx only — never expose publicly
     restart: unless-stopped
 ```
 
@@ -100,16 +101,16 @@ Reload nginx after adding it: `nginx -s reload`.
 Binary frames, **24-byte little-endian header** + raw PCM s16le 16 kHz mono.
 ESP32 packs exactly the same layout in `flash_session.cpp:L42-L62`.
 
-| Offset | Type  | Field          | Notes                              |
-|--------|-------|----------------|------------------------------------|
-| 0      | u32   | magic          | `0x57464C56` (`'WFLV'`)            |
-| 4      | u16   | version        | `2`                                |
-| 6      | u16   | flags          | bit 0 = stream, bit 1 = final      |
-| 8      | u32   | seq            | monotonic per session              |
-| 12     | u32   | sample_rate    | `16000`                            |
-| 16     | u32   | channels       | `1`                                |
-| 20     | u32   | reserved       | `0`                                |
-| 24+    | bytes | PCM payload    | `240 frame × 2 B = 480 B` per tick |
+| Offset | Type  | Field       | Notes                              |
+| ------ | ----- | ----------- | ---------------------------------- |
+| 0      | u32   | magic       | `0x57464C56` (`'WFLV'`)            |
+| 4      | u16   | version     | `2`                                |
+| 6      | u16   | flags       | bit 0 = stream, bit 1 = final      |
+| 8      | u32   | seq         | monotonic per session              |
+| 12     | u32   | sample_rate | `16000`                            |
+| 16     | u32   | channels    | `1`                                |
+| 20     | u32   | reserved    | `0`                                |
+| 24+    | bytes | PCM payload | `240 frame × 2 B = 480 B` per tick |
 
 The server forwards each chunk as two upstream JSON events:
 
@@ -156,15 +157,15 @@ relay) and `stepfun-ai/Step-Realtime-Console` for the upstream swap.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `src/index.ts` | Bun server entry; HTTP `/health` + WS upgrade |
-| `src/auth.ts` | Bearer token → `DeviceContext` via Supabase |
-| `src/types.ts` | Frame constants & relay error codes |
-| `src/frameIo.ts` | WFLV 24-byte header encode/decode |
-| `src/voiceRelay.ts` | Per-connection state machine |
+| File                     | Purpose                                            |
+| ------------------------ | -------------------------------------------------- |
+| `src/index.ts`           | Bun server entry; HTTP `/health` + WS upgrade      |
+| `src/auth.ts`            | Bearer token → `DeviceContext` via Supabase        |
+| `src/types.ts`           | Frame constants & relay error codes                |
+| `src/frameIo.ts`         | WFLV 24-byte header encode/decode                  |
+| `src/voiceRelay.ts`      | Per-connection state machine                       |
 | `src/toolInterceptor.ts` | `function_call_arguments.done` → HTTP exec → reply |
-| `src/logger.ts` | JSON-line logger for ECS |
+| `src/logger.ts`          | JSON-line logger for ECS                           |
 
 ## Tests
 

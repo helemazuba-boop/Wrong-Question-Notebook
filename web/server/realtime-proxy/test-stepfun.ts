@@ -40,7 +40,9 @@ let audioEnd = 0;
 let audioCount = 0;
 
 ws.addEventListener('open', () => {
-  console.log(`[+${Math.round(performance.now() - t0)}ms] connected to StepFun`);
+  console.log(
+    `[+${Math.round(performance.now() - t0)}ms] connected to StepFun`
+  );
   ws.send(
     JSON.stringify({
       type: 'session.update',
@@ -76,7 +78,8 @@ ws.addEventListener('message', (event: MessageEvent) => {
   const evt = JSON.parse(event.data as string);
   const t = Math.round(performance.now() - t0);
 
-  if (evt.type === 'response.thinking.delta' && !thinkingStart) thinkingStart = t;
+  if (evt.type === 'response.thinking.delta' && !thinkingStart)
+    thinkingStart = t;
   if (evt.type === 'response.thinking.done') thinkingEnd = t;
   if (evt.type === 'response.audio_transcript.delta' && !transcriptStart)
     transcriptStart = t;

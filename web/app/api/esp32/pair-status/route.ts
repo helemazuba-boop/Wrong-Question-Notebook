@@ -20,12 +20,19 @@ async function getPairStatus(req: Request) {
 
     if (macAddress) {
       // Check specific device
-      const { data: device } = await svc
+      const { data: device, error: deviceError } = await svc
         .from('esp32_devices')
         .select('id, mac_address, device_name, created_at, last_seen_at')
         .eq('mac_address', macAddress.toUpperCase())
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
+
+      if (deviceError) {
+        return NextResponse.json(
+          createApiErrorResponse('Failed to check paired device', 500),
+          { status: 500 }
+        );
+      }
 
       if (device) {
         return NextResponse.json(
@@ -36,12 +43,19 @@ async function getPairStatus(req: Request) {
         );
       }
 
-      const { data: pending } = await svc
+      const { data: pending, error: pendingError } = await svc
         .from('esp32_pairing_pending')
         .select('created_at')
         .eq('mac_address', macAddress.toUpperCase())
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
+
+      if (pendingError) {
+        return NextResponse.json(
+          createApiErrorResponse('Failed to check pending pairing', 500),
+          { status: 500 }
+        );
+      }
 
       return NextResponse.json(
         createApiSuccessResponse({
@@ -54,11 +68,18 @@ async function getPairStatus(req: Request) {
     }
 
     // Return all pending for this user
-    const { data: pending } = await svc
+    const { data: pending, error: pendingError } = await svc
       .from('esp32_pairing_pending')
       .select('mac_address, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
+
+    if (pendingError) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to list pending pairings', 500),
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json(
       createApiSuccessResponse({

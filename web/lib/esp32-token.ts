@@ -1,5 +1,11 @@
 import { createHash } from 'crypto';
 
+const DEVICE_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
+
+export function isValidDeviceToken(token: string): boolean {
+  return DEVICE_TOKEN_PATTERN.test(token);
+}
+
 /**
  * Hash a device access token for storage / lookup.
  *

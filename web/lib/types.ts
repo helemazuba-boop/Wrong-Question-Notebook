@@ -232,9 +232,7 @@ export interface ShortAnswerNumericConfig {
 }
 
 export type AnswerConfig =
-  | MCQAnswerConfig
-  | ShortAnswerTextConfig
-  | ShortAnswerNumericConfig;
+  MCQAnswerConfig | ShortAnswerTextConfig | ShortAnswerNumericConfig;
 
 // =====================================================
 // Extended/Computed Types (for UI)

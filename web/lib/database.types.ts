@@ -146,7 +146,7 @@ export type Database = {
       };
       esp32_devices: {
         Row: {
-          access_token_hash: string | null;
+          access_token_hash: string;
           created_at: string | null;
           device_name: string | null;
           firmware_version: string | null;
@@ -161,7 +161,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
-          access_token_hash?: string | null;
+          access_token_hash: string;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
@@ -176,7 +176,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
-          access_token_hash?: string | null;
+          access_token_hash?: string;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
@@ -728,6 +728,7 @@ export type Database = {
           linked_problem_id: string | null;
           metadata: Json;
           notebook_id: string;
+          revision: number;
           source: string;
           title: string;
           updated_at: string;
@@ -741,6 +742,7 @@ export type Database = {
           linked_problem_id?: string | null;
           metadata?: Json;
           notebook_id: string;
+          revision?: number;
           source?: string;
           title: string;
           updated_at?: string;
@@ -754,6 +756,7 @@ export type Database = {
           linked_problem_id?: string | null;
           metadata?: Json;
           notebook_id?: string;
+          revision?: number;
           source?: string;
           title?: string;
           updated_at?: string;
@@ -784,6 +787,7 @@ export type Database = {
           description: string | null;
           icon: string | null;
           id: string;
+          revision: number;
           subject_id: string;
           title: string;
           updated_at: string;
@@ -796,6 +800,7 @@ export type Database = {
           description?: string | null;
           icon?: string | null;
           id?: string;
+          revision?: number;
           subject_id: string;
           title: string;
           updated_at?: string;
@@ -808,6 +813,7 @@ export type Database = {
           description?: string | null;
           icon?: string | null;
           id?: string;
+          revision?: number;
           subject_id?: string;
           title?: string;
           updated_at?: string;
@@ -822,6 +828,40 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      notebook_ai_audit_log: {
+        Row: {
+          id: number;
+          note_id: string;
+          notebook_id: string;
+          user_id: string;
+          conversation_id: string | null;
+          title: string;
+          content_sha256: string;
+          linked_problem_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          note_id: string;
+          notebook_id: string;
+          user_id: string;
+          conversation_id?: string | null;
+          title: string;
+          content_sha256: string;
+          linked_problem_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          note_id?: string;
+          notebook_id?: string;
+          user_id?: string;
+          conversation_id?: string | null;
+          title?: string;
+          content_sha256?: string;
+          linked_problem_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       word_deck_ai_access: {
         Row: {
@@ -1061,6 +1101,7 @@ export type Database = {
           problem_id: string | null;
           problem_set_id: string | null;
           reminder_at: string | null;
+          revision: number;
           source: string;
           source_conversation_id: string | null;
           source_device_id: string | null;
@@ -1086,6 +1127,7 @@ export type Database = {
           problem_id?: string | null;
           problem_set_id?: string | null;
           reminder_at?: string | null;
+          revision?: number;
           source?: string;
           source_conversation_id?: string | null;
           source_device_id?: string | null;
@@ -1111,6 +1153,7 @@ export type Database = {
           problem_id?: string | null;
           problem_set_id?: string | null;
           reminder_at?: string | null;
+          revision?: number;
           source?: string;
           source_conversation_id?: string | null;
           source_device_id?: string | null;
@@ -1313,6 +1356,7 @@ export type Database = {
           id: string;
           last_reviewed_date: string | null;
           problem_type: Database['public']['Enums']['problem_type_enum'];
+          revision: number;
           solution_assets: Json;
           solution_text: string | null;
           status: Database['public']['Enums']['problem_status_enum'];
@@ -1332,6 +1376,7 @@ export type Database = {
           id?: string;
           last_reviewed_date?: string | null;
           problem_type: Database['public']['Enums']['problem_type_enum'];
+          revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
           status: Database['public']['Enums']['problem_status_enum'];
@@ -1351,6 +1396,7 @@ export type Database = {
           id?: string;
           last_reviewed_date?: string | null;
           problem_type?: Database['public']['Enums']['problem_type_enum'];
+          revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
           status?: Database['public']['Enums']['problem_status_enum'];
@@ -2044,12 +2090,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals;
 }
@@ -2071,13 +2117,12 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema['Tables'] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals;
 }
@@ -2096,13 +2141,12 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+    keyof DefaultSchema['Tables'] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals;
 }
@@ -2121,13 +2165,12 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema['Enums']
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    keyof DefaultSchema['Enums'] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals;
 }
@@ -2140,11 +2183,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema['CompositeTypes']
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals;
 }

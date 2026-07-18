@@ -105,11 +105,7 @@ type Esp32AiToolContext = NotebookToolContext &
   WordToolContext;
 
 type Esp32AiTraceStatus =
-  | 'started'
-  | 'pending'
-  | 'succeeded'
-  | 'failed'
-  | 'skipped';
+  'started' | 'pending' | 'succeeded' | 'failed' | 'skipped';
 
 export interface Esp32AiStatusTraceItem {
   stage: string;
@@ -610,6 +606,12 @@ function getProviderConfig(): DashScopeProviderConfig | null {
 
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
   if (!apiKey) return null;
+  const asrProvider =
+    process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
+      ? 'stepfun'
+      : 'dashscope';
+  const stepfunApiKey = (process.env.STEPFUN_API_KEY || '').trim();
+  if (asrProvider === 'stepfun' && !stepfunApiKey) return null;
 
   const chatApiKeyStd = (
     process.env.DASHSCOPE_CHAT_API_KEY_STD ||
@@ -683,11 +685,8 @@ function getProviderConfig(): DashScopeProviderConfig | null {
       DEFAULT_AUDIO_URL_TTL_MS
     ),
     publicBaseUrl,
-    asrProvider:
-      process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
-        ? 'stepfun'
-        : 'dashscope',
-    stepfunApiKey: (process.env.STEPFUN_API_KEY || '').trim(),
+    asrProvider,
+    stepfunApiKey,
     stepfunAsrUrl: (
       process.env.STEPFUN_ASR_URL || DEFAULT_STEPFUN_ASR_URL
     ).replace(/\/+$/, ''),
@@ -877,7 +876,7 @@ function providerErrorFromStatus(
       stage === 'asr'
         ? `DashScope ASR service error (HTTP ${status})`
         : `DashScope chat service error (HTTP ${status})`,
-      status
+      502
     );
   }
 
@@ -922,9 +921,7 @@ async function fetchJsonWithTimeout<T>(
         ? stage === 'asr'
           ? 'asr_timeout'
           : 'chat_timeout'
-        : stage === 'asr'
-          ? 'asr_failed'
-          : 'model_failed',
+        : 'provider_unavailable',
       isAbort
         ? stage === 'asr'
           ? 'DashScope ASR request timed out'
@@ -932,7 +929,7 @@ async function fetchJsonWithTimeout<T>(
         : stage === 'asr'
           ? 'DashScope ASR request failed'
           : 'DashScope chat request failed',
-      isAbort ? 504 : 500
+      isAbort ? 504 : 502
     );
   } finally {
     clearTimeout(timeout);
@@ -1115,8 +1112,7 @@ async function runParaformerAsr(
   }
 
   let stagedAudio:
-    | Awaited<ReturnType<typeof stageEsp32AiAudioFile>>
-    | undefined;
+    Awaited<ReturnType<typeof stageEsp32AiAudioFile>> | undefined;
 
   try {
     tracker?.mark('audio_stage', 'started');

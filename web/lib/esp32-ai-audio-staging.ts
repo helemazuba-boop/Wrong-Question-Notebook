@@ -11,10 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export type AudioStagingErrorCode =
-  | 'disabled'
-  | 'not_found'
-  | 'invalid_signature'
-  | 'expired';
+  'disabled' | 'not_found' | 'invalid_signature' | 'expired';
 
 export class AudioStagingError extends Error {
   constructor(

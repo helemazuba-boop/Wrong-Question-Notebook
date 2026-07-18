@@ -14,11 +14,13 @@ const mockSelectEq = vi.fn();
 const mockSelect = vi.fn();
 const mockUpdateEq = vi.fn();
 const mockUpdate = vi.fn();
+const mockUpsert = vi.fn();
 const mockFrom = vi.fn();
 const mockFetch = vi.fn();
 
 let audioTmpDir: string | null = null;
 let authDeviceCounter = 0;
+const DEVICE_TOKEN = 'a'.repeat(64);
 
 vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({
@@ -28,7 +30,7 @@ vi.mock('@/lib/supabase-utils', () => ({
 
 function createValidHeaders(overrides: Record<string, string> = {}) {
   return {
-    authorization: 'Bearer test-device-token',
+    authorization: `Bearer ${DEVICE_TOKEN}`,
     'content-type': 'application/octet-stream',
     'x-wqn-audio-sample-rate': '16000',
     'x-wqn-audio-sample-format': 's16le',
@@ -98,6 +100,12 @@ beforeEach(() => {
   delete process.env.DASHSCOPE_CHAT_MODEL;
   delete process.env.DASHSCOPE_CHAT_MODEL_STD;
   delete process.env.DASHSCOPE_CHAT_MODEL_PRO;
+  delete process.env.STEPFUN_API_KEY;
+  delete process.env.STEPFUN_ASR_URL;
+  delete process.env.STEPFUN_ASR_MODEL;
+  delete process.env.STEPFUN_ASR_LANGUAGE;
+  delete process.env.STEPFUN_ASR_HOTWORDS;
+  delete process.env.STEPFUN_ASR_ENABLE_ITN;
   delete process.env.WQN_ESP32_AI_PROVIDER_TIMEOUT_MS;
   delete process.env.SITE_URL;
   audioTmpDir = null;
@@ -107,11 +115,16 @@ beforeEach(() => {
   mockFrom.mockReturnValue({
     select: mockSelect,
     update: mockUpdate,
+    upsert: mockUpsert,
   });
   mockSelect.mockReturnValue({ eq: mockSelectEq });
-  mockSelectEq.mockReturnValue({ maybeSingle: mockMaybeSingle });
+  mockSelectEq.mockReturnValue({
+    eq: mockSelectEq,
+    maybeSingle: mockMaybeSingle,
+  });
   mockUpdate.mockReturnValue({ eq: mockUpdateEq });
   mockUpdateEq.mockResolvedValue({ data: null, error: null });
+  mockUpsert.mockResolvedValue({ data: null, error: null });
 });
 
 afterEach(async () => {
@@ -137,6 +150,22 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
+  it('rejects a malformed bearer token before querying the database', async () => {
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({ authorization: 'Bearer not-a-device-token' })
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toMatchObject({
+      success: false,
+      error: { code: 'unauthorized' },
+    });
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
   it('returns 415 for a wrong content type', async () => {
     mockAuthenticatedDevice();
 
@@ -154,6 +183,19 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
         code: 'invalid_audio',
       },
     });
+  });
+
+  it('disables StepFun ASR when its API key is missing', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+
+    const response = await POST(createAudioRequest(createValidHeaders()));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('disabled');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('returns 413 when the audio body is too large', async () => {
@@ -469,9 +511,9 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     const response = await POST(createAudioRequest(createValidHeaders()));
     const body = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(502);
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('asr_failed');
+    expect(body.error.code).toBe('provider_unavailable');
     expect(JSON.stringify(body)).not.toContain('test-dashscope-key');
     expect(JSON.stringify(body)).not.toContain('provider failure');
   });
@@ -592,9 +634,9 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     const response = await POST(createAudioRequest(createValidHeaders()));
     const body = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(502);
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('model_failed');
+    expect(body.error.code).toBe('provider_unavailable');
     expect(JSON.stringify(body)).not.toContain('chat failure');
   });
 

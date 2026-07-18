@@ -6,6 +6,7 @@
 
 import { Esp32AiProviderError } from './esp32-ai-provider';
 import type { PipelinePusher } from './sse-pipeline-types';
+import { extractSseData, takeNextSseEvent } from './sse-events';
 
 export interface StepFunAsrConfig {
   stepfunApiKey: string;
@@ -93,9 +94,9 @@ export async function runStepFunAsrSse(
     clearTimeout(timer);
     const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
-      isAbort ? 'asr_timeout' : 'asr_failed',
+      isAbort ? 'asr_timeout' : 'provider_unavailable',
       isAbort ? 'StepFun ASR request timed out' : 'StepFun ASR request failed',
-      isAbort ? 504 : 500
+      isAbort ? 504 : 502
     );
   }
 
@@ -118,7 +119,7 @@ export async function runStepFunAsrSse(
       'StepFun ASR HTTP ' +
         response.status +
         (detail ? ' ' + detail.slice(0, 200) : ''),
-      response.status
+      code === 'provider_unavailable' ? 502 : response.status
     );
   }
 
@@ -133,10 +134,10 @@ export async function runStepFunAsrSse(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let sep: number;
-      while ((sep = buffer.indexOf('\n\n')) >= 0) {
-        const rawEvent = buffer.slice(0, sep);
-        buffer = buffer.slice(sep + 2);
+      let nextEvent;
+      while ((nextEvent = takeNextSseEvent(buffer)) !== null) {
+        const rawEvent = nextEvent.event;
+        buffer = nextEvent.rest;
         const dataPayload = extractSseData(rawEvent);
         if (!dataPayload) continue;
         let json: StepFunAsrEvent;
@@ -196,18 +197,6 @@ export async function runStepFunAsrSse(
   });
 
   return { transcript, requestId, elapsedMs };
-}
-
-function extractSseData(rawEvent: string): string | null {
-  const lines = rawEvent.split('\n');
-  const dataLines: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith('data:')) {
-      dataLines.push(line.slice(5).replace(/^\s/, ''));
-    }
-  }
-  if (dataLines.length === 0) return null;
-  return dataLines.join('\n');
 }
 
 function isNoSpeechMessage(message: string): boolean {

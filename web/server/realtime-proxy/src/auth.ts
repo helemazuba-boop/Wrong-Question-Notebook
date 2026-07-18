@@ -33,6 +33,7 @@ function getSupabase(): SupabaseClient {
 }
 
 const BEARER_PREFIX = 'Bearer ';
+const DEVICE_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
 export class AuthFailure extends Error {
   constructor(
@@ -57,8 +58,8 @@ export async function authenticateDevice(
     );
   }
   const token = header.slice(BEARER_PREFIX.length).trim();
-  if (!token) {
-    throw new AuthFailure('unauthorized', 'Access token is required');
+  if (!DEVICE_TOKEN_PATTERN.test(token)) {
+    throw new AuthFailure('unauthorized', 'Invalid access token');
   }
 
   const svc = getSupabase();

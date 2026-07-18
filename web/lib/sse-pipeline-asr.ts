@@ -75,8 +75,7 @@ export async function runPipelineAsr(
   pusher.emitStage('asr_started', { elapsed_ms: Date.now() - startedAt });
 
   let stagedAudio:
-    | Awaited<ReturnType<typeof stageEsp32AiAudioFile>>
-    | undefined;
+    Awaited<ReturnType<typeof stageEsp32AiAudioFile>> | undefined;
   try {
     stagedAudio = await stageEsp32AiAudioFile({
       audio,
@@ -289,7 +288,7 @@ export async function fetchJsonWithTimeout<T>(
       throw new Esp32AiProviderError(
         code,
         'Upstream ' + stage + ' HTTP ' + r.status,
-        r.status
+        code === 'provider_unavailable' ? 502 : r.status
       );
     }
     return (await r.json()) as T;
@@ -301,11 +300,9 @@ export async function fetchJsonWithTimeout<T>(
         ? stage === 'asr'
           ? 'asr_timeout'
           : 'chat_timeout'
-        : stage === 'asr'
-          ? 'asr_failed'
-          : 'model_failed',
+        : 'provider_unavailable',
       isAbort ? stage + ' request timed out' : stage + ' request failed',
-      isAbort ? 504 : 500
+      isAbort ? 504 : 502
     );
   } finally {
     clearTimeout(timer);

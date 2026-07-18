@@ -48,11 +48,18 @@ async function pairDevice(req: Request) {
     // let one user initiate a pairing/re-pair for a device owned by another
     // account — otherwise the unauthenticated /api/esp32/poll for that MAC
     // would silently reassign ownership to them. The owner must unpair first.
-    const { data: existing } = await svc
+    const { data: existing, error: existingError } = await svc
       .from('esp32_devices')
       .select('id, user_id')
       .eq('mac_address', normalizedMac)
       .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to check device ownership', 500),
+        { status: 500 }
+      );
+    }
 
     if (existing) {
       if (existing.user_id !== user.id) {
