@@ -3,6 +3,7 @@ import { withSecurity } from '@/lib/security-middleware';
 import { createApiErrorResponse, handleAsyncError } from '@/lib/common-utils';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { hashDeviceToken } from '@/lib/esp32-token';
 
 async function authenticateDevice(
   req: Request
@@ -27,7 +28,7 @@ async function authenticateDevice(
   const { data: device } = await svc
     .from('esp32_devices')
     .select('user_id')
-    .eq('access_token', token)
+    .eq('access_token_hash', hashDeviceToken(token))
     .single();
 
   if (!device) {

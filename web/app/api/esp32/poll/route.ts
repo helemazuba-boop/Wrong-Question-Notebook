@@ -7,6 +7,7 @@ import {
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { randomBytes } from 'crypto';
+import { hashDeviceToken } from '@/lib/esp32-token';
 
 function isValidMac(mac: string): boolean {
   return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
@@ -46,7 +47,7 @@ async function pollDevice(req: Request) {
         .maybeSingle(),
       svc
         .from('esp32_pairing_pending')
-        .select('user_id, mac_address, created_at')
+        .select('user_id, mac_address, created_at, device_name')
         .eq('mac_address', normalizedMac)
         .maybeSingle(),
     ]);
@@ -117,8 +118,8 @@ async function pollDevice(req: Request) {
     const { error: insertError } = await svc.from('esp32_devices').insert({
       mac_address: normalizedMac,
       user_id: pending.user_id,
-      access_token: accessToken,
-      device_name: 'ESP32',
+      access_token_hash: hashDeviceToken(accessToken),
+      device_name: pending.device_name || 'ESP32',
     });
 
     if (insertError) {

@@ -6,6 +6,7 @@
 
 import { Esp32AiProviderError } from './esp32-ai-provider';
 import type { PipelinePusher } from './sse-pipeline-types';
+import { runStepFunAsrSse } from './stepfun-asr';
 
 export interface AsrResult {
   transcript: string;
@@ -14,6 +15,7 @@ export interface AsrResult {
 }
 
 export interface AsrConfig {
+  asrProvider: 'dashscope' | 'stepfun';
   dashScopeApiKey: string;
   asrTaskUrl: string;
   asrTaskStatusBaseUrl: string;
@@ -24,6 +26,12 @@ export interface AsrConfig {
   asrPollAttempts: number;
   audioUrlTtlMs: number;
   publicBaseUrl: string;
+  stepfunApiKey: string;
+  stepfunAsrUrl: string;
+  stepfunAsrModel: string;
+  stepfunAsrLanguage: string;
+  stepfunAsrHotwords: string[];
+  stepfunAsrEnableItn: boolean;
 }
 
 export async function runPipelineAsr(
@@ -33,6 +41,24 @@ export async function runPipelineAsr(
   channels: number,
   pusher: PipelinePusher
 ): Promise<AsrResult> {
+  if (config.asrProvider === 'stepfun') {
+    return runStepFunAsrSse(
+      {
+        stepfunApiKey: config.stepfunApiKey,
+        stepfunAsrUrl: config.stepfunAsrUrl,
+        stepfunAsrModel: config.stepfunAsrModel,
+        stepfunAsrLanguage: config.stepfunAsrLanguage,
+        stepfunAsrHotwords: config.stepfunAsrHotwords,
+        stepfunAsrEnableItn: config.stepfunAsrEnableItn,
+        asrTimeoutMs: config.asrTimeoutMs,
+      },
+      audio,
+      sampleRate,
+      channels,
+      { pusher }
+    );
+  }
+
   if (sampleRate !== 16000) {
     throw new Esp32AiProviderError(
       'invalid_audio',

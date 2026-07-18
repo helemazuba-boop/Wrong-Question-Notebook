@@ -12,6 +12,7 @@
  */
 
 import type { IncomingMessage } from 'node:http';
+import { createHash } from 'crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { log } from './logger.ts';
 import { makeError, type DeviceContext, type RelayErrorCode } from './types.ts';
@@ -64,7 +65,7 @@ export async function authenticateDevice(
   const { data: device, error } = await svc
     .from('esp32_devices')
     .select('id, user_id, mac_address')
-    .eq('access_token', token)
+    .eq('access_token_hash', createHash('sha256').update(token).digest('hex'))
     .maybeSingle();
 
   if (error) {

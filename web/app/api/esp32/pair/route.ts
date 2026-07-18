@@ -82,6 +82,7 @@ async function pairDevice(req: Request) {
         {
           mac_address: normalizedMac,
           user_id: user.id,
+          device_name: device_name || 'ESP32',
         },
         { onConflict: 'mac_address' }
       );

@@ -7,6 +7,7 @@ import {
   isValidUuid,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { hashDeviceToken } from '@/lib/esp32-token';
 import { revalidateUserReviewSchedule } from '@/lib/cache-invalidation';
 import type { Json } from '@/lib/database.types';
 
@@ -26,7 +27,7 @@ async function authenticateDevice(
   const { data: device } = await svc
     .from('esp32_devices')
     .select('id, user_id')
-    .eq('access_token', token)
+    .eq('access_token_hash', hashDeviceToken(token))
     .single();
 
   if (!device) {

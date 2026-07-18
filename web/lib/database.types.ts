@@ -146,36 +146,48 @@ export type Database = {
       };
       esp32_devices: {
         Row: {
-          access_token: string;
+          access_token_hash: string | null;
           created_at: string | null;
           device_name: string | null;
           firmware_version: string | null;
+          flash_session_expires_at: string | null;
+          flash_session_id: string | null;
           id: string;
+          last_protocol_version: string;
           last_seen_at: string | null;
           last_sync_at: string | null;
           mac_address: string;
+          preferred_tier: string;
           user_id: string;
         };
         Insert: {
-          access_token: string;
+          access_token_hash?: string | null;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
+          flash_session_expires_at?: string | null;
+          flash_session_id?: string | null;
           id?: string;
+          last_protocol_version?: string;
           last_seen_at?: string | null;
           last_sync_at?: string | null;
           mac_address: string;
+          preferred_tier?: string;
           user_id: string;
         };
         Update: {
-          access_token?: string;
+          access_token_hash?: string | null;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
+          flash_session_expires_at?: string | null;
+          flash_session_id?: string | null;
           id?: string;
+          last_protocol_version?: string;
           last_seen_at?: string | null;
           last_sync_at?: string | null;
           mac_address?: string;
+          preferred_tier?: string;
           user_id?: string;
         };
         Relationships: [
@@ -191,16 +203,19 @@ export type Database = {
       esp32_pairing_pending: {
         Row: {
           created_at: string | null;
+          device_name: string | null;
           mac_address: string;
           user_id: string;
         };
         Insert: {
           created_at?: string | null;
+          device_name?: string | null;
           mac_address: string;
           user_id: string;
         };
         Update: {
           created_at?: string | null;
+          device_name?: string | null;
           mac_address?: string;
           user_id?: string;
         };

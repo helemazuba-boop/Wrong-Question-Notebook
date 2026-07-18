@@ -6,6 +6,7 @@ import {
   handleAsyncError,
 } from '@/lib/common-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { hashDeviceToken } from '@/lib/esp32-token';
 
 async function authenticateDevice(
   req: Request
@@ -29,8 +30,8 @@ async function authenticateDevice(
   const svc = createServiceClient();
   const { data: device } = await svc
     .from('esp32_devices')
-    .select('id, user_id, access_token')
-    .eq('access_token', token)
+    .select('id, user_id')
+    .eq('access_token_hash', hashDeviceToken(token))
     .single();
 
   if (!device) {

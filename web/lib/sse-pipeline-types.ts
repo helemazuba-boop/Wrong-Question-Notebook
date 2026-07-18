@@ -148,12 +148,16 @@ export class PipelinePusher {
     });
   }
 
-  emitAsrComplete(text: string, asrModel: string): void {
+  emitAsrComplete(
+    text: string,
+    asrModel: string,
+    provider: 'dashscope' | 'stepfun' = 'dashscope'
+  ): void {
     this.asrStageValue = 'succeeded';
     this.writer.emit('asr.complete', {
       text,
       elapsed_ms: this.elapsedMs(),
-      asr: { provider: 'dashscope', model: asrModel },
+      asr: { provider, model: asrModel },
     });
   }
 

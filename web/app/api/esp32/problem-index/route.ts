@@ -11,6 +11,7 @@ import {
   serializeEsp32ProblemContent,
 } from '@/lib/esp32-content';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { hashDeviceToken } from '@/lib/esp32-token';
 
 type ProblemStatus = 'wrong' | 'needs_review' | 'mastered';
 
@@ -39,7 +40,7 @@ async function authenticateDevice(
   const { data: device } = await svc
     .from('esp32_devices')
     .select('id, user_id')
-    .eq('access_token', token)
+    .eq('access_token_hash', hashDeviceToken(token))
     .single();
 
   if (!device) {
