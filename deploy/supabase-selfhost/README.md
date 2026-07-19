@@ -1,6 +1,8 @@
 # data.helema.cn 自托管 Supabase 迁移
 
-本目录是 WQN 从 Supabase Platform 迁移到 `data.helema.cn` 的可审计基建。数据库迁移、Storage 对象复制和应用切换是三个独立门禁；任一步失败都不得修改旧 Cloud 项目或删除旧数据。
+本目录是 WQN 切换到 `data.helema.cn` 自托管 Supabase 的可审计基建。数据库、Storage 和应用切换是独立门禁；任一步失败都不得切换生产流量。
+
+> 2026-07-19 的产品决策：当前没有历史用户，不运行兼容栈。旧 Supabase Cloud 仅是较老检查点，不作为本次生产数据源；`data.helema.cn` 尚未就位时不得宣称 M7 生产切换完成。当前执行下文的“全新目标初始化”路径，旧库 dump/restore 与 Storage 复制仅作为未来改变决策时的保留工具。
 
 上游依据：
 
@@ -43,7 +45,26 @@ Kong 的 `8000/8443` 不得监听公网地址；Studio 不经 `data.helema.cn` �
 4. 将 Kong 的端口映射限制为 `127.0.0.1:8000:8000`。安装 `openresty-data.helema.cn.conf`，替换证书路径后执行 `openresty -t` 再平滑 reload。
 5. DNS 切换前先通过 `/etc/hosts` 在运维机验证 TLS、Auth、REST、Storage 和 Realtime。
 
-## 3. 源库门禁与数据库恢复
+## 3. 全新目标初始化（当前路径）
+
+目标 Supabase 基础栈就位后，先用直接 PostgreSQL 管理连接确认迁移计划。脚本拒绝 Supabase Cloud、拒绝已有 WQN 表，并要求显式确认解析出的目标主机：
+
+```bash
+cd /home/unknow/projects/WQN
+read -rsp 'Self-host admin DB URL: ' TARGET_DATABASE_URL; echo
+export TARGET_DATABASE_URL
+export CONFIRM_TARGET_DATABASE_HOST='<上一步 URL 中的精确 hostname>'
+bash deploy/supabase-selfhost/push-target-migrations.sh --dry-run
+
+# 人工核对完整 migration 清单后：
+export CONFIRM_M7_GREENFIELD_INITIALIZATION=initialize-m7-greenfield
+bash deploy/supabase-selfhost/push-target-migrations.sh --apply
+unset TARGET_DATABASE_URL CONFIRM_TARGET_DATABASE_HOST CONFIRM_M7_GREENFIELD_INITIALIZATION
+```
+
+`--apply` 完成后会验证 `20260719000000`、`20260719010000`、RLS、设备 token 哈希以及所有 SECURITY DEFINER 的固定 `search_path`。该路径不读取、不更新旧 Cloud。
+
+## 4. 旧库恢复工具（当前不执行）
 
 先对旧 Cloud 执行 v3 约束前检查；它只读数据并会在重复 MAC 或非法 token hash 时失败：
 
@@ -97,7 +118,7 @@ unset SOURCE_DATABASE_URL TARGET_DATABASE_URL
 
 `artifacts/` 含数据库业务数据，不得提交、上传公共制品库或长期留在构建机。验收后转移到加密备份介质。
 
-## 4. Storage 对象迁移
+## 5. Storage 对象迁移（当前无历史对象，不执行）
 
 数据库 dump 只恢复 Storage 元数据，不恢复对象字节。先做一轮预复制，维护窗口中再做最终 upsert + SHA-256 校验：
 
@@ -115,7 +136,7 @@ npm run migrate:supabase-storage
 并为每个 bucket 输出对象数、总字节数和路径/大小/内容散列组成的 manifest SHA-256。
 `VERIFY_STORAGE_BYTES=0` 只可用于预演，输出不能作为正式切换验收证据。
 
-## 5. Auth
+## 6. Auth
 
 生产推荐 `ENABLE_EMAIL_AUTOCONFIRM=false`。邮件模板可使用服务端 token hash：
 
@@ -129,7 +150,7 @@ npm run migrate:supabase-storage
 
 应用 `/auth/callback` 同时兼容 token hash 与 PKCE `code`。迁移后的 JWT signing key不同，旧 Cloud session 默认失效，用户需要重新登录；不要为保留 session 而复制已暴露或无法安全托管的旧 JWT secret。
 
-## 6. 应用配置与镜像
+## 7. 应用配置与镜像
 
 复制 `web/.env.production.template`，只在运行时注入服务端 secret。构建参数只能包含：
 
@@ -156,18 +177,28 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 
 历史镜像曾将 service-role、AI key 和 Server Actions key 作为 build args；应视为已暴露。先部署修复后的镜像，再轮换 Supabase server key、AI provider keys、`WQN_REALTIME_PROXY_SECRET` 和 Server Actions key。发布/secret key 可并行启用后逐实例切换，最后禁用旧 key。
 
-## 7. 切换顺序
+## 8. 切换顺序
 
-1. 在隔离主机完成一次全量演练并记录耗时、dump hash、行数和对象数。
-2. 预复制 Storage 对象。
-3. 进入维护窗口，停止 WQN 与 realtime 写入口。
-4. 执行最终数据库 dump/restore和 Storage upsert 校验。
-5. 用 `/etc/hosts` 运行下面的 smoke tests。
-6. 部署指向 `data.helema.cn` 的 WQN 镜像。
-7. 切换 `data.helema.cn` DNS；观察 Auth/REST/Storage/Realtime、5xx、延迟和数据库连接。
-8. 验证后恢复写入口。旧 Cloud 保持只读保留，禁止立即删除。
+1. 在隔离主机部署全新自托管栈并记录所有镜像版本。
+2. 执行 `push-target-migrations.sh --dry-run`，人工核对后再 `--apply`。
+3. 进入维护窗口，停止当前 WQN 与 realtime 写入口。
+4. 用 `/etc/hosts` 验证 `data.helema.cn`，部署指向新目标的 WQN/realtime 镜像。
+5. 执行自动 smoke；旧控制面必须返回 `UPGRADE_REQUIRED`，v3 claim 必须可创建和轮询。
+6. 切换 DNS；观察 Auth/REST/Realtime、5xx、延迟和数据库连接。
+7. 烧录 generation=3 固件，完成擦除、配网、网页 claim、bootstrap、sync、刷新、睡眠和 AI/Flash 实测。
+8. 验证后恢复写入口。旧检查点只用于成对回滚，不做双写或增量合并。
 
-最低 smoke tests：
+自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：
+
+```bash
+cd /home/unknow/projects/WQN/web
+export SUPABASE_PUBLIC_URL=https://data.helema.cn
+export SUPABASE_PUBLISHABLE_KEY='...'
+export WQN_BASE_URL=https://wqn.helema.cn
+npm run smoke:m7-cutover
+```
+
+最低人工 smoke：
 
 ```bash
 curl -fsS https://data.helema.cn/auth/v1/health
@@ -178,13 +209,13 @@ curl -i https://data.helema.cn/
 
 最后一个请求必须返回 `404`，证明 Studio/Kong root 未暴露。随后在浏览器完成注册确认、登录、刷新 session、头像访问；设备完成 bootstrap/sync；Realtime 完成一次 WebSocket 会话。
 
-## 8. 回滚
+## 9. 回滚
 
 切换后若出现数据一致性、Auth、Storage 或 Realtime 故障：
 
-1. 立即重新进入维护状态，防止新旧库双写分叉。
-2. 将 WQN runtime env 和镜像恢复到旧 Cloud URL/key。
-3. 回切 DNS/反向代理并验证旧链路。
-4. 保留失败目标库、dump、日志和校验结果用于取证，不在事故窗口执行反向数据合并。
+1. 立即重新进入维护状态，禁止产生新写入。
+2. WQN 镜像、runtime env、realtime 和固件按同一发布检查点成对回滚。
+3. 回切 DNS/反向代理到旧 Node + 旧数据库检查点并执行旧链路 smoke；设备本地已擦除，必须重新配对。
+4. 保留失败目标库和日志用于取证，不在事故窗口反向合并数据。
 
-只有在稳定观察期结束、备份恢复演练通过并确认目标库为唯一写源后，才能撤销旧 Cloud key 和旧域名兼容项。
+当前没有历史用户，禁止为了“兼容”同时开放旧 pair/poll/sync 与 v3；稳定观察期结束后再清理旧检查点。

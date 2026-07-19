@@ -217,6 +217,13 @@ export function createV3Error(
   );
 }
 
+export function createLegacyControlUpgradeRequired(req: Request) {
+  const requestId = requestIdFromUnknown({
+    request_id: req.headers.get('X-WQN-Request-Id'),
+  });
+  return createV3Error(requestId, 426, 'UPGRADE_REQUIRED', false);
+}
+
 export function withV3Security<T extends unknown[] = []>(
   handler: (req: NextRequest, ...args: T) => Promise<NextResponse>,
   config: SecurityConfig = {}
