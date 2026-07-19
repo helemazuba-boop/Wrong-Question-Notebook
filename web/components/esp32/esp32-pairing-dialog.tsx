@@ -20,17 +20,8 @@ interface Esp32PairingDialogProps {
   onPairSuccess: () => void;
 }
 
-function isValidMac(mac: string): boolean {
-  return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
-}
-
-function formatMacInput(value: string): string {
-  const hex = value
-    .toUpperCase()
-    .replace(/[^0-9A-F]/g, '')
-    .slice(0, 12);
-
-  return hex.match(/.{1,2}/g)?.join(':') ?? '';
+function formatClaimCode(value: string): string {
+  return value.replace(/[^0-9]/g, '').slice(0, 8);
 }
 
 export function Esp32PairingDialog({
@@ -41,23 +32,22 @@ export function Esp32PairingDialog({
   const t = useTranslations('ESP32');
   const tCommon = useTranslations('Common');
 
-  const [macInput, setMacInput] = useState('');
-  const [macError, setMacError] = useState<string | null>(null);
+  const [claimCode, setClaimCode] = useState('');
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [action, setAction] = useState<'add' | 'restore'>('add');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const normalizedMac = macInput.trim().toUpperCase();
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMacInput(formatMacInput(e.target.value));
-    setMacError(null);
+    setClaimCode(formatClaimCode(e.target.value));
+    setClaimError(null);
     setError(null);
   };
 
   const handlePair = async () => {
-    if (!isValidMac(normalizedMac)) {
-      setMacError(t('invalidMacFormat'));
+    if (!/^[0-9]{8}$/.test(claimCode)) {
+      setClaimError(t('invalidClaimCode'));
       return;
     }
 
@@ -65,22 +55,31 @@ export function Esp32PairingDialog({
     setError(null);
 
     try {
-      const res = await fetch('/api/esp32/pair', {
+      const requestId = `web_${crypto.randomUUID().replaceAll('-', '')}`;
+      const res = await fetch('/api/esp32/v3/claim/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac_address: normalizedMac }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-WQN-Protocol': '3',
+          'X-WQN-Request-Id': requestId,
+        },
+        body: JSON.stringify({
+          request_id: requestId,
+          display_code: claimCode,
+          action,
+        }),
       });
 
       const json = await res.json();
 
       if (!res.ok) {
-        setError(json.error || t('pairFailed'));
+        setError(json.error?.code || t('pairFailed'));
       } else {
         setSuccess(true);
         onPairSuccess();
         setTimeout(() => {
           onOpenChange(false);
-          setMacInput('');
+          setClaimCode('');
           setSuccess(false);
         }, 1500);
       }
@@ -93,8 +92,9 @@ export function Esp32PairingDialog({
 
   const handleClose = () => {
     onOpenChange(false);
-    setMacInput('');
-    setMacError(null);
+    setClaimCode('');
+    setClaimError(null);
+    setAction('add');
     setError(null);
     setSuccess(false);
   };
@@ -131,37 +131,65 @@ export function Esp32PairingDialog({
           <>
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                {t('macAddress')}
+                {t('claimCode')}
                 <span className="text-destructive ml-0.5">*</span>
               </label>
               <Input
-                value={macInput}
+                value={claimCode}
                 onChange={handleInputChange}
-                placeholder="AA:BB:CC:DD:EE:FF"
-                className={`font-mono uppercase ${macError ? 'border-destructive' : ''}`}
-                autoComplete="off"
+                placeholder="12345678"
+                inputMode="numeric"
+                className={`font-mono tracking-[0.25em] ${claimError ? 'border-destructive' : ''}`}
+                autoComplete="one-time-code"
                 spellCheck={false}
               />
-              {macError && (
-                <p className="text-xs text-destructive">{macError}</p>
+              {claimError && (
+                <p className="text-xs text-destructive">{claimError}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                {t('macFormatHint')}
+                {t('claimCodeHint')}
               </p>
             </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={action === 'add' ? 'default' : 'outline'}
+                onClick={() => setAction('add')}
+              >
+                {t('addNewDevice')}
+              </Button>
+              <Button
+                type="button"
+                variant={action === 'restore' ? 'default' : 'outline'}
+                onClick={() => setAction('restore')}
+              >
+                {t('restoreDevice')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {action === 'restore'
+                ? t('restoreDeviceHint')
+                : t('addNewDeviceHint')}
+            </p>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
-              <p className="font-medium text-foreground">{t('howToFindMac')}</p>
-              <p>{t('macExplanation')}</p>
+              <p className="font-medium text-foreground">
+                {t('howToFindClaimCode')}
+              </p>
+              <p>{t('claimCodeExplanation')}</p>
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={handleClose}>
                 {tCommon('cancel')}
               </Button>
-              <Button onClick={handlePair} disabled={loading || !normalizedMac}>
+              <Button
+                onClick={handlePair}
+                disabled={loading || claimCode.length !== 8}
+              >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {t('startPairing')}
               </Button>

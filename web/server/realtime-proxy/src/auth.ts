@@ -21,12 +21,23 @@ let supabase: SupabaseClient | null = null;
 
 function getSupabase(): SupabaseClient {
   if (supabase) return supabase;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  const rawUrl = process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!rawUrl || !key) {
+    throw new Error(
+      'SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy service-role key) must be set'
+    );
   }
-  supabase = createClient(url, key, {
+  const url = new URL(rawUrl);
+  const expectedHost = process.env.WQN_SUPABASE_EXPECTED_HOST;
+  if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
+    throw new Error('Production SUPABASE_URL must use HTTPS');
+  }
+  if (expectedHost && url.hostname !== expectedHost) {
+    throw new Error(`SUPABASE_URL must use ${expectedHost}`);
+  }
+  supabase = createClient(url.origin, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   return supabase;

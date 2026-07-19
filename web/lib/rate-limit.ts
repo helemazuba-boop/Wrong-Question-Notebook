@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RATE_LIMIT_CONSTANTS, ENV_VARS } from './constants';
+import { getSupabaseCookieProjectRef } from './supabase-config';
 
 /**
  * Rate limiting configuration interface
@@ -129,14 +130,13 @@ function getIpKey(req: NextRequest): string {
 }
 
 /**
- * Extracts the Supabase project ref from NEXT_PUBLIC_SUPABASE_URL.
- * URL format: https://{ref}.supabase.co
+ * Derives the auth-cookie project ref exactly as supabase-js does. This works
+ * for both hosted URLs and the self-hosted data.helema.cn endpoint.
  */
 function getProjectRef(): string | null {
   const url = process.env[ENV_VARS.SUPABASE_URL];
   if (!url) return null;
-  const match = url.match(/https:\/\/([^.]+)\.supabase/);
-  return match?.[1] ?? null;
+  return getSupabaseCookieProjectRef(url);
 }
 
 /**

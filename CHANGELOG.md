@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **ESP32 device-control v3**
+  - Add versioned claim, bootstrap, and synchronization contracts with shared golden fixtures.
+  - Pair physical devices through an expiring display code and P-256 ECDH/HKDF/AES-GCM sealed credentials.
+  - Persist request idempotency so device retries return the original result after server restarts.
 - **ESP32 credential hardening**
   - Store only SHA-256 device-token digests and provide authenticated token rotation.
   - Create the application storage buckets during database migration.

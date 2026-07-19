@@ -147,47 +147,62 @@ export type Database = {
       esp32_devices: {
         Row: {
           access_token_hash: string;
+          config_revision: number;
           created_at: string | null;
           device_name: string | null;
           firmware_version: string | null;
           flash_session_expires_at: string | null;
           flash_session_id: string | null;
+          hardware_id: string | null;
           id: string;
+          last_boot_id: string | null;
           last_protocol_version: string;
           last_seen_at: string | null;
           last_sync_at: string | null;
           mac_address: string;
           preferred_tier: string;
+          protocol_capabilities: Json;
+          sync_cursor: number;
           user_id: string;
         };
         Insert: {
           access_token_hash: string;
+          config_revision?: number;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
           flash_session_expires_at?: string | null;
           flash_session_id?: string | null;
+          hardware_id?: string | null;
           id?: string;
+          last_boot_id?: string | null;
           last_protocol_version?: string;
           last_seen_at?: string | null;
           last_sync_at?: string | null;
           mac_address: string;
           preferred_tier?: string;
+          protocol_capabilities?: Json;
+          sync_cursor?: number;
           user_id: string;
         };
         Update: {
           access_token_hash?: string;
+          config_revision?: number;
           created_at?: string | null;
           device_name?: string | null;
           firmware_version?: string | null;
           flash_session_expires_at?: string | null;
           flash_session_id?: string | null;
+          hardware_id?: string | null;
           id?: string;
+          last_boot_id?: string | null;
           last_protocol_version?: string;
           last_seen_at?: string | null;
           last_sync_at?: string | null;
           mac_address?: string;
           preferred_tier?: string;
+          protocol_capabilities?: Json;
+          sync_cursor?: number;
           user_id?: string;
         };
         Relationships: [
@@ -196,6 +211,128 @@ export type Database = {
             columns: ['user_id'];
             isOneToOne: false;
             referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      device_claims: {
+        Row: {
+          approved_at: string | null;
+          approved_by: string | null;
+          boot_id: string;
+          capabilities: Json;
+          consumed_at: string | null;
+          created_at: string;
+          device_id: string | null;
+          device_public_key: string | null;
+          display_code: string | null;
+          display_code_hash: string | null;
+          expires_at: string;
+          firmware_version: string;
+          hardware_id: string;
+          id: string;
+          poll_interval_ms: number;
+          request_id: string;
+          sealed_credential: Json | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          approved_at?: string | null;
+          approved_by?: string | null;
+          boot_id: string;
+          capabilities?: Json;
+          consumed_at?: string | null;
+          created_at?: string;
+          device_id?: string | null;
+          device_public_key?: string | null;
+          display_code?: string | null;
+          display_code_hash?: string | null;
+          expires_at: string;
+          firmware_version: string;
+          hardware_id: string;
+          id?: string;
+          poll_interval_ms?: number;
+          request_id: string;
+          sealed_credential?: Json | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          approved_at?: string | null;
+          approved_by?: string | null;
+          boot_id?: string;
+          capabilities?: Json;
+          consumed_at?: string | null;
+          created_at?: string;
+          device_id?: string | null;
+          device_public_key?: string | null;
+          display_code?: string | null;
+          display_code_hash?: string | null;
+          expires_at?: string;
+          firmware_version?: string;
+          hardware_id?: string;
+          id?: string;
+          poll_interval_ms?: number;
+          request_id?: string;
+          sealed_credential?: Json | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'device_claims_approved_by_fkey';
+            columns: ['approved_by'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'device_claims_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      esp32_request_idempotency: {
+        Row: {
+          created_at: string;
+          device_id: string;
+          endpoint: string;
+          expires_at: string;
+          http_status: number;
+          request_fingerprint: string;
+          request_id: string;
+          response_body: Json;
+        };
+        Insert: {
+          created_at?: string;
+          device_id: string;
+          endpoint: string;
+          expires_at?: string;
+          http_status: number;
+          request_fingerprint: string;
+          request_id: string;
+          response_body: Json;
+        };
+        Update: {
+          created_at?: string;
+          device_id?: string;
+          endpoint?: string;
+          expires_at?: string;
+          http_status?: number;
+          request_fingerprint?: string;
+          request_id?: string;
+          response_body?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_request_idempotency_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
             referencedColumns: ['id'];
           },
         ];
@@ -1028,6 +1165,68 @@ export type Database = {
           },
         ];
       };
+      word_progress: {
+        Row: {
+          correct_streak: number;
+          created_at: string;
+          due_at: string | null;
+          id: string;
+          interval_days: number;
+          known_count: number;
+          lapses: number;
+          last_reviewed_at: string | null;
+          metadata: Json;
+          reviewed_count: number;
+          status: string;
+          unknown_count: number;
+          updated_at: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          correct_streak?: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          interval_days?: number;
+          known_count?: number;
+          lapses?: number;
+          last_reviewed_at?: string | null;
+          metadata?: Json;
+          reviewed_count?: number;
+          status?: string;
+          unknown_count?: number;
+          updated_at?: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          correct_streak?: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          interval_days?: number;
+          known_count?: number;
+          lapses?: number;
+          last_reviewed_at?: string | null;
+          metadata?: Json;
+          reviewed_count?: number;
+          status?: string;
+          unknown_count?: number;
+          updated_at?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       word_packs: {
         Row: {
           byte_size: number;
@@ -1842,6 +2041,21 @@ export type Database = {
       };
     };
     Functions: {
+      approve_device_claim_v3: {
+        Args: {
+          p_access_token_hash: string;
+          p_action: string;
+          p_claim_id: string;
+          p_device_id: string;
+          p_device_name: string;
+          p_sealed_credential: Json;
+          p_user_id: string;
+        };
+        Returns: {
+          device_id: string;
+          sealed_credential: Json;
+        }[];
+      };
       can_view_problem: { Args: { p_problem_id: string }; Returns: boolean };
       check_and_increment_quota: {
         Args: {
@@ -1855,6 +2069,28 @@ export type Database = {
       compute_problem_set_count: {
         Args: { p_problem_set_id: string };
         Returns: number;
+      };
+      cleanup_device_control_v3: { Args: never; Returns: number };
+      commit_device_control_response_v3: {
+        Args: {
+          p_ack_sync_cursor: number;
+          p_boot_id: string;
+          p_capabilities: Json;
+          p_device_id: string;
+          p_endpoint: string;
+          p_firmware_version: string;
+          p_http_status: number;
+          p_last_sync_at: string | null;
+          p_request_fingerprint: string;
+          p_request_id: string;
+          p_response_body: Json;
+          p_seen_at: string;
+        };
+        Returns: undefined;
+      };
+      consume_device_claim_v3: {
+        Args: { p_device_id: string };
+        Returns: undefined;
       };
       find_problem_by_asset: { Args: { p_path: string }; Returns: string };
       generate_username_from_email: {

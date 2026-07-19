@@ -122,7 +122,7 @@ check_required_env() {
     NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
     NEXT_PUBLIC_SUPABASE_URL
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
-    SUPABASE_SERVICE_ROLE_KEY
+    SUPABASE_SECRET_KEY
     DASHSCOPE_API_KEY
     WQN_ESP32_AI_PUBLIC_BASE_URL
     WQN_ESP32_AI_AUDIO_URL_SECRET
@@ -132,11 +132,11 @@ check_required_env() {
   )
   local placeholders=(
     your_anon_key_here
-    your_service_role_key_here
+    sb_secret_replace_me
     your_dashscope_api_key_here
     replace_with_32_byte_base64_key
     replace_with_long_random_secret
-    https://your-project-id.supabase.co
+    https://data.example.invalid
     https://your-domain.com
     replace_with_stepfun_api_key
   )

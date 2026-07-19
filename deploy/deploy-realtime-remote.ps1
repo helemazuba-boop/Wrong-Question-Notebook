@@ -8,13 +8,10 @@
 # IMPORTANT:
 #   * We publish the realtime port on 127.0.0.1 only — nginx on
 #     the host is the only thing that should reach it.
-#   * The wqn-app container already loads `~/.env.production` on
-#     the host. wqn-realtime reuses the SAME file so there's
-#     exactly one source of truth on the box.
-#   * We ALWAYS upload the full local web/.env.production to the
-#     host on every deploy (overwriting). The host file is a derived
-#     artifact; web/.env.production is the single source of truth, so
-#     never edit the host copy directly - edit local and redeploy.
+#   * Local web/.env.production remains the source of truth, but this
+#     script derives a least-privilege Realtime-only env file from it.
+#   * ACR credentials, main-app provider keys, and the Next Server Actions
+#     build secret are never uploaded in the Realtime runtime env file.
 #
 # USAGE (called from web-release.bat, not normally invoked directly):
 #   .\deploy\deploy-realtime-remote.ps1 -Tag "v1.2.3"
@@ -33,25 +30,29 @@ param(
     # at 127.0.0.1:8080. Do NOT use 0.0.0.0.
     [string]$RealtimePortMap = "127.0.0.1:8080:8080",
 
-    [string]$AliyunEnvFile = ".env.production",
+    [ValidatePattern('^[A-Za-z0-9_.-]+$')]
+    [string]$AliyunEnvFile = ".env.wqn-realtime",
 
-    [string]$RealtimeRepo = "wqn-realtime"
+    [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')]
+    [string]$AliyunNetworkName = "wqn-runtime",
+
+    [string]$RealtimeRepo = "wqn-realtime",
+
+    [string]$SourceEnvFile,
+
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = "Stop"
 
-# ---------- Validate inputs ----------
-$sshCommand = Get-Command ssh -ErrorAction SilentlyContinue
-if (-not $sshCommand) {
-    Write-Host ""
-    Write-Host "  [ERROR] OpenSSH client is not available on this machine." -ForegroundColor Red
-    exit 1
-}
-
 $ScriptRoot = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptRoot
 $WebDir = Join-Path $ProjectRoot "web"
-$EnvFile = Join-Path $WebDir ".env.production"
+$EnvFile = if ([string]::IsNullOrWhiteSpace($SourceEnvFile)) {
+    Join-Path $WebDir ".env.production"
+} else {
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourceEnvFile)
+}
 
 if (-not (Test-Path -LiteralPath $EnvFile)) {
     Write-Host "  [ERROR] .env.production not found at $EnvFile" -ForegroundColor Red
@@ -69,6 +70,10 @@ foreach ($rawLine in Get-Content -LiteralPath $EnvFile) {
             (($value.StartsWith('"') -and $value.EndsWith('"')) -or
                 ($value.StartsWith("'") -and $value.EndsWith("'")))) {
             $value = $value.Substring(1, $value.Length - 2)
+        } else {
+            # dotenv treats an unquoted value followed by whitespace + # as
+            # a value with an inline comment. A # inside a token is retained.
+            $value = ($value -replace '\s+#.*$', '').Trim()
         }
         $envVars[$Matches[1]] = $value
     }
@@ -86,20 +91,107 @@ $acrServer = $envVars["ACR_SERVER"]
 $acrNamespace = $envVars["ACR_NAMESPACE"]
 $image = "${acrServer}/${acrNamespace}/${RealtimeRepo}:${Tag}"
 
-$remoteEnvFile = if ([System.IO.Path]::IsPathRooted($AliyunEnvFile)) {
-    $AliyunEnvFile
-} else {
-    "`$HOME/$AliyunEnvFile"
-}
 $realtimeRemoteEnvFile = "`$HOME/$AliyunEnvFile"
+
+$realtimeRuntimeKeys = @(
+    "NODE_ENV",
+    "SUPABASE_URL",
+    "WQN_SUPABASE_EXPECTED_HOST",
+    "SUPABASE_SECRET_KEY",
+    "STEP_API_KEY",
+    "STEP_TTS_REALTIME_URL",
+    "STEP_TTS_MODEL",
+    "WQN_REALTIME_PROXY_SECRET",
+    "WQN_INTERNAL_API_BASE",
+    "WQN_FLASH_PROXY_BIND",
+    "WQN_FLASH_PROXY_PORT",
+    "WQN_FLASH_ALLOWED_VOICES",
+    "WQN_AI_REALTIME_ENABLED",
+    "LOG_LEVEL"
+)
 
 $requiredRuntimeKeys = @(
     "STEP_API_KEY",
     "WQN_REALTIME_PROXY_SECRET",
     "WQN_INTERNAL_API_BASE",
-    "NEXT_PUBLIC_SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY"
+    "SUPABASE_URL",
+    "WQN_SUPABASE_EXPECTED_HOST",
+    "SUPABASE_SECRET_KEY"
 )
+
+$placeholderValues = @(
+    "replace_with_stepfun_api_key",
+    "replace_with_long_random_secret",
+    "https://data.example.invalid",
+    "sb_secret_replace_me"
+)
+
+# SUPABASE_URL is a runtime alias used only by the standalone Bun service.
+# Keep a single public URL in the source env file and derive the alias here.
+if ([string]::IsNullOrWhiteSpace($envVars["SUPABASE_URL"])) {
+    $envVars["SUPABASE_URL"] = $envVars["NEXT_PUBLIC_SUPABASE_URL"]
+}
+if ([string]::IsNullOrWhiteSpace($envVars["NODE_ENV"])) {
+    $envVars["NODE_ENV"] = "production"
+}
+
+$invalidRuntimeKeys = @()
+foreach ($key in $requiredRuntimeKeys) {
+    $value = $envVars[$key]
+    if ([string]::IsNullOrWhiteSpace($value) -or $placeholderValues -contains $value) {
+        $invalidRuntimeKeys += $key
+    }
+}
+if ($invalidRuntimeKeys.Count -gt 0) {
+    Write-Host "  [ERROR] Realtime runtime values are missing or placeholders:" -ForegroundColor Red
+    foreach ($key in $invalidRuntimeKeys) {
+        Write-Host "          $key" -ForegroundColor Yellow
+    }
+    exit 1
+}
+
+try {
+    $supabaseUri = [Uri]$envVars["SUPABASE_URL"]
+} catch {
+    Write-Host "  [ERROR] SUPABASE_URL is not a valid absolute URL." -ForegroundColor Red
+    exit 1
+}
+if ($supabaseUri.Scheme -ne "https" -or
+    $supabaseUri.Host -ne $envVars["WQN_SUPABASE_EXPECTED_HOST"]) {
+    Write-Host "  [ERROR] SUPABASE_URL must use HTTPS and match WQN_SUPABASE_EXPECTED_HOST." -ForegroundColor Red
+    exit 1
+}
+if ($envVars["WQN_INTERNAL_API_BASE"].TrimEnd('/') -ne "http://wqn:3000") {
+    Write-Host "  [ERROR] WQN_INTERNAL_API_BASE must be http://wqn:3000." -ForegroundColor Red
+    exit 1
+}
+
+$runtimeLines = @()
+foreach ($key in $realtimeRuntimeKeys) {
+    $value = $envVars[$key]
+    if ($null -eq $value -or [string]::IsNullOrWhiteSpace($value)) { continue }
+    if ($value -match "[`r`n]") {
+        Write-Host "  [ERROR] $key contains a newline and cannot be written to an env file." -ForegroundColor Red
+        exit 1
+    }
+    $runtimeLines += "${key}=${value}"
+}
+$runtimeEnvContent = ($runtimeLines -join "`n") + "`n"
+
+if ($ValidateOnly) {
+    Write-Host "  Realtime runtime env validation passed." -ForegroundColor Green
+    Write-Host "  Target file: $realtimeRemoteEnvFile" -ForegroundColor DarkGray
+    Write-Host "  Runtime keys: $($runtimeLines.Count) (values not printed)" -ForegroundColor DarkGray
+    exit 0
+}
+
+# ---------- Validate remote tooling ----------
+$sshCommand = Get-Command ssh -ErrorAction SilentlyContinue
+if (-not $sshCommand) {
+    Write-Host ""
+    Write-Host "  [ERROR] OpenSSH client is not available on this machine." -ForegroundColor Red
+    exit 1
+}
 
 # ----------------------------------------------------------------
 # All bash scripts below are uploaded via scp and invoked through
@@ -165,7 +257,7 @@ $probeLines = @(
     'HOME_DIR=$(getent passwd "$(whoami)" | cut -d: -f6)'
     'if [ -z "$HOME_DIR" ]; then HOME_DIR=$(awk -F: -v u="$(whoami)" ''$1==u {print $6}'' /etc/passwd); fi'
     'echo "[probe] resolved_home=$HOME_DIR"'
-    'ENV_FILE="$HOME_DIR/.env.production"'
+    'ENV_FILE="$HOME_DIR/' + $AliyunEnvFile + '"'
     'echo "[probe] resolved_path=$ENV_FILE"'
     'if [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ]; then'
     '    echo EXISTS'
@@ -193,15 +285,11 @@ if (-not $envExists) {
 }
 Write-Host "        $envExists" -ForegroundColor DarkGray
 
-# Always upload the local env file so the host never drifts from
-# web/.env.production after local edits. The probe above is kept only
-# to surface the resolved path / prior state in the log.
-Write-Host "        Uploading from local $EnvFile (overwriting host)..." -ForegroundColor Yellow
-$content = Get-Content -LiteralPath $EnvFile -Raw
-$content = ($content -replace "`r`n", "`n") -replace "`r", "`n"
-if (-not $content.EndsWith("`n")) { $content += "`n" }
+# Always derive and upload a Realtime-only env file. The probe above is kept
+# only to surface the resolved path / prior state in the log.
+Write-Host "        Uploading filtered Realtime runtime variables from $EnvFile..." -ForegroundColor Yellow
 $base64 = [Convert]::ToBase64String(
-    [System.Text.Encoding]::UTF8.GetBytes($content)
+    [System.Text.Encoding]::UTF8.GetBytes($runtimeEnvContent)
 )
 
 $uploadScriptPath = Join-Path $tmpDir "wqn-upload-env.sh"
@@ -213,7 +301,7 @@ $uplLines = @(
     # cannot send the file to a path the user can never use.
     'HOME_DIR=$(getent passwd "$(whoami)" | cut -d: -f6)'
     'if [ -z "$HOME_DIR" ]; then HOME_DIR=$(awk -F: -v u="$(whoami)" ''$1==u {print $6}'' /etc/passwd); fi'
-    'ENV_FILE="$HOME_DIR/.env.production"'
+    'ENV_FILE="$HOME_DIR/' + $AliyunEnvFile + '"'
     'mkdir -p "$(dirname "$ENV_FILE")"'
     'umask 077'
     'printf ''%s'' ''' + $base64 + ''' | base64 -d > "$ENV_FILE"'
@@ -239,15 +327,8 @@ if ($uploadResult.ExitCode -ne 0) {
 }
 
 # ------------------ Step 2: validate env keys on host --------
-$placeholderSubstrings = @(
-    "replace_with_stepfun_api_key",
-    "replace_with_long_random_secret",
-    "https://your-project-id.supabase.co",
-    "your_anon_key_here",
-    "your_service_role_key_here"
-)
+$placeholderSubstrings = $placeholderValues
 
-$envPathEscaped = $realtimeRemoteEnvFile -replace "'", "'\''"
 # Build space-separated, escaped lists. The PS single-quoted strings
 # already wrap the result, so we just join with spaces here. The
 # bash-side `"KEYS='$keysQ'"` then closes the quote around the list
@@ -264,16 +345,14 @@ $checkLines = @(
     # it from /etc/passwd instead.
     'HOME_DIR=$(getent passwd "$(whoami)" | cut -d: -f6)'
     'if [ -z "$HOME_DIR" ]; then HOME_DIR=$(awk -F: -v u="$(whoami)" ''$1==u {print $6}'' /etc/passwd); fi'
-    'ENV_FILE="$HOME_DIR/.env.production"'
+    'ENV_FILE="$HOME_DIR/' + $AliyunEnvFile + '"'
     "KEYS='$keysQ'"
     "PHS='$phsQ'"
     'missing=""'
     'for k in $KEYS; do'
     '    line=$(grep -E "^${k}=" "$ENV_FILE" | head -1)'
-    # Strip optional comment after the value (".env.production ships
-    # with inline "# 已填" / "# 已有" annotations) and surrounding
-    # whitespace, then unwrap surrounding double-quotes if any.
-    '    v=$(printf "%s" "$line" | sed -n ''s/^[^=]*=//p'' | cut -d"#" -f1 | sed -e ''s/^[[:space:]]*//'' -e ''s/[[:space:]]*$//'' -e ''s/^"\\(.*\\)"$/\\1/p'')'
+    # The uploaded file is generated by this script and contains no comments.
+    '    v=${line#*=}'
     '    if [ -z "$v" ]; then missing="$missing $k(empty)"; continue; fi'
     '    is_ph=0'
     '    for p in $PHS; do if [ "$v" = "$p" ]; then is_ph=1; break; fi; done'
@@ -305,6 +384,7 @@ $remoteLines = @(
     "IMAGE='" + ($image -replace "'", "'\''") + "'"
     "CONTAINER='" + ($RealtimeContainerName -replace "'", "'\''") + "'"
     "PORT_MAP='" + ($RealtimePortMap -replace "'", "'\''") + "'"
+    "NETWORK='" + ($AliyunNetworkName -replace "'", "'\''") + "'"
     "ENV_FILE_NAME='" + ($AliyunEnvFile -replace "'", "'\''") + "'"
     # [env-path-fix] Resolve $HOME from /etc/passwd (same as steps 1 & 2).
     # The earlier form `ENV_FILE='$HOME/.env.production'` left $HOME
@@ -324,10 +404,13 @@ $remoteLines = @(
     'echo "[realtime-deploy] stopping/removing existing container..."'
     'docker stop "$CONTAINER" 2>/dev/null || true'
     'docker rm "$CONTAINER" 2>/dev/null || true'
+    'echo "[realtime-deploy] ensuring private runtime network..."'
+    'docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK"'
     'echo "[realtime-deploy] starting new container..."'
     'CONTAINER_ID=$(docker run -d \'
     '    --name "$CONTAINER" \'
     '    --restart unless-stopped \'
+    '    --network "$NETWORK" \'
     '    --env-file "$ENV_FILE" \'
     '    -p "$PORT_MAP" \'
     '    "$IMAGE")'

@@ -82,9 +82,11 @@ export async function updateSession(request: NextRequest) {
 
     // Check if user has admin privileges using service role
     try {
-      // Validate service role key exists
-      if (!process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY]) {
-        console.error('SUPABASE_SERVICE_ROLE_KEY not configured');
+      const serverKey =
+        process.env[ENV_VARS.SUPABASE_SECRET_KEY] ||
+        process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY];
+      if (!serverKey) {
+        console.error('Supabase server key not configured');
         const url = request.nextUrl.clone();
         url.pathname = ROUTES.SUBJECTS;
         return NextResponse.redirect(url);
@@ -93,7 +95,7 @@ export async function updateSession(request: NextRequest) {
       // Create a service role client to bypass RLS
       const serviceSupabase = createServerClient<Database>(
         process.env[ENV_VARS.SUPABASE_URL]!,
-        process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY]!,
+        serverKey,
         {
           cookies: {
             getAll() {

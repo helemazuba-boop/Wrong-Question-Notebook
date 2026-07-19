@@ -12,7 +12,7 @@ const REQUIRED_ENV_VARS = [
 /**
  * Optional environment variables (used for enhanced functionality)
  */
-const OPTIONAL_ENV_VARS = [ENV_VARS.SUPABASE_SERVICE_ROLE_KEY] as const;
+const OPTIONAL_ENV_VARS: readonly string[] = [];
 
 /**
  * Validates that all required environment variables are set

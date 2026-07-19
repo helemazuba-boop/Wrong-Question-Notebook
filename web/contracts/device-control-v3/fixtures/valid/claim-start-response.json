@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "request_id": "req_claim_start_0001",
+  "server_time_ms": 1784426400000,
+  "data": {
+    "claim_id": "11111111-1111-4111-8111-111111111111",
+    "display_code": "31415926",
+    "expires_at_ms": 1784427000000,
+    "poll_interval_ms": 3000
+  }
+}

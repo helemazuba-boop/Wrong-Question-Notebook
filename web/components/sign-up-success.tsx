@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { buildAuthCallbackUrl } from '@/lib/auth-callback';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -74,7 +75,10 @@ export function SignUpSuccess() {
         type: 'signup',
         email: email,
         options: {
-          emailRedirectTo: `${window.location.origin}/subjects`,
+          emailRedirectTo: buildAuthCallbackUrl(
+            window.location.origin,
+            '/subjects'
+          ),
         },
       });
 

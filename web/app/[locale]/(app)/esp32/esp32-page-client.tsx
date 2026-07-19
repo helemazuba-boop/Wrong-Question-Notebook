@@ -134,10 +134,10 @@ export default function Esp32PageClient() {
             <Cpu className="h-6 w-6 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="space-y-2">
-            <h2 className="landing-card-title">{t('howToFindMac')}</h2>
-            <p className="landing-card-text">{t('macExplanation')}</p>
+            <h2 className="landing-card-title">{t('howToFindClaimCode')}</h2>
+            <p className="landing-card-text">{t('claimCodeExplanation')}</p>
             <p className="font-mono text-sm text-blue-700 dark:text-blue-300">
-              AA:BB:CC:DD:EE:FF
+              12345678
             </p>
           </div>
         </aside>

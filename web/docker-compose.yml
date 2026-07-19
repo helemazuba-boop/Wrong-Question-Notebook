@@ -1,8 +1,8 @@
 # ============================================================
 # WQN Docker Compose — Standalone Mode
 # ============================================================
-# All state is stored in the Supabase cloud database.
-# No local database is required.
+# All state is stored in the separately deployed self-hosted Supabase stack.
+# This compose project does not start its own database.
 #
 # Usage:
 #   cp .env.production.template .env.production
@@ -21,6 +21,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
+        WQN_SUPABASE_EXPECTED_HOST: ${WQN_SUPABASE_EXPECTED_HOST:-data.helema.cn}
+        SITE_URL: ${SITE_URL:-https://wqn.helema.cn}
+      secrets:
+        - next_server_actions_encryption_key
     image: ${IMAGE_WQN:-${IMAGE}}
     restart: unless-stopped
     ports:
@@ -33,15 +40,30 @@ services:
       # Supabase — injected from .env.production
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
-      # Gemini AI
+      WQN_SUPABASE_EXPECTED_HOST: ${WQN_SUPABASE_EXPECTED_HOST:-data.helema.cn}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://wqn.helema.cn}
+      SITE_URL: ${SITE_URL:-https://wqn.helema.cn}
+      CRON_SECRET: ${CRON_SECRET:-}
+      # Web AI providers
+      AI_PROVIDER: ${AI_PROVIDER:-google}
+      AI_PROVIDER_BASE_URL: ${AI_PROVIDER_BASE_URL:-}
+      AI_PROVIDER_API_KEY: ${AI_PROVIDER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL_EXTRACTION: ${AI_MODEL_EXTRACTION:-gemini-2.5-flash}
+      AI_MODEL_CATEGORISATION: ${AI_MODEL_CATEGORISATION:-gemini-2.5-flash}
+      AI_MODEL_DIGEST: ${AI_MODEL_DIGEST:-gemini-3-flash-preview}
       # ESP32 Voice AI
       WQN_ESP32_AI_ASR_PROVIDER: ${WQN_ESP32_AI_ASR_PROVIDER:-dashscope}
       WQN_ESP32_AI_CHAT_PROVIDER: ${WQN_ESP32_AI_CHAT_PROVIDER:-dashscope}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      DASHSCOPE_CHAT_API_KEY: ${DASHSCOPE_CHAT_API_KEY:-}
+      DASHSCOPE_CHAT_API_KEY_STD: ${DASHSCOPE_CHAT_API_KEY_STD:-}
+      DASHSCOPE_CHAT_API_KEY_PRO: ${DASHSCOPE_CHAT_API_KEY_PRO:-}
       DASHSCOPE_OPENAI_BASE_URL: ${DASHSCOPE_OPENAI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      DASHSCOPE_OPENAI_BASE_URL_STD: ${DASHSCOPE_OPENAI_BASE_URL_STD:-}
+      DASHSCOPE_OPENAI_BASE_URL_PRO: ${DASHSCOPE_OPENAI_BASE_URL_PRO:-}
       DASHSCOPE_ASR_MODEL: ${DASHSCOPE_ASR_MODEL:-paraformer-v2}
       DASHSCOPE_ASR_TASK_URL: ${DASHSCOPE_ASR_TASK_URL:-https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription}
       DASHSCOPE_TASK_STATUS_BASE_URL: ${DASHSCOPE_TASK_STATUS_BASE_URL:-https://dashscope.aliyuncs.com/api/v1/tasks}
@@ -49,13 +71,23 @@ services:
       DASHSCOPE_ASR_POLL_INTERVAL_MS: ${DASHSCOPE_ASR_POLL_INTERVAL_MS:-800}
       DASHSCOPE_ASR_POLL_ATTEMPTS: ${DASHSCOPE_ASR_POLL_ATTEMPTS:-45}
       DASHSCOPE_CHAT_MODEL: ${DASHSCOPE_CHAT_MODEL:-qwen-plus}
+      DASHSCOPE_CHAT_MODEL_STD: ${DASHSCOPE_CHAT_MODEL_STD:-qwen-plus}
+      DASHSCOPE_CHAT_MODEL_PRO: ${DASHSCOPE_CHAT_MODEL_PRO:-qwen-max}
+      STEPFUN_API_KEY: ${STEPFUN_API_KEY:-}
+      STEPFUN_ASR_URL: ${STEPFUN_ASR_URL:-https://api.stepfun.com/v1/audio/asr/sse}
+      STEPFUN_ASR_MODEL: ${STEPFUN_ASR_MODEL:-stepaudio-2.5-asr}
+      STEPFUN_ASR_LANGUAGE: ${STEPFUN_ASR_LANGUAGE:-zh}
+      STEPFUN_ASR_HOTWORDS: ${STEPFUN_ASR_HOTWORDS:-}
+      STEPFUN_ASR_ENABLE_ITN: ${STEPFUN_ASR_ENABLE_ITN:-true}
+      WQN_ESP32_AI_SYSTEM_PROMPT: ${WQN_ESP32_AI_SYSTEM_PROMPT:-}
       WQN_ESP32_AI_PROVIDER_TIMEOUT_MS: ${WQN_ESP32_AI_PROVIDER_TIMEOUT_MS:-60000}
       WQN_ESP32_AI_PUBLIC_BASE_URL: ${WQN_ESP32_AI_PUBLIC_BASE_URL:-}
       WQN_ESP32_AI_AUDIO_URL_SECRET: ${WQN_ESP32_AI_AUDIO_URL_SECRET:-}
       WQN_ESP32_AI_AUDIO_TMP_DIR: ${WQN_ESP32_AI_AUDIO_TMP_DIR:-/tmp/wqn-esp32-ai-audio}
       WQN_ESP32_AI_AUDIO_URL_TTL_MS: ${WQN_ESP32_AI_AUDIO_URL_TTL_MS:-300000}
-      # Site URL for sitemap generation
-      SITE_URL: ${SITE_URL:-http://localhost:3000}
+      WQN_REALTIME_PROXY_SECRET: ${WQN_REALTIME_PROXY_SECRET}
+      WQN_INTERNAL_API_ALLOWED_HOST: ${WQN_INTERNAL_API_ALLOWED_HOST:-wqn:3000}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     healthcheck:
       test:
         ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health || exit 1']
@@ -85,7 +117,8 @@ services:
       NODE_ENV: production
       # Supabase (for Bearer-token device lookup)
       SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      WQN_SUPABASE_EXPECTED_HOST: ${WQN_SUPABASE_EXPECTED_HOST:-data.helema.cn}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
       # StepFun upstream
       STEP_API_KEY: ${STEP_API_KEY}
       STEP_TTS_REALTIME_URL: ${STEP_TTS_REALTIME_URL:-wss://api.stepfun.ai/v1/realtime/audio}
@@ -93,6 +126,7 @@ services:
       # Internal auth to call wqn-app's execute-tool endpoint
       WQN_REALTIME_PROXY_SECRET: ${WQN_REALTIME_PROXY_SECRET}
       WQN_INTERNAL_API_BASE: ${WQN_INTERNAL_API_BASE:-http://wqn:3000}
+      WQN_INTERNAL_API_ALLOWED_HOST: ${WQN_INTERNAL_API_ALLOWED_HOST:-wqn:3000}
       WQN_FLASH_PROXY_BIND: '0.0.0.0'
       WQN_FLASH_PROXY_PORT: '8080'
       WQN_FLASH_ALLOWED_VOICES: ${WQN_FLASH_ALLOWED_VOICES:-qingchunshaonv,cixingnansheng}
@@ -106,3 +140,7 @@ services:
       start_period: 10s
     # nginx proxies WebSocket traffic to wqn-realtime:8080. Compose service
     # discovery gives us the DNS name for free.
+
+secrets:
+  next_server_actions_encryption_key:
+    environment: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY

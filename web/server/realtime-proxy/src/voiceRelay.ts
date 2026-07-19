@@ -788,6 +788,7 @@ class RelaySession {
       this.config.executeToolUrl,
       this.config.proxySecret,
       this.device.userId,
+      this.device.deviceId,
       call
     );
 

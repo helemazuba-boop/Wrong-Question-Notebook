@@ -10,6 +10,7 @@
  *   web/app/api/esp32/ai/execute-tool/route.ts (header comment).
  */
 
+import { createHash, createHmac } from 'crypto';
 import { log } from './logger.ts';
 
 const TOOL_TIMEOUT_MS = 12_000;
@@ -34,22 +35,38 @@ export async function executeToolOverHttp(
   endpoint: string,
   secret: string,
   userId: string,
+  deviceId: string,
   args: ToolCallArgs
 ): Promise<ToolExecResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TOOL_TIMEOUT_MS);
   try {
+    const requestId = `tool_${createHash('sha256')
+      .update(`${deviceId}\0${args.call_id}`)
+      .digest('hex')
+      .slice(0, 48)}`;
+    const body = JSON.stringify({
+      request_id: requestId,
+      user_id: userId,
+      device_id: deviceId,
+      tool_name: args.name,
+      raw_args: args.raw_args,
+    });
+    const timestamp = Date.now().toString();
+    const signature = createHmac('sha256', secret)
+      .update(timestamp)
+      .update('\n')
+      .update(body)
+      .digest('hex');
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${secret}`,
+        'x-wqn-internal-timestamp': timestamp,
+        'x-wqn-internal-signature': signature,
       },
-      body: JSON.stringify({
-        user_id: userId,
-        tool_name: args.name,
-        raw_args: args.raw_args,
-      }),
+      body,
       signal: ctrl.signal,
     });
     const json = (await res.json().catch(() => ({}))) as {

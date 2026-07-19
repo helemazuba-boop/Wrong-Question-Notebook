@@ -4,7 +4,8 @@
  */
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { ENV_VARS, ERROR_MESSAGES } from './constants';
+import { ERROR_MESSAGES } from './constants';
+import { getSupabaseServerEnvironment } from './supabase-server-config';
 import type { Database } from '@/lib/database.types';
 
 // =====================================================
@@ -16,25 +17,18 @@ import type { Database } from '@/lib/database.types';
  * This bypasses RLS (Row Level Security) policies
  */
 export function createServiceClient() {
-  // Validate that service role key exists
-  const serviceRoleKey = process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY];
-  if (!serviceRoleKey) {
-    throw new Error(
-      `${ENV_VARS.SUPABASE_SERVICE_ROLE_KEY} environment variable is not set`
-    );
-  }
+  const environment = getSupabaseServerEnvironment();
 
-  const supabaseUrl = process.env[ENV_VARS.SUPABASE_URL];
-  if (!supabaseUrl) {
-    throw new Error(`${ENV_VARS.SUPABASE_URL} environment variable is not set`);
-  }
-
-  return createSupabaseClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  return createSupabaseClient<Database>(
+    environment.url,
+    environment.secretKey,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
 }
 
 // =====================================================

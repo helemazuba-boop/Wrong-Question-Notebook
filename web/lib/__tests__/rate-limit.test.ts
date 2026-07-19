@@ -170,6 +170,16 @@ describe('getUserKey', () => {
     expect(getUserKey(req)).toBe('rate_limit:user:user-456');
   });
 
+  it('derives the auth cookie name for self-hosted Supabase', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://data.helema.cn';
+    const jwt = createFakeJwt({ sub: 'self-hosted-user' });
+    const req = createMockRequest({
+      cookies: { 'sb-data-auth-token': jwt },
+    });
+
+    expect(getUserKey(req)).toBe('rate_limit:user:self-hosted-user');
+  });
+
   it('falls back to IP key when no cookie is present', () => {
     const req = createMockRequest({ ip: '10.0.0.1' });
     expect(getUserKey(req)).toBe('rate_limit:ip:10.0.0.1');

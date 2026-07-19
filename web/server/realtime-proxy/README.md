@@ -38,32 +38,35 @@ The server expects:
 - `STEP_API_KEY` — StepFun API key (server-side only, never sent to the device)
 - `STEP_TTS_REALTIME_URL` — defaults to `wss://api.stepfun.com/v1/realtime`
 - `STEP_TTS_MODEL` — defaults to `stepaudio-2.5-realtime`
-- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` — for Bearer-token device lookup
+- `SUPABASE_URL` + `SUPABASE_SECRET_KEY` — for Bearer-token device lookup
 - `WQN_INTERNAL_API_BASE` — `http://localhost:3000` in dev, `http://wqn-app:3000` in prod
 - `WQN_REALTIME_PROXY_SECRET` — long random shared with Next.js route at `/api/esp32/ai/execute-tool`
 
 ## Production deploy (Aliyun ECS)
 
-The relay runs in its own container `wqn-realtime`. Add a stanza to the
-existing `docker-compose.yml`:
+The relay runs in its own container `wqn-realtime`. The checked-in
+`docker-compose.yml` already defines it with an explicit environment whitelist.
+For standalone remote deployment, use `deploy/deploy-realtime-remote.ps1`; it
+derives `~/.env.wqn-realtime` and never uploads the full main-app env file.
+
+Equivalent Compose wiring is:
 
 ```yaml
 services:
   wqn-app:
     # existing
   wqn-realtime:
-    image: registry.cn-<region>.aliyuncs.com/<ns>/wqn:latest # same image, different CMD
+    image: registry.cn-<region>.aliyuncs.com/<ns>/wqn-realtime:latest
     container_name: wqn-realtime
-    command: ['bun', 'server/realtime-proxy/src/index.ts']
-    env_file: .env.production
+    env_file: .env.wqn-realtime
     ports:
       - '127.0.0.1:8080:8080' # nginx only — never expose publicly
     restart: unless-stopped
 ```
 
-(If you'd rather bake a slimmer image, copy `server/realtime-proxy/` into
-a separate repo with its own `Dockerfile`. The choices are equivalent;
-we keep it co-located for now to avoid a second deploy pipeline.)
+The standalone scripts attach both containers to the private `wqn-runtime`
+network and give the main app the `wqn` alias, so the relay callback URL is
+`http://wqn:3000` without exposing the internal tool endpoint publicly.
 
 ### Nginx site config
 

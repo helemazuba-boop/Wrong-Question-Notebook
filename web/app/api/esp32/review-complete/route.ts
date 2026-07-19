@@ -12,14 +12,41 @@ import type { Json } from '@/lib/database.types';
 import { updateReviewSchedule } from '@/lib/spaced-repetition';
 import { getUserTimezone } from '@/lib/timezone-utils';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
+import { fingerprintDeviceControlRequest } from '@/lib/device-control-v3-auth';
+import { deterministicDeviceAttemptId } from '@/lib/device-control-v3-idempotency';
 
 const MAX_RESULTS_PER_REQUEST = 200;
+const IDEMPOTENCY_ENDPOINT = 'legacy-review-complete';
+
+function replayReviewResponse(
+  replay: {
+    endpoint: string;
+    request_fingerprint: string;
+    http_status: number;
+    response_body: Json;
+  },
+  requestFingerprint: string
+): NextResponse {
+  if (
+    replay.endpoint !== IDEMPOTENCY_ENDPOINT ||
+    replay.request_fingerprint !== requestFingerprint
+  ) {
+    return NextResponse.json(
+      createApiErrorResponse('Request ID was reused', 409),
+      { status: 409 }
+    );
+  }
+  return NextResponse.json(replay.response_body, {
+    status: replay.http_status,
+  });
+}
 
 async function completeReview(req: Request) {
   const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
-  const { userId } = authResult;
+  const { userId, deviceId } = authResult;
+  let reservedRequestId: string | null = null;
 
   try {
     const body = await req.json();
@@ -31,6 +58,13 @@ async function completeReview(req: Request) {
         submitted_answer?: Json;
       }>;
     };
+    const requestId = req.headers.get('X-WQN-Request-Id');
+    const idempotencyEnabled =
+      typeof requestId === 'string' &&
+      requestId.length >= 16 &&
+      requestId.length <= 64 &&
+      /^[A-Za-z0-9_-]+$/.test(requestId);
+    const requestFingerprint = fingerprintDeviceControlRequest(body);
 
     if (!results || !Array.isArray(results) || results.length === 0) {
       return NextResponse.json(
@@ -53,13 +87,53 @@ async function completeReview(req: Request) {
     }
 
     const svc = createServiceClient();
+    if (idempotencyEnabled) {
+      const { data: replay, error: replayError } = await svc
+        .from('esp32_request_idempotency')
+        .select('endpoint, request_fingerprint, http_status, response_body')
+        .eq('device_id', deviceId)
+        .eq('request_id', requestId)
+        .maybeSingle();
+      if (replayError) throw replayError;
+      if (replay) {
+        return replayReviewResponse(replay, requestFingerprint);
+      }
+
+      const processingResponse = createApiErrorResponse(
+        'Request is still processing',
+        503
+      );
+      const { error: reservationError } = await svc
+        .from('esp32_request_idempotency')
+        .insert({
+          device_id: deviceId,
+          request_id: requestId,
+          endpoint: IDEMPOTENCY_ENDPOINT,
+          request_fingerprint: requestFingerprint,
+          http_status: 503,
+          response_body: processingResponse as unknown as Json,
+        });
+      if (reservationError?.code === '23505') {
+        const { data: concurrentReplay, error: concurrentReplayError } =
+          await svc
+            .from('esp32_request_idempotency')
+            .select('endpoint, request_fingerprint, http_status, response_body')
+            .eq('device_id', deviceId)
+            .eq('request_id', requestId)
+            .single();
+        if (concurrentReplayError) throw concurrentReplayError;
+        return replayReviewResponse(concurrentReplay, requestFingerprint);
+      }
+      if (reservationError) throw reservationError;
+      reservedRequestId = requestId;
+    }
     const now = new Date();
     const nowIso = now.toISOString();
     const userTimezone = await getUserTimezone(userId);
     const validStatuses = new Set(['wrong', 'needs_review', 'mastered']);
     let processed = 0;
 
-    for (const result of results) {
+    for (const [resultIndex, result] of results.entries()) {
       if (!isValidUuid(result.problem_id)) continue;
       if (!validStatuses.has(result.selected_status)) continue;
 
@@ -94,14 +168,30 @@ async function completeReview(req: Request) {
       if (updateError) throw updateError;
 
       if (result.submitted_answer !== undefined) {
-        const { error: attemptError } = await svc.from('attempts').insert({
+        const attempt = {
+          ...(reservedRequestId
+            ? {
+                id: deterministicDeviceAttemptId(
+                  deviceId,
+                  reservedRequestId,
+                  resultIndex,
+                  result.problem_id
+                ),
+              }
+            : {}),
           problem_id: result.problem_id,
           user_id: userId,
           submitted_answer: result.submitted_answer,
           is_correct: result.is_correct ?? false,
           is_self_assessed: true,
           selected_status: result.selected_status,
-        });
+        };
+        const attemptQuery = reservedRequestId
+          ? svc
+              .from('attempts')
+              .upsert(attempt, { onConflict: 'id', ignoreDuplicates: true })
+          : svc.from('attempts').insert(attempt);
+        const { error: attemptError } = await attemptQuery;
         if (attemptError) throw attemptError;
       }
 
@@ -115,13 +205,36 @@ async function completeReview(req: Request) {
       // Best effort
     }
 
-    return NextResponse.json(
-      createApiSuccessResponse({
-        message: 'Review results saved',
-        processed,
-      })
-    );
+    const responseBody = createApiSuccessResponse({
+      message: 'Review results saved',
+      processed,
+    });
+    if (reservedRequestId) {
+      const { error: storeError } = await svc
+        .from('esp32_request_idempotency')
+        .update({
+          http_status: 200,
+          response_body: responseBody,
+        })
+        .eq('device_id', deviceId)
+        .eq('request_id', reservedRequestId)
+        .eq('endpoint', IDEMPOTENCY_ENDPOINT)
+        .eq('request_fingerprint', requestFingerprint);
+      if (storeError) throw storeError;
+      reservedRequestId = null;
+    }
+    return NextResponse.json(responseBody);
   } catch (error) {
+    if (reservedRequestId) {
+      // All writes above are retry-safe; release an unfinished reservation so
+      // the device can resume after a process/network failure.
+      await createServiceClient()
+        .from('esp32_request_idempotency')
+        .delete()
+        .eq('device_id', deviceId)
+        .eq('request_id', reservedRequestId)
+        .eq('endpoint', IDEMPOTENCY_ENDPOINT);
+    }
     const { message, status } = handleAsyncError(error);
     return NextResponse.json(createApiErrorResponse(message, status), {
       status,

@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/device-control-v3/device-control-v3.schema.json",
+  "title": "WQN ESP32 Device Control Protocol v3",
+  "description": "Language-neutral control-plane contract. AI SSE remains v2-streaming and realtime media remains wqn-flash-v2.",
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "bootId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 48,
+        "pattern": "^[a-z0-9._-]+$"
+      }
+    },
+    "requestMetadata": {
+      "type": "object",
+      "required": ["request_id", "boot_id", "firmware_version", "capabilities"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/bootId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": { "$ref": "#/$defs/capabilities" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "retryable"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "retryable": { "type": "boolean" },
+        "retry_after_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000
+        }
+      }
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "error"],
+      "properties": {
+        "ok": { "const": false },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "claimStartRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "hardware_id",
+            "device_public_key"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/bootId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": { "$ref": "#/$defs/capabilities" },
+            "hardware_id": {
+              "type": "string",
+              "minLength": 12,
+              "maxLength": 64,
+              "pattern": "^[A-F0-9:-]+$"
+            },
+            "device_public_key": {
+              "description": "Base64url SEC1 uncompressed P-256 public key (65 bytes before encoding).",
+              "type": "string",
+              "minLength": 86,
+              "maxLength": 88,
+              "pattern": "^[A-Za-z0-9_-]+={0,2}$"
+            }
+          }
+        }
+      ]
+    },
+    "claimStartData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "display_code",
+        "expires_at_ms",
+        "poll_interval_ms"
+      ],
+      "properties": {
+        "claim_id": { "type": "string", "format": "uuid" },
+        "display_code": { "type": "string", "pattern": "^[0-9]{8}$" },
+        "expires_at_ms": { "type": "integer", "minimum": 0 },
+        "poll_interval_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 30000
+        }
+      }
+    },
+    "sealedCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server_public_key", "salt", "iv", "ciphertext"],
+      "properties": {
+        "server_public_key": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 88
+        },
+        "salt": { "type": "string", "minLength": 22, "maxLength": 44 },
+        "iv": { "type": "string", "minLength": 16, "maxLength": 24 },
+        "ciphertext": { "type": "string", "minLength": 32, "maxLength": 512 }
+      }
+    },
+    "claimPollRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "claim_id"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/bootId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": { "$ref": "#/$defs/capabilities" },
+            "claim_id": { "type": "string", "format": "uuid" }
+          }
+        }
+      ]
+    },
+    "claimPollData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pending", "approved", "expired"] },
+        "poll_interval_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 30000
+        },
+        "sealed_credential": { "$ref": "#/$defs/sealedCredential" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "approved" } },
+            "required": ["status"]
+          },
+          "then": { "required": ["sealed_credential"] }
+        }
+      ]
+    },
+    "bootstrapRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "config_revision",
+            "sync_cursor"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/bootId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": { "$ref": "#/$defs/capabilities" },
+            "config_revision": { "type": "integer", "minimum": 0 },
+            "sync_cursor": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "bootstrapData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device_id",
+        "config_revision",
+        "sync_cursor",
+        "media_protocols"
+      ],
+      "properties": {
+        "device_id": { "type": "string", "format": "uuid" },
+        "config_revision": { "type": "integer", "minimum": 0 },
+        "sync_cursor": { "type": "integer", "minimum": 0 },
+        "media_protocols": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ai_sse", "flash"],
+          "properties": {
+            "ai_sse": { "const": "v2-streaming" },
+            "flash": { "const": "wqn-flash-v2" }
+          }
+        }
+      }
+    },
+    "syncRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "config_revision",
+            "sync_cursor"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/bootId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": { "$ref": "#/$defs/capabilities" },
+            "config_revision": { "type": "integer", "minimum": 0 },
+            "sync_cursor": { "type": "integer", "minimum": 0 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        }
+      ]
+    },
+    "syncData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config_revision",
+        "sync_cursor",
+        "configuration",
+        "summaries",
+        "content_manifest"
+      ],
+      "properties": {
+        "config_revision": { "type": "integer", "minimum": 0 },
+        "sync_cursor": { "type": "integer", "minimum": 0 },
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auto_sync_interval_minutes"],
+          "properties": {
+            "auto_sync_interval_minutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440
+            }
+          }
+        },
+        "summaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["due_problem_ids", "todo_count", "word_due_count"],
+          "properties": {
+            "due_problem_ids": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "type": "string", "format": "uuid" }
+            },
+            "todo_count": { "type": "integer", "minimum": 0 },
+            "word_due_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "content_manifest": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "revision"],
+            "properties": {
+              "kind": { "enum": ["problems", "todos", "words", "word_packs"] },
+              "revision": { "type": "integer", "minimum": 0 },
+              "cursor": { "type": "string", "maxLength": 256 }
+            }
+          }
+        }
+      }
+    },
+    "claimStartSuccess": {
+      "$ref": "#/$defs/successEnvelopeClaimStart"
+    },
+    "successEnvelopeClaimStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "type": "integer", "minimum": 0 },
+        "data": { "$ref": "#/$defs/claimStartData" }
+      }
+    },
+    "successEnvelopeClaimPoll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "type": "integer", "minimum": 0 },
+        "data": { "$ref": "#/$defs/claimPollData" }
+      }
+    },
+    "successEnvelopeBootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "type": "integer", "minimum": 0 },
+        "data": { "$ref": "#/$defs/bootstrapData" }
+      }
+    },
+    "successEnvelopeSync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "type": "integer", "minimum": 0 },
+        "data": { "$ref": "#/$defs/syncData" }
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "check:client-bundle-secrets": "node scripts/check-client-bundle-secrets.mjs",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
@@ -14,10 +15,11 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "migrate:supabase-storage": "node ../deploy/supabase-selfhost/migrate-storage.mjs",
     "check-all": "npm run type-check && npm run lint && npm run format:check",
     "fix-all": "npm run lint:fix && npm run format",
     "prepare": "husky",
-    "prepush": "npm run fix-all && npm run check-all && npm run test && npm run build"
+    "prepush": "npm run fix-all && npm run check-all && npm run test && npm run build && npm run check:client-bundle-secrets"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
