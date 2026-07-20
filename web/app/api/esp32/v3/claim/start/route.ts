@@ -17,7 +17,7 @@ import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
 
 const CLAIM_LIFETIME_MS = 10 * 60 * 1000;
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 10_000;
 const MAX_CODE_ATTEMPTS = 8;
 
 function generateDisplayCode(): string {
@@ -146,6 +146,7 @@ async function startClaim(req: NextRequest) {
 export const POST = withV3Security(startClaim, {
   rateLimitType: 'custom',
   rateLimitKey: 'ip',
+  rateLimitNamespace: 'device-claim-start',
   customRateLimit: { windowMs: 10 * 60 * 1000, maxRequests: 30 },
   enableRequestValidation: false,
 });

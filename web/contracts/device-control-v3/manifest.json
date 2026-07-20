@@ -1,7 +1,7 @@
 {
   "protocol": 3,
   "schema": "device-control-v3.schema.json",
-  "schema_sha256": "95c699ffb77e35f8befff68aff24443bdeabbe381b1eb49910e6dbceedd36cf2",
+  "schema_sha256": "de3d23473d804e4ed55514f351d92ae99dbbf5ab83c0b5dbf1971902eeddc556",
   "media_protocols": {
     "ai_sse": "v2-streaming",
     "flash": "wqn-flash-v2"

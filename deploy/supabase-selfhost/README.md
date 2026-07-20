@@ -185,7 +185,9 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 4. 用 `/etc/hosts` 验证 `data.helema.cn`，部署指向新目标的 WQN/realtime 镜像。
 5. 执行自动 smoke；旧控制面必须返回 `UPGRADE_REQUIRED`，v3 claim 必须可创建和轮询。
 6. 切换 DNS；观察 Auth/REST/Realtime、5xx、延迟和数据库连接。
-7. 烧录 generation=3 固件，完成擦除、配网、网页 claim、bootstrap、sync、刷新、睡眠和 AI/Flash 实测。
+7. 烧录 generation=3 固件；固件构建必须先通过 M8 ownership gate，再按固件仓库
+   `RELEASE_CHECKLIST.md` 完成擦除、配网、网页 claim、bootstrap、sync、刷新、
+   100 次睡眠/唤醒和 AI/Flash 实测。USB/充电状态会主动持有睡眠 Lease，深睡验收必须断开 USB、使用电池供电。
 8. 验证后恢复写入口。旧检查点只用于成对回滚，不做双写或增量合并。
 
 自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：

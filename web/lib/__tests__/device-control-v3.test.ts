@@ -3,6 +3,8 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   DEVICE_CONTROL_SCHEMA_SHA256,
+  MAX_SAFE_PROTOCOL_COUNTER,
+  bootstrapRequestSchema,
   bootstrapSuccessSchema,
   claimPollSuccessSchema,
   claimStartSuccessSchema,
@@ -58,6 +60,25 @@ describe('device control v3 contract', () => {
         fixture('fixtures/invalid/success-missing-request-id.json')
       ).success
     ).toBe(false);
+  });
+
+  it('rejects protocol counters outside JavaScript exact integer range', () => {
+    expect(
+      bootstrapRequestSchema.safeParse({
+        request_id: 'req_bootstrap_0001',
+        boot_id: 'boot_bootstrap_001',
+        firmware_version: '0.1.0',
+        capabilities: [],
+        config_revision: MAX_SAFE_PROTOCOL_COUNTER + 1,
+        sync_cursor: 0,
+      }).success
+    ).toBe(false);
+
+    const response = fixture('fixtures/valid/bootstrap-response.json') as {
+      data: { config_revision: number };
+    };
+    response.data.config_revision = MAX_SAFE_PROTOCOL_COUNTER + 1;
+    expect(bootstrapSuccessSchema.safeParse(response).success).toBe(false);
   });
 
   it('fingerprints equivalent JSON independently of object key order', () => {

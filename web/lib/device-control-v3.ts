@@ -10,7 +10,8 @@ import { getSecurityHeaders } from './request-validation';
 export const DEVICE_CONTROL_PROTOCOL = '3' as const;
 export const DEVICE_CONTROL_HEADER = 'X-WQN-Protocol' as const;
 export const DEVICE_CONTROL_SCHEMA_SHA256 =
-  '95c699ffb77e35f8befff68aff24443bdeabbe381b1eb49910e6dbceedd36cf2' as const;
+  'de3d23473d804e4ed55514f351d92ae99dbbf5ab83c0b5dbf1971902eeddc556' as const;
+export const MAX_SAFE_PROTOCOL_COUNTER = Number.MAX_SAFE_INTEGER;
 
 const requestIdSchema = z
   .string()
@@ -18,6 +19,11 @@ const requestIdSchema = z
   .max(64)
   .regex(/^[A-Za-z0-9_-]+$/);
 const bootIdSchema = requestIdSchema;
+const protocolCounterSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(MAX_SAFE_PROTOCOL_COUNTER);
 const capabilitiesSchema = z
   .array(
     z
@@ -56,8 +62,8 @@ export const claimPollRequestSchema = requestMetadataSchema.extend({
 });
 
 export const bootstrapRequestSchema = requestMetadataSchema.extend({
-  config_revision: z.number().int().nonnegative(),
-  sync_cursor: z.number().int().nonnegative(),
+  config_revision: protocolCounterSchema,
+  sync_cursor: protocolCounterSchema,
 });
 
 export const syncRequestSchema = bootstrapRequestSchema.extend({
@@ -108,8 +114,8 @@ export const claimPollDataSchema = z.discriminatedUnion('status', [
 
 export const bootstrapDataSchema = z.strictObject({
   device_id: z.uuid(),
-  config_revision: z.number().int().nonnegative(),
-  sync_cursor: z.number().int().nonnegative(),
+  config_revision: protocolCounterSchema,
+  sync_cursor: protocolCounterSchema,
   media_protocols: z.strictObject({
     ai_sse: z.literal('v2-streaming'),
     flash: z.literal('wqn-flash-v2'),
@@ -117,8 +123,8 @@ export const bootstrapDataSchema = z.strictObject({
 });
 
 export const syncDataSchema = z.strictObject({
-  config_revision: z.number().int().nonnegative(),
-  sync_cursor: z.number().int().nonnegative(),
+  config_revision: protocolCounterSchema,
+  sync_cursor: protocolCounterSchema,
   configuration: z.strictObject({
     auto_sync_interval_minutes: z.number().int().min(0).max(1440),
   }),
@@ -131,7 +137,7 @@ export const syncDataSchema = z.strictObject({
     .array(
       z.strictObject({
         kind: z.enum(['problems', 'todos', 'words', 'word_packs']),
-        revision: z.number().int().nonnegative(),
+        revision: protocolCounterSchema,
         cursor: z.string().max(256).optional(),
       })
     )

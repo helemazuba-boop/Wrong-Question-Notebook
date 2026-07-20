@@ -89,11 +89,13 @@ describe('device-control v3 claim routes', () => {
     expect(response.status).toBe(200);
     expect(body.data.claim_id).toBe(CLAIM_ID);
     expect(body.data.display_code).toMatch(/^[0-9]{8}$/);
+    expect(body.data.poll_interval_ms).toBe(10_000);
     expect(inserted).toMatchObject({
       hardware_id: 'AA:BB:CC:DD:EE:FF',
       boot_id: 'boot_claim_route_0001',
       request_id: 'req_claim_start_0001',
       device_public_key: DEVICE_PUBLIC_KEY,
+      poll_interval_ms: 10_000,
     });
     expect(inserted).not.toHaveProperty('access_token');
     expect(inserted).not.toHaveProperty('user_id');

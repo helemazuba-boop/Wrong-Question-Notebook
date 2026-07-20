@@ -130,6 +130,24 @@ describe('createRateLimit', () => {
     for (let i = 0; i < config.maxRequests; i++) limiter(reqA);
     expect(limiter(reqB)).not.toBeNull(); // B is also blocked
   });
+
+  it('isolates counters owned by different limiter namespaces', () => {
+    const req = createMockRequest({ ip: '1.1.1.1' });
+    const devicePoll = createRateLimit({
+      windowMs: 60_000,
+      maxRequests: 1,
+      namespace: 'device-poll',
+    });
+    const browserApproval = createRateLimit({
+      windowMs: 60_000,
+      maxRequests: 1,
+      namespace: 'browser-approval',
+    });
+
+    expect(devicePoll(req)).toBeNull();
+    expect(devicePoll(req)?.status).toBe(429);
+    expect(browserApproval(req)).toBeNull();
+  });
 });
 
 // ── getUserKey ─────────────────────────────────────────────────────────────

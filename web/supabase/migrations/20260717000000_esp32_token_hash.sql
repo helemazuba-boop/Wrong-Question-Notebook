@@ -8,12 +8,13 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- #1 哈希存储：新增 access_token_hash，回填现有明文，再删除明文列
 ALTER TABLE public.esp32_devices ADD COLUMN IF NOT EXISTS access_token_hash text;
 
--- convert_to(...,'UTF8') -> bytea, so we hit pgcrypto's digest(bytea, text)
--- overload. The digest(text, text) overload is not exposed on this Supabase
--- instance. Node's createHash('sha256').update(token) defaults to UTF-8, so
--- the digests match byte-for-byte.
+-- pgcrypto is installed in Supabase's extensions schema, which is not
+-- guaranteed to be present in the migration role's search_path. Qualify the
+-- function explicitly so linked Cloud and self-hosted projects behave alike.
+-- Node's createHash('sha256').update(token) defaults to UTF-8, so the digests
+-- match byte-for-byte.
 UPDATE public.esp32_devices
-SET access_token_hash = encode(digest(convert_to(access_token, 'UTF8'), 'sha256'), 'hex')
+SET access_token_hash = encode(extensions.digest(convert_to(access_token, 'UTF8'), 'sha256'), 'hex')
 WHERE access_token IS NOT NULL AND access_token_hash IS NULL;
 
 ALTER TABLE public.esp32_devices DROP COLUMN IF EXISTS access_token;

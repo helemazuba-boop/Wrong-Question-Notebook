@@ -218,8 +218,16 @@
               "maxLength": 64
             },
             "capabilities": { "$ref": "#/$defs/capabilities" },
-            "config_revision": { "type": "integer", "minimum": 0 },
-            "sync_cursor": { "type": "integer", "minimum": 0 }
+            "config_revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sync_cursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
           }
         }
       ]
@@ -235,8 +243,16 @@
       ],
       "properties": {
         "device_id": { "type": "string", "format": "uuid" },
-        "config_revision": { "type": "integer", "minimum": 0 },
-        "sync_cursor": { "type": "integer", "minimum": 0 },
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sync_cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
         "media_protocols": {
           "type": "object",
           "additionalProperties": false,
@@ -271,8 +287,16 @@
               "maxLength": 64
             },
             "capabilities": { "$ref": "#/$defs/capabilities" },
-            "config_revision": { "type": "integer", "minimum": 0 },
-            "sync_cursor": { "type": "integer", "minimum": 0 },
+            "config_revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sync_cursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
             "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
           }
         }
@@ -289,8 +313,16 @@
         "content_manifest"
       ],
       "properties": {
-        "config_revision": { "type": "integer", "minimum": 0 },
-        "sync_cursor": { "type": "integer", "minimum": 0 },
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sync_cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
         "configuration": {
           "type": "object",
           "additionalProperties": false,
@@ -326,7 +358,11 @@
             "required": ["kind", "revision"],
             "properties": {
               "kind": { "enum": ["problems", "todos", "words", "word_packs"] },
-              "revision": { "type": "integer", "minimum": 0 },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "cursor": { "type": "string", "maxLength": 256 }
             }
           }
