@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/word-study-v1/word-study-v1.schema.json",
+  "title": "WQN Word Study v1",
+  "oneOf": [
+    { "$ref": "#/$defs/createSessionRequest" },
+    { "$ref": "#/$defs/createSessionResponse" },
+    { "$ref": "#/$defs/observationRequest" },
+    { "$ref": "#/$defs/observationResponse" },
+    { "$ref": "#/$defs/manifestRequest" },
+    { "$ref": "#/$defs/manifestResponse" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "requestId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestMetadata": {
+      "type": "object",
+      "required": ["request_id", "boot_id", "firmware_version", "capabilities"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "mode": { "enum": ["sequential", "random", "dictionary"] },
+    "purpose": { "enum": ["study", "lookup"] },
+    "ordering": { "enum": ["sequential", "guided_random_v1", "lexicographic"] },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deck_ids", "include_mastered"],
+      "properties": {
+        "deck_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuid" }
+        },
+        "include_mastered": { "type": "boolean" }
+      }
+    },
+    "packSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deck_id", "content_revision", "pack_revision", "sha256"],
+      "properties": {
+        "deck_id": { "$ref": "#/$defs/uuid" },
+        "content_revision": { "$ref": "#/$defs/safeCounter" },
+        "pack_revision": { "$ref": "#/$defs/safeCounter" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "createSessionRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "domain",
+            "mode",
+            "scope"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/requestId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9._-]+$"
+              }
+            },
+            "domain": { "const": "word" },
+            "mode": { "$ref": "#/$defs/mode" },
+            "scope": { "$ref": "#/$defs/scope" },
+            "optional_count": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 500
+            },
+            "seed": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        }
+      ]
+    },
+    "sessionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "deck_id", "ordinal"],
+      "properties": {
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "deck_id": { "$ref": "#/$defs/uuid" },
+        "ordinal": { "$ref": "#/$defs/safeCounter" }
+      }
+    },
+    "sessionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "domain",
+        "mode",
+        "purpose",
+        "ordering",
+        "seed",
+        "scope",
+        "optional_count",
+        "next_sequence",
+        "snapshot",
+        "items",
+        "has_more"
+      ],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "domain": { "const": "word" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "ordering": { "$ref": "#/$defs/ordering" },
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "scope": { "$ref": "#/$defs/scope" },
+        "optional_count": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 500
+        },
+        "next_sequence": { "$ref": "#/$defs/safeCounter" },
+        "snapshot": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/packSnapshot" }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/sessionItem" }
+        },
+        "cursor": { "type": "string", "maxLength": 256 },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "createSessionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" },
+        "data": { "$ref": "#/$defs/sessionData" }
+      }
+    },
+    "observationRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "session_id",
+            "sequence",
+            "item_id",
+            "action",
+            "mode",
+            "occurred_at"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/requestId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9._-]+$"
+              }
+            },
+            "session_id": { "$ref": "#/$defs/uuid" },
+            "sequence": { "$ref": "#/$defs/safeCounter" },
+            "item_id": { "$ref": "#/$defs/uuid" },
+            "action": {
+              "enum": [
+                "shown",
+                "revealed",
+                "known",
+                "unknown",
+                "skipped",
+                "looked_up"
+              ]
+            },
+            "mode": { "$ref": "#/$defs/mode" },
+            "occurred_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "progressProjection": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "due_at",
+        "reviewed_count",
+        "known_count",
+        "unknown_count"
+      ],
+      "properties": {
+        "status": { "enum": ["new", "learning", "review", "mastered"] },
+        "due_at": { "type": ["string", "null"], "format": "date-time" },
+        "reviewed_count": { "$ref": "#/$defs/safeCounter" },
+        "known_count": { "$ref": "#/$defs/safeCounter" },
+        "unknown_count": { "$ref": "#/$defs/safeCounter" }
+      }
+    },
+    "observationData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "session_id",
+        "sequence",
+        "item_id",
+        "action",
+        "progress",
+        "replayed"
+      ],
+      "properties": {
+        "observation_id": { "$ref": "#/$defs/uuid" },
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "$ref": "#/$defs/safeCounter" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "action": {
+          "enum": [
+            "shown",
+            "revealed",
+            "known",
+            "unknown",
+            "skipped",
+            "looked_up"
+          ]
+        },
+        "progress": { "$ref": "#/$defs/progressProjection" },
+        "replayed": { "type": "boolean" }
+      }
+    },
+    "observationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" },
+        "data": { "$ref": "#/$defs/observationData" }
+      }
+    },
+    "manifestPack": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "pack_revision",
+        "schema_version",
+        "format",
+        "compression",
+        "entry_count",
+        "byte_size",
+        "sha256",
+        "download_url"
+      ],
+      "properties": {
+        "pack_id": { "$ref": "#/$defs/uuid" },
+        "pack_revision": { "$ref": "#/$defs/safeCounter" },
+        "schema_version": { "const": 2 },
+        "format": { "const": "jsonl" },
+        "compression": { "const": "none" },
+        "entry_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "byte_size": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "download_url": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "manifestRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "cursor"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/requestId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9._-]+$"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "maxLength": 20
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        }
+      ]
+    },
+    "manifestDeck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deck_id",
+        "title",
+        "change_sequence",
+        "content_revision",
+        "deleted",
+        "pack"
+      ],
+      "properties": {
+        "deck_id": { "$ref": "#/$defs/uuid" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "change_sequence": { "$ref": "#/$defs/safeCounter" },
+        "content_revision": { "$ref": "#/$defs/safeCounter" },
+        "deleted": { "type": "boolean" },
+        "pack": { "$ref": "#/$defs/manifestPack" }
+      }
+    },
+    "manifestData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cursor", "has_more", "decks"],
+      "properties": {
+        "cursor": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 20 },
+        "has_more": { "type": "boolean" },
+        "decks": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/manifestDeck" }
+        }
+      }
+    },
+    "manifestResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" },
+        "data": { "$ref": "#/$defs/manifestData" }
+      }
+    }
+  }
+}

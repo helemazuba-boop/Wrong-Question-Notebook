@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "request_id": "req_word_manifest_001",
+  "server_time_ms": 1784512802000,
+  "data": {
+    "cursor": "17",
+    "has_more": false,
+    "decks": [
+      {
+        "deck_id": "11111111-1111-4111-8111-111111111111",
+        "title": "WQN 预设词库",
+        "change_sequence": 17,
+        "content_revision": 9,
+        "deleted": false,
+        "pack": {
+          "pack_id": "55555555-5555-4555-8555-555555555555",
+          "pack_revision": 9,
+          "schema_version": 2,
+          "format": "jsonl",
+          "compression": "none",
+          "entry_count": 1,
+          "byte_size": 512,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "download_url": "/api/esp32/v3/words/packs/55555555-5555-4555-8555-555555555555"
+        }
+      }
+    ]
+  }
+}

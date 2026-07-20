@@ -1,0 +1,8 @@
+{
+  "request_id": "req_word_manifest_001",
+  "boot_id": "boot_word_study_001",
+  "firmware_version": "0.1.0",
+  "capabilities": ["word.study.v1"],
+  "cursor": "0",
+  "limit": 100
+}
