@@ -48,7 +48,8 @@ or rendered.
 ## Fixed limits
 
 - JSON counters: `0..9007199254740991` (IEEE-754 exact integer range).
-- At most 32 decks and 500 candidate IDs per session page.
+- At most 32 decks and 100 candidate IDs per transport page. The default page
+  is 32; the Note4 keeps a bounded three-page rolling window.
 - At most 10,000 entries per pack, 4 MiB per uncompressed pack, and 8 KiB per
   JSONL line on device.
 - `request_id`: 16-64 URL-safe characters; seed: 1-64 URL-safe characters.

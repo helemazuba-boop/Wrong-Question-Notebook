@@ -8,6 +8,8 @@ import {
   createWordStudySessionSuccessSchema,
   observationMutatesProgress,
   semanticsForWordMode,
+  wordCandidatePageRequestSchema,
+  wordCandidatePageSuccessSchema,
   wordManifestSuccessSchema,
   wordManifestRequestSchema,
   wordObservationRequestSchema,
@@ -35,6 +37,8 @@ describe('word study v1 contract', () => {
   it.each([
     ['session-request.json', createWordStudySessionRequestSchema],
     ['session-response.json', createWordStudySessionSuccessSchema],
+    ['candidate-page-request.json', wordCandidatePageRequestSchema],
+    ['candidate-page-response.json', wordCandidatePageSuccessSchema],
     ['observation-request.json', wordObservationRequestSchema],
     ['observation-response.json', wordObservationSuccessSchema],
     ['manifest-request.json', wordManifestRequestSchema],

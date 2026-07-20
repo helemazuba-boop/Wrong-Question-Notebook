@@ -13,16 +13,21 @@ import {
   type WordStudyCandidate,
 } from './word-study-ordering';
 import {
+  candidatePolicyVersionForOrdering,
   semanticsForWordMode,
+  WORD_CANDIDATE_PAGE_SIZE,
   wordObservationDataSchema,
   wordStudySessionDataSchema,
+  type WordCandidatePageData,
+  type WordCandidatePageRequest,
   type CreateWordStudySessionRequest,
   type WordObservationRequest,
   type WordStudySessionData,
 } from './word-study-v1';
 
 const CANDIDATE_PAGE_SIZE = 500;
-const SESSION_PAGE_SIZE = 500;
+const MAX_SESSION_CANDIDATES = 32 * 10_000;
+const CANDIDATE_INSERT_BATCH_SIZE = 500;
 export const WORD_PROGRESS_FILTER_BATCH_SIZE = 100;
 
 export function chunkWordProgressIds(ids: readonly string[]): string[][] {
@@ -69,10 +74,12 @@ function sessionDataFromRow(row: any): WordStudySessionData {
     mode: row.mode,
     purpose: row.purpose,
     ordering: row.ordering,
+    candidate_policy_version: candidatePolicyVersionForOrdering(row.ordering),
     seed: row.seed,
     scope: row.scope,
     optional_count: row.optional_count,
     next_sequence: Number(row.next_sequence),
+    progress_revision: Number(row.progress_revision || 0),
     snapshot: row.snapshot,
     items: row.candidate_items,
     ...(row.cursor ? { cursor: row.cursor } : {}),
@@ -90,7 +97,7 @@ async function loadExistingSession(
   let query = supabase
     .from('study_sessions')
     .select(
-      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, snapshot, candidate_items, cursor, has_more, create_fingerprint'
+      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, create_fingerprint, candidates_ready, created_at'
     )
     .eq('user_id', userId)
     .eq('create_request_id', requestId);
@@ -104,6 +111,26 @@ async function loadExistingSession(
       'REQUEST_ID_REUSED',
       'Request ID was already used for another session request',
       409
+    );
+  }
+  if (data && !data.candidates_ready) {
+    const createdAt = Date.parse(String(data.created_at || ''));
+    if (Number.isFinite(createdAt) && Date.now() - createdAt > 60_000) {
+      const { error: cleanupError } = await supabase
+        .from('study_sessions')
+        .delete()
+        .eq('id', data.id)
+        .eq('candidates_ready', false);
+      if (cleanupError) {
+        databaseError('loadExistingSession.cleanupIncomplete', cleanupError);
+      }
+      return null;
+    }
+    throw new WordStudyServiceError(
+      'WORD_SESSION_BUILDING',
+      'Word study session is still being prepared',
+      503,
+      true
     );
   }
   return data ? sessionDataFromRow(data) : null;
@@ -234,13 +261,16 @@ export async function createWordStudySession(
   const decks = selectedDecks.filter(
     (deck): deck is (typeof visibleDecks)[number] => Boolean(deck)
   );
+  // Sequential and dictionary are explicit browse choices and therefore show
+  // the complete scope.  Only guided random may omit mastered words unless
+  // the caller explicitly includes them.
   const includeMastered =
-    input.mode === 'dictionary' ? true : input.scope.include_mastered;
+    input.mode === 'random' ? input.scope.include_mastered : true;
   const scope = {
     deck_ids: decks.map(deck => deck.id),
     include_mastered: includeMastered,
   };
-  const outputLimit = input.optional_count ?? SESSION_PAGE_SIZE;
+  const outputLimit = input.optional_count ?? MAX_SESSION_CANDIDATES;
   const nowMs = Date.now();
 
   const snapshot: Array<{
@@ -269,12 +299,45 @@ export async function createWordStudySession(
     outputLimit,
     nowMs
   );
-  const candidateItems = candidates.map((candidate, ordinal) => ({
+  if (input.optional_count == null && eligibleCount > MAX_SESSION_CANDIDATES) {
+    throw new WordStudyServiceError(
+      'WORD_SCOPE_TOO_LARGE',
+      'Word study scope exceeds the bounded session limit',
+      413
+    );
+  }
+
+  const { data: progressChange, error: progressChangeError } = await supabase
+    .from('word_change_log')
+    .select('sequence')
+    .eq('user_id', userId)
+    .eq('entity_kind', 'progress')
+    .order('sequence', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (progressChangeError) {
+    databaseError(
+      'createWordStudySession.progressRevision',
+      progressChangeError
+    );
+  }
+  const progressRevision = Number(progressChange?.sequence || 0);
+  if (!Number.isSafeInteger(progressRevision) || progressRevision < 0) {
+    throw new WordStudyServiceError(
+      'WORD_PROGRESS_REVISION_INVALID',
+      'Word progress revision is outside the protocol range',
+      503,
+      true
+    );
+  }
+
+  const allCandidateItems = candidates.map((candidate, ordinal) => ({
     item_id: candidate.item_id,
     deck_id: candidate.deck_id,
     ordinal,
   }));
-  const cursor = String(candidateItems.length);
+  const firstPage = allCandidateItems.slice(0, WORD_CANDIDATE_PAGE_SIZE);
+  const cursor = String(firstPage.length);
   const row = {
     user_id: userId,
     device_id: deviceId,
@@ -286,11 +349,14 @@ export async function createWordStudySession(
     optional_count: input.optional_count ?? null,
     seed,
     snapshot,
-    candidate_ids: candidateItems.map(item => item.item_id),
-    candidate_items: candidateItems,
+    candidate_ids: firstPage.map(item => item.item_id),
+    candidate_items: firstPage,
+    progress_revision: progressRevision,
+    candidate_count: allCandidateItems.length,
+    candidates_ready: false,
     next_sequence: 0,
     cursor,
-    has_more: eligibleCount > candidateItems.length,
+    has_more: firstPage.length < allCandidateItems.length,
     create_request_id: input.request_id,
     create_fingerprint: requestFingerprint,
   };
@@ -298,7 +364,7 @@ export async function createWordStudySession(
     .from('study_sessions')
     .insert(row)
     .select(
-      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, snapshot, candidate_items, cursor, has_more'
+      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, candidates_ready'
     )
     .single();
   if (error) {
@@ -314,7 +380,146 @@ export async function createWordStudySession(
     }
     databaseError('createWordStudySession', error);
   }
-  return sessionDataFromRow(data);
+  for (
+    let offset = 0;
+    offset < allCandidateItems.length;
+    offset += CANDIDATE_INSERT_BATCH_SIZE
+  ) {
+    const candidateRows = allCandidateItems
+      .slice(offset, offset + CANDIDATE_INSERT_BATCH_SIZE)
+      .map(item => ({ session_id: data.id, ...item }));
+    const { error: candidateError } = await supabase
+      .from('study_session_candidates')
+      .insert(candidateRows);
+    if (candidateError) {
+      await supabase.from('study_sessions').delete().eq('id', data.id);
+      databaseError('createWordStudySession.candidates', candidateError);
+    }
+  }
+
+  const { data: ready, error: readyError } = await supabase
+    .from('study_sessions')
+    .update({ candidates_ready: true })
+    .eq('id', data.id)
+    .eq('candidates_ready', false)
+    .select(
+      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, candidates_ready'
+    )
+    .single();
+  if (readyError) {
+    await supabase.from('study_sessions').delete().eq('id', data.id);
+    databaseError('createWordStudySession.ready', readyError);
+  }
+  return sessionDataFromRow(ready);
+}
+
+export async function loadWordStudyCandidatePage(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  deviceId: string | null,
+  sessionId: string,
+  input: WordCandidatePageRequest
+): Promise<WordCandidatePageData> {
+  const cursor = Number(input.cursor);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) {
+    throw new WordStudyServiceError(
+      'INVALID_CURSOR',
+      'Candidate cursor is invalid',
+      400
+    );
+  }
+
+  let sessionQuery = supabase
+    .from('study_sessions')
+    .select(
+      'id, ordering, seed, snapshot, progress_revision, candidate_count, candidates_ready, status'
+    )
+    .eq('id', sessionId)
+    .eq('user_id', userId);
+  sessionQuery = deviceId
+    ? sessionQuery.eq('device_id', deviceId)
+    : sessionQuery.is('device_id', null);
+  const { data: session, error: sessionError } =
+    await sessionQuery.maybeSingle();
+  if (sessionError)
+    databaseError('loadWordStudyCandidatePage.session', sessionError);
+  if (!session) {
+    throw new WordStudyServiceError(
+      'SESSION_NOT_FOUND',
+      'Word study session was not found',
+      404
+    );
+  }
+  if (!session.candidates_ready) {
+    throw new WordStudyServiceError(
+      'WORD_SESSION_BUILDING',
+      'Word study session is still being prepared',
+      503,
+      true
+    );
+  }
+  if (session.status !== 'active' && session.status !== 'paused') {
+    throw new WordStudyServiceError(
+      'SESSION_NOT_ACTIVE',
+      'Word study session is not active',
+      409
+    );
+  }
+
+  const candidateCount = Number(session.candidate_count || 0);
+  if (!Number.isSafeInteger(candidateCount) || cursor > candidateCount) {
+    throw new WordStudyServiceError(
+      'INVALID_CURSOR',
+      'Candidate cursor is outside the session snapshot',
+      400
+    );
+  }
+  const limit = input.limit ?? WORD_CANDIDATE_PAGE_SIZE;
+  const { data: rows, error: candidateError } = await supabase
+    .from('study_session_candidates')
+    .select('item_id, deck_id, ordinal')
+    .eq('session_id', sessionId)
+    .gte('ordinal', cursor)
+    .order('ordinal', { ascending: true })
+    .limit(limit);
+  if (candidateError) {
+    databaseError('loadWordStudyCandidatePage.candidates', candidateError);
+  }
+
+  const items = (rows || []).map((item: any) => ({
+    item_id: item.item_id,
+    deck_id: item.deck_id,
+    ordinal: Number(item.ordinal),
+  }));
+  if (
+    items.some(
+      (item, index) =>
+        !Number.isSafeInteger(item.ordinal) || item.ordinal !== cursor + index
+    ) ||
+    (cursor < candidateCount && items.length === 0)
+  ) {
+    throw new WordStudyServiceError(
+      'WORD_SESSION_SNAPSHOT_INCOMPLETE',
+      'Word study candidate snapshot is incomplete',
+      503,
+      true
+    );
+  }
+  const nextCursor = cursor + items.length;
+  return {
+    session_id: session.id,
+    ordering: session.ordering,
+    candidate_policy_version: candidatePolicyVersionForOrdering(
+      session.ordering
+    ),
+    seed: session.seed,
+    snapshot: session.snapshot,
+    progress_revision: Number(session.progress_revision || 0),
+    cursor: String(cursor),
+    next_cursor: String(nextCursor),
+    items,
+    has_more: nextCursor < candidateCount,
+  };
 }
 
 export async function recordWordStudyObservation(

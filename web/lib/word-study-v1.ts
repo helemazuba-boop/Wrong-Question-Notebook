@@ -6,10 +6,12 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  'a8ef9eac68cd52828a696f32c37fdcba4009bc6d80f90a220237e3206f40e6c4' as const;
+  '42834e15766dbb046177294b30d8e21487e0c265e46679c4d5691aaef7dd144a' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
+export const WORD_CANDIDATE_PAGE_SIZE = 32;
+export const WORD_CANDIDATE_PAGE_LIMIT = 100;
 
 const safeCounterSchema = z
   .number()
@@ -33,6 +35,11 @@ export const wordStudyOrderingSchema = z.enum([
   'sequential',
   'guided_random_v1',
   'lexicographic',
+]);
+export const wordCandidatePolicyVersionSchema = z.enum([
+  'sequential_v1',
+  'guided_random_v1',
+  'lexicographic_v1',
 ]);
 export const wordObservationActionSchema = z.enum([
   'shown',
@@ -80,13 +87,42 @@ export const wordStudySessionDataSchema = z.strictObject({
   mode: wordStudyModeSchema,
   purpose: wordStudyPurposeSchema,
   ordering: wordStudyOrderingSchema,
+  candidate_policy_version: wordCandidatePolicyVersionSchema,
   seed: seedSchema,
   scope: wordStudyScopeSchema,
   optional_count: z.number().int().min(1).max(500).nullable(),
   next_sequence: safeCounterSchema,
+  progress_revision: safeCounterSchema,
   snapshot: z.array(wordPackSnapshotSchema).max(32),
-  items: z.array(wordStudySessionItemSchema).max(500),
+  items: z.array(wordStudySessionItemSchema).max(WORD_CANDIDATE_PAGE_LIMIT),
   cursor: z.string().max(256).optional(),
+  has_more: z.boolean(),
+});
+
+export const wordCandidatePageRequestSchema = requestMetadataSchema.extend({
+  cursor: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .max(20),
+  limit: z.number().int().min(1).max(WORD_CANDIDATE_PAGE_LIMIT).optional(),
+});
+
+export const wordCandidatePageDataSchema = z.strictObject({
+  session_id: uuidSchema,
+  ordering: wordStudyOrderingSchema,
+  candidate_policy_version: wordCandidatePolicyVersionSchema,
+  seed: seedSchema,
+  snapshot: z.array(wordPackSnapshotSchema).max(32),
+  progress_revision: safeCounterSchema,
+  cursor: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .max(20),
+  next_cursor: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .max(20),
+  items: z.array(wordStudySessionItemSchema).max(WORD_CANDIDATE_PAGE_LIMIT),
   has_more: z.boolean(),
 });
 
@@ -133,6 +169,9 @@ const successEnvelopeSchema = <T extends z.ZodType>(data: T) =>
 
 export const createWordStudySessionSuccessSchema = successEnvelopeSchema(
   wordStudySessionDataSchema
+);
+export const wordCandidatePageSuccessSchema = successEnvelopeSchema(
+  wordCandidatePageDataSchema
 );
 export const wordObservationSuccessSchema = successEnvelopeSchema(
   wordObservationDataSchema
@@ -184,11 +223,18 @@ export const wordManifestSuccessSchema = successEnvelopeSchema(
 export type WordStudyMode = z.infer<typeof wordStudyModeSchema>;
 export type WordStudyPurpose = z.infer<typeof wordStudyPurposeSchema>;
 export type WordStudyOrdering = z.infer<typeof wordStudyOrderingSchema>;
+export type WordCandidatePolicyVersion = z.infer<
+  typeof wordCandidatePolicyVersionSchema
+>;
 export type WordObservationAction = z.infer<typeof wordObservationActionSchema>;
 export type CreateWordStudySessionRequest = z.infer<
   typeof createWordStudySessionRequestSchema
 >;
 export type WordStudySessionData = z.infer<typeof wordStudySessionDataSchema>;
+export type WordCandidatePageRequest = z.infer<
+  typeof wordCandidatePageRequestSchema
+>;
+export type WordCandidatePageData = z.infer<typeof wordCandidatePageDataSchema>;
 export type WordObservationRequest = z.infer<
   typeof wordObservationRequestSchema
 >;
@@ -204,6 +250,19 @@ export function semanticsForWordMode(mode: WordStudyMode): {
       return { purpose: 'lookup', ordering: 'lexicographic' };
     case 'sequential':
       return { purpose: 'study', ordering: 'sequential' };
+  }
+}
+
+export function candidatePolicyVersionForOrdering(
+  ordering: WordStudyOrdering
+): WordCandidatePolicyVersion {
+  switch (ordering) {
+    case 'guided_random_v1':
+      return 'guided_random_v1';
+    case 'lexicographic':
+      return 'lexicographic_v1';
+    case 'sequential':
+      return 'sequential_v1';
   }
 }
 

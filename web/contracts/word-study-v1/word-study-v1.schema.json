@@ -5,6 +5,8 @@
   "oneOf": [
     { "$ref": "#/$defs/createSessionRequest" },
     { "$ref": "#/$defs/createSessionResponse" },
+    { "$ref": "#/$defs/candidatePageRequest" },
+    { "$ref": "#/$defs/candidatePageResponse" },
     { "$ref": "#/$defs/observationRequest" },
     { "$ref": "#/$defs/observationResponse" },
     { "$ref": "#/$defs/manifestRequest" },
@@ -50,6 +52,9 @@
     "mode": { "enum": ["sequential", "random", "dictionary"] },
     "purpose": { "enum": ["study", "lookup"] },
     "ordering": { "enum": ["sequential", "guided_random_v1", "lexicographic"] },
+    "candidatePolicyVersion": {
+      "enum": ["sequential_v1", "guided_random_v1", "lexicographic_v1"]
+    },
     "scope": {
       "type": "object",
       "additionalProperties": false,
@@ -146,10 +151,12 @@
         "mode",
         "purpose",
         "ordering",
+        "candidate_policy_version",
         "seed",
         "scope",
         "optional_count",
         "next_sequence",
+        "progress_revision",
         "snapshot",
         "items",
         "has_more"
@@ -160,6 +167,9 @@
         "mode": { "$ref": "#/$defs/mode" },
         "purpose": { "$ref": "#/$defs/purpose" },
         "ordering": { "$ref": "#/$defs/ordering" },
+        "candidate_policy_version": {
+          "$ref": "#/$defs/candidatePolicyVersion"
+        },
         "seed": {
           "type": "string",
           "minLength": 1,
@@ -173,6 +183,7 @@
           "maximum": 500
         },
         "next_sequence": { "$ref": "#/$defs/safeCounter" },
+        "progress_revision": { "$ref": "#/$defs/safeCounter" },
         "snapshot": {
           "type": "array",
           "maxItems": 32,
@@ -180,7 +191,7 @@
         },
         "items": {
           "type": "array",
-          "maxItems": 500,
+          "maxItems": 100,
           "items": { "$ref": "#/$defs/sessionItem" }
         },
         "cursor": { "type": "string", "maxLength": 256 },
@@ -196,6 +207,106 @@
         "request_id": { "$ref": "#/$defs/requestId" },
         "server_time_ms": { "$ref": "#/$defs/safeCounter" },
         "data": { "$ref": "#/$defs/sessionData" }
+      }
+    },
+    "candidatePageRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/requestMetadata" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "boot_id",
+            "firmware_version",
+            "capabilities",
+            "cursor"
+          ],
+          "properties": {
+            "request_id": { "$ref": "#/$defs/requestId" },
+            "boot_id": { "$ref": "#/$defs/requestId" },
+            "firmware_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48,
+                "pattern": "^[a-z0-9._-]+$"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "maxLength": 20
+            },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        }
+      ]
+    },
+    "candidatePageData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "ordering",
+        "candidate_policy_version",
+        "seed",
+        "snapshot",
+        "progress_revision",
+        "cursor",
+        "next_cursor",
+        "items",
+        "has_more"
+      ],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "ordering": { "$ref": "#/$defs/ordering" },
+        "candidate_policy_version": {
+          "$ref": "#/$defs/candidatePolicyVersion"
+        },
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "snapshot": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/packSnapshot" }
+        },
+        "progress_revision": { "$ref": "#/$defs/safeCounter" },
+        "cursor": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 20 },
+        "next_cursor": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "maxLength": 20
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/sessionItem" }
+        },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "candidatePageResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" },
+        "data": { "$ref": "#/$defs/candidatePageData" }
       }
     },
     "observationRequest": {
