@@ -16,6 +16,7 @@
 # USAGE:
 #   .\deploy\build-and-push.ps1
 #   .\deploy\build-and-push.ps1 -Tag "v1.2.3"
+#   .\deploy\build-and-push.ps1 -UseDefaultBuilder -NoBuildProxy
 #   .\deploy\build-and-push.ps1 -DeployAliyun
 # ============================================================
 
@@ -23,6 +24,12 @@
 param(
     [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')]
     [string]$Tag = "latest",
+
+    [string]$BuildProxy,
+
+    [switch]$NoBuildProxy,
+
+    [switch]$UseDefaultBuilder,
 
     [switch]$RecreateBuilder,
 
@@ -436,7 +443,7 @@ function Invoke-DockerBuild {
     $dockerArgs = @(
         "buildx", "build",
         "--platform", "linux/amd64",
-        "--builder", $BuilderName,
+        "--builder", $script:SelectedBuilder,
         "--provenance=false",
         "--secret", "id=next_server_actions_encryption_key,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
         "--push",
@@ -709,15 +716,18 @@ if ($missingAppVars) {
 
 $BuildArgs = New-BuildArgList -AppVarKeys $buildArgKeys
 
-$script:BuildProxy = Get-EnvValue "WQN_BUILD_PROXY"
-if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
-    $script:BuildProxy = Get-EnvValue "HTTPS_PROXY"
-}
-if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
-    $script:BuildProxy = Get-EnvValue "HTTP_PROXY"
-}
-if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
-    $script:BuildProxy = $DefaultBuildProxy
+$script:BuildProxy = if ($NoBuildProxy) { $null } else { $BuildProxy }
+if (-not $NoBuildProxy -and [string]::IsNullOrWhiteSpace($script:BuildProxy)) {
+    $script:BuildProxy = Get-EnvValue "WQN_BUILD_PROXY"
+    if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
+        $script:BuildProxy = Get-EnvValue "HTTPS_PROXY"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
+        $script:BuildProxy = Get-EnvValue "HTTP_PROXY"
+    }
+    if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
+        $script:BuildProxy = $DefaultBuildProxy
+    }
 }
 $script:BuildNoProxy = Get-EnvValue "NO_PROXY"
 if ([string]::IsNullOrWhiteSpace($script:BuildNoProxy)) {
@@ -738,6 +748,7 @@ if (-not [string]::IsNullOrWhiteSpace($script:BuildNoProxy)) {
 
 $ImageBase = "${AcrServer}/${AcrNamespace}/${AcrRepo}"
 $ImageTag = "${ImageBase}:${Tag}"
+$script:SelectedBuilder = if ($UseDefaultBuilder) { "default" } else { $BuilderName }
 $BaseNodeImage = Get-EnvValue "BASE_NODE_IMAGE"
 if ([string]::IsNullOrWhiteSpace($BaseNodeImage)) {
     $BaseNodeImage = "node:24-alpine"
@@ -759,6 +770,7 @@ Write-Host "  Image:        $ImageTag" -ForegroundColor DarkGray
 Write-Host "  Base image:   $BaseNodeImage" -ForegroundColor DarkGray
 Write-Host "  Build proxy:  $script:BuildProxy" -ForegroundColor DarkGray
 Write-Host "  Container proxy: $script:ContainerBuildProxy" -ForegroundColor DarkGray
+Write-Host "  Builder:      $script:SelectedBuilder" -ForegroundColor DarkGray
 Write-Host "  Deploy ECS:   $DeployAliyun" -ForegroundColor DarkGray
 if ($DeployAliyun) {
     Write-Host "  SSH Host:     $AliyunSshHost" -ForegroundColor DarkGray
@@ -779,7 +791,11 @@ Write-Step "Logged in." "Green"
 Write-Host ""
 Write-Host "  [Step 2/$TotalSteps] Checking Docker Buildx..." -ForegroundColor Yellow
 Test-DockerBuildx
-Initialize-Buildx
+if ($UseDefaultBuilder) {
+    Write-Step "Using Docker's default builder." "Cyan"
+} else {
+    Initialize-Buildx
+}
 
 # Step 3: Build
 Write-Host ""
