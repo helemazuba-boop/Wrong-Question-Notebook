@@ -23,6 +23,19 @@ import {
 
 const CANDIDATE_PAGE_SIZE = 500;
 const SESSION_PAGE_SIZE = 500;
+export const WORD_PROGRESS_FILTER_BATCH_SIZE = 100;
+
+export function chunkWordProgressIds(ids: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  for (
+    let offset = 0;
+    offset < ids.length;
+    offset += WORD_PROGRESS_FILTER_BATCH_SIZE
+  ) {
+    batches.push(ids.slice(offset, offset + WORD_PROGRESS_FILTER_BATCH_SIZE));
+  }
+  return batches;
+}
 
 export class WordStudyServiceError extends Error {
   constructor(
@@ -130,18 +143,23 @@ async function collectCandidates(
       if (!entries?.length) break;
 
       const ids = entries.map((entry: any) => entry.id);
-      const { data: progressRows, error: progressError } = await supabase
-        .from('word_progress')
-        .select('word_entry_id, status, due_at')
-        .eq('user_id', userId)
-        .in('word_entry_id', ids);
-      if (progressError)
-        databaseError('collectCandidates.progress', progressError);
+      const progressRows: any[] = [];
+      // A 500-UUID PostgREST `in` filter produces a roughly 20KB request URL,
+      // exceeding Node/Undici's header limit before the response can be read.
+      // Fixed-size batches keep every request bounded while retaining the
+      // explicit user_id filter required for shared/system word decks.
+      for (const idBatch of chunkWordProgressIds(ids)) {
+        const { data: batchRows, error: progressError } = await supabase
+          .from('word_progress')
+          .select('word_entry_id, status, due_at')
+          .eq('user_id', userId)
+          .in('word_entry_id', idBatch);
+        if (progressError)
+          databaseError('collectCandidates.progress', progressError);
+        progressRows.push(...(batchRows || []));
+      }
       const progressById = new Map(
-        (progressRows || []).map((progress: any) => [
-          progress.word_entry_id,
-          progress,
-        ])
+        progressRows.map((progress: any) => [progress.word_entry_id, progress])
       );
 
       const pageCandidates: WordStudyCandidate[] = [];
