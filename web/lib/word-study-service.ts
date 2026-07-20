@@ -228,6 +228,7 @@ export async function createWordStudySession(
   deviceId: string | null,
   input: CreateWordStudySessionRequest
 ): Promise<WordStudySessionData> {
+  const startedAt = Date.now();
   const requestFingerprint = fingerprintDeviceControlRequest(input);
   const existing = await loadExistingSession(
     supabase,
@@ -236,7 +237,16 @@ export async function createWordStudySession(
     input.request_id,
     requestFingerprint
   );
-  if (existing) return existing;
+  const existingLookupAt = Date.now();
+  if (existing) {
+    logger.info('Word study session replayed', {
+      component: 'WordStudyV1',
+      action: 'createWordStudySession.replay',
+      requestId: input.request_id,
+      elapsedMs: existingLookupAt - startedAt,
+    });
+    return existing;
+  }
 
   const semantics = semanticsForWordMode(input.mode);
   const seed = input.seed || randomBytes(16).toString('hex');
@@ -261,6 +271,7 @@ export async function createWordStudySession(
   const decks = selectedDecks.filter(
     (deck): deck is (typeof visibleDecks)[number] => Boolean(deck)
   );
+  const decksLoadedAt = Date.now();
   // Sequential and dictionary are explicit browse choices and therefore show
   // the complete scope.  Only guided random may omit mastered words unless
   // the caller explicitly includes them.
@@ -288,6 +299,7 @@ export async function createWordStudySession(
       sha256: pack.sha256,
     });
   }
+  const packsReadyAt = Date.now();
 
   const { candidates, eligibleCount } = await collectCandidates(
     supabase,
@@ -299,6 +311,7 @@ export async function createWordStudySession(
     outputLimit,
     nowMs
   );
+  const candidatesReadyAt = Date.now();
   if (input.optional_count == null && eligibleCount > MAX_SESSION_CANDIDATES) {
     throw new WordStudyServiceError(
       'WORD_SCOPE_TOO_LARGE',
@@ -410,6 +423,21 @@ export async function createWordStudySession(
     await supabase.from('study_sessions').delete().eq('id', data.id);
     databaseError('createWordStudySession.ready', readyError);
   }
+  const readyAt = Date.now();
+  logger.info('Word study session prepared', {
+    component: 'WordStudyV1',
+    action: 'createWordStudySession.ready',
+    requestId: input.request_id,
+    elapsedMs: readyAt - startedAt,
+    existingLookupMs: existingLookupAt - startedAt,
+    deckLookupMs: decksLoadedAt - existingLookupAt,
+    packSnapshotMs: packsReadyAt - decksLoadedAt,
+    candidateScanMs: candidatesReadyAt - packsReadyAt,
+    persistMs: readyAt - candidatesReadyAt,
+    deckCount: decks.length,
+    eligibleCount,
+    candidateCount: allCandidateItems.length,
+  });
   return sessionDataFromRow(ready);
 }
 

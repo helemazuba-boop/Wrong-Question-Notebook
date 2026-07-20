@@ -10,6 +10,7 @@ import {
 } from '@/lib/device-control-v3';
 import { authenticateDeviceControlV3 } from '@/lib/device-control-v3-auth';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { logger } from '@/lib/logger';
 import { wordStudyErrorResponse } from '@/lib/word-study-route';
 import { createWordStudySession } from '@/lib/word-study-service';
 import {
@@ -18,6 +19,7 @@ import {
 } from '@/lib/word-study-v1';
 
 async function createSession(req: NextRequest) {
+  const startedAt = Date.now();
   let body: unknown;
   try {
     body = await readJsonBody(req);
@@ -51,6 +53,16 @@ async function createSession(req: NextRequest) {
     createWordStudySessionSuccessSchema.parse(payload);
     return createV3JsonResponse(payload);
   } catch (error) {
+    logger.warn('Word study session request failed', {
+      component: 'WordStudyV1',
+      action: 'createSession.route',
+      requestId,
+      elapsedMs: Date.now() - startedAt,
+      errorCode:
+        error instanceof Error && 'code' in error
+          ? String((error as Error & { code?: unknown }).code || '')
+          : '',
+    });
     return wordStudyErrorResponse(requestId, error);
   }
 }
