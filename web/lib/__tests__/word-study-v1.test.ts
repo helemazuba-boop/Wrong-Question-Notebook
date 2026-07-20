@@ -57,6 +57,23 @@ describe('word study v1 contract', () => {
     ).toBe(false);
   });
 
+  it.each([
+    '2026-07-20T11:42:03.123Z',
+    '2026-07-20T11:42:03.123+00:00',
+    '2026-07-20T19:42:03.123+08:00',
+  ])('accepts RFC 3339 progress timestamps from PostgreSQL: %s', dueAt => {
+    const response = fixture(
+      'fixtures/valid/observation-response.json'
+    ) as Record<string, unknown> & {
+      data: Record<string, unknown> & {
+        progress: Record<string, unknown>;
+      };
+    };
+    response.data.progress.due_at = dueAt;
+
+    expect(wordObservationSuccessSchema.safeParse(response).success).toBe(true);
+  });
+
   it('maps the three visible modes onto one stable internal semantic set', () => {
     expect(semanticsForWordMode('sequential')).toEqual({
       purpose: 'study',

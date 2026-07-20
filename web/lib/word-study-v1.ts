@@ -138,7 +138,9 @@ export const wordObservationRequestSchema = requestMetadataSchema.extend({
 export const wordProgressProjectionSchema = z
   .strictObject({
     status: z.enum(['new', 'learning', 'review', 'mastered']),
-    due_at: z.string().datetime().nullable(),
+    // PostgreSQL serializes timestamptz values with an explicit UTC offset
+    // (for example +00:00). RFC 3339 allows both that form and a trailing Z.
+    due_at: z.string().datetime({ offset: true }).nullable(),
     reviewed_count: safeCounterSchema,
     known_count: safeCounterSchema,
     unknown_count: safeCounterSchema,
