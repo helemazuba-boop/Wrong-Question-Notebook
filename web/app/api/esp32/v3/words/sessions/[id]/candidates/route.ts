@@ -21,6 +21,14 @@ async function candidatePage(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authRequestId = requestIdFromUnknown({
+    request_id: req.headers.get('X-WQN-Request-Id'),
+  });
+  const protocolError = rejectWrongV3Protocol(req, authRequestId);
+  if (protocolError) return protocolError;
+  const auth = await authenticateDeviceControlV3(req, authRequestId);
+  if (auth instanceof NextResponse) return auth;
+
   let body: unknown;
   try {
     body = await readJsonBody(req);
@@ -33,16 +41,10 @@ async function candidatePage(
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const protocolError = rejectWrongV3Protocol(req, requestId);
-  if (protocolError) return protocolError;
-
   const parsed = wordCandidatePageRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
-  const auth = await authenticateDeviceControlV3(req, requestId);
-  if (auth instanceof NextResponse) return auth;
-
   try {
     const { id } = await params;
     const data = await loadWordStudyCandidatePage(

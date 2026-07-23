@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from './database.types';
 import { fingerprintDeviceControlRequest } from './device-control-v3-idempotency';
 import { logger } from './logger';
 import {
@@ -16,7 +17,9 @@ import {
   candidatePolicyVersionForOrdering,
   semanticsForWordMode,
   WORD_CANDIDATE_PAGE_SIZE,
+  wordCandidatePageDataSchema,
   wordObservationDataSchema,
+  wordStudyOrderingSchema,
   wordStudySessionDataSchema,
   type WordCandidatePageData,
   type WordCandidatePageRequest,
@@ -26,21 +29,25 @@ import {
 } from './word-study-v1';
 
 const CANDIDATE_PAGE_SIZE = 500;
-const MAX_SESSION_CANDIDATES = 32 * 10_000;
-const CANDIDATE_INSERT_BATCH_SIZE = 500;
-export const WORD_PROGRESS_FILTER_BATCH_SIZE = 100;
+const MAX_SESSION_CANDIDATES = 500;
 
-export function chunkWordProgressIds(ids: readonly string[]): string[][] {
-  const batches: string[][] = [];
-  for (
-    let offset = 0;
-    offset < ids.length;
-    offset += WORD_PROGRESS_FILTER_BATCH_SIZE
-  ) {
-    batches.push(ids.slice(offset, offset + WORD_PROGRESS_FILTER_BATCH_SIZE));
-  }
-  return batches;
-}
+type StudySessionTransportRow = Pick<
+  Database['public']['Tables']['study_sessions']['Row'],
+  | 'id'
+  | 'domain'
+  | 'mode'
+  | 'purpose'
+  | 'ordering'
+  | 'seed'
+  | 'scope'
+  | 'optional_count'
+  | 'next_sequence'
+  | 'progress_revision'
+  | 'snapshot'
+  | 'candidate_items'
+  | 'cursor'
+  | 'has_more'
+>;
 
 export class WordStudyServiceError extends Error {
   constructor(
@@ -67,28 +74,34 @@ function databaseError(action: string, error: unknown): never {
   );
 }
 
-function sessionDataFromRow(row: any): WordStudySessionData {
+function sessionDataFromRow(
+  row: StudySessionTransportRow
+): WordStudySessionData {
+  const candidateItems = Array.isArray(row.candidate_items)
+    ? row.candidate_items.slice(0, WORD_CANDIDATE_PAGE_SIZE)
+    : row.candidate_items;
+  const ordering = wordStudyOrderingSchema.parse(row.ordering);
   return wordStudySessionDataSchema.parse({
     session_id: row.id,
     domain: row.domain,
     mode: row.mode,
     purpose: row.purpose,
-    ordering: row.ordering,
-    candidate_policy_version: candidatePolicyVersionForOrdering(row.ordering),
+    ordering,
+    candidate_policy_version: candidatePolicyVersionForOrdering(ordering),
     seed: row.seed,
     scope: row.scope,
     optional_count: row.optional_count,
     next_sequence: Number(row.next_sequence),
     progress_revision: Number(row.progress_revision || 0),
     snapshot: row.snapshot,
-    items: row.candidate_items,
+    items: candidateItems,
     ...(row.cursor ? { cursor: row.cursor } : {}),
     has_more: Boolean(row.has_more),
   });
 }
 
 async function loadExistingSession(
-  supabase: SupabaseClient<any>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   deviceId: string | null,
   requestId: string,
@@ -97,7 +110,7 @@ async function loadExistingSession(
   let query = supabase
     .from('study_sessions')
     .select(
-      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, create_fingerprint, candidates_ready, created_at'
+      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, create_fingerprint'
     )
     .eq('user_id', userId)
     .eq('create_request_id', requestId);
@@ -113,26 +126,6 @@ async function loadExistingSession(
       409
     );
   }
-  if (data && !data.candidates_ready) {
-    const createdAt = Date.parse(String(data.created_at || ''));
-    if (Number.isFinite(createdAt) && Date.now() - createdAt > 60_000) {
-      const { error: cleanupError } = await supabase
-        .from('study_sessions')
-        .delete()
-        .eq('id', data.id)
-        .eq('candidates_ready', false);
-      if (cleanupError) {
-        databaseError('loadExistingSession.cleanupIncomplete', cleanupError);
-      }
-      return null;
-    }
-    throw new WordStudyServiceError(
-      'WORD_SESSION_BUILDING',
-      'Word study session is still being prepared',
-      503,
-      true
-    );
-  }
   return data ? sessionDataFromRow(data) : null;
 }
 
@@ -143,7 +136,7 @@ function normalizeStatus(value: unknown): CandidateProgressStatus {
 }
 
 async function collectCandidates(
-  supabase: SupabaseClient<any>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   decks: Array<{ id: string }>,
   ordering: 'sequential' | 'guided_random_v1' | 'lexicographic',
@@ -154,76 +147,83 @@ async function collectCandidates(
 ): Promise<{ candidates: WordStudyCandidate[]; eligibleCount: number }> {
   let pool: WordStudyCandidate[] = [];
   let eligibleCount = 0;
+  const deckOrderById = new Map(decks.map((deck, index) => [deck.id, index]));
+  const deckIds = decks.map(deck => deck.id);
+  if (deckIds.length === 0) return { candidates: pool, eligibleCount };
 
-  for (let deckOrder = 0; deckOrder < decks.length; deckOrder += 1) {
-    const deck = decks[deckOrder];
-    for (let offset = 0; ; offset += CANDIDATE_PAGE_SIZE) {
-      const { data: entries, error } = await supabase
-        .from('word_entries')
-        .select('id, deck_id, normalized_word, sort_index')
-        .eq('deck_id', deck.id)
-        .order('sort_index', { ascending: true })
-        .order('normalized_word', { ascending: true })
-        .order('id', { ascending: true })
-        .range(offset, offset + CANDIDATE_PAGE_SIZE - 1);
-      if (error) databaseError('collectCandidates.entries', error);
-      if (!entries?.length) break;
+  for (let offset = 0; ; offset += CANDIDATE_PAGE_SIZE) {
+    // Progress is a user-scoped one-to-one projection of each entry. Fetch it
+    // through the relationship in the same paginated query rather than doing
+    // one progress query per entry page (or per 100 UUIDs).
+    const { data: entries, error } = await supabase
+      .from('word_entries')
+      .select(
+        'id, deck_id, normalized_word, sort_index, word_progress(status, due_at)'
+      )
+      .in('deck_id', deckIds)
+      .eq('word_progress.user_id', userId)
+      .order('deck_id', { ascending: true })
+      .order('sort_index', { ascending: true })
+      .order('normalized_word', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + CANDIDATE_PAGE_SIZE - 1);
+    if (error) databaseError('collectCandidates.entries', error);
+    if (!entries?.length) break;
 
-      const ids = entries.map((entry: any) => entry.id);
-      const progressRows: any[] = [];
-      // A 500-UUID PostgREST `in` filter produces a roughly 20KB request URL,
-      // exceeding Node/Undici's header limit before the response can be read.
-      // Fixed-size batches keep every request bounded while retaining the
-      // explicit user_id filter required for shared/system word decks.
-      for (const idBatch of chunkWordProgressIds(ids)) {
-        const { data: batchRows, error: progressError } = await supabase
-          .from('word_progress')
-          .select('word_entry_id, status, due_at')
-          .eq('user_id', userId)
-          .in('word_entry_id', idBatch);
-        if (progressError)
-          databaseError('collectCandidates.progress', progressError);
-        progressRows.push(...(batchRows || []));
-      }
-      const progressById = new Map(
-        progressRows.map((progress: any) => [progress.word_entry_id, progress])
-      );
-
-      const pageCandidates: WordStudyCandidate[] = [];
-      for (const entry of entries) {
-        const progress: any = progressById.get(entry.id);
-        const status = normalizeStatus(progress?.status);
-        if (!includeMastered && status === 'mastered') continue;
-        eligibleCount += 1;
-        pageCandidates.push({
-          item_id: entry.id,
-          deck_id: entry.deck_id,
-          deck_order: deckOrder,
-          sort_index: Number(entry.sort_index || 0),
-          normalized_word: entry.normalized_word || '',
-          status,
-          due_at: progress?.due_at || null,
-        });
-      }
-
-      // Keep only the best bounded prefix after each database page. Random
-      // therefore considers the complete scope without retaining it all.
-      pool = orderWordStudyCandidates(
-        [...pool, ...pageCandidates],
-        ordering,
-        seed,
-        nowMs
-      ).slice(0, outputLimit);
-
-      if (entries.length < CANDIDATE_PAGE_SIZE) break;
+    const pageCandidates: WordStudyCandidate[] = [];
+    for (const entry of entries as any[]) {
+      const progress = Array.isArray(entry.word_progress)
+        ? entry.word_progress[0]
+        : entry.word_progress;
+      const status = normalizeStatus(progress?.status);
+      if (!includeMastered && status === 'mastered') continue;
+      eligibleCount += 1;
+      pageCandidates.push({
+        item_id: entry.id,
+        deck_id: entry.deck_id,
+        deck_order: deckOrderById.get(entry.deck_id) ?? Number.MAX_SAFE_INTEGER,
+        sort_index: Number(entry.sort_index || 0),
+        normalized_word: entry.normalized_word || '',
+        status,
+        due_at: progress?.due_at || null,
+      });
     }
+
+    // Keep only the best bounded prefix after each database page. Random
+    // therefore considers the complete scope without retaining it all.
+    pool = mergeWordStudyCandidatePage(
+      pool,
+      pageCandidates,
+      ordering,
+      seed,
+      nowMs,
+      outputLimit
+    );
+
+    if (entries.length < CANDIDATE_PAGE_SIZE) break;
   }
 
   return { candidates: pool, eligibleCount };
 }
 
+export function mergeWordStudyCandidatePage(
+  pool: readonly WordStudyCandidate[],
+  pageCandidates: readonly WordStudyCandidate[],
+  ordering: 'sequential' | 'guided_random_v1' | 'lexicographic',
+  seed: string,
+  nowMs: number,
+  outputLimit: number
+): WordStudyCandidate[] {
+  return orderWordStudyCandidates(
+    [...pool, ...pageCandidates],
+    ordering,
+    seed,
+    nowMs
+  ).slice(0, outputLimit);
+}
+
 export async function createWordStudySession(
-  supabase: SupabaseClient<any>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   deviceId: string | null,
   input: CreateWordStudySessionRequest
@@ -301,25 +301,6 @@ export async function createWordStudySession(
   }
   const packsReadyAt = Date.now();
 
-  const { candidates, eligibleCount } = await collectCandidates(
-    supabase,
-    userId,
-    decks,
-    semantics.ordering,
-    seed,
-    includeMastered,
-    outputLimit,
-    nowMs
-  );
-  const candidatesReadyAt = Date.now();
-  if (input.optional_count == null && eligibleCount > MAX_SESSION_CANDIDATES) {
-    throw new WordStudyServiceError(
-      'WORD_SCOPE_TOO_LARGE',
-      'Word study scope exceeds the bounded session limit',
-      413
-    );
-  }
-
   const { data: progressChange, error: progressChangeError } = await supabase
     .from('word_change_log')
     .select('sequence')
@@ -344,6 +325,18 @@ export async function createWordStudySession(
     );
   }
 
+  const { candidates, eligibleCount } = await collectCandidates(
+    supabase,
+    userId,
+    decks,
+    semantics.ordering,
+    seed,
+    includeMastered,
+    outputLimit,
+    nowMs
+  );
+  const candidatesReadyAt = Date.now();
+
   const allCandidateItems = candidates.map((candidate, ordinal) => ({
     item_id: candidate.item_id,
     deck_id: candidate.deck_id,
@@ -351,77 +344,42 @@ export async function createWordStudySession(
   }));
   const firstPage = allCandidateItems.slice(0, WORD_CANDIDATE_PAGE_SIZE);
   const cursor = String(firstPage.length);
-  const row = {
-    user_id: userId,
-    device_id: deviceId,
-    domain: 'word',
-    mode: input.mode,
-    purpose: semantics.purpose,
-    ordering: semantics.ordering,
-    scope,
-    optional_count: input.optional_count ?? null,
-    seed,
-    snapshot,
-    candidate_ids: firstPage.map(item => item.item_id),
-    candidate_items: firstPage,
-    progress_revision: progressRevision,
-    candidate_count: allCandidateItems.length,
-    candidates_ready: false,
-    next_sequence: 0,
-    cursor,
-    has_more: firstPage.length < allCandidateItems.length,
-    create_request_id: input.request_id,
-    create_fingerprint: requestFingerprint,
-  };
-  const { data, error } = await supabase
-    .from('study_sessions')
-    .insert(row)
-    .select(
-      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, candidates_ready'
-    )
-    .single();
+  const { data, error } = await supabase.rpc('create_word_study_session_v1', {
+    p_user_id: userId,
+    p_device_id: deviceId,
+    p_domain: 'word',
+    p_mode: input.mode,
+    p_purpose: semantics.purpose,
+    p_ordering: semantics.ordering,
+    p_scope: scope,
+    p_optional_count: outputLimit,
+    p_seed: seed,
+    p_snapshot: snapshot,
+    p_candidate_items: allCandidateItems,
+    p_progress_revision: progressRevision,
+    p_cursor: cursor,
+    p_has_more: firstPage.length < allCandidateItems.length,
+    p_create_request_id: input.request_id,
+    p_create_fingerprint: requestFingerprint,
+  });
   if (error) {
-    if (error.code === '23505') {
-      const replay = await loadExistingSession(
-        supabase,
-        userId,
-        deviceId,
-        input.request_id,
-        requestFingerprint
+    const message = String(error.message || '');
+    if (message.includes('STUDY_REQUEST_ID_REUSED')) {
+      throw new WordStudyServiceError(
+        'REQUEST_ID_REUSED',
+        'Request ID was already used for another session request',
+        409
       );
-      if (replay) return replay;
+    }
+    if (message.includes('STUDY_PACK_CHANGED')) {
+      throw new WordStudyServiceError(
+        'PACK_REVISION_CHANGED',
+        'Word pack changed while the session was created',
+        409,
+        true
+      );
     }
     databaseError('createWordStudySession', error);
-  }
-  for (
-    let offset = 0;
-    offset < allCandidateItems.length;
-    offset += CANDIDATE_INSERT_BATCH_SIZE
-  ) {
-    const candidateRows = allCandidateItems
-      .slice(offset, offset + CANDIDATE_INSERT_BATCH_SIZE)
-      .map(item => ({ session_id: data.id, ...item }));
-    const { error: candidateError } = await supabase
-      .from('study_session_candidates')
-      .insert(candidateRows);
-    if (candidateError) {
-      await supabase.from('study_sessions').delete().eq('id', data.id);
-      databaseError('createWordStudySession.candidates', candidateError);
-    }
-  }
-
-  const { data: ready, error: readyError } = await supabase
-    .from('study_sessions')
-    .update({ candidates_ready: true })
-    .eq('id', data.id)
-    .eq('candidates_ready', false)
-    .select(
-      'id, domain, mode, purpose, ordering, seed, scope, optional_count, next_sequence, progress_revision, snapshot, candidate_items, cursor, has_more, candidates_ready'
-    )
-    .single();
-  if (readyError) {
-    await supabase.from('study_sessions').delete().eq('id', data.id);
-    databaseError('createWordStudySession.ready', readyError);
   }
   const readyAt = Date.now();
   logger.info('Word study session prepared', {
@@ -438,11 +396,11 @@ export async function createWordStudySession(
     eligibleCount,
     candidateCount: allCandidateItems.length,
   });
-  return sessionDataFromRow(ready);
+  return sessionDataFromRow(data);
 }
 
 export async function loadWordStudyCandidatePage(
-  supabase: SupabaseClient<any>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   deviceId: string | null,
   sessionId: string,
@@ -460,7 +418,7 @@ export async function loadWordStudyCandidatePage(
   let sessionQuery = supabase
     .from('study_sessions')
     .select(
-      'id, ordering, seed, snapshot, progress_revision, candidate_count, candidates_ready, status'
+      'id, ordering, seed, snapshot, progress_revision, candidate_items, candidate_count, status, expires_at'
     )
     .eq('id', sessionId)
     .eq('user_id', userId);
@@ -478,15 +436,7 @@ export async function loadWordStudyCandidatePage(
       404
     );
   }
-  if (!session.candidates_ready) {
-    throw new WordStudyServiceError(
-      'WORD_SESSION_BUILDING',
-      'Word study session is still being prepared',
-      503,
-      true
-    );
-  }
-  if (session.status !== 'active' && session.status !== 'paused') {
+  if (!isWordStudySessionSnapshotReadable(session.status, session.expires_at)) {
     throw new WordStudyServiceError(
       'SESSION_NOT_ACTIVE',
       'Word study session is not active',
@@ -503,25 +453,24 @@ export async function loadWordStudyCandidatePage(
     );
   }
   const limit = input.limit ?? WORD_CANDIDATE_PAGE_SIZE;
-  const { data: rows, error: candidateError } = await supabase
-    .from('study_session_candidates')
-    .select('item_id, deck_id, ordinal')
-    .eq('session_id', sessionId)
-    .gte('ordinal', cursor)
-    .order('ordinal', { ascending: true })
-    .limit(limit);
-  if (candidateError) {
-    databaseError('loadWordStudyCandidatePage.candidates', candidateError);
+  if (!Array.isArray(session.candidate_items)) {
+    throw new WordStudyServiceError(
+      'WORD_SESSION_SNAPSHOT_INCOMPLETE',
+      'Word study candidate snapshot is invalid',
+      503,
+      true
+    );
   }
-
-  const items = (rows || []).map((item: any) => ({
-    item_id: item.item_id,
-    deck_id: item.deck_id,
-    ordinal: Number(item.ordinal),
-  }));
+  const items = session.candidate_items
+    .slice(cursor, cursor + limit)
+    .map((item: any) => ({
+      item_id: item.item_id,
+      deck_id: item.deck_id,
+      ordinal: Number(item.ordinal),
+    }));
   if (
     items.some(
-      (item, index) =>
+      (item: { ordinal: number }, index: number) =>
         !Number.isSafeInteger(item.ordinal) || item.ordinal !== cursor + index
     ) ||
     (cursor < candidateCount && items.length === 0)
@@ -534,12 +483,11 @@ export async function loadWordStudyCandidatePage(
     );
   }
   const nextCursor = cursor + items.length;
-  return {
+  const ordering = wordStudyOrderingSchema.parse(session.ordering);
+  return wordCandidatePageDataSchema.parse({
     session_id: session.id,
-    ordering: session.ordering,
-    candidate_policy_version: candidatePolicyVersionForOrdering(
-      session.ordering
-    ),
+    ordering,
+    candidate_policy_version: candidatePolicyVersionForOrdering(ordering),
     seed: session.seed,
     snapshot: session.snapshot,
     progress_revision: Number(session.progress_revision || 0),
@@ -547,11 +495,22 @@ export async function loadWordStudyCandidatePage(
     next_cursor: String(nextCursor),
     items,
     has_more: nextCursor < candidateCount,
-  };
+  });
+}
+
+export function isWordStudySessionSnapshotReadable(
+  status: string,
+  expiresAt: string,
+  now = Date.now()
+): boolean {
+  return (
+    (status === 'active' || status === 'paused' || status === 'abandoned') &&
+    Date.parse(expiresAt) > now
+  );
 }
 
 export async function recordWordStudyObservation(
-  supabase: SupabaseClient<any>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   deviceId: string | null,
   input: WordObservationRequest
@@ -576,10 +535,18 @@ export async function recordWordStudyObservation(
         409
       );
     }
-    if (message.includes('STUDY_SEQUENCE_OUT_OF_ORDER')) {
+    if (message.includes('STUDY_SEQUENCE_GAP')) {
       throw new WordStudyServiceError(
-        'SEQUENCE_OUT_OF_ORDER',
-        'Observation sequence is out of order',
+        'SEQUENCE_GAP',
+        'An earlier observation is still pending',
+        409,
+        true
+      );
+    }
+    if (message.includes('STUDY_SEQUENCE_ALREADY_APPLIED')) {
+      throw new WordStudyServiceError(
+        'SEQUENCE_ALREADY_APPLIED',
+        'Observation sequence was already applied',
         409
       );
     }
@@ -620,6 +587,84 @@ export async function recordWordStudyObservation(
       component: 'WordStudyV1',
       action: 'recordWordStudyObservation.parse',
     });
+    throw new WordStudyServiceError(
+      'INVALID_STUDY_RESULT',
+      'Word study service returned invalid data',
+      503,
+      true
+    );
+  }
+  return parsed.data;
+}
+
+export async function skipWordStudyObservation(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  deviceId: string | null,
+  input: WordObservationRequest
+) {
+  const { data, error } = await supabase.rpc('skip_study_observation_v1', {
+    p_user_id: userId,
+    p_device_id: deviceId,
+    p_request_id: input.request_id,
+    p_session_id: input.session_id,
+    p_sequence: input.sequence,
+    p_item_id: input.item_id,
+    p_action: input.action,
+    p_mode: input.mode,
+    p_occurred_at: input.occurred_at,
+  });
+  if (error) {
+    const message = String(error.message || '');
+    if (message.includes('STUDY_REQUEST_ID_REUSED')) {
+      throw new WordStudyServiceError(
+        'REQUEST_ID_REUSED',
+        'Request ID was already used for another observation',
+        409
+      );
+    }
+    if (message.includes('STUDY_SEQUENCE_GAP')) {
+      throw new WordStudyServiceError(
+        'SEQUENCE_GAP',
+        'An earlier observation is still pending',
+        409,
+        true
+      );
+    }
+    if (message.includes('STUDY_SEQUENCE_ALREADY_APPLIED')) {
+      throw new WordStudyServiceError(
+        'SEQUENCE_ALREADY_APPLIED',
+        'Observation sequence was already applied',
+        409
+      );
+    }
+    if (message.includes('STUDY_SESSION_NOT_ACTIVE')) {
+      throw new WordStudyServiceError(
+        'SESSION_NOT_ACTIVE',
+        'Study session is not active',
+        409
+      );
+    }
+    if (message.includes('STUDY_SESSION_ACTOR_MISMATCH')) {
+      throw new WordStudyServiceError(
+        'SESSION_ACTOR_MISMATCH',
+        'Study session belongs to another actor',
+        403
+      );
+    }
+    databaseError('skipWordStudyObservation', error);
+  }
+
+  const parsed = wordObservationDataSchema.safeParse(data);
+  if (!parsed.success) {
+    logger.error(
+      'Word study skip RPC returned an invalid result',
+      parsed.error,
+      {
+        component: 'WordStudyV1',
+        action: 'skipWordStudyObservation.parse',
+      }
+    );
     throw new WordStudyServiceError(
       'INVALID_STUDY_RESULT',
       'Word study service returned invalid data',

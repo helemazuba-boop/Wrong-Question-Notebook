@@ -22,7 +22,6 @@ import {
   createWordDeck,
   addWordEntryToDeck,
   searchWords,
-  recordWordReview,
 } from '@/lib/words';
 import { createServiceClient } from '@/lib/supabase-utils';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
@@ -71,8 +70,6 @@ function safeDisplay(name: string): string {
       return 'Adding word';
     case 'search_words':
       return 'Searching words';
-    case 'record_word_review':
-      return 'Recording review';
     default:
       return 'Tool: ' + (name || 'unnamed');
   }
@@ -197,22 +194,6 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
             limit: typeof args.limit === 'number' ? args.limit : undefined,
           });
           return { ok: true, display: safeDisplay(name) };
-        }
-        case 'record_word_review': {
-          const outcome =
-            args.outcome === 'known' ||
-            args.outcome === 'unknown' ||
-            args.outcome === 'skip'
-              ? args.outcome
-              : 'skip';
-          const r = await recordWordReview(toolCtx, {
-            word_entry_id: String(args.word_entry_id || ''),
-            outcome,
-            mode:
-              (args.mode as 'sequential' | 'random' | 'dictionary') ||
-              undefined,
-          });
-          return { ok: true, display: 'Review recorded', action: r.action };
         }
         default:
           return { ok: false, display: 'Unknown tool: ' + (name || 'unnamed') };

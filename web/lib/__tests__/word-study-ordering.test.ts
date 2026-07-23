@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import {
+  compareUtf8Text,
   guidedRandomHashHex,
   orderWordStudyCandidates,
   type WordStudyCandidate,
@@ -35,6 +36,31 @@ const candidates: WordStudyCandidate[] = fixture.candidates.map(candidate => ({
 }));
 
 describe('word study ordering', () => {
+  it('matches firmware UTF-8 byte ordering for supplementary characters', () => {
+    const bmpPrivateUse = '\uE000';
+    const supplementary = '\u{10000}';
+    expect(compareUtf8Text(bmpPrivateUse, supplementary)).toBeLessThan(0);
+    expect(
+      orderWordStudyCandidates(
+        [
+          {
+            ...candidates[0],
+            item_id: 'bmp',
+            normalized_word: bmpPrivateUse,
+          },
+          {
+            ...candidates[1],
+            item_id: 'supplementary',
+            normalized_word: supplementary,
+          },
+        ],
+        'lexicographic',
+        fixture.seed,
+        Date.parse(fixture.now)
+      ).map(candidate => candidate.item_id)
+    ).toEqual(['bmp', 'supplementary']);
+  });
+
   it('matches the language-neutral FNV-1a-64 fixture', () => {
     for (const candidate of candidates) {
       expect(guidedRandomHashHex(fixture.seed, candidate.item_id)).toBe(

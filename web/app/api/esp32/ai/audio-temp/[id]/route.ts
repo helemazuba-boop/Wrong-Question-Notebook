@@ -3,6 +3,7 @@ import {
   AudioStagingError,
   readStagedEsp32AiAudioFile,
 } from '@/lib/esp32-ai-audio-staging';
+import { logger } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,13 @@ export async function GET(
       audio.byteOffset + audio.byteLength
     ) as ArrayBuffer;
 
+    logger.info('ESP32 AI temporary WAV downloaded', {
+      component: 'Esp32AiAudioStaging',
+      audioId: id,
+      wavBytes: audio.byteLength,
+      userAgent: (req.headers.get('user-agent') || '').slice(0, 160),
+    });
+
     return new NextResponse(body, {
       status: 200,
       headers: {
@@ -30,6 +38,12 @@ export async function GET(
     });
   } catch (error) {
     if (error instanceof AudioStagingError) {
+      logger.warn('ESP32 AI temporary WAV download rejected', {
+        component: 'Esp32AiAudioStaging',
+        audioId: id,
+        code: error.code,
+        status: error.status,
+      });
       return NextResponse.json(
         {
           success: false,
@@ -41,6 +55,11 @@ export async function GET(
         { status: error.status }
       );
     }
+
+    logger.error('ESP32 AI temporary WAV download failed', error, {
+      component: 'Esp32AiAudioStaging',
+      audioId: id,
+    });
 
     return NextResponse.json(
       {

@@ -103,6 +103,14 @@ begin
     return coalesce(new, old);
   end if;
 
+  -- auth.users is deleted before cascading public rows. Do not let a
+  -- best-effort tombstone block account deletion on its user_id foreign key.
+  if v_user_id is not null and not exists (
+    select 1 from auth.users u where u.id = v_user_id
+  ) then
+    v_user_id := null;
+  end if;
+
   insert into public.word_change_log (
     user_id,
     deck_id,

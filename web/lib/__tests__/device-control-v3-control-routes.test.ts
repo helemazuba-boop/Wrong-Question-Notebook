@@ -50,6 +50,21 @@ function request(path: string, body: Record<string, unknown>) {
   });
 }
 
+function malformedRequest(path: string, requestId: string) {
+  return new NextRequest(`http://localhost${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${'a'.repeat(64)}`,
+      'content-type': 'application/json',
+      'user-agent': 'vitest-device-control-v3',
+      'x-forwarded-for': '127.0.0.1',
+      'x-wqn-protocol': '3',
+      'x-wqn-request-id': requestId,
+    },
+    body: '{',
+  });
+}
+
 function metadata(requestId: string) {
   return {
     request_id: requestId,
@@ -243,5 +258,26 @@ describe('device-control v3 authenticated routes', () => {
     expect(mockLoadReplay).not.toHaveBeenCalled();
     expect(mockFrom).not.toHaveBeenCalled();
     expect(mockStoreResponse).not.toHaveBeenCalled();
+  });
+
+  it('authenticates before parsing a malformed body', async () => {
+    mockAuthenticate.mockResolvedValue(
+      NextResponse.json(
+        {
+          ok: false,
+          request_id: 'req_sync_malformed',
+          error: { code: 'UNAUTHORIZED', retryable: false },
+        },
+        { status: 401 }
+      )
+    );
+
+    const response = await sync(
+      malformedRequest('/api/esp32/v3/sync', 'req_sync_malformed')
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });

@@ -46,7 +46,6 @@ const TOOL_NAMES = [
   'create_word_deck',
   'add_word_to_deck',
   'search_words',
-  'record_word_review',
 ] as const;
 
 const BodySchema = z.object({

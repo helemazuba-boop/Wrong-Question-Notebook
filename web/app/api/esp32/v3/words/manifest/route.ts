@@ -19,6 +19,14 @@ import {
 } from '@/lib/word-study-v1';
 
 async function manifest(req: NextRequest) {
+  const authRequestId = requestIdFromUnknown({
+    request_id: req.headers.get('X-WQN-Request-Id'),
+  });
+  const protocolError = rejectWrongV3Protocol(req, authRequestId);
+  if (protocolError) return protocolError;
+  const auth = await authenticateDeviceControlV3(req, authRequestId);
+  if (auth instanceof NextResponse) return auth;
+
   let body: unknown;
   try {
     body = await readJsonBody(req);
@@ -31,9 +39,6 @@ async function manifest(req: NextRequest) {
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const protocolError = rejectWrongV3Protocol(req, requestId);
-  if (protocolError) return protocolError;
-
   const parsed = wordManifestRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
@@ -42,9 +47,6 @@ async function manifest(req: NextRequest) {
   if (!Number.isSafeInteger(cursor)) {
     return createV3Error(requestId, 400, 'INVALID_CURSOR', false);
   }
-  const auth = await authenticateDeviceControlV3(req, requestId);
-  if (auth instanceof NextResponse) return auth;
-
   try {
     const data = await loadWordStudyManifest(
       createServiceClient(),

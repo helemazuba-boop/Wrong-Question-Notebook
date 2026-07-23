@@ -312,33 +312,18 @@ async function pruneOldReadyPacks(
   supabase: SupabaseClient<any>,
   deckId: string
 ): Promise<void> {
-  const { data, error } = await supabase
-    .from('word_packs')
-    .select('id, storage_path')
-    .eq('deck_id', deckId)
-    .eq('schema_version', WORD_PACK_SCHEMA_VERSION)
-    .eq('status', 'ready')
-    .order('revision', { ascending: false })
-    .order('updated_at', { ascending: false })
-    .range(2, 101);
+  const { data, error } = await supabase.rpc('prune_word_packs_v1', {
+    p_deck_id: deckId,
+  });
   if (error) databaseError('pruneOldReadyPacks.lookup', error);
   if (!data?.length) return;
 
-  const { error: staleError } = await supabase
-    .from('word_packs')
-    .update({ status: 'stale' })
-    .in(
-      'id',
-      data.map(pack => pack.id)
-    );
-  if (staleError) databaseError('pruneOldReadyPacks.markStale', staleError);
-
   const { error: removeError } = await supabase.storage
     .from(WORD_PACK_BUCKET)
-    .remove(data.map(pack => pack.storage_path));
+    .remove(data.map((pack: { storage_path: string }) => pack.storage_path));
   if (removeError) {
-    // Stale rows can no longer be downloaded. Object deletion is best effort
-    // and can be retried without weakening the two-revision visibility bound.
+    // The database has already hidden these unpinned revisions. Object deletion
+    // is best effort and can be retried independently.
     logger.warn('Failed to remove stale word pack objects', {
       component: 'WordPacks',
       action: 'pruneOldReadyPacks.remove',

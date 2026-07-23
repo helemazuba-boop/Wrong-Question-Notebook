@@ -20,6 +20,14 @@ import {
 
 async function createSession(req: NextRequest) {
   const startedAt = Date.now();
+  const authRequestId = requestIdFromUnknown({
+    request_id: req.headers.get('X-WQN-Request-Id'),
+  });
+  const protocolError = rejectWrongV3Protocol(req, authRequestId);
+  if (protocolError) return protocolError;
+  const auth = await authenticateDeviceControlV3(req, authRequestId);
+  if (auth instanceof NextResponse) return auth;
+
   let body: unknown;
   try {
     body = await readJsonBody(req);
@@ -32,16 +40,10 @@ async function createSession(req: NextRequest) {
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const protocolError = rejectWrongV3Protocol(req, requestId);
-  if (protocolError) return protocolError;
-
   const parsed = createWordStudySessionRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
-  const auth = await authenticateDeviceControlV3(req, requestId);
-  if (auth instanceof NextResponse) return auth;
-
   try {
     const data = await createWordStudySession(
       createServiceClient(),

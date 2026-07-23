@@ -11,13 +11,13 @@ import {
 import { authenticateDeviceControlV3 } from '@/lib/device-control-v3-auth';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { wordStudyErrorResponse } from '@/lib/word-study-route';
-import { recordWordStudyObservation } from '@/lib/word-study-service';
+import { skipWordStudyObservation } from '@/lib/word-study-service';
 import {
   wordObservationRequestSchema,
   wordObservationSuccessSchema,
 } from '@/lib/word-study-v1';
 
-async function recordObservation(req: NextRequest) {
+async function skipObservation(req: NextRequest) {
   const authRequestId = requestIdFromUnknown({
     request_id: req.headers.get('X-WQN-Request-Id'),
   });
@@ -43,7 +43,7 @@ async function recordObservation(req: NextRequest) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
   try {
-    const data = await recordWordStudyObservation(
+    const data = await skipWordStudyObservation(
       createServiceClient(),
       auth.userId,
       auth.deviceId,
@@ -57,7 +57,7 @@ async function recordObservation(req: NextRequest) {
   }
 }
 
-export const POST = withV3Security(recordObservation, {
+export const POST = withV3Security(skipObservation, {
   rateLimitType: 'api',
   rateLimitKey: 'ip',
   enableRequestValidation: false,

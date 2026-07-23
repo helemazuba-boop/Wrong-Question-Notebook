@@ -1000,6 +1000,194 @@ export type Database = {
         };
         Relationships: [];
       };
+      study_observations: {
+        Row: {
+          action: string;
+          created_at: string;
+          device_id: string | null;
+          id: string;
+          item_id: string;
+          mode: string;
+          occurred_at: string;
+          request_id: string;
+          result: Json;
+          sequence: number;
+          session_id: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          item_id: string;
+          mode: string;
+          occurred_at: string;
+          request_id: string;
+          result: Json;
+          sequence: number;
+          session_id: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          item_id?: string;
+          mode?: string;
+          occurred_at?: string;
+          request_id?: string;
+          result?: Json;
+          sequence?: number;
+          session_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'study_observations_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'study_observations_session_id_fkey';
+            columns: ['session_id'];
+            isOneToOne: false;
+            referencedRelation: 'study_sessions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      study_sessions: {
+        Row: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          candidate_count?: number;
+          candidate_items?: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at?: string;
+          cursor?: string | null;
+          device_id?: string | null;
+          domain: string;
+          ended_at?: string | null;
+          expires_at?: string;
+          has_more?: boolean;
+          id?: string;
+          last_activity_at?: string;
+          mode: string;
+          next_sequence?: number;
+          optional_count?: number | null;
+          ordering: string;
+          progress_revision?: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot?: Json;
+          started_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          candidate_count?: number;
+          candidate_items?: Json;
+          create_fingerprint?: string;
+          create_request_id?: string;
+          created_at?: string;
+          cursor?: string | null;
+          device_id?: string | null;
+          domain?: string;
+          ended_at?: string | null;
+          expires_at?: string;
+          has_more?: boolean;
+          id?: string;
+          last_activity_at?: string;
+          mode?: string;
+          next_sequence?: number;
+          optional_count?: number | null;
+          ordering?: string;
+          progress_revision?: number;
+          purpose?: string;
+          scope?: Json;
+          seed?: string;
+          snapshot?: Json;
+          started_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'study_sessions_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_change_log: {
+        Row: {
+          created_at: string;
+          deck_id: string;
+          entity_id: string;
+          entity_kind: string;
+          operation: string;
+          payload: Json;
+          sequence: number;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          deck_id: string;
+          entity_id: string;
+          entity_kind: string;
+          operation: string;
+          payload?: Json;
+          sequence?: never;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          deck_id?: string;
+          entity_id?: string;
+          entity_kind?: string;
+          operation?: string;
+          payload?: Json;
+          sequence?: never;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
       word_deck_ai_access: {
         Row: {
           can_create: boolean;
@@ -2041,6 +2229,59 @@ export type Database = {
       };
     };
     Functions: {
+      create_word_study_session_v1: {
+        Args: {
+          p_candidate_items: Json;
+          p_create_fingerprint: string;
+          p_create_request_id: string;
+          p_cursor: string;
+          p_device_id: string | null;
+          p_domain: string;
+          p_has_more: boolean;
+          p_mode: string;
+          p_optional_count: number;
+          p_ordering: string;
+          p_progress_revision: number;
+          p_purpose: string;
+          p_scope: Json;
+          p_seed: string;
+          p_snapshot: Json;
+          p_user_id: string;
+        };
+        Returns: Database['public']['Tables']['study_sessions']['Row'];
+      };
+      prune_word_packs_v1: {
+        Args: { p_deck_id: string };
+        Returns: { id: string; storage_path: string }[];
+      };
+      record_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string | null;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      skip_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string | null;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       approve_device_claim_v3: {
         Args: {
           p_access_token_hash: string;

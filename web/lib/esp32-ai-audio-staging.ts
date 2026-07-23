@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { logger } from './logger';
 
 export type AudioStagingErrorCode =
   'disabled' | 'not_found' | 'invalid_signature' | 'expired';
@@ -40,6 +41,15 @@ export interface StagedEsp32AiAudio {
   cleanup: () => Promise<void>;
 }
 
+export interface PcmS16leDiagnostics {
+  pcmBytes: number;
+  sampleCount: number;
+  sampleDurationMs: number;
+  peak: number;
+  rms: number;
+  zeroSampleRatio: number;
+}
+
 const DEFAULT_TMP_DIR = join(tmpdir(), 'wqn-esp32-ai-audio');
 const AUDIO_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -58,6 +68,42 @@ function getSigningSecret(): string {
 
 function writeAscii(buffer: Buffer, offset: number, value: string) {
   buffer.write(value, offset, value.length, 'ascii');
+}
+
+export function analyzePcmS16le(
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number
+): PcmS16leDiagnostics {
+  const pcm = Buffer.from(audio);
+  const sampleCount = Math.floor(pcm.byteLength / 2);
+  const frameCount = channels > 0 ? Math.floor(sampleCount / channels) : 0;
+  let peak = 0;
+  let sumSquares = 0;
+  let zeroSamples = 0;
+
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = pcm.readInt16LE(index * 2);
+    const absolute = Math.abs(sample);
+    if (absolute > peak) peak = absolute;
+    if (sample === 0) zeroSamples += 1;
+    sumSquares += sample * sample;
+  }
+
+  return {
+    pcmBytes: pcm.byteLength,
+    sampleCount,
+    sampleDurationMs:
+      sampleRate > 0
+        ? Math.round((frameCount / sampleRate) * 1_000_000) / 1_000
+        : 0,
+    peak,
+    rms: sampleCount > 0 ? Math.round(Math.sqrt(sumSquares / sampleCount)) : 0,
+    zeroSampleRatio:
+      sampleCount > 0
+        ? Math.round((zeroSamples / sampleCount) * 1_000_000) / 1_000_000
+        : 0,
+  };
 }
 
 export function pcmS16leToWavBuffer(
@@ -164,6 +210,20 @@ export async function stageEsp32AiAudioFile(
   await mkdir(getTmpDir(), { recursive: true });
   await cleanupExpiredAudioFiles();
   await writeFile(filePath, wav, { flag: 'wx' });
+
+  const diagnostics = analyzePcmS16le(
+    input.audio,
+    input.sampleRate,
+    input.channels
+  );
+  logger.info('ESP32 AI temporary WAV staged', {
+    component: 'Esp32AiAudioStaging',
+    audioId: id,
+    wavBytes: wav.byteLength,
+    pcmBytes: diagnostics.pcmBytes,
+    sampleDurationMs: diagnostics.sampleDurationMs,
+    expiresAtMs,
+  });
 
   const url = new URL(`/api/esp32/ai/audio-temp/${id}`, publicBaseUrl);
   url.searchParams.set('expires', String(expiresAtMs));

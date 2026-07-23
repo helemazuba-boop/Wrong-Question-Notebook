@@ -48,8 +48,25 @@ export function guidedRandomBucket(
   return candidate.status === 'learning' ? 0 : 1;
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+/**
+ * The firmware orders text with std::string/strcmp, i.e. by UTF-8 bytes.
+ * TextEncoder makes the cloud comparator explicit and avoids JavaScript's
+ * UTF-16 code-unit ordering for supplementary-plane characters.
+ */
+export function compareUtf8Text(left: string, right: string): number {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  const length = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftBytes[index] !== rightBytes[index]) {
+      return leftBytes[index] < rightBytes[index] ? -1 : 1;
+    }
+  }
+  return leftBytes.length === rightBytes.length
+    ? 0
+    : leftBytes.length < rightBytes.length
+      ? -1
+      : 1;
 }
 
 export function orderWordStudyCandidates(
@@ -66,21 +83,21 @@ export function orderWordStudyCandidates(
       const leftHash = guidedRandomHash(seed, left.item_id);
       const rightHash = guidedRandomHash(seed, right.item_id);
       if (leftHash !== rightHash) return leftHash < rightHash ? -1 : 1;
-      return compareText(left.item_id, right.item_id);
+      return compareUtf8Text(left.item_id, right.item_id);
     }
 
     if (ordering === 'lexicographic') {
-      const word = compareText(left.normalized_word, right.normalized_word);
+      const word = compareUtf8Text(left.normalized_word, right.normalized_word);
       if (word !== 0) return word;
-      return compareText(left.item_id, right.item_id);
+      return compareUtf8Text(left.item_id, right.item_id);
     }
 
     const deck = left.deck_order - right.deck_order;
     if (deck !== 0) return deck;
     const sortIndex = left.sort_index - right.sort_index;
     if (sortIndex !== 0) return sortIndex;
-    const word = compareText(left.normalized_word, right.normalized_word);
+    const word = compareUtf8Text(left.normalized_word, right.normalized_word);
     if (word !== 0) return word;
-    return compareText(left.item_id, right.item_id);
+    return compareUtf8Text(left.item_id, right.item_id);
   });
 }

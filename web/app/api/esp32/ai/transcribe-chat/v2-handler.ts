@@ -11,6 +11,10 @@ import { createSseResponse, SseWriter } from '@/lib/ai-stream';
 import { runStreamingPipeline } from '@/lib/sse-pipeline';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
 import { logger } from '@/lib/logger';
+import {
+  getEsp32AiAsrSelection,
+  type Esp32AiAsrProvider,
+} from '@/lib/esp32-ai-asr-selection';
 import { buildAiToolExecutor } from './v2-tools';
 
 export const RUNTIME_TAG = 'nodejs';
@@ -34,7 +38,8 @@ export interface V2RuntimeConfig {
   audioUrlTtlMs: number;
   publicBaseUrl: string;
   systemPrompt: string;
-  asrProvider: 'dashscope' | 'stepfun';
+  asrProvider: Esp32AiAsrProvider;
+  asrFallbackProvider: Esp32AiAsrProvider | null;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -57,6 +62,10 @@ const DEFAULT_STEPFUN_ASR_URL = 'https://api.stepfun.com/v1/audio/asr/sse';
 const DEFAULT_STEPFUN_ASR_MODEL = 'stepaudio-2.5-asr';
 
 function loadV2RuntimeConfig(): V2RuntimeConfig {
+  const asrSelection = getEsp32AiAsrSelection();
+  if (!asrSelection) {
+    throw new Error('Invalid ESP32 AI ASR provider selection');
+  }
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
   const baseUrl = (
     process.env.DASHSCOPE_OPENAI_BASE_URL || DEFAULT_BASE_URL
@@ -116,10 +125,8 @@ function loadV2RuntimeConfig(): V2RuntimeConfig {
     systemPrompt:
       process.env.WQN_ESP32_AI_SYSTEM_PROMPT ||
       'You are a learning assistant on a WQN e-ink notebook.',
-    asrProvider:
-      process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
-        ? 'stepfun'
-        : 'dashscope',
+    asrProvider: asrSelection.primary,
+    asrFallbackProvider: asrSelection.fallback,
     stepfunApiKey: (process.env.STEPFUN_API_KEY || '').trim(),
     stepfunAsrUrl: (
       process.env.STEPFUN_ASR_URL || DEFAULT_STEPFUN_ASR_URL
@@ -210,6 +217,7 @@ export async function handleV2Streaming(
         systemPrompt: resolvedConfig.systemPrompt,
         toolExecutor: toolExecutor,
         asrProvider: resolvedConfig.asrProvider,
+        asrFallbackProvider: resolvedConfig.asrFallbackProvider,
         stepfunApiKey: resolvedConfig.stepfunApiKey,
         stepfunAsrUrl: resolvedConfig.stepfunAsrUrl,
         stepfunAsrModel: resolvedConfig.stepfunAsrModel,
@@ -218,8 +226,8 @@ export async function handleV2Streaming(
         stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
       });
     } catch (error) {
-      logger.error('v2-streaming pipeline failed', {
-        message: error instanceof Error ? error.message : String(error),
+      logger.error('v2-streaming pipeline failed', error, {
+        component: 'Esp32AiTranscribeChat',
       });
     }
   });

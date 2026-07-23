@@ -20,7 +20,7 @@ All three modes render the same word card. Looking a word up does not by itself
 mutate learning progress. Only explicit `known` and `unknown` observations do so;
 `shown`, `revealed`, `skipped`, and `looked_up` remain append-only history.
 Stopping or pausing a session is not a failure and there is no compulsory daily
-target. A count, when supplied, is an optional session bound.
+target. Every session declares a count bound and can contain at most 500 items.
 
 `guided_random_v1` is deterministic for the same candidate snapshot and seed.
 It places due learning words, due review words, new words, not-yet-due words,
@@ -37,6 +37,11 @@ or rendered.
 - `StudyObservation` is append-only. The server deduplicates by
   `user_id + request_id` and serializes observations by
   `session_id + sequence`.
+- Device timestamps are clamped to `2000-01-01..server now`. Every observation
+  is retained, while only one newer than `last_reviewed_at` updates projections;
+  the response reports this with `projection_applied`.
+- Creating a session retires the previous active/paused session for the same
+  actor and mode. Sessions expire after 30 days and then stop pinning packs.
 - The database RPC is the transaction boundary for observation, progress, the
   legacy review-event projection, and the wrong-word projection.
 - Firmware will use a bounded durable outbox in W4. W0-W3 establish the wire,
@@ -48,11 +53,14 @@ or rendered.
 ## Fixed limits
 
 - JSON counters: `0..9007199254740991` (IEEE-754 exact integer range).
-- At most 32 decks and 100 candidate IDs per transport page. The default page
+- At most 500 candidates per session, 32 decks, and 100 candidate IDs per transport page. The default page
   is 32; the Note4 keeps a bounded three-page rolling window.
 - At most 10,000 entries per pack, 4 MiB per uncompressed pack, and 8 KiB per
   JSONL line on device.
 - `request_id`: 16-64 URL-safe characters; seed: 1-64 URL-safe characters.
 
 The authoritative schema and golden fixtures live in this directory. Firmware
-pins a byte-identical copy and schema hash.
+pins a byte-identical copy and schema hash. Text tie-breakers use UTF-8 byte
+order (`TextEncoder` on the cloud and `std::string`/`strcmp` semantics on the
+firmware), not JavaScript UTF-16 code-unit order; the supplementary-plane edge
+case is covered by both ordering tests.

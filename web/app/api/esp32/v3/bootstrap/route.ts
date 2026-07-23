@@ -23,6 +23,14 @@ import { createServiceClient } from '@/lib/supabase-utils';
 const ENDPOINT = 'bootstrap';
 
 async function bootstrap(req: NextRequest) {
+  const authRequestId = requestIdFromUnknown({
+    request_id: req.headers.get('X-WQN-Request-Id'),
+  });
+  const protocolError = rejectWrongV3Protocol(req, authRequestId);
+  if (protocolError) return protocolError;
+  const auth = await authenticateDeviceControlV3(req, authRequestId);
+  if (auth instanceof NextResponse) return auth;
+
   let body: unknown;
   try {
     body = await readJsonBody(req);
@@ -35,16 +43,10 @@ async function bootstrap(req: NextRequest) {
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const protocolError = rejectWrongV3Protocol(req, requestId);
-  if (protocolError) return protocolError;
-
   const parsed = bootstrapRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
-  const auth = await authenticateDeviceControlV3(req, requestId);
-  if (auth instanceof NextResponse) return auth;
-
   // A verified bearer token is the credential-delivery acknowledgement. Clear
   // the repeatable claim envelope even when this request is a replay.
   const svc = createServiceClient();

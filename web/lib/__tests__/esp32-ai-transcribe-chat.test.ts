@@ -79,6 +79,7 @@ async function configureParaformerProvider() {
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.WQN_ESP32_AI_ASR_PROVIDER;
+  delete process.env.WQN_ESP32_AI_ASR_FALLBACK_PROVIDER;
   delete process.env.WQN_ESP32_AI_CHAT_PROVIDER;
   delete process.env.WQN_ESP32_AI_TRANSCRIBE_CHAT_MOCK;
   delete process.env.WQN_ESP32_AI_PUBLIC_BASE_URL;
@@ -101,6 +102,7 @@ beforeEach(() => {
   delete process.env.DASHSCOPE_CHAT_MODEL_STD;
   delete process.env.DASHSCOPE_CHAT_MODEL_PRO;
   delete process.env.STEPFUN_API_KEY;
+  delete process.env.STEP_API_KEY;
   delete process.env.STEPFUN_ASR_URL;
   delete process.env.STEPFUN_ASR_MODEL;
   delete process.env.STEPFUN_ASR_LANGUAGE;
@@ -185,10 +187,39 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     });
   });
 
+  it('rejects audio shorter than the 1 second effective gate', async () => {
+    mockAuthenticatedDevice();
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({ 'x-wqn-audio-duration-ms': '999' })
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe('invalid_audio');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a 1 second header when the PCM body has fewer samples', async () => {
+    mockAuthenticatedDevice();
+
+    const response = await POST(
+      createAudioRequest(createValidHeaders(), Buffer.alloc(16000 * 2 - 2))
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe('invalid_audio');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('disables StepFun ASR when its API key is missing', async () => {
     mockAuthenticatedDevice();
     await configureParaformerProvider();
     process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+    process.env.STEP_API_KEY = 'flash-realtime-key-must-not-be-reused';
 
     const response = await POST(createAudioRequest(createValidHeaders()));
     const body = await response.json();
@@ -196,6 +227,45 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(response.status).toBe(503);
     expect(body.error.code).toBe('disabled');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('runs StepFun as the primary ASR provider without DashScope audio staging', async () => {
+    mockAuthenticatedDevice();
+    process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+    process.env.STEPFUN_API_KEY = 'test-stepfun-asr-key';
+    process.env.DASHSCOPE_API_KEY = 'test-chat-key';
+
+    const stepfunSse = [
+      'data: {"type":"transcript.text.done","text":"直接使用 StepFun。","meta":{"session_id":"stepfun-primary-1"}}',
+      '',
+      '',
+    ].join('\n');
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(stepfunSse));
+            controller.close();
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '已收到。' } }],
+        }),
+      });
+
+    const response = await POST(createAudioRequest(createValidHeaders()));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.asr.provider).toBe('stepfun');
+    expect(body.data.transcript).toBe('直接使用 StepFun。');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(String(mockFetch.mock.calls[0][0])).toContain('stepfun');
   });
 
   it('returns 413 when the audio body is too large', async () => {
@@ -663,7 +733,7 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(chatBody.messages[1].content).not.toContain('{transcript}');
   });
 
-  it('maps DashScope no-speech ASR tasks to no_speech', async () => {
+  it('maps SUCCESS_WITH_NO_VALID_FRAGMENT to no_speech', async () => {
     mockAuthenticatedDevice();
     await configureParaformerProvider();
     mockFetch
@@ -678,8 +748,8 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
         json: async () => ({
           output: {
             task_status: 'FAILED',
-            code: 'NO_SPEECH',
-            message: 'no speech detected',
+            code: 'SUCCESS_WITH_NO_VALID_FRAGMENT',
+            message: 'task completed without a valid fragment',
           },
         }),
       });
@@ -690,6 +760,100 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(response.status).toBe(422);
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('no_speech');
+  });
+
+  it('falls back from DashScope to StepFun for a v2 provider failure', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.WQN_ESP32_AI_ASR_FALLBACK_PROVIDER = 'stepfun';
+    process.env.STEPFUN_API_KEY = 'test-stepfun-asr-key';
+
+    const stepfunSse = [
+      'data: {"type":"transcript.text.done","text":"回退识别成功。","meta":{"session_id":"stepfun-asr-1"}}',
+      '',
+      '',
+    ].join('\n');
+    const chatSse = [
+      'data: {"id":"chat-1","choices":[{"delta":{"content":"收到。"},"finish_reason":null}]}',
+      '',
+      'data: {"id":"chat-1","choices":[{"delta":{},"finish_reason":"stop"}]}',
+      '',
+      'data: [DONE]',
+      '',
+      '',
+    ].join('\n');
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(stepfunSse));
+            controller.close();
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(chatSse));
+            controller.close();
+          },
+        }),
+      });
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({ 'x-wqn-protocol': 'v2-streaming' })
+      )
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"stage":"asr_fallback"');
+    expect(body).toContain('"provider":"stepfun"');
+    expect(body).toContain('event: final');
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not fall back for v2 SUCCESS_WITH_NO_VALID_FRAGMENT', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.WQN_ESP32_AI_ASR_FALLBACK_PROVIDER = 'stepfun';
+    process.env.STEPFUN_API_KEY = 'test-stepfun-asr-key';
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ output: { task_id: 'task-no-speech' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: {
+            task_status: 'FAILED',
+            code: 'SUCCESS_WITH_NO_VALID_FRAGMENT',
+          },
+        }),
+      });
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({ 'x-wqn-protocol': 'v2-streaming' })
+      )
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"error_code":"no_speech"');
+    expect(body).not.toContain('"stage":"asr_fallback"');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it('maps DashScope chat failures to model failure', async () => {

@@ -1,33 +1,78 @@
 import { describe, expect, it } from 'vitest';
 import {
-  chunkWordProgressIds,
-  WORD_PROGRESS_FILTER_BATCH_SIZE,
+  isWordStudySessionSnapshotReadable,
+  mergeWordStudyCandidatePage,
 } from '../word-study-service';
+import type { WordStudyCandidate } from '../word-study-ordering';
 
-describe('word study progress query batching', () => {
-  it('keeps a full candidate page below the PostgREST URL limit', () => {
-    const ids = Array.from(
-      { length: 500 },
-      (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`
+const candidate = (
+  item_id: string,
+  deck_order: number,
+  normalized_word: string,
+  status: WordStudyCandidate['status'] = 'new'
+): WordStudyCandidate => ({
+  item_id,
+  deck_id: String(deck_order),
+  deck_order,
+  sort_index: 0,
+  normalized_word,
+  status,
+  due_at: null,
+});
+
+describe('word study bounded candidate merge', () => {
+  it('lets a later deck win when its candidate is globally better', () => {
+    const result = mergeWordStudyCandidatePage(
+      [candidate('first', 0, 'zulu')],
+      [candidate('later', 1, 'alpha')],
+      'lexicographic',
+      'seed',
+      0,
+      1
     );
-
-    const batches = chunkWordProgressIds(ids);
-
-    expect(batches).toHaveLength(5);
-    expect(
-      batches.every(batch => batch.length <= WORD_PROGRESS_FILTER_BATCH_SIZE)
-    ).toBe(true);
-    expect(batches.flat()).toEqual(ids);
+    expect(result.map(item => item.item_id)).toEqual(['later']);
   });
 
-  it('does not create an empty trailing batch', () => {
-    expect(chunkWordProgressIds([])).toEqual([]);
+  it('preserves sequential deck priority by policy', () => {
+    const result = mergeWordStudyCandidatePage(
+      [candidate('first', 0, 'zulu')],
+      [candidate('later', 1, 'alpha')],
+      'sequential',
+      'seed',
+      0,
+      1
+    );
+    expect(result.map(item => item.item_id)).toEqual(['first']);
+  });
+});
+
+describe('word study session snapshot paging', () => {
+  const now = Date.parse('2026-07-22T00:00:00.000Z');
+
+  it('keeps an unexpired abandoned session readable', () => {
     expect(
-      chunkWordProgressIds(
-        Array.from({ length: WORD_PROGRESS_FILTER_BATCH_SIZE }, (_, index) =>
-          String(index)
-        )
+      isWordStudySessionSnapshotReadable(
+        'abandoned',
+        '2026-07-23T00:00:00.000Z',
+        now
       )
-    ).toHaveLength(1);
+    ).toBe(true);
+  });
+
+  it('rejects completed or expired snapshots', () => {
+    expect(
+      isWordStudySessionSnapshotReadable(
+        'completed',
+        '2026-07-23T00:00:00.000Z',
+        now
+      )
+    ).toBe(false);
+    expect(
+      isWordStudySessionSnapshotReadable(
+        'abandoned',
+        '2026-07-21T00:00:00.000Z',
+        now
+      )
+    ).toBe(false);
   });
 });

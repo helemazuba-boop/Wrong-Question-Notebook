@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  '42834e15766dbb046177294b30d8e21487e0c265e46679c4d5691aaef7dd144a' as const;
+  'fc87be019003d936f212fc4ec192ebbea4c9ae39bf2331ea216f696163469b65' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
@@ -70,7 +70,7 @@ export const createWordStudySessionRequestSchema = requestMetadataSchema.extend(
     domain: z.literal('word'),
     mode: wordStudyModeSchema,
     scope: wordStudyScopeSchema,
-    optional_count: z.number().int().min(1).max(500).nullable().optional(),
+    optional_count: z.number().int().min(1).max(500),
     seed: seedSchema.optional(),
   }
 );
@@ -90,7 +90,7 @@ export const wordStudySessionDataSchema = z.strictObject({
   candidate_policy_version: wordCandidatePolicyVersionSchema,
   seed: seedSchema,
   scope: wordStudyScopeSchema,
-  optional_count: z.number().int().min(1).max(500).nullable(),
+  optional_count: z.number().int().min(1).max(500),
   next_sequence: safeCounterSchema,
   progress_revision: safeCounterSchema,
   snapshot: z.array(wordPackSnapshotSchema).max(32),
@@ -154,6 +154,7 @@ export const wordObservationDataSchema = z.strictObject({
   item_id: uuidSchema,
   action: wordObservationActionSchema,
   progress: wordProgressProjectionSchema,
+  projection_applied: z.boolean(),
   replayed: z.boolean(),
 });
 

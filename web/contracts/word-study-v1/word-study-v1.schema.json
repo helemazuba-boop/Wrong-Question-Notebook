@@ -93,7 +93,8 @@
             "capabilities",
             "domain",
             "mode",
-            "scope"
+            "scope",
+            "optional_count"
           ],
           "properties": {
             "request_id": { "$ref": "#/$defs/requestId" },
@@ -118,7 +119,7 @@
             "mode": { "$ref": "#/$defs/mode" },
             "scope": { "$ref": "#/$defs/scope" },
             "optional_count": {
-              "type": ["integer", "null"],
+              "type": "integer",
               "minimum": 1,
               "maximum": 500
             },
@@ -178,7 +179,7 @@
         },
         "scope": { "$ref": "#/$defs/scope" },
         "optional_count": {
-          "type": ["integer", "null"],
+          "type": "integer",
           "minimum": 1,
           "maximum": 500
         },
@@ -393,6 +394,7 @@
         "item_id",
         "action",
         "progress",
+        "projection_applied",
         "replayed"
       ],
       "properties": {
@@ -411,6 +413,7 @@
           ]
         },
         "progress": { "$ref": "#/$defs/progressProjection" },
+        "projection_applied": { "type": "boolean" },
         "replayed": { "type": "boolean" }
       }
     },
