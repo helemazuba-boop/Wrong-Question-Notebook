@@ -34,10 +34,11 @@ IMAGE_VERSION="latest"
 # Site URL for sitemap and canonical URLs
 SITE_URL="http://localhost:3000"
 
-# Supabase (get from your Supabase project dashboard)
-NEXT_PUBLIC_SUPABASE_URL="https://your-project-id.supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="your-anon-key"
-SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+# Self-hosted Supabase
+NEXT_PUBLIC_SUPABASE_URL="https://data.helema.cn"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="sb_publishable_replace_me"
+WQN_SUPABASE_EXPECTED_HOST="data.helema.cn"
+SUPABASE_SECRET_KEY="sb_secret_replace_me"
 
 # Gemini AI (get from https://aistudio.google.com/app/apikey)
 GEMINI_API_KEY="your-gemini-api-key"
@@ -121,7 +122,8 @@ start_container() {
     SITE_URL="$SITE_URL" \
     NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY" \
-    SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+    WQN_SUPABASE_EXPECTED_HOST="$WQN_SUPABASE_EXPECTED_HOST" \
+    SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" \
     GEMINI_API_KEY="$GEMINI_API_KEY" \
     docker compose \
         -f "$WEB_DIR/$COMPOSE_FILE" \

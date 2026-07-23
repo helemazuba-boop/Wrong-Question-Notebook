@@ -46,11 +46,7 @@ interface UsersPageClientProps {
 }
 
 type SortColumn =
-  | 'created_at'
-  | 'username'
-  | 'user_role'
-  | 'is_active'
-  | 'last_login_at';
+  'created_at' | 'username' | 'user_role' | 'is_active' | 'last_login_at';
 
 export function UsersPageClient({
   initialUsers,

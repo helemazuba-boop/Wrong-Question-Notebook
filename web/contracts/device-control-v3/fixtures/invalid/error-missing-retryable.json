@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "request_id": "req_sync_000000003",
+  "error": {
+    "code": "TEMPORARILY_UNAVAILABLE"
+  }
+}

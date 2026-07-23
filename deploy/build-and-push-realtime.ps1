@@ -90,6 +90,8 @@ function Read-DotEnvFile {
                 ($value.StartsWith("'") -and $value.EndsWith("'")))
         ) {
             $value = $value.Substring(1, $value.Length - 2)
+        } else {
+            $value = ($value -replace '\s+#.*$', '').Trim()
         }
 
         $vars[$key] = $value
@@ -117,7 +119,7 @@ function Test-RequiredValues {
         "your_dashscope_api_key_here",
         "replace_with_32_byte_base64_key",
         "replace_with_long_random_secret",
-        "https://your-project-id.supabase.co",
+        "https://data.example.invalid",
         "https://your-domain.com",
         "sk-replace_me",
         "replace_with_stepfun_api_key"
@@ -477,7 +479,7 @@ Write-Host "  Done! Image available in ACR." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Pull on ECS:" -ForegroundColor Yellow
 Write-Host "    docker pull $ImageTag" -ForegroundColor White
-Write-Host "    docker run -d --name wqn-realtime --restart unless-stopped -p 127.0.0.1:8080:8080 --env-file /root/.env.production $ImageTag" -ForegroundColor White
+Write-Host "    .\deploy\deploy-realtime-remote.ps1 -Tag $Tag" -ForegroundColor White
 Write-Host ""
 Write-Host "  Verify:" -ForegroundColor Yellow
 Write-Host "    curl http://127.0.0.1:8080/health" -ForegroundColor White

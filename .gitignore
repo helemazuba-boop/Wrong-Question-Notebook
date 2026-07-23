@@ -167,6 +167,9 @@ firmware/
 # Local deploy helper cache
 deploy/.wqn-builder-config.hash
 
+# Self-hosted Supabase migration dumps and audit output contain production data
+deploy/supabase-selfhost/artifacts/
+
 # Claude
 .claude/settings.local.json
 

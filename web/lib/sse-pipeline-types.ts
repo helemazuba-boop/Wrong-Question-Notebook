@@ -18,6 +18,8 @@ export interface StreamingPipelineInput {
   tier?: string | null;
   userId?: string | null;
   deviceId?: string | null;
+  enableThinking?: boolean;
+  reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 export interface StreamingPipelineResult {
@@ -54,6 +56,7 @@ export interface OaiChatChunk {
         type?: 'function';
         function?: { name?: string; arguments?: string };
       }>;
+      reasoning_content?: string | null;
     };
     finish_reason?: string | 'stop' | 'tool_calls' | 'length' | null;
   }>;
@@ -148,12 +151,16 @@ export class PipelinePusher {
     });
   }
 
-  emitAsrComplete(text: string, asrModel: string): void {
+  emitAsrComplete(
+    text: string,
+    asrModel: string,
+    provider: 'dashscope' | 'stepfun' = 'dashscope'
+  ): void {
     this.asrStageValue = 'succeeded';
     this.writer.emit('asr.complete', {
       text,
       elapsed_ms: this.elapsedMs(),
-      asr: { provider: 'dashscope', model: asrModel },
+      asr: { provider, model: asrModel },
     });
   }
 
@@ -164,6 +171,24 @@ export class PipelinePusher {
   ): void {
     this.asrStageValue = 'failed';
     this.writer.emit('asr.failed', { error_code, stage, message });
+  }
+
+  emitThinkingStart(): void {
+    this.writer.emit('thinking.start', {});
+  }
+
+  emitThinkingDelta(delta: string): void {
+    this.writer.emit('thinking.delta', {
+      delta,
+      elapsed_ms: this.elapsedMs(),
+    });
+  }
+
+  emitThinkingDone(fullText: string): void {
+    this.writer.emit('thinking.done', {
+      full_text: fullText,
+      elapsed_ms: this.elapsedMs(),
+    });
   }
 
   openSentence(): string {

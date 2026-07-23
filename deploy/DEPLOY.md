@@ -1,5 +1,7 @@
 # WQN 最低内存占用 Standalone 部署指南
 
+> Supabase 迁移到 `data.helema.cn` 的数据库、Storage、OpenResty/Kong、密钥轮换和回滚流程见 [supabase-selfhost/README.md](./supabase-selfhost/README.md)。
+
 ## 架构概览
 
 ```
@@ -13,7 +15,7 @@
                           │
                    ┌───────▼───────┐
                    │   Supabase    │
-                   │  (云端数据库)  │
+                   │ data.helema.cn│
                    │  PostgreSQL  │
                    │   Auth       │
                    │   Storage    │
@@ -21,7 +23,8 @@
 ```
 
 **关键设计原则：**
-- 所有持久化数据存储在 Supabase 云端数据库
+
+- 所有持久化数据存储在 `data.helema.cn` 自托管 Supabase
 - 每台机器只运行一个 Docker 容器，内存严格隔离
 - 阿里云 ACR 作为镜像中转站，机器从 ACR 拉取镜像
 
@@ -30,6 +33,7 @@
 ## 系统要求
 
 ### 阿里云 ECS
+
 - 架构：**x86_64 (amd64)**
 - 内存：2GB RAM
 - 系统：Ubuntu 22.04+ / Debian 12+
@@ -57,6 +61,7 @@
 ## 第二步：在本地构建并推送镜像
 
 ### 前置条件
+
 - Windows/macOS/Linux 开发机
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) 已安装并运行
 - **Docker Desktop 设置**：勾选 `Settings → General → "Enable container images"`
@@ -120,9 +125,17 @@ Host aliyun
 docker pull <本次构建的镜像>
 docker stop wqn-app || true
 docker rm wqn-app || true
-docker run -d --name wqn-app -p 3000:3000 <本次构建的镜像>
+docker network inspect wqn-runtime || docker network create wqn-runtime
+docker run -d --name wqn-app --network wqn-runtime --network-alias wqn \
+  -p 3000:3000 <本次构建的镜像>
 docker image prune -f
 ```
+
+远程部署只会从本地配置生成主应用运行时白名单文件；
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 仅通过 BuildKit secret 参与构建，不会进入容器环境。
+Realtime 发布同样从本地配置派生独立的 `~/.env.wqn-realtime`，不会上传 ACR 凭证、
+主应用 AI key 或整份 `.env.production`。两个容器通过私有 `wqn-runtime` 网络通信，
+Realtime 的 `WQN_INTERNAL_API_BASE` 应设为 `http://wqn:3000`。
 
 可选参数：
 
@@ -130,7 +143,8 @@ docker image prune -f
 .\deploy\build-and-push.ps1 -DeployAliyun `
   -AliyunSshHost aliyun `
   -AliyunContainerName wqn-app `
-  -AliyunPortMap 3000:3000
+  -AliyunPortMap 3000:3000 `
+  -AliyunNetworkName wqn-runtime
 ```
 
 ### 验证镜像已推送
@@ -164,10 +178,11 @@ ACR_PASSWORD=your-access-key-secret
 # 镜像
 IMAGE=registry.cn-hangzhou.aliyuncs.com/your-namespace/wqn:latest
 
-# Supabase（从 Supabase 控制台获取）
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+# 自托管 Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://data.helema.cn
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=sb_publishable_xxx
+WQN_SUPABASE_EXPECTED_HOST=data.helema.cn
+SUPABASE_SECRET_KEY=sb_secret_xxx
 
 # Gemini AI（从 Google AI Studio 获取）
 GEMINI_API_KEY=your-gemini-api-key
@@ -223,9 +238,10 @@ docker run -d \
   -p 3000:3000 \
   -e NODE_ENV=production \
   -e NEXT_TELEMETRY_DISABLED=1 \
-  -e NEXT_PUBLIC_SUPABASE_URL="https://xxx.supabase.co" \
+  -e NEXT_PUBLIC_SUPABASE_URL="https://data.helema.cn" \
   -e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="xxx" \
-  -e SUPABASE_SERVICE_ROLE_KEY="xxx" \
+  -e WQN_SUPABASE_EXPECTED_HOST="data.helema.cn" \
+  -e SUPABASE_SECRET_KEY="xxx" \
   -e GEMINI_API_KEY="xxx" \
   -e SITE_URL="http://localhost:3000" \
   registry.cn-hangzhou.aliyuncs.com/your-namespace/wqn:latest
@@ -268,26 +284,29 @@ server {
 
 ## 内存占用估算
 
-| 组件 | 阿里云 ECS (2GB) |
-|------|------------------|
-| 宿主机预留 | ~600MB |
-| WQN 容器限制 | 1024MB |
-| Node.js 堆 | 512MB |
-| 共享内存 | 64MB |
-| 估算总占用 | ~1100MB |
-| **安全余量** | **~900MB** |
+| 组件         | 阿里云 ECS (2GB) |
+| ------------ | ---------------- |
+| 宿主机预留   | ~600MB           |
+| WQN 容器限制 | 1024MB           |
+| Node.js 堆   | 512MB            |
+| 共享内存     | 64MB             |
+| 估算总占用   | ~1100MB          |
+| **安全余量** | **~900MB**       |
 
 ---
 
 ## 常见问题
 
 ### Q: Docker 构建失败，提示 `node: command not found`
+
 确保在 `web/` 目录下运行构建脚本，而不是项目根目录。
 
 ### Q: 容器启动后立即退出
+
 检查日志：`docker logs wqn`，通常是环境变量缺失导致的。
 
 ### Q: 如何更新到新版本？
+
 ```bash
 # 更新镜像
 ./deploy.sh --restart   # 会自动拉取最新镜像并重启
@@ -298,16 +317,21 @@ docker compose -f docker-compose.yml up -d
 ```
 
 ### Q: 如何回滚到旧版本？
+
 使用版本标签构建不同版本：
+
 ```powershell
 .\deploy\build-and-push.ps1 ... -Tag "v1.2.3"
 ```
+
 目标机器上修改 `.env.production` 中的 `IMAGE_VERSION=v1.2.3`，然后重启。
 
 ### Q: 健康检查失败
+
 ```bash
 docker exec wqn wget -qO- http://localhost:3000/api/health
 ```
+
 确认 API 端点返回 `{"status":"ok"}`。
 
 ---

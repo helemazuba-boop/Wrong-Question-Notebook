@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "request_id": "req_claim_poll_0001",
+  "server_time_ms": 1784426403000,
+  "data": {
+    "status": "approved",
+    "sealed_credential": {
+      "server_public_key": "BBDnMwKxCsA1KvHzI0dBZKXH8nHx3oWyBzF9owKtZcV2e3ixYp0yb6M8SQrtQmReGkE_bjHgJxQkj7nJlFJvVn0",
+      "salt": "ERERERERQRGBEREREREREQ",
+      "iv": "IiIiIiIiIiIiIiIi",
+      "ciphertext": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMz"
+    }
+  }
+}

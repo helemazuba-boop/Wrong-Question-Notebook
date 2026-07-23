@@ -9,6 +9,7 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import { UpdateErrorCategorisationDto } from '@/lib/schemas';
+import type { Database } from '@/lib/database.types';
 
 async function patchCategorisation(
   req: Request,
@@ -65,9 +66,10 @@ async function patchCategorisation(
     }
 
     // Build update payload
-    const updatePayload: Record<string, unknown> = {
-      is_user_override: true,
-    };
+    const updatePayload: Database['public']['Tables']['error_categorisations']['Update'] =
+      {
+        is_user_override: true,
+      };
 
     // If this is the first override, save originals
     if (existing.original_broad_category === null) {

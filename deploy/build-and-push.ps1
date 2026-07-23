@@ -35,7 +35,10 @@ param(
     [ValidatePattern('^\d+:\d+$')]
     [string]$AliyunPortMap = "3000:3000",
 
-    [string]$AliyunEnvFile = ".env.production"
+    [string]$AliyunEnvFile = ".env.production",
+
+    [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')]
+    [string]$AliyunNetworkName = "wqn-runtime"
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +103,8 @@ function Read-DotEnvFile {
                 ($value.StartsWith("'") -and $value.EndsWith("'")))
         ) {
             $value = $value.Substring(1, $value.Length - 2)
+        } else {
+            $value = ($value -replace '\s+#.*$', '').Trim()
         }
 
         $vars[$key] = $value
@@ -161,8 +166,10 @@ function New-RuntimeEnvFileContent {
     foreach ($key in $RuntimeVarKeys) {
         $value = Get-EnvValue $key
         if ($null -ne $value) {
-            $normalized = ($value -replace "`r", "") -replace "`n", ""
-            $lines += "${key}=${normalized}"
+            if ($value -match "[`r`n]") {
+                throw "$key contains a newline and cannot be written to an env file"
+            }
+            $lines += "${key}=${value}"
         }
     }
 
@@ -431,6 +438,7 @@ function Invoke-DockerBuild {
         "--platform", "linux/amd64",
         "--builder", $BuilderName,
         "--provenance=false",
+        "--secret", "id=next_server_actions_encryption_key,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
         "--push",
         "-t", $ImageTag,
         "-f", $Dockerfile
@@ -447,6 +455,9 @@ function Invoke-DockerBuild {
         $oldLowerHttpsProxy = $env:https_proxy
         $oldNoProxy = $env:NO_PROXY
         $oldLowerNoProxy = $env:no_proxy
+        $oldServerActionsKey = $env:NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+
+        $env:NEXT_SERVER_ACTIONS_ENCRYPTION_KEY = Get-EnvValue "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY"
 
         if (-not [string]::IsNullOrWhiteSpace($script:BuildProxy)) {
             $env:HTTP_PROXY = $script:BuildProxy
@@ -472,6 +483,7 @@ function Invoke-DockerBuild {
         $env:https_proxy = $oldLowerHttpsProxy
         $env:NO_PROXY = $oldNoProxy
         $env:no_proxy = $oldLowerNoProxy
+        $env:NEXT_SERVER_ACTIONS_ENCRYPTION_KEY = $oldServerActionsKey
         Pop-Location
     }
 }
@@ -523,6 +535,7 @@ IMAGE='$ImageTag'
 CONTAINER='$AliyunContainerName'
 PORT_MAP='$AliyunPortMap'
 ENV_FILE='$remoteEnvFile'
+NETWORK='$AliyunNetworkName'
 
 printf '%s\n' '[deploy] Pulling latest image...'
 docker pull "`$IMAGE"
@@ -537,8 +550,13 @@ printf '%s\n' '[deploy] Stopping and removing old container...'
 docker stop "`$CONTAINER" || true
 docker rm "`$CONTAINER" || true
 
+printf '%s\n' '[deploy] Ensuring private runtime network...'
+docker network inspect "`$NETWORK" >/dev/null 2>&1 || docker network create "`$NETWORK"
+
 printf '%s\n' '[deploy] Starting new container...'
-docker run -d --name "`$CONTAINER" --env-file "`$ENV_FILE" -p "`$PORT_MAP" "`$IMAGE"
+docker run -d --name "`$CONTAINER" --restart unless-stopped \
+  --network "`$NETWORK" --network-alias wqn \
+  --env-file "`$ENV_FILE" -p "`$PORT_MAP" "`$IMAGE"
 
 printf '%s\n' '[deploy] Pruning unused images...'
 docker image prune -f
@@ -588,8 +606,20 @@ Test-RequiredValues -Keys @(
     "ACR_NAMESPACE",
     "ACR_REPO",
     "ACR_USERNAME",
-    "ACR_PASSWORD"
+    "ACR_PASSWORD",
+    "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY"
 )
+
+if ($DeployAliyun) {
+    Test-RequiredValues -Keys @(
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
+        "WQN_SUPABASE_EXPECTED_HOST",
+        "SUPABASE_SECRET_KEY",
+        "WQN_REALTIME_PROXY_SECRET",
+        "WQN_INTERNAL_API_ALLOWED_HOST"
+    )
+}
 
 $AcrServer = Get-EnvValue "ACR_SERVER"
 $AcrNamespace = Get-EnvValue "ACR_NAMESPACE"
@@ -604,26 +634,38 @@ $optionalBuildArgKeys = @(
     "NO_PROXY"
 )
 
-$appVarKeys = @(
+$publicBuildArgKeys = @(
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
-    "GEMINI_API_KEY",
+    "WQN_SUPABASE_EXPECTED_HOST",
     "SITE_URL"
 )
 
 $script:RuntimeVarKeys = @(
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
-    "GEMINI_API_KEY",
+    "WQN_SUPABASE_EXPECTED_HOST",
+    "SUPABASE_SECRET_KEY",
+    "NEXT_PUBLIC_APP_URL",
     "SITE_URL",
+    "CRON_SECRET",
+    "AI_PROVIDER",
+    "AI_PROVIDER_BASE_URL",
+    "AI_PROVIDER_API_KEY",
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AI_MODEL_EXTRACTION",
+    "AI_MODEL_CATEGORISATION",
+    "AI_MODEL_DIGEST",
     "WQN_ESP32_AI_ASR_PROVIDER",
     "WQN_ESP32_AI_CHAT_PROVIDER",
     "DASHSCOPE_API_KEY",
+    "DASHSCOPE_CHAT_API_KEY",
+    "DASHSCOPE_CHAT_API_KEY_STD",
+    "DASHSCOPE_CHAT_API_KEY_PRO",
     "DASHSCOPE_OPENAI_BASE_URL",
+    "DASHSCOPE_OPENAI_BASE_URL_STD",
+    "DASHSCOPE_OPENAI_BASE_URL_PRO",
     "DASHSCOPE_ASR_MODEL",
     "DASHSCOPE_ASR_TASK_URL",
     "DASHSCOPE_TASK_STATUS_BASE_URL",
@@ -631,22 +673,37 @@ $script:RuntimeVarKeys = @(
     "DASHSCOPE_ASR_POLL_INTERVAL_MS",
     "DASHSCOPE_ASR_POLL_ATTEMPTS",
     "DASHSCOPE_CHAT_MODEL",
+    "DASHSCOPE_CHAT_MODEL_STD",
+    "DASHSCOPE_CHAT_MODEL_PRO",
+    "STEPFUN_API_KEY",
+    "STEPFUN_ASR_URL",
+    "STEPFUN_ASR_MODEL",
+    "STEPFUN_ASR_LANGUAGE",
+    "STEPFUN_ASR_HOTWORDS",
+    "STEPFUN_ASR_ENABLE_ITN",
+    "WQN_ESP32_AI_SYSTEM_PROMPT",
     "WQN_ESP32_AI_PUBLIC_BASE_URL",
     "WQN_ESP32_AI_AUDIO_URL_SECRET",
     "WQN_ESP32_AI_AUDIO_TMP_DIR",
     "WQN_ESP32_AI_AUDIO_URL_TTL_MS",
-    "WQN_ESP32_AI_PROVIDER_TIMEOUT_MS"
+    "WQN_ESP32_AI_PROVIDER_TIMEOUT_MS",
+    "WQN_ESP32_AI_LLM_TIMEOUT_MS",
+    "WQN_ESP32_AI_ASR_TIMEOUT_MS",
+    "WQN_ESP32_AI_STREAM_EVENT_ID_BASE",
+    "WQN_REALTIME_PROXY_SECRET",
+    "WQN_INTERNAL_API_ALLOWED_HOST",
+    "SENTRY_DSN"
 )
 
-$buildArgKeys = $optionalBuildArgKeys + $appVarKeys
+$buildArgKeys = $optionalBuildArgKeys + $publicBuildArgKeys
 
-$missingAppVars = $appVarKeys | Where-Object {
+$missingAppVars = $publicBuildArgKeys | Where-Object {
     [string]::IsNullOrWhiteSpace((Get-EnvValue $_))
 }
 
 if ($missingAppVars) {
     Write-Host ""
-    Write-Host "  [WARN] These app build args are empty and will not be baked into the image:" -ForegroundColor Yellow
+    Write-Host "  [WARN] These public build args are empty and will not be embedded in the image:" -ForegroundColor Yellow
     $missingAppVars | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
 }
 
@@ -707,6 +764,7 @@ if ($DeployAliyun) {
     Write-Host "  SSH Host:     $AliyunSshHost" -ForegroundColor DarkGray
     Write-Host "  Container:    $AliyunContainerName" -ForegroundColor DarkGray
     Write-Host "  Port map:     $AliyunPortMap" -ForegroundColor DarkGray
+    Write-Host "  Network:      $AliyunNetworkName" -ForegroundColor DarkGray
 }
 Write-Host ""
 

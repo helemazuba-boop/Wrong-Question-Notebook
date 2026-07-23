@@ -89,6 +89,9 @@ function createUpdateResult(error: unknown = null) {
 function createWordReviewSupabase(outcome: 'known' | 'unknown') {
   return {
     from: vi.fn((table: string) => {
+      if (table === 'word_decks') {
+        return createAsyncQuery({ data: [{ id: SYSTEM_DECK_ID }] });
+      }
       if (table === 'word_entries') {
         return createSingleResult({
           id: WORD_ID,
@@ -235,6 +238,9 @@ describe('Word review helpers', () => {
   it('returns a successful empty ESP32 review queue', async () => {
     const supabase = {
       from: vi.fn((table: string) => {
+        if (table === 'word_decks') {
+          return createAsyncQuery({ data: [] });
+        }
         if (table === 'word_entries') {
           return createAsyncQuery({ data: [] });
         }
@@ -293,6 +299,9 @@ describe('Word review helpers', () => {
 
   it('reuses the existing wrong-word link for unknown reviews', async () => {
     const from = vi.fn((table: string) => {
+      if (table === 'word_decks') {
+        return createAsyncQuery({ data: [{ id: SYSTEM_DECK_ID }] });
+      }
       if (table === 'word_entries') {
         return createSingleResult({
           id: WORD_ID,

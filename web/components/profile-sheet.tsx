@@ -269,8 +269,7 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
       const json = await res.json();
       if (!res.ok) {
         const errors = json.details?.fieldErrors as
-          | Record<string, string[]>
-          | undefined;
+          Record<string, string[]> | undefined;
         if (errors && Object.keys(errors).length > 0) {
           setFieldErrors(errors);
           setSaveError(null);
@@ -599,9 +598,8 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
                 size="sm"
                 className="text-muted-foreground hover:text-foreground px-2"
                 onClick={async () => {
-                  const { createClient } = await import(
-                    '@/lib/supabase/client'
-                  );
+                  const { createClient } =
+                    await import('@/lib/supabase/client');
                   const supabase = createClient();
                   await supabase.auth.signOut();
                   router.replace('/');

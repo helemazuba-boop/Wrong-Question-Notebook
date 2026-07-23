@@ -1,8 +1,9 @@
 # Dependencies
-node_modules
+/node_modules/
+**/node_modules/
 
 # Next.js build artifacts
-.web
+.next/
 out/
 build/
 
@@ -16,14 +17,13 @@ build/
 *.swp
 *.swo
 
-# Environment & secrets
-# Include .env.production for build-time env vars (Supabase URLs, etc.)
-# Credentials (ACR, passwords) are passed via --build-arg, not baked in.
+# Environment and secrets never enter the Docker build context. The only
+# build-time values are the explicit public ARGs declared by Dockerfile.
 .env
+.env.*
 .env.local
 .env.development
 .env.test
-!.env.production
 
 # Test & coverage
 coverage/

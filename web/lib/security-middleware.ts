@@ -34,6 +34,7 @@ export interface SecurityConfig {
     windowMs: number;
     maxRequests: number;
   };
+  rateLimitNamespace?: string;
 }
 
 export function createSecurityMiddleware(config: SecurityConfig = {}) {
@@ -44,6 +45,7 @@ export function createSecurityMiddleware(config: SecurityConfig = {}) {
     rateLimitType = 'api',
     rateLimitKey = rateLimitType === 'auth' ? 'ip' : 'user',
     customRateLimit,
+    rateLimitNamespace,
   } = config;
 
   return async (req: NextRequest): Promise<NextResponse | null> => {
@@ -87,6 +89,7 @@ export function createSecurityMiddleware(config: SecurityConfig = {}) {
       if (rateLimitType === 'custom' && customRateLimit) {
         const rateLimit = createRateLimit({
           ...customRateLimit,
+          namespace: rateLimitNamespace ?? `custom:${req.nextUrl.pathname}`,
           keyGenerator,
         });
         rateLimitResponse = rateLimit(req);

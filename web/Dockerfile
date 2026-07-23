@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -47,13 +49,11 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
-# Build arguments - passed in via --build-arg from .env.production.
-# All are forwarded to ENV so Next.js can read them at build time.
+# Only public values may be passed as build arguments. Server credentials are
+# runtime-only and must never be recorded in an image layer or build history.
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
-ARG SUPABASE_SERVICE_ROLE_KEY
-ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
-ARG GEMINI_API_KEY
+ARG WQN_SUPABASE_EXPECTED_HOST
 ARG SITE_URL
 ARG NEXT_TELEMETRY_DISABLED=1
 
@@ -70,14 +70,16 @@ COPY . .
 # These are available during `npm run build`.
 ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
-ENV SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
-ENV GEMINI_API_KEY=${GEMINI_API_KEY}
+ENV WQN_SUPABASE_EXPECTED_HOST=${WQN_SUPABASE_EXPECTED_HOST}
 ENV SITE_URL=${SITE_URL}
 ENV NEXT_TELEMETRY_DISABLED=${NEXT_TELEMETRY_DISABLED}
 ENV NODE_ENV=production
 
-RUN npm run build
+# Next.js requires this value at build time and embeds it in server-only build
+# output. A BuildKit secret keeps it out of ARG/ENV metadata and build layers.
+RUN --mount=type=secret,id=next_server_actions_encryption_key,required=true \
+    NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(cat /run/secrets/next_server_actions_encryption_key)" \
+    npm run build
 
 # ============================================================
 # Stage 3: Production runtime
@@ -96,12 +98,10 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
-# Runtime build arguments - injected via --build-arg.
+# Public values are embedded in the Next.js client bundle at build time.
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
-ARG SUPABASE_SERVICE_ROLE_KEY
-ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
-ARG GEMINI_API_KEY
+ARG WQN_SUPABASE_EXPECTED_HOST
 ARG SITE_URL
 
 WORKDIR /app
@@ -111,9 +111,7 @@ WORKDIR /app
 # sees them; they are embedded at build time and cannot change at runtime.
 ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
-ENV SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
-ENV GEMINI_API_KEY=${GEMINI_API_KEY}
+ENV WQN_SUPABASE_EXPECTED_HOST=${WQN_SUPABASE_EXPECTED_HOST}
 ENV SITE_URL=${SITE_URL}
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -127,6 +125,7 @@ RUN mkdir .next && chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/docker-entrypoint.mjs ./docker-entrypoint.mjs
 
 USER nextjs
 
@@ -135,4 +134,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["node", "docker-entrypoint.mjs"]

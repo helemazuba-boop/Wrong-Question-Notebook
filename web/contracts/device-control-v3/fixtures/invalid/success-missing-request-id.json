@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "server_time_ms": 1784426400000,
+  "data": {
+    "device_id": "22222222-2222-4222-8222-222222222222",
+    "config_revision": 7,
+    "sync_cursor": 42,
+    "media_protocols": {
+      "ai_sse": "v2-streaming",
+      "flash": "wqn-flash-v2"
+    }
+  }
+}

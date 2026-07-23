@@ -2,6 +2,7 @@ import {
   AudioStagingError,
   stageEsp32AiAudioFile,
 } from '@/lib/esp32-ai-audio-staging';
+import { runStepFunAsrSse } from './stepfun-asr';
 import {
   createNotebookNoteFromAi,
   getProblemDetail,
@@ -104,11 +105,7 @@ type Esp32AiToolContext = NotebookToolContext &
   WordToolContext;
 
 type Esp32AiTraceStatus =
-  | 'started'
-  | 'pending'
-  | 'succeeded'
-  | 'failed'
-  | 'skipped';
+  'started' | 'pending' | 'succeeded' | 'failed' | 'skipped';
 
 export interface Esp32AiStatusTraceItem {
   stage: string;
@@ -118,7 +115,7 @@ export interface Esp32AiStatusTraceItem {
 }
 
 export interface Esp32AiAsrSummary {
-  provider: 'dashscope';
+  provider: 'dashscope' | 'stepfun';
   model: string;
   status: 'succeeded';
   text: string;
@@ -214,6 +211,13 @@ interface DashScopeProviderConfig {
   asrPollAttempts: number;
   audioUrlTtlMs: number;
   publicBaseUrl: string;
+  asrProvider: 'dashscope' | 'stepfun';
+  stepfunApiKey: string;
+  stepfunAsrUrl: string;
+  stepfunAsrModel: string;
+  stepfunAsrLanguage: string;
+  stepfunAsrHotwords: string[];
+  stepfunAsrEnableItn: boolean;
 }
 
 const DASH_SCOPE_PROVIDER = 'dashscope';
@@ -225,6 +229,8 @@ const DEFAULT_TASK_STATUS_BASE_URL =
   'https://dashscope.aliyuncs.com/api/v1/tasks';
 const DEFAULT_ASR_MODEL = 'paraformer-v2';
 const DEFAULT_CHAT_MODEL = 'qwen-plus';
+const DEFAULT_STEPFUN_ASR_URL = 'https://api.stepfun.com/v1/audio/asr/sse';
+const DEFAULT_STEPFUN_ASR_MODEL = 'stepaudio-2.5-asr';
 const DEFAULT_ASR_TIMEOUT_MS = 90_000; // ASR single request: 45s typical, 90s max
 const DEFAULT_LLM_TIMEOUT_MS = 360_000; // LLM inference: 5min typical, allow 6min
 const DEFAULT_ASR_POLL_INTERVAL_MS = 1000; // 1s between ASR polls (was 800ms)
@@ -570,11 +576,12 @@ const WORD_TOOLS = [
 const AI_TOOLS = [...NOTEBOOK_TOOLS, ...TODO_TOOLS, ...WORD_TOOLS] as const;
 
 function isDashScopeProviderConfigured(): boolean {
+  // Chat always goes through DashScope (qwen). ASR may be DashScope
+  // (paraformer-v2) or StepFun (stepaudio-2.5-asr), so the ASR provider
+  // does not gate overall AI enablement - only the chat provider does.
   return (
-    (process.env.WQN_ESP32_AI_ASR_PROVIDER || DASH_SCOPE_PROVIDER) ===
-      DASH_SCOPE_PROVIDER &&
     (process.env.WQN_ESP32_AI_CHAT_PROVIDER || DASH_SCOPE_PROVIDER) ===
-      DASH_SCOPE_PROVIDER
+    DASH_SCOPE_PROVIDER
   );
 }
 
@@ -599,6 +606,12 @@ function getProviderConfig(): DashScopeProviderConfig | null {
 
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
   if (!apiKey) return null;
+  const asrProvider =
+    process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
+      ? 'stepfun'
+      : 'dashscope';
+  const stepfunApiKey = (process.env.STEPFUN_API_KEY || '').trim();
+  if (asrProvider === 'stepfun' && !stepfunApiKey) return null;
 
   const chatApiKeyStd = (
     process.env.DASHSCOPE_CHAT_API_KEY_STD ||
@@ -672,6 +685,15 @@ function getProviderConfig(): DashScopeProviderConfig | null {
       DEFAULT_AUDIO_URL_TTL_MS
     ),
     publicBaseUrl,
+    asrProvider,
+    stepfunApiKey,
+    stepfunAsrUrl: (
+      process.env.STEPFUN_ASR_URL || DEFAULT_STEPFUN_ASR_URL
+    ).replace(/\/+$/, ''),
+    stepfunAsrModel: process.env.STEPFUN_ASR_MODEL || DEFAULT_STEPFUN_ASR_MODEL,
+    stepfunAsrLanguage: process.env.STEPFUN_ASR_LANGUAGE || 'zh',
+    stepfunAsrHotwords: getCommaSeparatedEnv('STEPFUN_ASR_HOTWORDS'),
+    stepfunAsrEnableItn: process.env.STEPFUN_ASR_ENABLE_ITN !== 'false',
   };
 }
 
@@ -854,7 +876,7 @@ function providerErrorFromStatus(
       stage === 'asr'
         ? `DashScope ASR service error (HTTP ${status})`
         : `DashScope chat service error (HTTP ${status})`,
-      status
+      502
     );
   }
 
@@ -899,9 +921,7 @@ async function fetchJsonWithTimeout<T>(
         ? stage === 'asr'
           ? 'asr_timeout'
           : 'chat_timeout'
-        : stage === 'asr'
-          ? 'asr_failed'
-          : 'model_failed',
+        : 'provider_unavailable',
       isAbort
         ? stage === 'asr'
           ? 'DashScope ASR request timed out'
@@ -909,7 +929,7 @@ async function fetchJsonWithTimeout<T>(
         : stage === 'asr'
           ? 'DashScope ASR request failed'
           : 'DashScope chat request failed',
-      isAbort ? 504 : 500
+      isAbort ? 504 : 502
     );
   } finally {
     clearTimeout(timeout);
@@ -1092,8 +1112,7 @@ async function runParaformerAsr(
   }
 
   let stagedAudio:
-    | Awaited<ReturnType<typeof stageEsp32AiAudioFile>>
-    | undefined;
+    Awaited<ReturnType<typeof stageEsp32AiAudioFile>> | undefined;
 
   try {
     tracker?.mark('audio_stage', 'started');
@@ -1820,7 +1839,25 @@ export async function runEsp32AiProvider(
   const tracker = createStatusTracker(startedAt);
   tracker.mark('request', 'started');
   tracker.mark('asr', 'started');
-  const asr = await runDashScopeAsr(config, input, tracker);
+  let asr: { transcript: string; requestId: string | null; elapsedMs: number };
+  if (config.asrProvider === 'stepfun') {
+    asr = await runStepFunAsrSse(
+      {
+        stepfunApiKey: config.stepfunApiKey,
+        stepfunAsrUrl: config.stepfunAsrUrl,
+        stepfunAsrModel: config.stepfunAsrModel,
+        stepfunAsrLanguage: config.stepfunAsrLanguage,
+        stepfunAsrHotwords: config.stepfunAsrHotwords,
+        stepfunAsrEnableItn: config.stepfunAsrEnableItn,
+        asrTimeoutMs: config.asrTimeoutMs,
+      },
+      input.audio,
+      input.sampleRate,
+      input.channels
+    );
+  } else {
+    asr = await runDashScopeAsr(config, input, tracker);
+  }
   tracker.mark(
     'asr',
     'succeeded',
@@ -1863,8 +1900,11 @@ export async function runEsp32AiProvider(
     actions: chat.actions,
     statusTrace: tracker.items,
     asr: {
-      provider: 'dashscope',
-      model: config.asrModel,
+      provider: config.asrProvider,
+      model:
+        config.asrProvider === 'stepfun'
+          ? config.stepfunAsrModel
+          : config.asrModel,
       status: 'succeeded',
       text: asr.transcript,
       request_id: asr.requestId,

@@ -3,45 +3,10 @@ import { withSecurity } from '@/lib/security-middleware';
 import { createApiErrorResponse, handleAsyncError } from '@/lib/common-utils';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import { createServiceClient } from '@/lib/supabase-utils';
-
-async function authenticateDevice(
-  req: Request
-): Promise<{ userId: string } | NextResponse> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return NextResponse.json(
-      createApiErrorResponse('Missing or invalid Authorization header', 401),
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.slice(7);
-  if (!token) {
-    return NextResponse.json(
-      createApiErrorResponse('Access token is required', 401),
-      { status: 401 }
-    );
-  }
-
-  const svc = createServiceClient();
-  const { data: device } = await svc
-    .from('esp32_devices')
-    .select('user_id')
-    .eq('access_token', token)
-    .single();
-
-  if (!device) {
-    return NextResponse.json(
-      createApiErrorResponse('Invalid access token', 401),
-      { status: 401 }
-    );
-  }
-
-  return { userId: device.user_id };
-}
+import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 
 async function getEsp32Asset(req: Request) {
-  const authResult = await authenticateDevice(req);
+  const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
   const { userId } = authResult;

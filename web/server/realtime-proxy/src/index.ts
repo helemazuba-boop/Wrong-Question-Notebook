@@ -43,7 +43,7 @@ function readConfig(): RelayConfig {
     upstream: {
       url:
         process.env.STEP_TTS_REALTIME_URL ??
-        'wss://api.stepfun.com/step_plan/v1/realtime',
+        'wss://api.stepfun.com/v1/realtime',
       apiKey: process.env.STEP_API_KEY ?? '',
       model: process.env.STEP_TTS_MODEL ?? 'stepaudio-2.5-realtime',
     },
@@ -77,7 +77,7 @@ const httpServer = http.createServer((req, res) => {
   res.end('not found');
 });
 
-const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+const wss = new WebSocketServer({ noServer: true });
 
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);

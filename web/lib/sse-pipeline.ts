@@ -43,6 +43,13 @@ export interface RunStreamingPipelineOptions {
   publicBaseUrl: string;
   systemPrompt: string;
   toolExecutor?: ToolExecutor;
+  asrProvider: 'dashscope' | 'stepfun';
+  stepfunApiKey: string;
+  stepfunAsrUrl: string;
+  stepfunAsrModel: string;
+  stepfunAsrLanguage: string;
+  stepfunAsrHotwords: string[];
+  stepfunAsrEnableItn: boolean;
 }
 
 export async function runStreamingPipeline(
@@ -71,6 +78,7 @@ export async function runStreamingPipeline(
   try {
     asrResult = await runPipelineAsr(
       {
+        asrProvider: options.asrProvider,
         dashScopeApiKey: options.dashScopeApiKey,
         asrTaskUrl: options.asrTaskUrl,
         asrTaskStatusBaseUrl: options.asrTaskStatusBaseUrl,
@@ -81,6 +89,12 @@ export async function runStreamingPipeline(
         asrPollAttempts: options.asrPollAttempts,
         audioUrlTtlMs: options.audioUrlTtlMs,
         publicBaseUrl: options.publicBaseUrl,
+        stepfunApiKey: options.stepfunApiKey,
+        stepfunAsrUrl: options.stepfunAsrUrl,
+        stepfunAsrModel: options.stepfunAsrModel,
+        stepfunAsrLanguage: options.stepfunAsrLanguage,
+        stepfunAsrHotwords: options.stepfunAsrHotwords,
+        stepfunAsrEnableItn: options.stepfunAsrEnableItn,
       },
       options.input.audio,
       options.input.sampleRate,
@@ -108,7 +122,13 @@ export async function runStreamingPipeline(
     );
     throw error;
   }
-  pusher.emitAsrComplete(asrResult.transcript, options.asrModel);
+  pusher.emitAsrComplete(
+    asrResult.transcript,
+    options.asrProvider === 'stepfun'
+      ? options.stepfunAsrModel
+      : options.asrModel,
+    options.asrProvider
+  );
 
   // ---- 2. Chat (streaming) ----
   const chatModel =
@@ -122,7 +142,21 @@ export async function runStreamingPipeline(
       baseUrl,
       model: chatModel,
       llmTimeoutMs: options.llmTimeoutMs,
-      systemPrompt: options.systemPrompt,
+      systemPrompt:
+        options.input.reasoningEffort === 'high'
+          ? `${options.systemPrompt}\nThink carefully, validate key assumptions, and prioritize correctness.`
+          : options.systemPrompt,
+      enableThinking: options.input.enableThinking,
+      thinkingBudget:
+        options.input.enableThinking === false
+          ? undefined
+          : options.input.reasoningEffort === 'low'
+            ? 1024
+            : options.input.reasoningEffort === 'high'
+              ? 8192
+              : options.input.reasoningEffort === 'medium'
+                ? 4096
+                : undefined,
     },
     {
       transcript: asrResult.transcript,

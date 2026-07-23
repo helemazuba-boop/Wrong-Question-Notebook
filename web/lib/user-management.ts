@@ -197,6 +197,10 @@ export async function updateUserProfile(
     return null;
   }
 
+  await logUserActivity('profile.update', 'user_profile', userId, {
+    fields: Object.keys(updates).sort(),
+  });
+
   return data as UserProfileType;
 }
 
@@ -214,7 +218,12 @@ export async function updateUserRole(
     .update({ user_role: newRole })
     .eq('id', userId);
 
-  return !error;
+  if (error) return false;
+
+  await logUserActivity('admin.user_role.update', 'user_profile', userId, {
+    new_role: newRole,
+  });
+  return true;
 }
 
 /**
@@ -234,7 +243,12 @@ export async function toggleUserActive(userId: string): Promise<boolean> {
     .update({ is_active: !profile.is_active })
     .eq('id', userId);
 
-  return !error;
+  if (error) return false;
+
+  await logUserActivity('admin.user_active.toggle', 'user_profile', userId, {
+    is_active: !profile.is_active,
+  });
+  return true;
 }
 
 /**
@@ -331,9 +345,13 @@ export async function logUserActivity(
   resourceId?: string,
   details?: Record<string, unknown>
 ): Promise<boolean> {
-  const serviceSupabase = createServiceClient();
+  // The RPC records auth.uid(). Calling it with the service-role client would
+  // produce a null actor, so activity must be written through the current
+  // request's authenticated Supabase client. Audit failure is intentionally
+  // non-fatal to the primary operation; callers use the boolean for telemetry.
+  const supabase = await createClient();
 
-  const { error } = await serviceSupabase.rpc('log_user_activity', {
+  const { error } = await supabase.rpc('log_user_activity', {
     p_action: action,
     p_resource_type: resourceType,
     p_resource_id: resourceId,
@@ -393,6 +411,10 @@ export async function updateAdminSetting(
   if (error || !data) {
     return null;
   }
+
+  await logUserActivity('admin.setting.update', 'admin_setting', undefined, {
+    key,
+  });
 
   return data as unknown as AdminSettingsType;
 }
@@ -736,7 +758,18 @@ export async function setAnnouncement(
     { onConflict: 'key' }
   );
 
-  return !error;
+  if (error) return false;
+
+  await logUserActivity(
+    'admin.announcement.update',
+    'admin_setting',
+    undefined,
+    {
+      enabled,
+      type,
+    }
+  );
+  return true;
 }
 
 /**
@@ -758,7 +791,13 @@ export async function setUserQuotaOverride(
     { onConflict: 'user_id,resource_type' }
   );
 
-  return !error;
+  if (error) return false;
+
+  await logUserActivity('admin.user_quota.set', 'user_profile', userId, {
+    resource_type: resourceType,
+    daily_limit: dailyLimit,
+  });
+  return true;
 }
 
 /**
@@ -776,7 +815,12 @@ export async function removeUserQuotaOverride(
     .eq('user_id', userId)
     .eq('resource_type', resourceType);
 
-  return !error;
+  if (error) return false;
+
+  await logUserActivity('admin.user_quota.remove', 'user_profile', userId, {
+    resource_type: resourceType,
+  });
+  return true;
 }
 
 /**
@@ -857,6 +901,8 @@ export async function deleteUser(userId: string): Promise<boolean> {
       });
       return false;
     }
+
+    await logUserActivity('admin.user.delete', 'user_profile', userId);
 
     return true;
   } catch (error) {

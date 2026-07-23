@@ -14,7 +14,9 @@ async function getDevices() {
   try {
     const { data, error } = await supabase
       .from('esp32_devices')
-      .select('*')
+      .select(
+        'id, user_id, mac_address, device_name, firmware_version, last_sync_at, last_seen_at, created_at, preferred_tier, last_protocol_version'
+      )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 

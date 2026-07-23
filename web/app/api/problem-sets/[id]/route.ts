@@ -18,6 +18,7 @@ import {
   revalidateSitemap,
 } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
+import type { Database } from '@/lib/database.types';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -112,11 +113,17 @@ async function updateProblemSet(
   // and sharing_level get defaulted even when not sent. We use the raw body
   // keys to determine what was actually provided.
   const providedKeys = new Set(Object.keys(body));
-  const fullUpdateData: Record<string, unknown> = {};
+  const fullUpdateData: Database['public']['Tables']['problem_sets']['Update'] =
+    {};
   const nonColumnKeys = new Set(['shared_with_emails', 'problem_ids']);
   for (const key of Object.keys(parsed.data)) {
     if (providedKeys.has(key) && !nonColumnKeys.has(key)) {
-      fullUpdateData[key] = (parsed.data as Record<string, unknown>)[key];
+      // ts: nonColumnKeys are excluded above, so the remaining keys are valid
+      // Update columns; the cast keeps the lookup ergonomic without weakening
+      // the field set the helper accepts.
+      (fullUpdateData as Record<string, unknown>)[key] = (
+        parsed.data as Record<string, unknown>
+      )[key];
     }
   }
   const shared_with_emails = parsed.data.shared_with_emails;

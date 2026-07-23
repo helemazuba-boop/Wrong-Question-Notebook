@@ -61,12 +61,15 @@ async function getUserFromRequest(
 
 /** Check if user has admin role */
 async function checkAdminRole(userId: string) {
-  if (!process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY]) return false;
+  const serverKey =
+    process.env[ENV_VARS.SUPABASE_SECRET_KEY] ||
+    process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY];
+  if (!serverKey) return false;
 
   try {
     const serviceSupabase = createServerClient(
       process.env[ENV_VARS.SUPABASE_URL]!,
-      process.env[ENV_VARS.SUPABASE_SERVICE_ROLE_KEY]!,
+      serverKey,
       {
         cookies: {
           getAll() {
@@ -97,6 +100,12 @@ async function checkAdminRole(userId: string) {
 export async function proxy(request: NextRequest) {
   const originalPathname = request.nextUrl.pathname;
   const cookiesToUpdate: any[] = [];
+
+  // Supabase Auth must reach this exact, non-localized callback so it can set
+  // the session cookie before the user is redirected into the localized app.
+  if (originalPathname === '/auth/callback') {
+    return NextResponse.next();
+  }
 
   // Step 0: API routes should NOT go through intlMiddleware at all
   if (originalPathname.startsWith('/api/')) {

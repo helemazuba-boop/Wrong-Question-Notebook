@@ -3,7 +3,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
+import {
+  authenticateEsp32Device,
+  type Esp32DeviceAuthContext,
+} from '@/lib/esp32-device-auth';
 import { createSseResponse, SseWriter } from '@/lib/ai-stream';
 import { runStreamingPipeline } from '@/lib/sse-pipeline';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
@@ -31,6 +34,18 @@ export interface V2RuntimeConfig {
   audioUrlTtlMs: number;
   publicBaseUrl: string;
   systemPrompt: string;
+  asrProvider: 'dashscope' | 'stepfun';
+  stepfunApiKey: string;
+  stepfunAsrUrl: string;
+  stepfunAsrModel: string;
+  stepfunAsrLanguage: string;
+  stepfunAsrHotwords: string[];
+  stepfunAsrEnableItn: boolean;
+}
+
+export interface V2RequestContext {
+  authResult: Esp32DeviceAuthContext;
+  audio: ArrayBuffer;
 }
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -38,6 +53,8 @@ const DEFAULT_ASR_TASK_URL =
   'https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription';
 const DEFAULT_TASK_STATUS_BASE_URL =
   'https://dashscope.aliyuncs.com/api/v1/tasks';
+const DEFAULT_STEPFUN_ASR_URL = 'https://api.stepfun.com/v1/audio/asr/sse';
+const DEFAULT_STEPFUN_ASR_MODEL = 'stepaudio-2.5-asr';
 
 function loadV2RuntimeConfig(): V2RuntimeConfig {
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
@@ -99,6 +116,23 @@ function loadV2RuntimeConfig(): V2RuntimeConfig {
     systemPrompt:
       process.env.WQN_ESP32_AI_SYSTEM_PROMPT ||
       'You are a learning assistant on a WQN e-ink notebook.',
+    asrProvider:
+      process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
+        ? 'stepfun'
+        : 'dashscope',
+    stepfunApiKey: (process.env.STEPFUN_API_KEY || '').trim(),
+    stepfunAsrUrl: (
+      process.env.STEPFUN_ASR_URL || DEFAULT_STEPFUN_ASR_URL
+    ).replace(/\/+$/, ''),
+    stepfunAsrModel: process.env.STEPFUN_ASR_MODEL || DEFAULT_STEPFUN_ASR_MODEL,
+    stepfunAsrLanguage: process.env.STEPFUN_ASR_LANGUAGE || 'zh',
+    stepfunAsrHotwords: (process.env.STEPFUN_ASR_HOTWORDS || '')
+      .split(',')
+      .map(function (v) {
+        return v.trim();
+      })
+      .filter(Boolean),
+    stepfunAsrEnableItn: process.env.STEPFUN_ASR_ENABLE_ITN !== 'false',
   };
 }
 
@@ -109,14 +143,26 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 
 export async function handleV2Streaming(
   req: NextRequest,
-  config?: V2RuntimeConfig
+  config?: V2RuntimeConfig,
+  requestContext?: V2RequestContext
 ): Promise<NextResponse> {
   const resolvedConfig = config || loadV2RuntimeConfig();
 
-  const authResult = await authenticateEsp32Device(req);
+  const authResult =
+    requestContext?.authResult ?? (await authenticateEsp32Device(req));
   if (authResult instanceof Response) return authResult;
 
-  const audio = await req.arrayBuffer();
+  const audio = requestContext?.audio ?? (await req.arrayBuffer());
+  const enableThinkingHeader = req.headers.get('x-wqn-enable-thinking');
+  const reasoningEffortHeader = req.headers.get('x-wqn-reasoning-effort');
+  const enableThinking =
+    enableThinkingHeader === null ? undefined : enableThinkingHeader === 'true';
+  const reasoningEffort =
+    reasoningEffortHeader === 'low' ||
+    reasoningEffortHeader === 'medium' ||
+    reasoningEffortHeader === 'high'
+      ? reasoningEffortHeader
+      : undefined;
 
   let toolExecutor: ToolExecutor | undefined;
   if (authResult.userId) {
@@ -141,6 +187,8 @@ export async function handleV2Streaming(
           tier: req.headers.get('x-wqn-ai-tier'),
           userId: authResult.userId,
           deviceId: authResult.deviceId,
+          enableThinking,
+          reasoningEffort,
         },
         asrModel: resolvedConfig.asrModel,
         chatModelStd: resolvedConfig.chatModelStd,
@@ -161,6 +209,13 @@ export async function handleV2Streaming(
         publicBaseUrl: resolvedConfig.publicBaseUrl,
         systemPrompt: resolvedConfig.systemPrompt,
         toolExecutor: toolExecutor,
+        asrProvider: resolvedConfig.asrProvider,
+        stepfunApiKey: resolvedConfig.stepfunApiKey,
+        stepfunAsrUrl: resolvedConfig.stepfunAsrUrl,
+        stepfunAsrModel: resolvedConfig.stepfunAsrModel,
+        stepfunAsrLanguage: resolvedConfig.stepfunAsrLanguage,
+        stepfunAsrHotwords: resolvedConfig.stepfunAsrHotwords,
+        stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
       });
     } catch (error) {
       logger.error('v2-streaming pipeline failed', {

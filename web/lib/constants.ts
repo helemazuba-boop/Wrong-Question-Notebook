@@ -179,7 +179,7 @@ export const SECURITY_CONSTANTS = {
     'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://data.helema.cn wss://data.helema.cn https://*.supabase.co https://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   },
 
@@ -232,7 +232,9 @@ export const ERROR_MESSAGES = {
 export const ENV_VARS = {
   SUPABASE_URL: 'NEXT_PUBLIC_SUPABASE_URL',
   SUPABASE_ANON_KEY: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
+  SUPABASE_SECRET_KEY: 'SUPABASE_SECRET_KEY',
   SUPABASE_SERVICE_ROLE_KEY: 'SUPABASE_SERVICE_ROLE_KEY',
+  SUPABASE_EXPECTED_HOST: 'WQN_SUPABASE_EXPECTED_HOST',
 } as const;
 
 // =====================================================

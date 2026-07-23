@@ -130,6 +130,24 @@ describe('createRateLimit', () => {
     for (let i = 0; i < config.maxRequests; i++) limiter(reqA);
     expect(limiter(reqB)).not.toBeNull(); // B is also blocked
   });
+
+  it('isolates counters owned by different limiter namespaces', () => {
+    const req = createMockRequest({ ip: '1.1.1.1' });
+    const devicePoll = createRateLimit({
+      windowMs: 60_000,
+      maxRequests: 1,
+      namespace: 'device-poll',
+    });
+    const browserApproval = createRateLimit({
+      windowMs: 60_000,
+      maxRequests: 1,
+      namespace: 'browser-approval',
+    });
+
+    expect(devicePoll(req)).toBeNull();
+    expect(devicePoll(req)?.status).toBe(429);
+    expect(browserApproval(req)).toBeNull();
+  });
 });
 
 // ── getUserKey ─────────────────────────────────────────────────────────────
@@ -168,6 +186,16 @@ describe('getUserKey', () => {
     });
 
     expect(getUserKey(req)).toBe('rate_limit:user:user-456');
+  });
+
+  it('derives the auth cookie name for self-hosted Supabase', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://data.helema.cn';
+    const jwt = createFakeJwt({ sub: 'self-hosted-user' });
+    const req = createMockRequest({
+      cookies: { 'sb-data-auth-token': jwt },
+    });
+
+    expect(getUserKey(req)).toBe('rate_limit:user:self-hosted-user');
   });
 
   it('falls back to IP key when no cookie is present', () => {

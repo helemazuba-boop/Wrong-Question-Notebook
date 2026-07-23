@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createApiErrorResponse } from '@/lib/common-utils';
 import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { hashDeviceToken, isValidDeviceToken } from '@/lib/esp32-token';
 
 export interface Esp32DeviceAuthContext {
   userId: string;
@@ -50,15 +51,15 @@ export async function authenticateEsp32Device(
   }
 
   const token = authHeader.slice(BEARER_PREFIX.length).trim();
-  if (!token) {
-    return createEsp32DeviceUnauthorizedResponse('Access token is required');
+  if (!isValidDeviceToken(token)) {
+    return createEsp32DeviceUnauthorizedResponse('Invalid access token');
   }
 
   const svc = createServiceClient();
   const { data: device, error } = await svc
     .from('esp32_devices')
     .select('id, user_id, mac_address')
-    .eq('access_token', token)
+    .eq('access_token_hash', hashDeviceToken(token))
     .maybeSingle();
 
   if (error) {

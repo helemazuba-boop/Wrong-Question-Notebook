@@ -12,6 +12,7 @@ import { ROUTES, ERROR_MESSAGES } from '@/lib/constants';
 import { UserPlus, Eye, EyeOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { apiUrl } from '@/lib/api-utils';
+import { buildAuthCallbackUrl } from '@/lib/auth-callback';
 
 export function SignUpForm({
   className,
@@ -51,7 +52,10 @@ export function SignUpForm({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}${ROUTES.SUBJECTS}`,
+          emailRedirectTo: buildAuthCallbackUrl(
+            window.location.origin,
+            ROUTES.SUBJECTS
+          ),
         },
       });
       if (error) throw error;
@@ -66,6 +70,14 @@ export function SignUpForm({
             body: JSON.stringify({ timezone: detectedTz }),
           }).catch(() => {});
         }
+      }
+
+      // Self-hosted Auth commonly disables email confirmations during staged
+      // rollout. In that mode signUp returns a session immediately.
+      if (signUpData.session) {
+        router.push(ROUTES.SUBJECTS);
+        router.refresh();
+        return;
       }
 
       router.push(`/auth/sign-up-success?email=${encodeURIComponent(email)}`);

@@ -11,46 +11,11 @@ import {
   serializeEsp32ProblemContent,
 } from '@/lib/esp32-content';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 
 type ProblemStatus = 'wrong' | 'needs_review' | 'mastered';
 
 const VALID_STATUSES: ProblemStatus[] = ['wrong', 'needs_review', 'mastered'];
-
-async function authenticateDevice(
-  req: Request
-): Promise<{ userId: string; deviceId: string } | NextResponse> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return NextResponse.json(
-      createApiErrorResponse('Missing or invalid Authorization header', 401),
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.slice(7);
-  if (!token) {
-    return NextResponse.json(
-      createApiErrorResponse('Access token is required', 401),
-      { status: 401 }
-    );
-  }
-
-  const svc = createServiceClient();
-  const { data: device } = await svc
-    .from('esp32_devices')
-    .select('id, user_id')
-    .eq('access_token', token)
-    .single();
-
-  if (!device) {
-    return NextResponse.json(
-      createApiErrorResponse('Invalid access token', 401),
-      { status: 401 }
-    );
-  }
-
-  return { userId: device.user_id, deviceId: device.id };
-}
 
 function parseLimit(value: string | null): number {
   const parsed = Number.parseInt(value || '50', 10);
@@ -82,7 +47,7 @@ function parseStatus(
 }
 
 async function getProblemIndex(req: Request) {
-  const authResult = await authenticateDevice(req);
+  const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
   const { userId, deviceId } = authResult;
@@ -147,22 +112,32 @@ async function getProblemIndex(req: Request) {
       ...new Set((problems || []).map(problem => problem.subject_id)),
     ].filter(Boolean);
 
-    const [{ data: schedules }, { data: subjects }] = await Promise.all([
+    const [scheduleResult, subjectResult] = await Promise.all([
       problemIds.length > 0
         ? svc
             .from('review_schedule')
             .select('problem_id, next_review_at')
             .eq('user_id', userId)
             .in('problem_id', problemIds)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
       subjectIds.length > 0
         ? svc
             .from('subjects')
             .select('id, name')
             .eq('user_id', userId)
             .in('id', subjectIds)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
     ]);
+
+    if (scheduleResult.error || subjectResult.error) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to load problem metadata', 500),
+        { status: 500 }
+      );
+    }
+
+    const schedules = scheduleResult.data;
+    const subjects = subjectResult.data;
 
     const scheduleByProblemId = new Map(
       (schedules || []).map(schedule => [

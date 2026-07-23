@@ -29,25 +29,7 @@ export const runtime = 'nodejs';
 // the public `/v1/realtime` endpoint is handled at the nginx layer via
 // `limit_req` on the device token.
 export async function GET(req: Request) {
-  // TEMP DIAGNOSTIC (remove once Flash WSS auth is confirmed working):
-  // Logs the *prefix* of the Authorization header nginx forwarded for the
-  // subrequest. Lets us distinguish three failure modes from docker logs:
-  //   • auth="MISSING..."        → device didn't send Authorization at all,
-  //                                 OR nginx didn't forward $http_authorization
-  //   • auth="Bearer abc12..."   → device + nginx OK; token mismatch path
-  //   • ua="ESP32 Websocket..."  → confirms the request came from the device
-  //                                 fleet (not a manual curl)
-  // Only the first 20 chars are logged, never the full token.
-  const authHeader = req.headers.get('Authorization');
-  const ua = req.headers.get('User-Agent');
-  const xf = req.headers.get('X-Original-URI');
-  const authPrefix = authHeader ? `${authHeader.slice(0, 20)}...` : 'MISSING';
-
   const auth = await authenticateEsp32Device(req);
-  const resultCode = auth instanceof NextResponse ? 401 : 204;
-  console.log(
-    `[auth-verify] auth="${authPrefix}" ua="${ua ?? 'none'}" orig="${xf ?? 'none'}" result=${resultCode}`
-  );
   if (auth instanceof NextResponse) {
     // Already a 401/500 JSON response from the auth helper. Block caching so
     // nginx never serves a stale 401 to a freshly-paired device.

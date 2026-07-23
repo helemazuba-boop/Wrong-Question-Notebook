@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "request_id": "req_sync_000000001",
+  "server_time_ms": 1784426400000,
+  "data": {
+    "config_revision": 7,
+    "sync_cursor": 43,
+    "configuration": {
+      "auto_sync_interval_minutes": 60
+    },
+    "summaries": {
+      "due_problem_ids": ["33333333-3333-4333-8333-333333333333"],
+      "todo_count": 2,
+      "word_due_count": 5
+    },
+    "content_manifest": [
+      { "kind": "problems", "revision": 12, "cursor": "problems:12" },
+      { "kind": "todos", "revision": 9, "cursor": "todos:9" },
+      { "kind": "words", "revision": 17, "cursor": "words:17" }
+    ]
+  }
+}

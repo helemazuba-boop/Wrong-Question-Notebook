@@ -11,38 +11,10 @@ import {
   serializeEsp32ProblemContent,
 } from '@/lib/esp32-content';
 import { createServiceClient } from '@/lib/supabase-utils';
-
-async function authenticateDevice(
-  req: Request
-): Promise<{ userId: string; deviceId: string } | NextResponse> {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return NextResponse.json(
-      createApiErrorResponse('Missing or invalid Authorization header', 401),
-      { status: 401 }
-    );
-  }
-
-  const token = authHeader.slice(7);
-  const svc = createServiceClient();
-  const { data: device } = await svc
-    .from('esp32_devices')
-    .select('id, user_id')
-    .eq('access_token', token)
-    .single();
-
-  if (!device) {
-    return NextResponse.json(
-      createApiErrorResponse('Invalid access token', 401),
-      { status: 401 }
-    );
-  }
-
-  return { userId: device.user_id, deviceId: device.id };
-}
+import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 
 async function getProblems(req: Request) {
-  const authResult = await authenticateDevice(req);
+  const authResult = await authenticateEsp32Device(req);
   if (authResult instanceof NextResponse) return authResult;
 
   const { userId } = authResult;

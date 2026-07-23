@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RATE_LIMIT_CONSTANTS, ENV_VARS } from './constants';
+import { getSupabaseCookieProjectRef } from './supabase-config';
 
 /**
  * Rate limiting configuration interface
@@ -7,6 +8,7 @@ import { RATE_LIMIT_CONSTANTS, ENV_VARS } from './constants';
 interface RateLimitConfig {
   windowMs: number; // Time window in milliseconds
   maxRequests: number; // Maximum requests per window
+  namespace?: string; // Isolate counters owned by different endpoint classes
   keyGenerator?: (req: NextRequest) => string; // Custom key generator
   skipSuccessfulRequests?: boolean; // Don't count successful requests
   skipFailedRequests?: boolean; // Don't count failed requests
@@ -63,9 +65,15 @@ setInterval(() => {
  */
 export function createRateLimit(config: RateLimitConfig) {
   return (req: NextRequest): NextResponse | null => {
-    const key = config.keyGenerator
+    const requesterKey = config.keyGenerator
       ? config.keyGenerator(req)
       : getDefaultKey(req);
+    // A bare IP/user key lets unrelated limiters poison each other. This was
+    // especially harmful during device claim: frequent ESP32 poll requests
+    // could consume the browser approval endpoint's much smaller auth bucket.
+    const namespace =
+      config.namespace ?? `window-${config.windowMs}-max-${config.maxRequests}`;
+    const key = `rate_limit:${namespace}:${requesterKey}`;
     const now = Date.now();
     // const windowStart = now - config.windowMs;
 
@@ -129,14 +137,13 @@ function getIpKey(req: NextRequest): string {
 }
 
 /**
- * Extracts the Supabase project ref from NEXT_PUBLIC_SUPABASE_URL.
- * URL format: https://{ref}.supabase.co
+ * Derives the auth-cookie project ref exactly as supabase-js does. This works
+ * for both hosted URLs and the self-hosted data.helema.cn endpoint.
  */
 function getProjectRef(): string | null {
   const url = process.env[ENV_VARS.SUPABASE_URL];
   if (!url) return null;
-  const match = url.match(/https:\/\/([^.]+)\.supabase/);
-  return match?.[1] ?? null;
+  return getSupabaseCookieProjectRef(url);
 }
 
 /**
@@ -204,22 +211,29 @@ type KeyGenerator = (req: NextRequest) => string;
 export const createApiRateLimit = (keyGenerator?: KeyGenerator) =>
   createRateLimit({
     ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.api,
+    namespace: 'api',
     keyGenerator,
   });
 export const createFileUploadRateLimit = (keyGenerator?: KeyGenerator) =>
   createRateLimit({
     ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.fileUpload,
+    namespace: 'file-upload',
     keyGenerator,
   });
 export const createAuthRateLimit = () =>
-  createRateLimit(RATE_LIMIT_CONSTANTS.CONFIGURATIONS.auth);
+  createRateLimit({
+    ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.auth,
+    namespace: 'auth',
+  });
 export const createProblemCreationRateLimit = (keyGenerator?: KeyGenerator) =>
   createRateLimit({
     ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.problemCreation,
+    namespace: 'problem-creation',
     keyGenerator,
   });
 export const createEsp32PollRateLimit = (keyGenerator?: KeyGenerator) =>
   createRateLimit({
     ...RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32Poll,
+    namespace: 'esp32-poll',
     keyGenerator,
   });

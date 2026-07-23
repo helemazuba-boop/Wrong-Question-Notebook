@@ -157,8 +157,18 @@ export async function handleConnection(
   // [tts-speed-fix] TCP_NODELAY on the upstream socket: disable Nagle so small
   // audio.delta frames aren't coalesced (best-effort; harmless if unavailable).
   upstream.on('open', () => {
-    const sock = (upstream as unknown as { socket?: { setNoDelay?: (n: boolean) => void }; _socket?: { setNoDelay?: (n: boolean) => void } })
-      .socket ?? (upstream as unknown as { _socket?: { setNoDelay?: (n: boolean) => void } })._socket;
+    const sock =
+      (
+        upstream as unknown as {
+          socket?: { setNoDelay?: (n: boolean) => void };
+          _socket?: { setNoDelay?: (n: boolean) => void };
+        }
+      ).socket ??
+      (
+        upstream as unknown as {
+          _socket?: { setNoDelay?: (n: boolean) => void };
+        }
+      )._socket;
     if (sock && typeof sock.setNoDelay === 'function') {
       try {
         sock.setNoDelay(true);
@@ -281,7 +291,11 @@ class RelaySession {
   // [audio-pacing] Downlink audio pacing: buffer frames and drain at 1x
   // realtime speed so the ESP32's 256KB ringbuffer doesn't overflow when
   // StepFun generates TTS at 3-4x realtime.
-  private downlinkQueue: { frame: Buffer; audioDurationMs: number; isLast: boolean }[] = [];
+  private downlinkQueue: {
+    frame: Buffer;
+    audioDurationMs: number;
+    isLast: boolean;
+  }[] = [];
   private downlinkTimer: NodeJS.Timeout | null = null;
   // [audio-pacing] Token-bucket pacer. downlinkTokens = audio-ms we may send
   // right now; refilled at 1x realtime (1ms audio per 1ms wall) and capped at
@@ -686,8 +700,13 @@ class RelaySession {
       final: Boolean(evt.last),
     });
     // Audio duration of this chunk: pcm24 is 24kHz mono s16le
-    const audioDurationMs = (pcm24.length / 2 / DOWLINK_DEFAULT_SAMPLE_RATE_HZ) * 1000;
-    this.downlinkQueue.push({ frame, audioDurationMs, isLast: Boolean(evt.last) });
+    const audioDurationMs =
+      (pcm24.length / 2 / DOWLINK_DEFAULT_SAMPLE_RATE_HZ) * 1000;
+    this.downlinkQueue.push({
+      frame,
+      audioDurationMs,
+      isLast: Boolean(evt.last),
+    });
     // [tts-speed-fix] Do NOT start draining here. StepFun generates TTS at
     // ~0.5x realtime with 100-1100ms inter-segment stalls (the official demo
     // has the SAME pattern - not a cloud/transport issue). Draining as frames
@@ -769,6 +788,7 @@ class RelaySession {
       this.config.executeToolUrl,
       this.config.proxySecret,
       this.device.userId,
+      this.device.deviceId,
       call
     );
 

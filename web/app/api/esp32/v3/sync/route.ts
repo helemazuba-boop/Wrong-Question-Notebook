@@ -1,0 +1,210 @@
+import { NextRequest, NextResponse } from 'next/server';
+import type { Json } from '@/lib/database.types';
+import {
+  createV3Error,
+  createV3JsonResponse,
+  createV3SuccessPayload,
+  readJsonBody,
+  rejectWrongV3Protocol,
+  requestIdFromUnknown,
+  syncDataSchema,
+  syncRequestSchema,
+  withV3Security,
+} from '@/lib/device-control-v3';
+import {
+  authenticateDeviceControlV3,
+  fingerprintDeviceControlRequest,
+  loadDeviceControlReplay,
+  storeDeviceControlResponse,
+} from '@/lib/device-control-v3-auth';
+import { logger } from '@/lib/logger';
+import { createServiceClient } from '@/lib/supabase-utils';
+
+const ENDPOINT = 'sync';
+
+function revisionOf(row: { revision: number } | null): number {
+  return row ? Number(row.revision) : 0;
+}
+
+async function sync(req: NextRequest) {
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    return createV3Error(
+      requestIdFromUnknown(null),
+      400,
+      'INVALID_JSON',
+      false
+    );
+  }
+  const requestId = requestIdFromUnknown(body);
+  const protocolError = rejectWrongV3Protocol(req, requestId);
+  if (protocolError) return protocolError;
+
+  const parsed = syncRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
+  }
+  const auth = await authenticateDeviceControlV3(req, requestId);
+  if (auth instanceof NextResponse) return auth;
+
+  const fingerprint = fingerprintDeviceControlRequest(parsed.data);
+  const replay = await loadDeviceControlReplay({
+    deviceId: auth.deviceId,
+    requestId,
+    endpoint: ENDPOINT,
+    fingerprint,
+  });
+  if (replay.kind !== 'miss') return replay.response;
+
+  const svc = createServiceClient();
+  const now = new Date().toISOString();
+  const limit = parsed.data.limit ?? 20;
+  const [
+    dueResult,
+    todoCountResult,
+    wordDueCountResult,
+    problemRevisionResult,
+    todoRevisionResult,
+    wordRevisionResult,
+    packRevisionResult,
+  ] = await Promise.all([
+    svc
+      .from('review_schedule')
+      .select('problem_id')
+      .eq('user_id', auth.userId)
+      .lte('next_review_at', now)
+      .order('next_review_at', { ascending: true })
+      .limit(limit),
+    svc
+      .from('todos')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', auth.userId)
+      .eq('status', 'pending'),
+    svc
+      .from('word_progress')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', auth.userId)
+      .or(`status.eq.new,due_at.is.null,due_at.lte.${now}`),
+    svc
+      .from('problems')
+      .select('revision')
+      .eq('user_id', auth.userId)
+      .order('revision', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    svc
+      .from('todos')
+      .select('revision')
+      .eq('user_id', auth.userId)
+      .order('revision', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    svc
+      .from('word_decks')
+      .select('revision')
+      .or(`user_id.eq.${auth.userId},is_system.eq.true`)
+      .order('revision', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    svc
+      .from('word_packs')
+      .select('revision')
+      .eq('status', 'ready')
+      .order('revision', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const queryError = [
+    dueResult.error,
+    todoCountResult.error,
+    wordDueCountResult.error,
+    problemRevisionResult.error,
+    todoRevisionResult.error,
+    wordRevisionResult.error,
+    packRevisionResult.error,
+  ].find(Boolean);
+  if (queryError) {
+    logger.error('Device-control sync query failed', queryError, {
+      component: 'DeviceControlV3',
+      action: ENDPOINT,
+      deviceId: auth.deviceId,
+      requestId,
+    });
+    return createV3Error(requestId, 503, 'SYNC_UNAVAILABLE', true, 5000);
+  }
+
+  const problemRevision = revisionOf(problemRevisionResult.data);
+  const todoRevision = revisionOf(todoRevisionResult.data);
+  const wordRevision = revisionOf(wordRevisionResult.data);
+  const packRevision = revisionOf(packRevisionResult.data);
+  const acknowledgedSyncCursor = Math.max(
+    auth.syncCursor,
+    parsed.data.sync_cursor
+  );
+  const syncCursor = Math.max(
+    acknowledgedSyncCursor,
+    problemRevision,
+    todoRevision,
+    wordRevision,
+    packRevision
+  );
+  const data = syncDataSchema.parse({
+    config_revision: auth.configRevision,
+    sync_cursor: syncCursor,
+    configuration: { auto_sync_interval_minutes: 60 },
+    summaries: {
+      due_problem_ids: (dueResult.data || []).map(row => row.problem_id),
+      todo_count: todoCountResult.count ?? 0,
+      word_due_count: wordDueCountResult.count ?? 0,
+    },
+    content_manifest: [
+      {
+        kind: 'problems',
+        revision: problemRevision,
+        cursor: `problems:${problemRevision}`,
+      },
+      {
+        kind: 'todos',
+        revision: todoRevision,
+        cursor: `todos:${todoRevision}`,
+      },
+      {
+        kind: 'words',
+        revision: wordRevision,
+        cursor: `words:${wordRevision}`,
+      },
+      {
+        kind: 'word_packs',
+        revision: packRevision,
+        cursor: `word_packs:${packRevision}`,
+      },
+    ],
+  });
+  const payload = createV3SuccessPayload(requestId, data);
+
+  const stored = await storeDeviceControlResponse({
+    deviceId: auth.deviceId,
+    requestId,
+    endpoint: ENDPOINT,
+    fingerprint,
+    status: 200,
+    responseBody: payload as unknown as Json,
+    firmwareVersion: parsed.data.firmware_version,
+    capabilities: parsed.data.capabilities,
+    bootId: parsed.data.boot_id,
+    seenAt: now,
+    lastSyncAt: now,
+    acknowledgedSyncCursor,
+  });
+  if (stored.kind !== 'stored') return stored.response;
+  return createV3JsonResponse(payload);
+}
+
+export const POST = withV3Security(sync, {
+  rateLimitType: 'api',
+  rateLimitKey: 'ip',
+  enableRequestValidation: false,
+});

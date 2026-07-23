@@ -12,6 +12,7 @@
  */
 
 import type { IncomingMessage } from 'node:http';
+import { createHash } from 'crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { log } from './logger.ts';
 import { makeError, type DeviceContext, type RelayErrorCode } from './types.ts';
@@ -20,18 +21,30 @@ let supabase: SupabaseClient | null = null;
 
 function getSupabase(): SupabaseClient {
   if (supabase) return supabase;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  const rawUrl = process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!rawUrl || !key) {
+    throw new Error(
+      'SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy service-role key) must be set'
+    );
   }
-  supabase = createClient(url, key, {
+  const url = new URL(rawUrl);
+  const expectedHost = process.env.WQN_SUPABASE_EXPECTED_HOST;
+  if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
+    throw new Error('Production SUPABASE_URL must use HTTPS');
+  }
+  if (expectedHost && url.hostname !== expectedHost) {
+    throw new Error(`SUPABASE_URL must use ${expectedHost}`);
+  }
+  supabase = createClient(url.origin, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   return supabase;
 }
 
 const BEARER_PREFIX = 'Bearer ';
+const DEVICE_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
 export class AuthFailure extends Error {
   constructor(
@@ -56,15 +69,15 @@ export async function authenticateDevice(
     );
   }
   const token = header.slice(BEARER_PREFIX.length).trim();
-  if (!token) {
-    throw new AuthFailure('unauthorized', 'Access token is required');
+  if (!DEVICE_TOKEN_PATTERN.test(token)) {
+    throw new AuthFailure('unauthorized', 'Invalid access token');
   }
 
   const svc = getSupabase();
   const { data: device, error } = await svc
     .from('esp32_devices')
     .select('id, user_id, mac_address')
-    .eq('access_token', token)
+    .eq('access_token_hash', createHash('sha256').update(token).digest('hex'))
     .maybeSingle();
 
   if (error) {
