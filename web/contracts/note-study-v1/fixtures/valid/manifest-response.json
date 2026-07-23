@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "request_id": "req_note_manifest_0001",
+  "server_time_ms": 1784512802000,
+  "data": {
+    "cursor": "0",
+    "has_more": false,
+    "notebooks": [
+      {
+        "notebook_id": "11111111-1111-4111-8111-111111111111",
+        "title": "空白笔记",
+        "change_sequence": 7,
+        "content_revision": 3,
+        "deleted": false,
+        "pack": {
+          "pack_id": "55555555-5555-4555-8555-555555555555",
+          "pack_revision": 3,
+          "schema_version": 1,
+          "format": "jsonl",
+          "compression": "none",
+          "entry_count": 12,
+          "byte_size": 2048,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "download_url": "/api/esp32/v3/notes/packs/55555555-5555-4555-8555-555555555555"
+        }
+      }
+    ]
+  }
+}
