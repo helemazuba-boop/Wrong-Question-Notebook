@@ -4,6 +4,7 @@ import {
 } from '@/lib/common-utils';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
+import { NOTE_CONTENT_FORMAT } from '@/lib/note-content-format';
 
 export type NotebookShelfItemType = 'problem_set' | 'notebook' | 'word_deck';
 
@@ -326,6 +327,7 @@ export async function createNotebookNoteFromAi(
     content: string;
     linked_problem_id?: string | null;
     metadata?: Json;
+    client_request_id?: string | null;
   }
 ): Promise<{
   note: { id: string; notebook_id: string; title: string; created_at: string };
@@ -371,21 +373,49 @@ export async function createNotebookNoteFromAi(
     source_conversation_id: ctx.conversationId || null,
   } as Json;
 
-  const { data, error } = await ctx.supabase
+  const { data, error } = await (ctx.supabase as SupabaseClient<any>)
     .from('notebook_notes')
     .insert({
       user_id: ctx.userId,
       notebook_id: input.notebook_id,
       title: input.title.trim().slice(0, 120),
       content: input.content.trim().slice(0, 4000),
+      content_format: NOTE_CONTENT_FORMAT,
       source: 'ai',
       linked_problem_id: input.linked_problem_id || null,
       metadata,
+      client_request_id: input.client_request_id || null,
     })
     .select('id, notebook_id, title, created_at')
     .single();
 
-  if (error) throw new NotebookToolError('database_error', error.message, 500);
+  // Idempotent replay: a retried tool call carrying the same stable request id
+  // returns the note created by the first attempt instead of a duplicate.
+  if (error) {
+    if (
+      (error as { code?: string }).code === '23505' &&
+      input.client_request_id
+    ) {
+      const { data: existing } = await (ctx.supabase as SupabaseClient<any>)
+        .from('notebook_notes')
+        .select('id, notebook_id, title, created_at')
+        .eq('user_id', ctx.userId)
+        .eq('client_request_id', input.client_request_id)
+        .maybeSingle();
+      if (existing) {
+        return {
+          note: existing,
+          action: {
+            type: 'notebook_note_created',
+            notebook_id: existing.notebook_id,
+            note_id: existing.id,
+            title: existing.title,
+          },
+        };
+      }
+    }
+    throw new NotebookToolError('database_error', error.message, 500);
+  }
 
   return {
     note: data,
