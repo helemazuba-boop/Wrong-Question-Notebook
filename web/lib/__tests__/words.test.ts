@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   importWordEntriesToDeck,
-  loadEsp32WordReview,
   loadEsp32WordSync,
   loadWordDecks,
 } from '@/lib/words';
@@ -109,36 +108,6 @@ describe('Word review helpers', () => {
       }),
     ]);
     expect(result.entries).toEqual([]);
-  });
-
-  it('returns a successful empty ESP32 review queue', async () => {
-    const supabase = {
-      from: vi.fn((table: string) => {
-        if (table === 'word_decks') {
-          return createAsyncQuery({ data: [] });
-        }
-        if (table === 'word_entries') {
-          return createAsyncQuery({ data: [] });
-        }
-        if (table === 'word_review_events') {
-          return createAsyncQuery({ data: null, count: 0 });
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    } as any;
-
-    const result = await loadEsp32WordReview(supabase, USER_ID, {
-      mode: 'sequential',
-      limit: 10,
-    });
-
-    expect(result).toMatchObject({
-      mode: 'sequential',
-      daily_target: 10,
-      reviewed_today: 0,
-      due_count: 0,
-      words: [],
-    });
   });
 
   it('imports up to 4000 entries in 500-row chunks and dedupes by normalized word', async () => {

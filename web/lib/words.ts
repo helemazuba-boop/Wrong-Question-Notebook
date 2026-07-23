@@ -9,7 +9,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export type WordDeckSource = 'system' | 'user' | 'import' | 'ai';
 export type WordLexiconType = 'english_word' | 'classical_chinese_term';
 export type WordReviewStatus = 'new' | 'learning' | 'review' | 'mastered';
-export type WordReviewMode = 'sequential' | 'random' | 'dictionary';
 export interface WordDeckItem {
   id: string;
   title: string;
@@ -99,11 +98,6 @@ const VALID_DECK_SOURCES: WordDeckSource[] = ['system', 'user', 'import', 'ai'];
 const VALID_LEXICON_TYPES: WordLexiconType[] = [
   'english_word',
   'classical_chinese_term',
-];
-const VALID_REVIEW_MODES: WordReviewMode[] = [
-  'sequential',
-  'random',
-  'dictionary',
 ];
 const VALID_REVIEW_STATUSES: WordReviewStatus[] = [
   'new',
@@ -794,87 +788,6 @@ export async function loadEsp32WordSync(
       revision: Math.max(1, Number(row.reviewed_count || 0) + 1),
     })),
   };
-}
-
-export async function loadEsp32WordReview(
-  supabase: SupabaseClient<any>,
-  userId: string,
-  input: { mode?: WordReviewMode; limit?: number; deck_id?: string | null } = {}
-) {
-  const limit = limitWithin(input.limit, 1, 50);
-  const mode = input.mode || 'sequential';
-  if (!VALID_REVIEW_MODES.includes(mode)) {
-    throw new WordToolError('invalid_request', 'Invalid review mode', 400);
-  }
-
-  const deckIds = await loadVisibleWordDeckIds(supabase, userId);
-  if (deckIds.length === 0) {
-    return {
-      mode,
-      daily_target: limit,
-      reviewed_today: 0,
-      due_count: 0,
-      words: [],
-    };
-  }
-
-  let query = supabase
-    .from('word_entries')
-    .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at, word_progress(status, due_at, interval_days, correct_streak, lapses, reviewed_count, known_count, unknown_count, last_reviewed_at)'
-    )
-    .in('deck_id', deckIds)
-    .order(mode === 'random' ? 'updated_at' : 'sort_index', { ascending: true })
-    .limit(limit * 4);
-
-  if (input.deck_id) query = query.eq('deck_id', input.deck_id);
-
-  const { data, error } = await query;
-  if (error) databaseError('loadEsp32WordReview.entries', error);
-
-  const now = Date.now();
-  const entries = (data || []).map(mapEntryRow);
-  const dueWords = entries.filter(entry => {
-    const progress = entry.progress;
-    if (progress?.status === 'mastered') return false;
-    if (!progress?.due_at) return true;
-    return Date.parse(progress.due_at) <= now;
-  });
-  const words = (
-    mode === 'random' ? dueWords.sort(() => Math.random() - 0.5) : dueWords
-  ).slice(0, limit);
-
-  const { count, error: countError } = await supabase
-    .from('word_review_events')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
-  if (countError)
-    databaseError('loadEsp32WordReview.reviewedToday', countError);
-
-  return {
-    mode,
-    daily_target: limit,
-    reviewed_today: count || 0,
-    due_count: dueWords.length,
-    words: words.map(entry => ({
-      id: entry.id,
-      word: entry.word,
-      phonetic: entry.phonetic,
-      meaning: entry.meaning,
-      example: entry.example,
-      example_translation: entry.example_translation,
-      status: entry.progress?.status || 'new',
-    })),
-  };
-}
-
-export async function getWordReviewQueue(
-  supabase: SupabaseClient<any>,
-  userId: string,
-  input: { deck_id?: string | null; mode?: WordReviewMode; limit?: number } = {}
-) {
-  return loadEsp32WordReview(supabase, userId, input);
 }
 
 export async function listAuthorizedWordDecks(ctx: WordToolContext) {
