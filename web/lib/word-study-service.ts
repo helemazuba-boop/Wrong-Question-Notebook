@@ -457,8 +457,8 @@ export async function loadWordStudyCandidatePage(
     throw new WordStudyServiceError(
       'WORD_SESSION_SNAPSHOT_INCOMPLETE',
       'Word study candidate snapshot is invalid',
-      503,
-      true
+      409,
+      false
     );
   }
   const items = session.candidate_items
@@ -478,8 +478,8 @@ export async function loadWordStudyCandidatePage(
     throw new WordStudyServiceError(
       'WORD_SESSION_SNAPSHOT_INCOMPLETE',
       'Word study candidate snapshot is incomplete',
-      503,
-      true
+      409,
+      false
     );
   }
   const nextCursor = cursor + items.length;
