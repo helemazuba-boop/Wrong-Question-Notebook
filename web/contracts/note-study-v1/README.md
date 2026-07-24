@@ -7,35 +7,41 @@ request-id idempotency, monotonic sequence) but for the `note` domain only.
 
 ## gate-0 decision (locked)
 
-The single explicit, durable user action for blank notebooks is **`read_completed`**
-("显式读完" — the user confirms they finished reading a note). This is the action
-whose durable outbox commit N4 validates. It is deliberately **not** a mastery
-signal: reading a note never marks anything known/mastered.
+The single explicit, durable user action for blank notebooks is **`opened`** — the
+user deliberately opens a note from the notebook's title list (笔记本 -> 标题 ->
+笔记; long-press Confirm goes back one level). Opening is a real explicit choice
+and is the action whose durable outbox commit N4 validates; it records
+`last_opened_at` and drives the least-recently-viewed recommendation. It is
+deliberately **not** a mastery signal.
 
-- `read_completed` is only ever produced by an explicit user confirmation on the
-  last screen of a note — never inferred from paging to the end.
-- The runtime does not invent a button the product does not need; if the product
-  later replaces the explicit action, this lock must be revised before N1 is
-  re-frozen.
+- The device never forces "read to the end": the reader can long-press back at any
+  point. There is no forced `read_completed` gate.
+- `read_completed` remains an allowed contract action for a future opt-in "mark
+  read", but device v1 emits only `opened`. If the product later changes the
+  explicit action, this lock must be revised before the contract is re-frozen.
 
 ## User semantics
 
-The visible entries are `顺序` (sequential) and `最近` (recent). Search is an AI
-concern (MCP) and is intentionally absent from the device study modes.
+Navigation follows the web notebook hierarchy: 笔记本 (notebook) -> 标题 (note
+titles) -> 笔记 (note body); long-press Confirm returns one level. Search is an AI
+concern (MCP) and is absent from the device.
 
-| Visible mode | Purpose  | Ordering              |
-| ------------ | -------- | --------------------- |
-| `sequential` | `browse` | `sequential_note_v1`  |
-| `recent`     | `browse` | `recently_updated_v1` |
+| Visible mode | Purpose  | Ordering                   |
+| ------------ | -------- | -------------------------- |
+| `sequential` | `browse` | `sequential_note_v1`       |
+| `recent`     | `browse` | `least_recently_viewed_v1` |
 
-Both modes browse the same note content. `sequential_note_v1` orders notes by
-`(sort_index, id)` within notebook scope; `recently_updated_v1` orders by
-`(updated_at desc, id)`. Recommendation is by last-viewed/created time only —
-there is no review weight, no mastery, and no recommendation reason on the wire.
+`sequential_note_v1` orders notes by `(sort_index, id)` within notebook scope.
+`least_recently_viewed_v1` is the recommendation: it surfaces the longest-not-seen
+notes first, ordering by `COALESCE(last_opened_at, created_at) ASC, id` (never-
+viewed notes fall back to creation time). There is no review weight, no mastery,
+and no recommendation reason on the wire. Each session/candidate item carries
+`last_opened_at` so the device can show the last-viewed label.
 
 ## Observations and projection
 
 Allowed actions: `opened`, `read_completed`, `skipped`, `session_paused`.
+Device v1 emits only `opened`; the others remain allowed for future use.
 
 Only `opened` and `read_completed` touch the read-state projection
 (`note_read_state`): `opened` sets `last_opened_at`; `read_completed` sets

@@ -6,12 +6,12 @@ import {
 
 // Note Study v1 mirrors the word-study wire model but for the blank-notebook
 // domain: browse-only purpose, read-state projection only (never mastery), and
-// `read_completed` as the single explicit durable observation (see the contract
-// README gate-0 lock). It reuses the shared study-session runtime primitives.
+// `opened` as the single explicit durable observation (see the contract README
+// gate-0 lock). It reuses the shared study-session runtime primitives.
 
 export const NOTE_STUDY_CONTRACT = 'note-study-v1' as const;
 export const NOTE_STUDY_SCHEMA_SHA256 =
-  '5cfec780cd6879a68838e518e3eb58d643154588e57cda76e9b6ae37c2180a8d' as const;
+  'b2668dcbeeff7b7c7ddb672d9acfeafeb2bb0f687eecfbd5bb3740a3a80b06a6' as const;
 export const NOTE_PACK_SCHEMA_VERSION = 1 as const;
 export const NOTE_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const NOTE_PACK_MAX_ENTRIES = 5_000;
@@ -34,11 +34,11 @@ export const noteStudyModeSchema = z.enum(['sequential', 'recent']);
 export const noteStudyPurposeSchema = z.enum(['browse']);
 export const noteStudyOrderingSchema = z.enum([
   'sequential_note_v1',
-  'recently_updated_v1',
+  'least_recently_viewed_v1',
 ]);
 export const noteCandidatePolicyVersionSchema = z.enum([
   'sequential_note_v1',
-  'recently_updated_v1',
+  'least_recently_viewed_v1',
 ]);
 export const noteObservationActionSchema = z.enum([
   'opened',
@@ -76,6 +76,8 @@ export const noteStudySessionItemSchema = z.strictObject({
   item_id: uuidSchema,
   notebook_id: uuidSchema,
   ordinal: safeCounterSchema,
+  // Read-state pin as of session creation: drives the device last-viewed label.
+  last_opened_at: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 export const noteStudySessionDataSchema = z.strictObject({
@@ -242,7 +244,7 @@ export function semanticsForNoteMode(mode: NoteStudyMode): {
 } {
   switch (mode) {
     case 'recent':
-      return { purpose: 'browse', ordering: 'recently_updated_v1' };
+      return { purpose: 'browse', ordering: 'least_recently_viewed_v1' };
     case 'sequential':
       return { purpose: 'browse', ordering: 'sequential_note_v1' };
   }
@@ -252,8 +254,8 @@ export function candidatePolicyVersionForOrdering(
   ordering: NoteStudyOrdering
 ): NoteCandidatePolicyVersion {
   switch (ordering) {
-    case 'recently_updated_v1':
-      return 'recently_updated_v1';
+    case 'least_recently_viewed_v1':
+      return 'least_recently_viewed_v1';
     case 'sequential_note_v1':
       return 'sequential_note_v1';
   }

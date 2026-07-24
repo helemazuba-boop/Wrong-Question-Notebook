@@ -28,7 +28,7 @@ alter table public.study_sessions add constraint study_sessions_purpose_v2_check
 
 alter table public.study_sessions drop constraint if exists study_sessions_ordering_v2_check;
 alter table public.study_sessions add constraint study_sessions_ordering_v2_check
-  check (ordering in ('sequential', 'guided_random_v1', 'lexicographic', 'sequential_note_v1', 'recently_updated_v1'));
+  check (ordering in ('sequential', 'guided_random_v1', 'lexicographic', 'sequential_note_v1', 'least_recently_viewed_v1'));
 
 alter table public.study_sessions drop constraint if exists study_sessions_semantics_v2_check;
 alter table public.study_sessions add constraint study_sessions_semantics_v2_check check (
@@ -39,7 +39,7 @@ alter table public.study_sessions add constraint study_sessions_semantics_v2_che
   ))
   or (domain = 'note' and (
     (mode = 'sequential' and purpose = 'browse' and ordering = 'sequential_note_v1')
-    or (mode = 'recent' and purpose = 'browse' and ordering = 'recently_updated_v1')
+    or (mode = 'recent' and purpose = 'browse' and ordering = 'least_recently_viewed_v1')
   ))
 );
 

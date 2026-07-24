@@ -185,7 +185,7 @@ describe('esp32/v3/notes route integration', () => {
                   revision: 1,
                   title: 't',
                   content: 'c',
-                  updated_at: '2026-01-01T00:00:00Z',
+                  created_at: '2026-01-01T00:00:00Z',
                 },
               ],
               error: null,

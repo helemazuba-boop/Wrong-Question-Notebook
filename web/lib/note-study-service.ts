@@ -133,7 +133,7 @@ async function collectCandidates(
   for (let offset = 0; ; offset += CANDIDATE_SCAN_PAGE) {
     const { data, error } = await supabase
       .from('notebook_notes')
-      .select('id, notebook_id, sort_index, updated_at')
+      .select('id, notebook_id, sort_index, created_at')
       .in('notebook_id', ids)
       .eq('user_id', userId)
       .is('archived_at', null)
@@ -144,12 +144,28 @@ async function collectCandidates(
     if (error) databaseError('collectCandidates', error);
     if (!data?.length) break;
 
+    // Read-state (last_opened_at) drives the least-recently-viewed ranking and
+    // the device last-viewed label. Fetched per page and left-joined in memory
+    // so never-viewed notes keep a null last_opened_at.
+    const pageIds = (data as any[]).map(row => row.id);
+    const readState = new Map<string, string | null>();
+    const { data: readRows, error: readError } = await supabase
+      .from('note_read_state')
+      .select('note_id, last_opened_at')
+      .eq('user_id', userId)
+      .in('note_id', pageIds);
+    if (readError) databaseError('collectCandidates.readState', readError);
+    for (const row of (readRows || []) as any[]) {
+      readState.set(row.note_id, row.last_opened_at ?? null);
+    }
+
     const pageCandidates: NoteStudyCandidate[] = (data as any[]).map(row => ({
       item_id: row.id,
       notebook_id: row.notebook_id,
       notebook_order: orderById.get(row.notebook_id) ?? Number.MAX_SAFE_INTEGER,
       sort_index: Number(row.sort_index || 0),
-      updated_at: row.updated_at || '',
+      last_opened_at: readState.get(row.id) ?? null,
+      created_at: row.created_at || '',
     }));
     pool = mergeNoteStudyCandidatePage(
       pool,
@@ -266,6 +282,7 @@ export async function createNoteStudySession(
     item_id: candidate.item_id,
     notebook_id: candidate.notebook_id,
     ordinal,
+    last_opened_at: candidate.last_opened_at,
   }));
   const firstPage = allCandidateItems.slice(0, NOTE_CANDIDATE_PAGE_SIZE);
   const cursor = String(firstPage.length);
@@ -387,6 +404,7 @@ export async function loadNoteStudyCandidatePage(
       item_id: item.item_id,
       notebook_id: item.notebook_id,
       ordinal: Number(item.ordinal),
+      last_opened_at: item.last_opened_at ?? null,
     }));
   if (
     items.some(

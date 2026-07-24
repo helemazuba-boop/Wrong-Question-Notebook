@@ -287,7 +287,8 @@ describe('note-study runtime guards', () => {
         notebook_id: NB_ID,
         notebook_order: 0,
         sort_index: 1,
-        updated_at: 't',
+        last_opened_at: null,
+        created_at: 't',
       },
     ];
     const page = [
@@ -296,14 +297,16 @@ describe('note-study runtime guards', () => {
         notebook_id: NB_ID,
         notebook_order: 0,
         sort_index: 2,
-        updated_at: 't',
+        last_opened_at: null,
+        created_at: 't',
       },
       {
         item_id: 'c',
         notebook_id: NB_ID,
         notebook_order: 0,
         sort_index: 3,
-        updated_at: 't',
+        last_opened_at: null,
+        created_at: 't',
       },
     ];
     const merged = mergeNoteStudyCandidatePage(

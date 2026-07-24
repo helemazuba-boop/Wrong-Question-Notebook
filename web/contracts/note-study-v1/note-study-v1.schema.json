@@ -53,9 +53,9 @@
     },
     "mode": { "enum": ["sequential", "recent"] },
     "purpose": { "enum": ["browse"] },
-    "ordering": { "enum": ["sequential_note_v1", "recently_updated_v1"] },
+    "ordering": { "enum": ["sequential_note_v1", "least_recently_viewed_v1"] },
     "candidatePolicyVersion": {
-      "enum": ["sequential_note_v1", "recently_updated_v1"]
+      "enum": ["sequential_note_v1", "least_recently_viewed_v1"]
     },
     "observationAction": {
       "enum": ["opened", "read_completed", "skipped", "session_paused"]
@@ -97,7 +97,8 @@
       "properties": {
         "item_id": { "$ref": "#/$defs/uuid" },
         "notebook_id": { "$ref": "#/$defs/uuid" },
-        "ordinal": { "$ref": "#/$defs/safeCounter" }
+        "ordinal": { "$ref": "#/$defs/safeCounter" },
+        "last_opened_at": { "type": ["string", "null"], "format": "date-time" }
       }
     },
     "progressProjection": {

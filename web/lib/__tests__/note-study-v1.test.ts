@@ -74,10 +74,10 @@ describe('note-study-v1 contract', () => {
     });
     expect(semanticsForNoteMode('recent')).toEqual({
       purpose: 'browse',
-      ordering: 'recently_updated_v1',
+      ordering: 'least_recently_viewed_v1',
     });
-    expect(candidatePolicyVersionForOrdering('recently_updated_v1')).toBe(
-      'recently_updated_v1'
+    expect(candidatePolicyVersionForOrdering('least_recently_viewed_v1')).toBe(
+      'least_recently_viewed_v1'
     );
   });
 

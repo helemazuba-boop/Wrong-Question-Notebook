@@ -3,7 +3,7 @@
 // projections of stable content fields.
 
 export type NoteStudyOrderingKind =
-  'sequential_note_v1' | 'recently_updated_v1';
+  'sequential_note_v1' | 'least_recently_viewed_v1';
 
 export interface NoteStudyCandidate {
   item_id: string;
@@ -11,11 +11,21 @@ export interface NoteStudyCandidate {
   /** Position of the note's notebook within the resolved scope order. */
   notebook_order: number;
   sort_index: number;
-  updated_at: string;
+  /** Read-state pin: when the note was last opened, or null if never. */
+  last_opened_at: string | null;
+  /** Creation time, used as the fallback ordering key for never-viewed notes. */
+  created_at: string;
 }
 
 function compareItemId(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// COALESCE(last_opened_at, created_at) as epoch ms. Never-viewed notes fall
+// back to creation time so they are ranked as "not seen since created".
+function lastViewedKey(candidate: NoteStudyCandidate): number {
+  const source = candidate.last_opened_at || candidate.created_at || '';
+  return Date.parse(source) || 0;
 }
 
 /**
@@ -27,11 +37,13 @@ export function orderNoteStudyCandidates(
   ordering: NoteStudyOrderingKind
 ): NoteStudyCandidate[] {
   const arr = [...candidates];
-  if (ordering === 'recently_updated_v1') {
+  if (ordering === 'least_recently_viewed_v1') {
+    // Recommendation surfaces the longest-not-seen notes first (ascending on
+    // last-viewed / creation time).
     arr.sort((a, b) => {
-      const ta = Date.parse(a.updated_at) || 0;
-      const tb = Date.parse(b.updated_at) || 0;
-      if (tb !== ta) return tb - ta; // most recently updated first
+      const ka = lastViewedKey(a);
+      const kb = lastViewedKey(b);
+      if (ka !== kb) return ka - kb;
       return compareItemId(a.item_id, b.item_id);
     });
     return arr;
