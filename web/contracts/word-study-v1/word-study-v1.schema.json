@@ -447,7 +447,7 @@
         "pack_revision": { "$ref": "#/$defs/safeCounter" },
         "schema_version": { "const": 2 },
         "format": { "const": "jsonl" },
-        "compression": { "const": "none" },
+        "compression": { "const": "zlib" },
         "entry_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
         "byte_size": { "type": "integer", "minimum": 1, "maximum": 4194304 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

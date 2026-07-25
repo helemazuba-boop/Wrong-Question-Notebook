@@ -11,7 +11,7 @@ import {
 
 export const NOTE_STUDY_CONTRACT = 'note-study-v1' as const;
 export const NOTE_STUDY_SCHEMA_SHA256 =
-  'b2668dcbeeff7b7c7ddb672d9acfeafeb2bb0f687eecfbd5bb3740a3a80b06a6' as const;
+  'ebf59e78e1fbb963b5a4c533d51cfcbb04b1fe8055923e50735d0cac6d791e05' as const;
 export const NOTE_PACK_SCHEMA_VERSION = 1 as const;
 export const NOTE_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const NOTE_PACK_MAX_ENTRIES = 5_000;
@@ -182,7 +182,8 @@ export const noteManifestPackSchema = z
     pack_revision: safeCounterSchema,
     schema_version: z.literal(NOTE_PACK_SCHEMA_VERSION),
     format: z.literal('jsonl'),
-    compression: z.literal('none'),
+    // Transport coding of the download body (see word-study-v1): always zlib.
+    compression: z.literal('zlib'),
     entry_count: z.number().int().min(0).max(NOTE_PACK_MAX_ENTRIES),
     byte_size: z.number().int().min(1).max(NOTE_PACK_MAX_BYTES),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),

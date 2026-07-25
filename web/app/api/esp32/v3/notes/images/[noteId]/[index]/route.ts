@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { deflateSync } from 'zlib';
 import {
   createV3Error,
   rejectWrongV3Protocol,
@@ -71,17 +72,21 @@ async function downloadNoteImage(
       return createV3Error(requestId, 404, 'IMAGE_NOT_FOUND', false);
     }
     const bytes = Buffer.from(await blob.arrayBuffer());
+    // Transport coding only: image_id stays the sha256 of the uncompressed
+    // WQNI file; the device inflates (ROM tinfl) before verifying it.
+    const deflated = deflateSync(bytes);
 
-    return new NextResponse(new Uint8Array(bytes), {
+    return new NextResponse(new Uint8Array(deflated), {
       status: 200,
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Length': String(bytes.length),
+        'Content-Length': String(deflated.length),
         // image_id is a content hash, so the bytes are immutable.
         'Cache-Control': 'private, max-age=31536000, immutable',
         ETag: `"${asset.image_id}"`,
         'X-WQN-Protocol': '3',
         'X-WQN-Request-Id': requestId,
+        'X-WQN-Compression': 'zlib',
         'X-WQN-Image-Id': asset.image_id,
       },
     });

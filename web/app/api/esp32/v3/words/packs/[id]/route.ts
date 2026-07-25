@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { deflateSync } from 'zlib';
 import {
   rejectWrongV3Protocol,
   requestIdFromUnknown,
@@ -31,15 +32,20 @@ async function downloadPack(
       auth.userId,
       id
     );
-    return new NextResponse(body, {
+    // Transport coding only: the stored pack stays plain JSONL; the manifest
+    // advertises compression=zlib and the device inflates while streaming.
+    // sha256/byte_size keep describing the uncompressed content.
+    const deflated = deflateSync(Buffer.from(new Uint8Array(body)));
+    return new NextResponse(new Uint8Array(deflated), {
       status: 200,
       headers: {
-        'Content-Type': 'application/x-ndjson; charset=utf-8',
-        'Content-Length': String(pack.byte_size),
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(deflated.length),
         'Cache-Control': 'private, max-age=31536000, immutable',
         ETag: `"${pack.sha256}"`,
         'X-WQN-Protocol': '3',
         'X-WQN-Request-Id': requestId,
+        'X-WQN-Compression': 'zlib',
         'X-WQN-Word-Pack-Id': pack.id,
         'X-WQN-Word-Deck-Id': deck.id,
         'X-WQN-Word-Deck-Title': encodeURIComponent(deck.title),

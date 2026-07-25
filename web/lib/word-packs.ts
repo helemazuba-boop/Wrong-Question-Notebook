@@ -426,7 +426,7 @@ export interface WordStudyManifestDeck {
     pack_revision: number;
     schema_version: 2;
     format: 'jsonl';
-    compression: 'none';
+    compression: 'zlib';
     entry_count: number;
     byte_size: number;
     sha256: string;
@@ -501,7 +501,7 @@ export async function loadWordStudyManifest(
         pack_revision: Number(pack.revision),
         schema_version: 2,
         format: 'jsonl',
-        compression: 'none',
+        compression: 'zlib',
         entry_count: Number(pack.entry_count),
         byte_size: Number(pack.byte_size),
         sha256: pack.sha256,

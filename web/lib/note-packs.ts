@@ -143,7 +143,7 @@ export interface NoteManifestData {
       pack_revision: number;
       schema_version: number;
       format: 'jsonl';
-      compression: 'none';
+      compression: 'zlib';
       entry_count: number;
       byte_size: number;
       sha256: string;
@@ -195,7 +195,7 @@ export async function loadNoteStudyManifest(
           pack_revision: pack.pack_revision,
           schema_version: NOTE_PACK_SCHEMA_VERSION,
           format: 'jsonl' as const,
-          compression: 'none' as const,
+          compression: 'zlib' as const,
           entry_count: pack.entry_count,
           byte_size: pack.byte_size,
           sha256: pack.sha256,

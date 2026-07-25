@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  'fc87be019003d936f212fc4ec192ebbea4c9ae39bf2331ea216f696163469b65' as const;
+  'a7af5dfcc47e6094c2671bf9ea8cf138d68e7c0ffab0bcf91aef3d7225cbbe70' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
@@ -186,7 +186,10 @@ export const wordManifestPackSchema = z
     pack_revision: safeCounterSchema,
     schema_version: z.literal(WORD_PACK_SCHEMA_VERSION),
     format: z.literal('jsonl'),
-    compression: z.literal('none'),
+    // Transport coding of the download body. The stored pack itself stays
+    // plain JSONL; the download route deflates it and the device inflates
+    // while streaming. Always zlib -- there is no legacy firmware to serve.
+    compression: z.literal('zlib'),
     entry_count: z.number().int().min(0).max(WORD_PACK_MAX_ENTRIES),
     byte_size: z.number().int().min(1).max(WORD_PACK_MAX_BYTES),
     sha256: z.string().regex(/^[0-9a-f]{64}$/),

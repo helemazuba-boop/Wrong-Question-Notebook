@@ -17,7 +17,7 @@
           "pack_revision": 3,
           "schema_version": 1,
           "format": "jsonl",
-          "compression": "none",
+          "compression": "zlib",
           "entry_count": 12,
           "byte_size": 2048,
           "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

@@ -374,7 +374,7 @@
             "pack_revision": { "$ref": "#/$defs/safeCounter" },
             "schema_version": { "const": 1 },
             "format": { "const": "jsonl" },
-            "compression": { "const": "none" },
+            "compression": { "const": "zlib" },
             "entry_count": { "type": "integer", "minimum": 0, "maximum": 5000 },
             "byte_size": {
               "type": "integer",
