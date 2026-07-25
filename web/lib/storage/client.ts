@@ -102,7 +102,11 @@ export async function uploadNoteFiles(
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
       .upload(path, f, {
         cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
-        upsert: false,
+        // A retried attach (e.g. the derived-render step failed once) re-uploads
+        // the same filename; overwriting the owner's own note original is the
+        // desired outcome, while upsert:false turned every retry into a
+        // duplicate-key 400.
+        upsert: true,
       });
     if (error) throw error;
     paths.push(path);
