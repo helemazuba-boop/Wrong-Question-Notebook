@@ -125,6 +125,13 @@ RUN mkdir .next && chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# sharp's native runtime: Next's file tracing copies the .node addon
+# (@img/sharp-linuxmusl-x64) into standalone, but NOT the libvips shared
+# library it dlopens via rpath (@img/sharp-libvips-linuxmusl-x64) -- the
+# dynamic-linker dependency is invisible to require() tracing, so the runtime
+# died with ERR_DLOPEN_FAILED on libvips-cpp.so. Copy the whole @img scope
+# (musl-x64 variants only in this image) over the traced node_modules.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
 COPY --from=builder --chown=nextjs:nodejs /app/docker-entrypoint.mjs ./docker-entrypoint.mjs
 
 USER nextjs
