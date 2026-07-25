@@ -30,14 +30,17 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
+  ImagePlus,
   Lock,
   Pencil,
   Plus,
   Search,
   Settings2,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { uploadNoteFiles } from '@/lib/storage/client';
 
 type NotebookView = {
   id: string;
@@ -50,6 +53,13 @@ type NotebookView = {
   ai_access: { can_read: boolean; can_create: boolean; can_update: boolean };
 };
 
+type NoteImageAssetView = {
+  path: string;
+  image_id: string;
+  display_path: string;
+  preview_path: string;
+};
+
 type NoteView = {
   id: string;
   notebook_id: string;
@@ -58,6 +68,7 @@ type NoteView = {
   content_format?: string;
   source: string;
   linked_problem_id: string | null;
+  assets?: NoteImageAssetView[];
   revision: number;
   sort_index: number;
   created_at: string;
@@ -117,7 +128,10 @@ export default function NotebookPageClient({
   const [editNote, setEditNote] = useState<NoteView | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editAssets, setEditAssets] = useState<NoteImageAssetView[]>([]);
   const [editBusy, setEditBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTitle, setSettingsTitle] = useState(initialNotebook.title);
@@ -241,6 +255,70 @@ export default function NotebookPageClient({
     setEditNote(note);
     setEditTitle(note.title);
     setEditContent(note.content);
+    setEditAssets(note.assets ?? []);
+  }
+
+  // Image attach/detach bump the note revision server-side, so every response
+  // must be folded back into editNote or the next content save hits a 409.
+  function applyNotePayload(payload: any) {
+    const note = payload?.data?.note;
+    if (!note) return;
+    setEditNote(prev => (prev ? { ...prev, revision: note.revision } : prev));
+    setEditAssets(Array.isArray(note.assets) ? note.assets : []);
+  }
+
+  async function handleImageUpload(files: FileList) {
+    if (!editNote || files.length === 0) return;
+    if (editAssets.length + files.length > 4) {
+      toast.error('每条笔记最多 4 张图片');
+      return;
+    }
+    setImageBusy(true);
+    try {
+      for (const file of Array.from(files)) {
+        const [path] = await uploadNoteFiles([file], editNote.id);
+        const response = await fetch(
+          `/api/notebooks/${notebook.id}/notes/${editNote.id}/images`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path }),
+          }
+        );
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.message || '图片处理失败');
+        }
+        applyNotePayload(payload);
+      }
+      toast.success('图片已添加（预览即墨水屏效果）');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '图片上传失败');
+    } finally {
+      setImageBusy(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
+  }
+
+  async function handleImageDelete(imageId: string) {
+    if (!editNote) return;
+    setImageBusy(true);
+    try {
+      const response = await fetch(
+        `/api/notebooks/${notebook.id}/notes/${editNote.id}/images/${imageId}`,
+        { method: 'DELETE' }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || '删除图片失败');
+      }
+      applyNotePayload(payload);
+      toast.success('图片已删除');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '删除图片失败');
+    } finally {
+      setImageBusy(false);
+    }
   }
 
   async function submitEdit(event: React.FormEvent) {
@@ -649,6 +727,59 @@ export default function NotebookPageClient({
                 maxLength={4000}
                 className="min-h-40"
               />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>图片（{editAssets.length}/4，预览即墨水屏效果）</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={imageBusy || editAssets.length >= 4}
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <ImagePlus className="mr-1 h-4 w-4" />
+                  {imageBusy ? '处理中...' : '添加图片'}
+                </Button>
+              </div>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={event =>
+                  event.target.files && handleImageUpload(event.target.files)
+                }
+              />
+              {editAssets.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {editAssets.map(asset => (
+                    <div
+                      key={asset.image_id}
+                      className="relative rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/files/${encodeURIComponent(asset.preview_path)}`}
+                        alt="墨水屏预览"
+                        className="w-full aspect-[4/3] object-contain bg-white"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={imageBusy}
+                        onClick={() => handleImageDelete(asset.image_id)}
+                        className="absolute top-1 right-1 h-6 w-6 p-0 bg-white/80 hover:bg-white text-red-600"
+                        title="删除图片"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button

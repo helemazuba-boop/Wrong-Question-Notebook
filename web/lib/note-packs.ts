@@ -15,6 +15,8 @@ export interface NotePackNote {
   revision: number;
   title: string;
   content: string;
+  /** SHA-256 ids of the note's e-ink images (WQNI files), display order. */
+  image_ids: string[];
 }
 
 export interface NotePackResult {
@@ -64,7 +66,7 @@ export async function buildNotePack(
 
   const { data, error } = await supabase
     .from('notebook_notes')
-    .select('id, notebook_id, sort_index, revision, title, content')
+    .select('id, notebook_id, sort_index, revision, title, content, assets')
     .eq('notebook_id', notebookId)
     .eq('user_id', userId)
     .is('archived_at', null)
@@ -81,10 +83,19 @@ export async function buildNotePack(
     revision: Number(row.revision ?? 1),
     title: row.title,
     content: row.content,
+    image_ids: Array.isArray(row.assets)
+      ? row.assets
+          .map((asset: any) =>
+            typeof asset?.image_id === 'string' ? asset.image_id : null
+          )
+          .filter((id: string | null): id is string => id !== null)
+      : [],
   }));
 
   // NOTE_PACK_V1: a metadata line followed by one JSONL record per note. The
-  // fixed key order keeps the bytes (and therefore the SHA) stable.
+  // fixed key order keeps the bytes (and therefore the SHA) stable. image_ids
+  // is always present (empty array for image-less notes) so the byte layout
+  // stays deterministic; the device parser ignores keys it does not know.
   const lines = [
     JSON.stringify({
       v: NOTE_PACK_SCHEMA_VERSION,
@@ -100,6 +111,7 @@ export async function buildNotePack(
         revision: note.revision,
         title: note.title,
         content: note.content,
+        image_ids: note.image_ids,
       })
     ),
   ];

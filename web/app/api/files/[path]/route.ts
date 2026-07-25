@@ -84,6 +84,16 @@ export async function GET(
   // Fast path: owner can always access their own files
   const isUserOwnedFile = user && decodedPath.startsWith(`user/${user.id}/`);
 
+  // Note images have no sharing semantics: only the owner may view them, so
+  // non-owner requests short-circuit here instead of probing the problem RPCs.
+  const isNoteAssetPath = /^user\/[0-9a-f-]+\/notes\//.test(decodedPath);
+  if (isNoteAssetPath && !isUserOwnedFile) {
+    return NextResponse.json(
+      createApiErrorResponse(ERROR_MESSAGES.NOT_FOUND, 404),
+      { status: 404 }
+    );
+  }
+
   if (!isUserOwnedFile) {
     const serviceClient = createServiceClient();
 

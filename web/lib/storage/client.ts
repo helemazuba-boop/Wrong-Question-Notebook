@@ -65,6 +65,51 @@ export async function uploadFiles(
   return paths;
 }
 
+/**
+ * Note image originals mirror the problem upload flow in the same bucket:
+ *   user/{uid}/notes/{noteId}/{originalName}
+ * The e-ink derivations are rendered server-side on attach under
+ * user/{uid}/notes/{noteId}/derived/.
+ */
+export async function uploadNoteFiles(
+  files: FileList | File[],
+  noteId: string
+) {
+  if (!noteId || noteId.trim() === '') {
+    throw new Error('Note ID is required for file upload');
+  }
+  if (noteId.includes('/') || noteId.includes('\\')) {
+    throw new Error('Invalid Note ID: contains path separators');
+  }
+
+  const supabase = createClient();
+  const uid = await getUserId();
+  const base = `user/${uid}/notes/${noteId}`;
+
+  const maxSize = FILE_CONSTANTS.MAX_FILE_SIZE.GENERAL;
+  const oversized = Array.from(files).filter(f => f.size > maxSize);
+  if (oversized.length > 0) {
+    throw new Error(
+      `Files too large: ${oversized.map(f => f.name).join(', ')}. Maximum file size is 10MB.`
+    );
+  }
+
+  const paths: string[] = [];
+  for (const f of Array.from(files)) {
+    const safeName = f.name.replace(/\s+/g, '_');
+    const path = `${base}/${safeName}`;
+    const { error } = await supabase.storage
+      .from(FILE_CONSTANTS.STORAGE.BUCKET)
+      .upload(path, f, {
+        cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
+        upsert: false,
+      });
+    if (error) throw error;
+    paths.push(path);
+  }
+  return paths;
+}
+
 /** Create short-lived signed URLs for display; returns [{ path, url }] */
 export async function signPaths(
   paths: string[],

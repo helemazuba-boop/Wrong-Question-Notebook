@@ -19,7 +19,7 @@ import {
 // enforced in exactly one place.
 
 const NOTE_COLUMNS =
-  'id, notebook_id, title, content, content_format, source, linked_problem_id, metadata, revision, sort_index, created_at, updated_at, archived_at';
+  'id, notebook_id, title, content, content_format, source, linked_problem_id, metadata, assets, revision, sort_index, created_at, updated_at, archived_at';
 const NOTEBOOK_COLUMNS =
   'id, subject_id, title, description, color, icon, revision, created_at, updated_at, archived_at';
 
@@ -31,6 +31,17 @@ export const NOTE_LIST_MAX_LIMIT = 100;
 
 export type NoteSource = 'user' | 'ai' | 'import';
 
+// Mirror of the problem `assets` model plus the e-ink derivation the device
+// consumes. `image_id` is the SHA-256 of the derived WQNI file.
+export interface NoteImageAsset {
+  path: string;
+  image_id: string;
+  display_path: string;
+  preview_path: string;
+}
+
+export const NOTE_IMAGE_MAX_PER_NOTE = 4;
+
 export interface NoteRecord {
   id: string;
   notebook_id: string;
@@ -41,6 +52,7 @@ export interface NoteRecord {
   source: string;
   linked_problem_id: string | null;
   metadata: Json;
+  assets: NoteImageAsset[];
   revision: number;
   sort_index: number;
   created_at: string;
@@ -74,6 +86,29 @@ interface NoteCursorPayload {
   id: string;
 }
 
+function mapNoteAssets(value: unknown): NoteImageAsset[] {
+  if (!Array.isArray(value)) return [];
+  const assets: NoteImageAsset[] = [];
+  for (const entry of value) {
+    if (
+      typeof entry === 'object' &&
+      entry !== null &&
+      typeof (entry as any).path === 'string' &&
+      typeof (entry as any).image_id === 'string' &&
+      typeof (entry as any).display_path === 'string' &&
+      typeof (entry as any).preview_path === 'string'
+    ) {
+      assets.push({
+        path: (entry as any).path,
+        image_id: (entry as any).image_id,
+        display_path: (entry as any).display_path,
+        preview_path: (entry as any).preview_path,
+      });
+    }
+  }
+  return assets;
+}
+
 function mapNote(row: any, subjectId: string): NoteRecord {
   return {
     id: row.id,
@@ -85,6 +120,7 @@ function mapNote(row: any, subjectId: string): NoteRecord {
     source: row.source,
     linked_problem_id: row.linked_problem_id ?? null,
     metadata: (row.metadata ?? {}) as Json,
+    assets: mapNoteAssets(row.assets),
     revision: Number(row.revision ?? 1),
     sort_index: Number(row.sort_index ?? 0),
     created_at: row.created_at,
@@ -546,4 +582,101 @@ async function assertNoteRevisionConflict(
     );
   }
   throw new NotebookToolError('note_not_found', 'Note not found', 404);
+}
+
+// Applies a mutation to a note's image asset list. Reads the current row,
+// lets `mutate` produce the next list, then writes it back with a CAS on the
+// revision that was just read -- concurrent editors surface as
+// revision_conflict instead of silently losing an attach/detach. The revision
+// bump also lands in note_change_log, which advances the notebook's pack
+// sha256 so devices re-sync the image_ids automatically.
+async function mutateNoteAssets(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  notebookId: string,
+  noteId: string,
+  mutate: (assets: NoteImageAsset[]) => NoteImageAsset[]
+): Promise<NoteRecord> {
+  const notebook = await requireNotebookOwner(supabase, userId, notebookId);
+
+  const { data: current, error: readError } = await supabase
+    .from('notebook_notes')
+    .select('assets, revision')
+    .eq('id', noteId)
+    .eq('notebook_id', notebookId)
+    .eq('user_id', userId)
+    .is('archived_at', null)
+    .maybeSingle();
+  if (readError) {
+    throw new NotebookToolError('database_error', readError.message, 500);
+  }
+  if (!current) {
+    throw new NotebookToolError('note_not_found', 'Note not found', 404);
+  }
+
+  const revision = Number(current.revision ?? 1);
+  const nextAssets = mutate(mapNoteAssets(current.assets));
+  if (nextAssets.length > NOTE_IMAGE_MAX_PER_NOTE) {
+    throw new NotebookToolError(
+      'invalid_request',
+      `A note can hold at most ${NOTE_IMAGE_MAX_PER_NOTE} images`,
+      400
+    );
+  }
+
+  const { data, error } = await supabase
+    .from('notebook_notes')
+    .update({ assets: nextAssets as unknown as Json, revision: revision + 1 })
+    .eq('id', noteId)
+    .eq('notebook_id', notebookId)
+    .eq('user_id', userId)
+    .eq('revision', revision)
+    .is('archived_at', null)
+    .select(NOTE_COLUMNS)
+    .maybeSingle();
+  if (error) throw new NotebookToolError('database_error', error.message, 500);
+  if (!data) {
+    await assertNoteRevisionConflict(supabase, userId, notebookId, noteId);
+  }
+  return mapNote(data, notebook.subject_id);
+}
+
+export async function attachNoteImageAsset(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  notebookId: string,
+  noteId: string,
+  asset: NoteImageAsset
+): Promise<NoteRecord> {
+  return mutateNoteAssets(supabase, userId, notebookId, noteId, assets => {
+    if (assets.some(existing => existing.image_id === asset.image_id)) {
+      // Idempotent replay: the same rendered image attached twice is a no-op.
+      return assets;
+    }
+    return [...assets, asset];
+  });
+}
+
+export async function detachNoteImageAsset(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  notebookId: string,
+  noteId: string,
+  imageId: string
+): Promise<{ note: NoteRecord; removed: NoteImageAsset }> {
+  let removed: NoteImageAsset | null = null;
+  const note = await mutateNoteAssets(
+    supabase,
+    userId,
+    notebookId,
+    noteId,
+    assets => {
+      removed = assets.find(asset => asset.image_id === imageId) ?? null;
+      return assets.filter(asset => asset.image_id !== imageId);
+    }
+  );
+  if (!removed) {
+    throw new NotebookToolError('note_not_found', 'Image not found', 404);
+  }
+  return { note, removed };
 }
