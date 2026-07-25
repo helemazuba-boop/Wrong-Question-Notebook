@@ -629,6 +629,23 @@ export default function NotebookPageClient({
                   <p className="whitespace-pre-wrap break-words text-sm leading-7">
                     {note.content}
                   </p>
+                  {Array.isArray(note.assets) && note.assets.length > 0 ? (
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {note.assets.map(asset => (
+                        <div
+                          key={asset.image_id}
+                          className="overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`/api/files/${encodeURIComponent(asset.preview_path)}`}
+                            alt="墨水屏预览"
+                            className="aspect-[4/3] w-full bg-white object-contain"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </CardContent>
                 <CardFooter className="border-t bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
                   创建于 {formatDateTime(note.created_at)}
