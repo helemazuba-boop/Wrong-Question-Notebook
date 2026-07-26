@@ -638,7 +638,8 @@
     "multiCorrectLabel": "Correct choices",
     "multiCorrectPlaceholder": "e.g. ABD",
     "partsSection": "Question parts",
-    "totalMarksLabel": "{total} marks total"
+    "totalMarksLabel": "{total} marks total",
+    "essayAnswerPlaceholder": "Reference answer / worked solution (optional; self-assessed at review)"
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",

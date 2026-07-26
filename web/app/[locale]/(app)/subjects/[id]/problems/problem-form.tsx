@@ -22,6 +22,7 @@ import {
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { PROBLEM_TYPE_VALUES, type ProblemType } from '@/lib/schemas';
 import { getProblemTypeDisplayName, isValidUuid } from '@/lib/common-utils';
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/editor';
@@ -217,7 +218,6 @@ function buildDraftAnswerConfig(draft: PartDraft): AnswerConfig | null {
 }
 
 function buildDraftAnswerText(draft: PartDraft): string {
-  if (draft.type === 'essay') return '';
   if (draft.type === 'single_choice') {
     return draft.useChoicePicker && draft.correctChoiceId
       ? draft.correctChoiceId
@@ -243,6 +243,41 @@ function buildDraftAnswerText(draft: PartDraft): string {
 function renumberDrafts(drafts: PartDraft[]): PartDraft[] {
   return drafts.map((draft, i) =>
     draft.labelTouched ? draft : { ...draft, label: `(${i + 1})` }
+  );
+}
+
+// Auto-growing answer textarea: expands downward with content instead of
+// scrolling inside a fixed box (short-answer / essay reference answers).
+function AutoGrowTextarea({
+  value,
+  placeholder,
+  onValueChange,
+  disabled,
+}: {
+  value: string;
+  placeholder?: string;
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const grow = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${element.scrollHeight}px`;
+  };
+  return (
+    <Textarea
+      ref={grow}
+      rows={2}
+      className="form-input min-h-[3.5rem] resize-none overflow-hidden"
+      placeholder={placeholder}
+      value={value}
+      maxLength={VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX}
+      onChange={e => {
+        onValueChange(e.target.value);
+        grow(e.currentTarget);
+      }}
+      disabled={disabled}
+    />
   );
 }
 
@@ -371,32 +406,27 @@ function PartEditorCard({
             )}
           </div>
 
-          {draft.useChoicePicker && draft.type === 'multi_choice' && (
-            <div className="form-row">
-              <label className="form-label">
-                {tProblems('multiCorrectLabel')}
-              </label>
-              <Input
-                className="form-input w-40"
-                placeholder={tProblems('multiCorrectPlaceholder')}
-                value={draft.multiCorrectText}
-                maxLength={10}
-                onChange={e => onPatch({ multiCorrectText: e.target.value })}
-                disabled={disabled}
-              />
-            </div>
-          )}
-
           {draft.useChoicePicker ? (
             <MCQChoiceEditor
               choices={draft.choices}
               correctChoiceId={
                 draft.type === 'multi_choice' ? '' : draft.correctChoiceId
               }
+              correctChoiceIds={
+                draft.type === 'multi_choice' ? multiIdsOf(draft) : undefined
+              }
               onChoicesChange={choices => onPatch({ choices })}
               onCorrectChoiceChange={
                 draft.type === 'multi_choice'
-                  ? () => undefined
+                  ? choiceId => {
+                      // Toggle membership in the correct set (gaokao
+                      // multi-choice): click letters to mark them.
+                      const ids = multiIdsOf(draft);
+                      const next = ids.includes(choiceId)
+                        ? ids.filter(id => id !== choiceId)
+                        : [...ids, choiceId];
+                      onPatch({ multiCorrectText: next.join('') });
+                    }
                   : correctChoiceId => onPatch({ correctChoiceId })
               }
               disabled={disabled}
@@ -442,7 +472,7 @@ function PartEditorCard({
               onChange={shortConfig => onPatch({ shortConfig })}
               disabled={disabled}
             />
-          ) : (
+          ) : draft.type === 'fill_blank' ? (
             <div className="form-row">
               <label className="form-label">{t('correctText')}</label>
               <Input
@@ -454,11 +484,35 @@ function PartEditorCard({
                 disabled={disabled}
               />
             </div>
+          ) : (
+            <div className="form-row-start">
+              <label className="form-label pt-2">{t('correctText')}</label>
+              <AutoGrowTextarea
+                value={draft.answerText}
+                placeholder={t('correctTextPlaceholder')}
+                onValueChange={answerText => onPatch({ answerText })}
+                disabled={disabled}
+              />
+            </div>
           )}
         </div>
       )}
 
-      {/* Essay parts are self-assessed; no answer key to configure. */}
+      {/* Essay parts: a reference answer / worked solution, self-assessed at
+          review time. */}
+      {draft.type === 'essay' && (
+        <div className="form-row-start">
+          <label className="form-label pt-2">
+            {tProblems('partAnswerField')}
+          </label>
+          <AutoGrowTextarea
+            value={draft.answerText}
+            placeholder={tProblems('essayAnswerPlaceholder')}
+            onValueChange={answerText => onPatch({ answerText })}
+            disabled={disabled}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -481,7 +535,6 @@ export default function ProblemForm({
 
   // Refs for the rich text editors
   const contentEditorRef = useRef<RichTextEditorHandle>(null);
-  const solutionEditorRef = useRef<RichTextEditorHandle>(null);
 
   // Key for remounting editors on form reset
   const [editorKey, setEditorKey] = useState(0);
@@ -571,28 +624,6 @@ export default function ProblemForm({
         .run();
 
       toast.success(t('imageInserted'));
-    },
-    [t]
-  );
-
-  const handleInsertSolutionImage = useCallback(
-    (path: string, name: string) => {
-      if (!solutionEditorRef.current?.editor) {
-        toast.error(t('editorNotReady'));
-        return;
-      }
-
-      const imageUrl = `/api/files/${encodeURIComponent(path)}`;
-      solutionEditorRef.current.editor
-        .chain()
-        .focus()
-        .setResizableImage({
-          src: imageUrl,
-          alt: name,
-        })
-        .run();
-
-      toast.success(t('solutionImageInserted'));
     },
     [t]
   );
@@ -698,11 +729,9 @@ export default function ProblemForm({
         }
 
         if (extractedType === 'essay' && hint.extended_working) {
-          const solutionHtml = convertMathTextToTipTapHtml(
-            hint.extended_working
-          );
-          solutionEditorRef.current?.setContent(solutionHtml);
-          setSolutionText(solutionHtml);
+          // The transcribed working goes into the essay part's reference
+          // answer (the standalone solution section is gone).
+          draft.answerText = hint.extended_working;
         }
       }
       setParts([draft]);
@@ -1500,56 +1529,9 @@ export default function ProblemForm({
           </AccordionContent>
         </AccordionItem>
 
-        {/* Solution */}
-        <AccordionItem
-          value="solution"
-          className="rounded-2xl border border-green-200/40 dark:border-green-800/30 bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/40 dark:to-green-900/20 px-4 mt-4"
-        >
-          <AccordionTrigger className="hover:no-underline py-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-green-800 dark:text-green-300">
-                {tProblems('solution')}
-              </span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4">
-            <div className="form-row-start">
-              <label className="form-label pt-2">
-                {tProblems('solutionText')}
-              </label>
-              <div className="flex-1 relative">
-                <RichTextEditor
-                  key={`solution-${editorKey}`}
-                  ref={solutionEditorRef}
-                  initialContent={solutionText}
-                  onChange={setSolutionText}
-                  placeholder={tProblems('solutionPlaceholder')}
-                  height="200px"
-                  maxHeight="500px"
-                  disabled={isSubmitting}
-                  maxLength={VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX}
-                  showCharacterCount={true}
-                />
-              </div>
-            </div>
-            <div className="form-row-start">
-              <label className="form-label pt-2">{t('solutionAssets')}</label>
-              <div className="flex-1">
-                <FileManager
-                  role="solution"
-                  problemId={
-                    isEditMode ? problem.id : problemUuid || 'disabled'
-                  }
-                  isEditMode={isEditMode}
-                  initialFiles={solutionAssets}
-                  onFilesChange={setSolutionAssets}
-                  onInsertImage={handleInsertSolutionImage}
-                  disabled={!isEditMode && !problemUuid}
-                />
-              </div>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
+        {/* Solution text/assets are retired from the form: answers live on
+            each part card and attachments go into the problem assets area
+            (existing solution data is preserved and still submitted). */}
 
         {/* Tags */}
         <AccordionItem

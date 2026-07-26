@@ -12,6 +12,12 @@ import type { MCQChoice } from '@/lib/types';
 interface MCQChoiceEditorProps {
   choices: MCQChoice[];
   correctChoiceId: string;
+  /**
+   * Multi-select mode (gaokao multi-choice): when provided, these ids are
+   * highlighted instead of correctChoiceId and the letter buttons render
+   * square; the caller toggles membership in onCorrectChoiceChange.
+   */
+  correctChoiceIds?: string[];
   onChoicesChange: (choices: MCQChoice[]) => void;
   onCorrectChoiceChange: (choiceId: string) => void;
   disabled?: boolean;
@@ -20,6 +26,7 @@ interface MCQChoiceEditorProps {
 export function MCQChoiceEditor({
   choices,
   correctChoiceId,
+  correctChoiceIds,
   onChoicesChange,
   onCorrectChoiceChange,
   disabled = false,
@@ -79,7 +86,9 @@ export function MCQChoiceEditor({
       <div className="flex-1 space-y-3">
         <div className="space-y-2">
           {choices.map(choice => {
-            const isCorrect = choice.id === correctChoiceId;
+            const isCorrect = correctChoiceIds
+              ? correctChoiceIds.includes(choice.id)
+              : choice.id === correctChoiceId;
             return (
               <div
                 key={choice.id}
@@ -93,7 +102,9 @@ export function MCQChoiceEditor({
                   type="button"
                   onClick={() => onCorrectChoiceChange(choice.id)}
                   disabled={disabled}
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors ${
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center border-2 text-sm font-semibold transition-colors ${
+                    correctChoiceIds ? 'rounded-md' : 'rounded-full'
+                  } ${
                     isCorrect
                       ? 'border-amber-500 bg-amber-500 text-white dark:border-amber-400 dark:bg-amber-400 dark:text-gray-900'
                       : 'border-gray-300 text-gray-400 hover:border-amber-300 dark:border-gray-600 dark:text-gray-500 dark:hover:border-amber-600'
