@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "request_id": "req_problem_observe_02",
+  "server_time_ms": 1784512802000,
+  "data": {
+    "observation_id": "55555555-5555-4555-8555-555555555555",
+    "problem_id": "33333333-3333-4333-8333-333333333333",
+    "action": "skip",
+    "status": "needs_review",
+    "schedule": null,
+    "projection_applied": false,
+    "replayed": false
+  }
+}

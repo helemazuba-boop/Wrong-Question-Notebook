@@ -1,0 +1,40 @@
+{
+  "problem_id": "33333333-3333-4333-8333-333333333333",
+  "title": "生物遗传综合题",
+  "content_text": "某二倍体植物的花色由两对等位基因控制，请回答下列问题。",
+  "parts": [
+    {
+      "index": 1,
+      "label": "选择",
+      "type": "single_choice",
+      "full_marks": 6,
+      "content_text": "该植物花色遗传遵循的规律是？",
+      "answer_text": "B"
+    },
+    {
+      "index": 2,
+      "label": "填空",
+      "type": "fill_blank",
+      "full_marks": 4,
+      "content_text": "F2 中白花植株的基因型共有____种。",
+      "answer_text": "5"
+    },
+    {
+      "index": 3,
+      "label": "简答",
+      "type": "essay",
+      "full_marks": 10,
+      "content_text": "请用遗传图解说明 F1 自交得到 F2 的过程。",
+      "answer_text": ""
+    }
+  ],
+  "source": { "type": "textbook", "label": "人教版必修二" },
+  "status": "wrong",
+  "is_optional": false,
+  "image_ids": [
+    "9e00e194c412bff778bfd1235b3b2b25a4f7f8b1d3ef1c72fca11d21b36d1e05"
+  ],
+  "solution_image_ids": [
+    "1b1f4d9c22cf8d0b6cf6a52ad4a3f2e8809d15b9a7f96ff2f4bf1cf3a2b4c6d8"
+  ]
+}

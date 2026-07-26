@@ -502,6 +502,50 @@ export type Database = {
         };
         Relationships: [];
       };
+      problem_review_observations: {
+        Row: {
+          action: string;
+          created_at: string;
+          device_id: string | null;
+          id: string;
+          occurred_at: string;
+          problem_id: string;
+          request_id: string;
+          result: Json;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          occurred_at: string;
+          problem_id: string;
+          request_id: string;
+          result: Json;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          occurred_at?: string;
+          problem_id?: string;
+          request_id?: string;
+          result?: Json;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_observations_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       problem_set_copies: {
         Row: {
           created_at: string;
@@ -2256,6 +2300,17 @@ export type Database = {
       prune_word_packs_v1: {
         Args: { p_deck_id: string };
         Returns: { id: string; storage_path: string }[];
+      };
+      record_problem_review_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string | null;
+          p_occurred_at: string;
+          p_problem_id: string;
+          p_request_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       record_study_observation_v1: {
         Args: {
