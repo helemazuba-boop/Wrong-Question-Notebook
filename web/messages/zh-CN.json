@@ -636,7 +636,9 @@
     "examTypeHomework": "作业",
     "examTypeOther": "其他",
     "multiCorrectLabel": "正确选项（多选）",
-    "multiCorrectPlaceholder": "如 ABD"
+    "multiCorrectPlaceholder": "如 ABD",
+    "partsSection": "小题",
+    "totalMarksLabel": "合计 {total} 分"
   },
   "ProblemSets": {
     "title": "错题本",

@@ -636,7 +636,9 @@
     "examTypeHomework": "Homework",
     "examTypeOther": "Other",
     "multiCorrectLabel": "Correct choices",
-    "multiCorrectPlaceholder": "e.g. ABD"
+    "multiCorrectPlaceholder": "e.g. ABD",
+    "partsSection": "Question parts",
+    "totalMarksLabel": "{total} marks total"
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",
