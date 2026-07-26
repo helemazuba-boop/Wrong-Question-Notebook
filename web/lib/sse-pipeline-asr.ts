@@ -5,6 +5,10 @@
 // identical to v1.
 
 import { Esp32AiProviderError } from './esp32-ai-provider';
+import {
+  isAsrFallbackEligibleCode,
+  type Esp32AiAsrProvider,
+} from './esp32-ai-asr-selection';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { runStepFunAsrSse } from './stepfun-asr';
 
@@ -12,10 +16,13 @@ export interface AsrResult {
   transcript: string;
   requestId: string | null;
   elapsedMs: number;
+  provider: Esp32AiAsrProvider;
+  model: string;
 }
 
 export interface AsrConfig {
-  asrProvider: 'dashscope' | 'stepfun';
+  asrProvider: Esp32AiAsrProvider;
+  asrFallbackProvider: Esp32AiAsrProvider | null;
   dashScopeApiKey: string;
   asrTaskUrl: string;
   asrTaskStatusBaseUrl: string;
@@ -41,8 +48,54 @@ export async function runPipelineAsr(
   channels: number,
   pusher: PipelinePusher
 ): Promise<AsrResult> {
-  if (config.asrProvider === 'stepfun') {
-    return runStepFunAsrSse(
+  pusher.emitStage('asr_provider_selected', {
+    provider: config.asrProvider,
+    role: 'primary',
+  });
+  try {
+    return await runSinglePipelineAsr(
+      config,
+      config.asrProvider,
+      audio,
+      sampleRate,
+      channels,
+      pusher
+    );
+  } catch (error) {
+    if (
+      !config.asrFallbackProvider ||
+      !(error instanceof Esp32AiProviderError) ||
+      !isAsrFallbackEligibleCode(error.code)
+    ) {
+      throw error;
+    }
+
+    pusher.emitStage('asr_fallback', {
+      from: config.asrProvider,
+      to: config.asrFallbackProvider,
+      error_code: error.code,
+    });
+    return runSinglePipelineAsr(
+      config,
+      config.asrFallbackProvider,
+      audio,
+      sampleRate,
+      channels,
+      pusher
+    );
+  }
+}
+
+async function runSinglePipelineAsr(
+  config: AsrConfig,
+  provider: Esp32AiAsrProvider,
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number,
+  pusher: PipelinePusher
+): Promise<AsrResult> {
+  if (provider === 'stepfun') {
+    const result = await runStepFunAsrSse(
       {
         stepfunApiKey: config.stepfunApiKey,
         stepfunAsrUrl: config.stepfunAsrUrl,
@@ -57,9 +110,24 @@ export async function runPipelineAsr(
       channels,
       { pusher }
     );
+    return {
+      ...result,
+      provider,
+      model: config.stepfunAsrModel,
+    };
   }
 
-  if (sampleRate !== 16000) {
+  return runDashScopePipelineAsr(config, audio, sampleRate, channels, pusher);
+}
+
+async function runDashScopePipelineAsr(
+  config: AsrConfig,
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number,
+  pusher: PipelinePusher
+): Promise<AsrResult> {
+  if (sampleRate !== 16000 || channels !== 1) {
     throw new Esp32AiProviderError(
       'invalid_audio',
       'Unsupported audio format for DashScope ASR provider',
@@ -187,6 +255,8 @@ export async function runPipelineAsr(
           transcript,
           requestId: submitResp.request_id || taskId,
           elapsedMs,
+          provider: 'dashscope',
+          model: config.asrModel,
         };
       }
       if (status === 'FAILED' || status === 'CANCELED') {
@@ -194,6 +264,8 @@ export async function runPipelineAsr(
         const message = String(poll.output?.message || '').toLowerCase();
         if (
           code.indexOf('no_speech') >= 0 ||
+          code.indexOf('success_with_no_valid_fragment') >= 0 ||
+          code.indexOf('no_valid_fragment') >= 0 ||
           message.indexOf('no speech') >= 0 ||
           message.indexOf('silence') >= 0
         ) {

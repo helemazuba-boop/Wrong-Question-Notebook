@@ -1,0 +1,8 @@
+{
+  "request_id": "req_note_manifest_0001",
+  "boot_id": "boot_note_study_0001",
+  "firmware_version": "0.1.0",
+  "capabilities": ["note.study.v1"],
+  "cursor": "0",
+  "limit": 50
+}

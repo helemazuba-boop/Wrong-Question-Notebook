@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "request_id": "req_word_session_0001",
+  "server_time_ms": 1784512800000,
+  "data": {
+    "session_id": "22222222-2222-4222-8222-222222222222",
+    "domain": "word",
+    "mode": "random",
+    "purpose": "study",
+    "ordering": "guided_random_v1",
+    "candidate_policy_version": "guided_random_v1",
+    "seed": "seed_contract_001",
+    "scope": {
+      "deck_ids": ["11111111-1111-4111-8111-111111111111"],
+      "include_mastered": false
+    },
+    "optional_count": 20,
+    "next_sequence": 0,
+    "progress_revision": 17,
+    "snapshot": [
+      {
+        "deck_id": "11111111-1111-4111-8111-111111111111",
+        "content_revision": 9,
+        "pack_revision": 9,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "items": [
+      {
+        "item_id": "33333333-3333-4333-8333-333333333333",
+        "deck_id": "11111111-1111-4111-8111-111111111111",
+        "ordinal": 0
+      }
+    ],
+    "cursor": "1",
+    "has_more": false
+  }
+}

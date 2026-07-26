@@ -2,6 +2,11 @@ import {
   AudioStagingError,
   stageEsp32AiAudioFile,
 } from '@/lib/esp32-ai-audio-staging';
+import {
+  getEsp32AiAsrSelection,
+  isAsrFallbackEligibleCode,
+  type Esp32AiAsrProvider,
+} from './esp32-ai-asr-selection';
 import { runStepFunAsrSse } from './stepfun-asr';
 import {
   createNotebookNoteFromAi,
@@ -26,12 +31,9 @@ import {
   addWordEntryToDeck,
   createWordDeck,
   listAuthorizedWordDecks,
-  recordWordReview,
   searchWords,
   WordToolError,
   type WordAiAction,
-  type WordReviewMode,
-  type WordReviewOutcome,
   type WordToolContext,
 } from '@/lib/words';
 import { createServiceClient } from '@/lib/supabase-utils';
@@ -211,7 +213,8 @@ interface DashScopeProviderConfig {
   asrPollAttempts: number;
   audioUrlTtlMs: number;
   publicBaseUrl: string;
-  asrProvider: 'dashscope' | 'stepfun';
+  asrProvider: Esp32AiAsrProvider;
+  asrFallbackProvider: Esp32AiAsrProvider | null;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -286,12 +289,6 @@ function summarizeAction(action: Esp32AiAction): string {
   if (action.type === 'word_added_to_deck') {
     return `已加入词库：${actionTitle(action)}`;
   }
-  if (action.type === 'word_review_recorded') {
-    return `已记录单词：${actionTitle(action)}`;
-  }
-  if (action.type === 'word_added_to_mistakes') {
-    return `已加入错词本：${actionTitle(action)}`;
-  }
   return '已完成操作';
 }
 
@@ -320,7 +317,6 @@ function safeToolCallDisplay(name: string): string {
   if (name === 'create_word_deck') return '创建词库';
   if (name === 'add_word_to_deck') return '添加单词';
   if (name === 'search_words') return '查询单词';
-  if (name === 'record_word_review') return '记录单词复习';
   return name ? `调用工具：${name}` : '调用工具';
 }
 
@@ -394,8 +390,8 @@ const AI_TOOL_PROMPT = [
   '错题本只用于读取错题名称和详情；空白笔记本才允许创建笔记。',
   'Todo 是顶层行动清单，不属于笔记本架。Todo 状态只允许 pending、completed、cancelled。',
   '词库是笔记本架中的第三类内容，类型是 word_deck；它不是 Notebook。设备端仍通过 Word 顶层学习页复习词库。',
-  '用户标记不认识的单词时，只能通过 record_word_review outcome=unknown 让服务器加入预设错词本，不要手写错题或笔记。',
-  '不要声称已经创建词库、添加单词或记录复习，除非 create_word_deck、add_word_to_deck 或 record_word_review 工具返回成功。',
+  '单词学习进度只能由单词学习会话记录；AI 工具不得代写复习结果。',
+  '不要声称已经创建词库或添加单词，除非 create_word_deck 或 add_word_to_deck 工具返回成功。',
   '如果没有合适授权或缺少 ID，直接说明需要用户先授权或选择目标。不要编造 notebook_id、problem_id 或 todo_id。',
 ].join('\n');
 
@@ -546,31 +542,6 @@ const WORD_TOOLS = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'record_word_review',
-      description:
-        '记录用户对一个单词的复习结果。unknown 会由服务器加入预设错词本。',
-      parameters: {
-        type: 'object',
-        properties: {
-          word_entry_id: { type: 'string', description: '单词条目 ID' },
-          outcome: {
-            type: 'string',
-            enum: ['known', 'unknown', 'skip'],
-            description: '复习结果',
-          },
-          mode: {
-            type: 'string',
-            enum: ['sequential', 'random', 'dictionary'],
-            description: '复习模式，默认 sequential',
-          },
-        },
-        required: ['word_entry_id', 'outcome'],
-      },
-    },
-  },
 ] as const;
 
 const AI_TOOLS = [...NOTEBOOK_TOOLS, ...TODO_TOOLS, ...WORD_TOOLS] as const;
@@ -604,14 +575,10 @@ function getCommaSeparatedEnv(name: string): string[] {
 function getProviderConfig(): DashScopeProviderConfig | null {
   if (!isDashScopeProviderConfigured()) return null;
 
+  const asrSelection = getEsp32AiAsrSelection();
+  if (!asrSelection) return null;
   const apiKey = (process.env.DASHSCOPE_API_KEY || '').trim();
-  if (!apiKey) return null;
-  const asrProvider =
-    process.env.WQN_ESP32_AI_ASR_PROVIDER === 'stepfun'
-      ? 'stepfun'
-      : 'dashscope';
   const stepfunApiKey = (process.env.STEPFUN_API_KEY || '').trim();
-  if (asrProvider === 'stepfun' && !stepfunApiKey) return null;
 
   const chatApiKeyStd = (
     process.env.DASHSCOPE_CHAT_API_KEY_STD ||
@@ -631,7 +598,15 @@ function getProviderConfig(): DashScopeProviderConfig | null {
   )
     .trim()
     .replace(/\/+$/, '');
-  if (!publicBaseUrl) return null;
+  if (!chatApiKeyStd || !chatApiKeyPro) return null;
+
+  const configuredAsrProviders = [asrSelection.primary, asrSelection.fallback];
+  if (configuredAsrProviders.includes('dashscope')) {
+    if (!apiKey || !publicBaseUrl) return null;
+  }
+  if (configuredAsrProviders.includes('stepfun') && !stepfunApiKey) {
+    return null;
+  }
 
   return {
     apiKey,
@@ -685,7 +660,8 @@ function getProviderConfig(): DashScopeProviderConfig | null {
       DEFAULT_AUDIO_URL_TTL_MS
     ),
     publicBaseUrl,
-    asrProvider,
+    asrProvider: asrSelection.primary,
+    asrFallbackProvider: asrSelection.fallback,
     stepfunApiKey,
     stepfunAsrUrl: (
       process.env.STEPFUN_ASR_URL || DEFAULT_STEPFUN_ASR_URL
@@ -1010,6 +986,8 @@ function isNoSpeechResponse(response: DashScopeTaskResponse): boolean {
   return (
     code.includes('no_speech') ||
     code.includes('no_valid_audio') ||
+    code.includes('success_with_no_valid_fragment') ||
+    code.includes('no_valid_fragment') ||
     message.includes('no speech') ||
     message.includes('silent') ||
     message.includes('静音')
@@ -1284,39 +1262,6 @@ function todoPriorityArg(
   );
 }
 
-function wordReviewOutcomeArg(
-  args: Record<string, unknown>,
-  key: string,
-  required = false
-): WordReviewOutcome | null {
-  const value = stringArg(args, key, required);
-  if (!value) return null;
-  if (['known', 'unknown', 'skip'].includes(value)) {
-    return value as WordReviewOutcome;
-  }
-  throw new WordToolError(
-    'invalid_tool_arguments',
-    `Invalid word review outcome: ${value}`,
-    400
-  );
-}
-
-function wordReviewModeArg(
-  args: Record<string, unknown>,
-  key: string
-): WordReviewMode | undefined {
-  const value = stringArg(args, key);
-  if (!value) return undefined;
-  if (['sequential', 'random', 'dictionary'].includes(value)) {
-    return value as WordReviewMode;
-  }
-  throw new WordToolError(
-    'invalid_tool_arguments',
-    `Invalid word review mode: ${value}`,
-    400
-  );
-}
-
 function safeToolErrorPayload(error: unknown) {
   if (error instanceof NotebookToolError) {
     return {
@@ -1547,25 +1492,6 @@ async function executeAiToolCall(
       return { success: true, data: { words: data } };
     }
 
-    if (name === 'record_word_review') {
-      const beforeCount = actions.length;
-      const outcome = wordReviewOutcomeArg(args, 'outcome', true)!;
-      const result = await recordWordReview(ctx, {
-        word_entry_id: stringArg(args, 'word_entry_id', true)!,
-        outcome,
-        mode: wordReviewModeArg(args, 'mode'),
-      });
-      actions.push(result.action, ...result.extra_actions);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return {
-        success: true,
-        data: {
-          action: result.action,
-          actions: [result.action, ...result.extra_actions],
-        },
-      };
-    }
-
     functionCalls?.push({
       name,
       status: 'failed',
@@ -1743,6 +1669,36 @@ export function isEsp32AiProviderConfigured(): boolean {
   return Boolean(getProviderConfig());
 }
 
+async function runSelectedAsrProvider(
+  config: DashScopeProviderConfig,
+  input: Esp32AiProviderInput,
+  provider: Esp32AiAsrProvider,
+  tracker: StatusTracker
+): Promise<{
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+}> {
+  if (provider === 'stepfun') {
+    return runStepFunAsrSse(
+      {
+        stepfunApiKey: config.stepfunApiKey,
+        stepfunAsrUrl: config.stepfunAsrUrl,
+        stepfunAsrModel: config.stepfunAsrModel,
+        stepfunAsrLanguage: config.stepfunAsrLanguage,
+        stepfunAsrHotwords: config.stepfunAsrHotwords,
+        stepfunAsrEnableItn: config.stepfunAsrEnableItn,
+        asrTimeoutMs: config.asrTimeoutMs,
+      },
+      input.audio,
+      input.sampleRate,
+      input.channels
+    );
+  }
+
+  return runDashScopeAsr(config, input, tracker);
+}
+
 export async function runEsp32WordAiLookup(input: {
   word: string;
   context?: string | null;
@@ -1840,23 +1796,25 @@ export async function runEsp32AiProvider(
   tracker.mark('request', 'started');
   tracker.mark('asr', 'started');
   let asr: { transcript: string; requestId: string | null; elapsedMs: number };
-  if (config.asrProvider === 'stepfun') {
-    asr = await runStepFunAsrSse(
-      {
-        stepfunApiKey: config.stepfunApiKey,
-        stepfunAsrUrl: config.stepfunAsrUrl,
-        stepfunAsrModel: config.stepfunAsrModel,
-        stepfunAsrLanguage: config.stepfunAsrLanguage,
-        stepfunAsrHotwords: config.stepfunAsrHotwords,
-        stepfunAsrEnableItn: config.stepfunAsrEnableItn,
-        asrTimeoutMs: config.asrTimeoutMs,
-      },
-      input.audio,
-      input.sampleRate,
-      input.channels
+  let usedAsrProvider = config.asrProvider;
+  try {
+    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
+  } catch (error) {
+    if (
+      !config.asrFallbackProvider ||
+      !(error instanceof Esp32AiProviderError) ||
+      !isAsrFallbackEligibleCode(error.code)
+    ) {
+      throw error;
+    }
+    tracker.mark(
+      'asr_fallback',
+      'started',
+      `from=${usedAsrProvider} to=${config.asrFallbackProvider} code=${error.code}`
     );
-  } else {
-    asr = await runDashScopeAsr(config, input, tracker);
+    usedAsrProvider = config.asrFallbackProvider;
+    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
+    tracker.mark('asr_fallback', 'succeeded', `provider=${usedAsrProvider}`);
   }
   tracker.mark(
     'asr',
@@ -1900,9 +1858,9 @@ export async function runEsp32AiProvider(
     actions: chat.actions,
     statusTrace: tracker.items,
     asr: {
-      provider: config.asrProvider,
+      provider: usedAsrProvider,
       model:
-        config.asrProvider === 'stepfun'
+        usedAsrProvider === 'stepfun'
           ? config.stepfunAsrModel
           : config.asrModel,
       status: 'succeeded',

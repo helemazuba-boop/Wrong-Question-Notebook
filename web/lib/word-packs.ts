@@ -2,12 +2,17 @@ import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { WordToolError } from '@/lib/words';
+import {
+  WORD_PACK_MAX_BYTES,
+  WORD_PACK_MAX_ENTRIES,
+  WORD_PACK_SCHEMA_VERSION,
+} from '@/lib/word-study-v1';
 
 export const WORD_PACK_BUCKET = 'word-packs';
-export const WORD_PACK_MAGIC = 'WQN_WORD_PACK_V1';
-export const WORD_PACK_SCHEMA_VERSION = 1;
+export const WORD_PACK_MAGIC = 'WQN_WORD_PACK_V2';
 export const WORD_PACK_FORMAT = 'jsonl';
 export const WORD_PACK_COMPRESSION = 'none';
+export const WORD_PACK_MAX_LINE_BYTES = 8191;
 
 export interface WordPackManifestItem {
   pack_id: string;
@@ -15,6 +20,9 @@ export interface WordPackManifestItem {
   title: string;
   subject_id: string | null;
   revision: number;
+  content_revision: number;
+  pack_revision: number;
+  change_sequence: number;
   schema_version: number;
   format: string;
   compression: string;
@@ -25,7 +33,7 @@ export interface WordPackManifestItem {
   download_url: string;
 }
 
-interface VisibleDeckRow {
+export interface VisibleDeckRow {
   id: string;
   title: string;
   description: string | null;
@@ -36,6 +44,7 @@ interface VisibleDeckRow {
   lexicon_type: string;
   is_system: boolean;
   revision: number;
+  created_at: string;
   updated_at: string;
 }
 
@@ -98,14 +107,20 @@ function compactEntry(entry: WordEntryPackRow) {
     tags: Array.isArray(entry.tags) ? entry.tags : [],
     sort_index: Number(entry.sort_index || 0),
     revision: Number(entry.revision || 1),
-    updated_at: entry.updated_at,
   };
 }
 
-function buildPackBytes(
+export function buildDeterministicWordPackBytes(
   deck: VisibleDeckRow,
   entries: WordEntryPackRow[]
 ): Buffer {
+  if (entries.length > WORD_PACK_MAX_ENTRIES) {
+    throw new WordToolError(
+      'pack_too_many_entries',
+      `Word pack exceeds ${WORD_PACK_MAX_ENTRIES} entries`,
+      409
+    );
+  }
   const metadata = {
     deck_id: deck.id,
     title: deck.title,
@@ -119,7 +134,6 @@ function buildPackBytes(
     subject_id: deck.subject_id || null,
     lexicon_type: deck.lexicon_type || 'english_word',
     entry_count: entries.length,
-    generated_at: new Date().toISOString(),
   };
 
   const lines = [
@@ -128,30 +142,76 @@ function buildPackBytes(
     ...entries.map(entry => JSON.stringify(compactEntry(entry))),
   ];
 
-  return Buffer.from(`${lines.join('\n')}\n`, 'utf8');
+  for (const line of lines) {
+    if (Buffer.byteLength(line, 'utf8') > WORD_PACK_MAX_LINE_BYTES) {
+      throw new WordToolError(
+        'pack_line_too_large',
+        `Word pack line exceeds ${WORD_PACK_MAX_LINE_BYTES} bytes`,
+        409
+      );
+    }
+  }
+
+  const bytes = Buffer.from(`${lines.join('\n')}\n`, 'utf8');
+  if (bytes.byteLength > WORD_PACK_MAX_BYTES) {
+    throw new WordToolError(
+      'pack_too_large',
+      `Word pack exceeds ${WORD_PACK_MAX_BYTES} bytes`,
+      409
+    );
+  }
+  return bytes;
 }
 
-function buildStoragePath(deck: VisibleDeckRow): string {
+function buildStoragePath(deck: VisibleDeckRow, sha256: string): string {
   const owner = deck.is_system ? 'system' : `user/${deck.id}`;
-  return `${owner}/decks/${deck.id}/rev-${deck.revision}.jsonl`;
+  return `${owner}/decks/${deck.id}/rev-${deck.revision}-${sha256.slice(0, 16)}.jsonl`;
 }
 
-async function loadVisibleDecks(
+export async function loadVisibleWordPackDecks(
   supabase: SupabaseClient<any>,
   userId: string
 ): Promise<VisibleDeckRow[]> {
   const { data, error } = await supabase
     .from('word_decks')
     .select(
-      'id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, revision, updated_at'
+      'id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, revision, created_at, updated_at'
     )
     .is('archived_at', null)
     .eq('is_active', true)
+    .eq('lexicon_type', 'english_word')
     .or(`user_id.eq.${userId},is_system.eq.true`)
     .order('is_system', { ascending: false })
-    .order('updated_at', { ascending: false });
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(100);
 
   if (error) databaseError('loadVisibleDecks', error);
+  return data || [];
+}
+
+export async function loadVisibleWordPackDecksByIds(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  deckIds: string[]
+): Promise<VisibleDeckRow[]> {
+  if (deckIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('word_decks')
+    .select(
+      'id, title, description, source, subject_id, language, target_language, lexicon_type, is_system, revision, created_at, updated_at'
+    )
+    .in('id', deckIds)
+    .is('archived_at', null)
+    .eq('is_active', true)
+    .eq('lexicon_type', 'english_word')
+    .or(`user_id.eq.${userId},is_system.eq.true`)
+    .order('is_system', { ascending: false })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(100);
+
+  if (error) databaseError('loadVisibleDecksByIds', error);
   return data || [];
 }
 
@@ -196,18 +256,6 @@ async function loadReadyPack(
   return data;
 }
 
-async function verifyPackObject(
-  supabase: SupabaseClient<any>,
-  storagePath: string
-): Promise<boolean> {
-  const { data, error } = await supabase.storage
-    .from(WORD_PACK_BUCKET)
-    .download(storagePath);
-
-  if (error || !data) return false;
-  return true;
-}
-
 async function upsertPackRecord(
   supabase: SupabaseClient<any>,
   deck: VisibleDeckRow,
@@ -222,10 +270,17 @@ async function upsertPackRecord(
     .from(WORD_PACK_BUCKET)
     .upload(storagePath, bytes, {
       contentType: 'application/x-ndjson',
-      upsert: true,
+      upsert: false,
     });
 
-  if (uploadError) storageError('uploadPack', uploadError);
+  if (
+    uploadError &&
+    !String(uploadError.message || '')
+      .toLowerCase()
+      .includes('already exists')
+  ) {
+    storageError('uploadPack', uploadError);
+  }
 
   const { data, error } = await supabase
     .from('word_packs')
@@ -253,25 +308,68 @@ async function upsertPackRecord(
   return data;
 }
 
+async function pruneOldReadyPacks(
+  supabase: SupabaseClient<any>,
+  deckId: string
+): Promise<void> {
+  const { data, error } = await supabase.rpc('prune_word_packs_v1', {
+    p_deck_id: deckId,
+  });
+  if (error) databaseError('pruneOldReadyPacks.lookup', error);
+  if (!data?.length) return;
+
+  const { error: removeError } = await supabase.storage
+    .from(WORD_PACK_BUCKET)
+    .remove(data.map((pack: { storage_path: string }) => pack.storage_path));
+  if (removeError) {
+    // The database has already hidden these unpinned revisions. Object deletion
+    // is best effort and can be retried independently.
+    logger.warn('Failed to remove stale word pack objects', {
+      component: 'WordPacks',
+      action: 'pruneOldReadyPacks.remove',
+      deckId,
+      count: data.length,
+    });
+  }
+}
+
 export async function ensureWordPackForDeck(
   supabase: SupabaseClient<any>,
   deck: VisibleDeckRow
 ): Promise<WordPackRow> {
   const revision = Number(deck.revision || 1);
   const existing = await loadReadyPack(supabase, deck.id, revision);
-  if (existing && (await verifyPackObject(supabase, existing.storage_path))) {
-    return existing;
-  }
+  // The content-addressed path and immutable download response make the
+  // database row sufficient here. Downloading a multi-megabyte object merely
+  // to prove existence made every manifest request scale with pack size.
+  if (existing) return existing;
 
   const entries = await loadDeckEntries(supabase, deck.id);
-  const bytes = buildPackBytes(deck, entries);
-  return upsertPackRecord(
+  const { data: currentDeck, error: revisionError } = await supabase
+    .from('word_decks')
+    .select('revision')
+    .eq('id', deck.id)
+    .single();
+  if (revisionError)
+    databaseError('ensureWordPackForDeck.revision', revisionError);
+  if (Number(currentDeck.revision) !== revision) {
+    throw new WordToolError(
+      'pack_revision_changed',
+      'Word deck changed while its pack was being generated',
+      409
+    );
+  }
+  const bytes = buildDeterministicWordPackBytes(deck, entries);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const pack = await upsertPackRecord(
     supabase,
     deck,
-    buildStoragePath(deck),
+    buildStoragePath(deck, sha256),
     bytes,
     entries.length
   );
+  await pruneOldReadyPacks(supabase, deck.id);
+  return pack;
 }
 
 export async function loadWordPackManifest(
@@ -279,29 +377,144 @@ export async function loadWordPackManifest(
   userId: string,
   origin: string
 ): Promise<{ packs: WordPackManifestItem[] }> {
-  const decks = await loadVisibleDecks(supabase, userId);
-  const packs = await Promise.all(
-    decks.map(async deck => {
-      const pack = await ensureWordPackForDeck(supabase, deck);
-      return {
+  const decks = await loadVisibleWordPackDecks(supabase, userId);
+  const packs: WordPackManifestItem[] = [];
+  // Serial generation bounds peak memory to one pack. A manifest request may
+  // cover many decks, but never materializes all pack buffers concurrently.
+  for (const deck of decks) {
+    const pack = await ensureWordPackForDeck(supabase, deck);
+    const { data: change, error: changeError } = await supabase
+      .from('word_change_log')
+      .select('sequence')
+      .eq('deck_id', deck.id)
+      .or(`user_id.is.null,user_id.eq.${userId}`)
+      .order('sequence', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (changeError) databaseError('loadWordPackManifest.change', changeError);
+    packs.push({
+      pack_id: pack.id,
+      deck_id: deck.id,
+      title: deck.title,
+      subject_id: deck.subject_id || null,
+      revision: Number(pack.revision),
+      content_revision: Number(deck.revision),
+      pack_revision: Number(pack.revision),
+      change_sequence: Number(change?.sequence || 0),
+      schema_version: Number(pack.schema_version),
+      format: pack.format,
+      compression: pack.compression,
+      lexicon_type: deck.lexicon_type || 'english_word',
+      entry_count: Number(pack.entry_count),
+      byte_size: Number(pack.byte_size),
+      sha256: pack.sha256,
+      download_url: `${origin}/api/esp32/words/packs/${pack.id}`,
+    });
+  }
+
+  return { packs };
+}
+
+export interface WordStudyManifestDeck {
+  deck_id: string;
+  title: string;
+  change_sequence: number;
+  content_revision: number;
+  deleted: boolean;
+  pack: {
+    pack_id: string;
+    pack_revision: number;
+    schema_version: 2;
+    format: 'jsonl';
+    compression: 'zlib';
+    entry_count: number;
+    byte_size: number;
+    sha256: string;
+    download_url: string;
+  } | null;
+}
+
+export async function loadWordStudyManifest(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  origin: string,
+  afterSequence: number,
+  limit = 100
+): Promise<{
+  cursor: string;
+  has_more: boolean;
+  decks: WordStudyManifestDeck[];
+}> {
+  const boundedLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+  const { data: changes, error } = await supabase
+    .from('word_change_log')
+    .select('sequence, deck_id, entity_kind, operation, payload')
+    .gt('sequence', afterSequence)
+    .in('entity_kind', ['deck', 'entry', 'pack'])
+    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .order('sequence', { ascending: true })
+    .limit(boundedLimit + 1);
+  if (error) databaseError('loadWordStudyManifest.changes', error);
+
+  const page = (changes || []).slice(0, boundedLimit);
+  const cursor = page.length
+    ? Number(page[page.length - 1].sequence)
+    : afterSequence;
+  const latestByDeck = new Map<string, (typeof page)[number]>();
+  for (const change of page) latestByDeck.set(change.deck_id, change);
+
+  const visibleDecks = await loadVisibleWordPackDecksByIds(supabase, userId, [
+    ...latestByDeck.keys(),
+  ]);
+  const visibleById = new Map(visibleDecks.map(deck => [deck.id, deck]));
+  const decks: WordStudyManifestDeck[] = [];
+  for (const change of latestByDeck.values()) {
+    const deck = visibleById.get(change.deck_id);
+    if (
+      !deck ||
+      (change.entity_kind === 'deck' && change.operation === 'delete')
+    ) {
+      const payload =
+        change.payload && typeof change.payload === 'object'
+          ? (change.payload as Record<string, unknown>)
+          : {};
+      decks.push({
+        deck_id: change.deck_id,
+        title: String(payload.title || '已删除词库').slice(0, 80),
+        change_sequence: Number(change.sequence),
+        content_revision: Number(payload.content_revision || 1),
+        deleted: true,
+        pack: null,
+      });
+      continue;
+    }
+
+    const pack = await ensureWordPackForDeck(supabase, deck);
+    decks.push({
+      deck_id: deck.id,
+      title: deck.title,
+      change_sequence: Number(change.sequence),
+      content_revision: Number(deck.revision),
+      deleted: false,
+      pack: {
         pack_id: pack.id,
-        deck_id: deck.id,
-        title: deck.title,
-        subject_id: deck.subject_id || null,
-        revision: Number(pack.revision),
-        schema_version: Number(pack.schema_version),
-        format: pack.format,
-        compression: pack.compression,
-        lexicon_type: deck.lexicon_type || 'english_word',
+        pack_revision: Number(pack.revision),
+        schema_version: 2,
+        format: 'jsonl',
+        compression: 'zlib',
         entry_count: Number(pack.entry_count),
         byte_size: Number(pack.byte_size),
         sha256: pack.sha256,
-        download_url: `${origin}/api/esp32/words/packs/${pack.id}`,
-      };
-    })
-  );
+        download_url: `${origin}/api/esp32/v3/words/packs/${pack.id}`,
+      },
+    });
+  }
 
-  return { packs };
+  return {
+    cursor: String(cursor),
+    has_more: (changes || []).length > boundedLimit,
+    decks,
+  };
 }
 
 export async function getDownloadableWordPack(

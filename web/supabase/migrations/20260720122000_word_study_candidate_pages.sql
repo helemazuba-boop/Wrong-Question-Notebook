@@ -1,0 +1,2 @@
+-- Candidate paging is part of the bounded single-row session model defined in
+-- 20260720120000_word_study_v1.sql. No compatibility table is created.

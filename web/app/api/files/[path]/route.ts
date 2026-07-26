@@ -77,12 +77,36 @@ export async function GET(
     );
   }
 
+  // The prefix check alone would pass user/<uuid>/../../<victim>/...; reject
+  // traversal and escape sequences outright before the path reaches storage.
+  if (
+    decodedPath.split('/').some(segment => segment === '..' || segment === '.') ||
+    decodedPath.includes('\\') ||
+    decodedPath.includes('\0') ||
+    decodedPath.includes('//')
+  ) {
+    return NextResponse.json(
+      createApiErrorResponse(ERROR_MESSAGES.UNAUTHORIZED, 403),
+      { status: 403 }
+    );
+  }
+
   // Parse bucket and name from the path
   const bucket = FILE_CONSTANTS.STORAGE.BUCKET;
   const name = decodedPath; // Full path is the object name
 
   // Fast path: owner can always access their own files
   const isUserOwnedFile = user && decodedPath.startsWith(`user/${user.id}/`);
+
+  // Note images have no sharing semantics: only the owner may view them, so
+  // non-owner requests short-circuit here instead of probing the problem RPCs.
+  const isNoteAssetPath = /^user\/[0-9a-f-]+\/notes\//.test(decodedPath);
+  if (isNoteAssetPath && !isUserOwnedFile) {
+    return NextResponse.json(
+      createApiErrorResponse(ERROR_MESSAGES.NOT_FOUND, 404),
+      { status: 404 }
+    );
+  }
 
   if (!isUserOwnedFile) {
     const serviceClient = createServiceClient();

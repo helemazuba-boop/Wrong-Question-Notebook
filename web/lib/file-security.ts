@@ -31,9 +31,11 @@ export function validateFilePath(filePath: string): boolean {
     return false;
   }
 
-  // Check for allowed path pattern (user/{userId}/...)
+  // Check for allowed path pattern (user/{userId}/...). Note images live at
+  // user/{uid}/notes/{noteId}/{file} with server-rendered derivations one
+  // level deeper under derived/.
   const userPathPattern =
-    /^user\/[a-f0-9-]+\/(staging|problems)\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+    /^user\/[a-f0-9-]+\/(staging|problems|notes)\/[a-zA-Z0-9._-]+\/(derived\/)?[a-zA-Z0-9._-]+$/;
   return userPathPattern.test(filePath);
 }
 

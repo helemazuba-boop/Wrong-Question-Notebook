@@ -1,0 +1,12 @@
+{
+  "request_id": "req_word_observe_0002",
+  "boot_id": "boot_word_study_001",
+  "firmware_version": "0.1.0",
+  "capabilities": ["word.study.v1"],
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "sequence": 9007199254740992,
+  "item_id": "33333333-3333-4333-8333-333333333333",
+  "action": "known",
+  "mode": "random",
+  "occurred_at": "2026-07-20T03:20:00.000Z"
+}

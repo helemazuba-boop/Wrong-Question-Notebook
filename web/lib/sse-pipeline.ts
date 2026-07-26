@@ -14,6 +14,7 @@ import { SseEventIdGenerator } from './ai-stream';
 import { closeSseWithError, type Esp32AiErrorCode } from './ai-errors';
 import { Esp32AiProviderError } from './esp32-ai-provider';
 import { runPipelineAsr } from './sse-pipeline-asr';
+import type { Esp32AiAsrProvider } from './esp32-ai-asr-selection';
 import { runPipelineChat, type ToolExecutor } from './sse-pipeline-chat';
 import {
   PipelinePusher,
@@ -43,7 +44,8 @@ export interface RunStreamingPipelineOptions {
   publicBaseUrl: string;
   systemPrompt: string;
   toolExecutor?: ToolExecutor;
-  asrProvider: 'dashscope' | 'stepfun';
+  asrProvider: Esp32AiAsrProvider;
+  asrFallbackProvider: Esp32AiAsrProvider | null;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -74,11 +76,14 @@ export async function runStreamingPipeline(
     transcript: string;
     requestId: string | null;
     elapsedMs: number;
+    provider: Esp32AiAsrProvider;
+    model: string;
   };
   try {
     asrResult = await runPipelineAsr(
       {
         asrProvider: options.asrProvider,
+        asrFallbackProvider: options.asrFallbackProvider,
         dashScopeApiKey: options.dashScopeApiKey,
         asrTaskUrl: options.asrTaskUrl,
         asrTaskStatusBaseUrl: options.asrTaskStatusBaseUrl,
@@ -124,10 +129,8 @@ export async function runStreamingPipeline(
   }
   pusher.emitAsrComplete(
     asrResult.transcript,
-    options.asrProvider === 'stepfun'
-      ? options.stepfunAsrModel
-      : options.asrModel,
-    options.asrProvider
+    asrResult.model,
+    asrResult.provider
   );
 
   // ---- 2. Chat (streaming) ----

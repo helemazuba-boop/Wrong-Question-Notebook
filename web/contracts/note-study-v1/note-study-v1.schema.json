@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.dev/contracts/note-study-v1.schema.json",
+  "title": "WQN Note Study v1",
+  "description": "Blank-notebook study lifecycle. Reuses the shared study-session runtime with domain 'note': browse-only semantics, read-state projection only (never mastery), durable read_completed observations.",
+  "$defs": {
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "cursor": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+$" },
+    "isoDateTime": { "type": "string", "format": "date-time" },
+    "requestMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "boot_id", "firmware_version", "capabilities"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "mode": { "enum": ["sequential", "recent"] },
+    "purpose": { "enum": ["browse"] },
+    "ordering": { "enum": ["sequential_note_v1", "least_recently_viewed_v1"] },
+    "candidatePolicyVersion": {
+      "enum": ["sequential_note_v1", "least_recently_viewed_v1"]
+    },
+    "observationAction": {
+      "enum": ["opened", "read_completed", "skipped", "session_paused"]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["notebook_ids", "include_archived"],
+      "properties": {
+        "notebook_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuid" }
+        },
+        "include_archived": { "type": "boolean" }
+      }
+    },
+    "packSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notebook_id",
+        "content_revision",
+        "pack_revision",
+        "sha256"
+      ],
+      "properties": {
+        "notebook_id": { "$ref": "#/$defs/uuid" },
+        "content_revision": { "$ref": "#/$defs/safeCounter" },
+        "pack_revision": { "$ref": "#/$defs/safeCounter" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sessionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "notebook_id", "ordinal"],
+      "properties": {
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "notebook_id": { "$ref": "#/$defs/uuid" },
+        "ordinal": { "$ref": "#/$defs/safeCounter" },
+        "last_opened_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "progressProjection": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "last_opened_at",
+            "last_completed_at",
+            "completed_count"
+          ],
+          "properties": {
+            "last_opened_at": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            },
+            "last_completed_at": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            },
+            "completed_count": { "$ref": "#/$defs/safeCounter" }
+          }
+        }
+      ]
+    },
+    "createSessionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "domain",
+        "mode",
+        "scope"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
+        },
+        "domain": { "const": "note" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "optional_count": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "seed": { "$ref": "#/$defs/seed" }
+      }
+    },
+    "sessionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "domain",
+        "mode",
+        "purpose",
+        "ordering",
+        "candidate_policy_version",
+        "seed",
+        "scope",
+        "next_sequence",
+        "progress_revision",
+        "snapshot",
+        "items",
+        "has_more"
+      ],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "domain": { "const": "note" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "ordering": { "$ref": "#/$defs/ordering" },
+        "candidate_policy_version": {
+          "$ref": "#/$defs/candidatePolicyVersion"
+        },
+        "seed": { "$ref": "#/$defs/seed" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "optional_count": { "type": "integer", "minimum": 1, "maximum": 500 },
+        "next_sequence": { "$ref": "#/$defs/safeCounter" },
+        "progress_revision": { "$ref": "#/$defs/safeCounter" },
+        "snapshot": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/packSnapshot" }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/sessionItem" }
+        },
+        "cursor": { "type": "string", "maxLength": 256 },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "candidatePageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "cursor"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
+        },
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "candidatePageData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "ordering",
+        "candidate_policy_version",
+        "seed",
+        "snapshot",
+        "progress_revision",
+        "cursor",
+        "next_cursor",
+        "items",
+        "has_more"
+      ],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "ordering": { "$ref": "#/$defs/ordering" },
+        "candidate_policy_version": {
+          "$ref": "#/$defs/candidatePolicyVersion"
+        },
+        "seed": { "$ref": "#/$defs/seed" },
+        "snapshot": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/packSnapshot" }
+        },
+        "progress_revision": { "$ref": "#/$defs/safeCounter" },
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "next_cursor": { "$ref": "#/$defs/cursor" },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/sessionItem" }
+        },
+        "has_more": { "type": "boolean" }
+      }
+    },
+    "observationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "session_id",
+        "sequence",
+        "item_id",
+        "action",
+        "mode",
+        "occurred_at"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
+        },
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "$ref": "#/$defs/safeCounter" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/observationAction" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "occurred_at": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "observationData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "session_id",
+        "sequence",
+        "item_id",
+        "action",
+        "progress",
+        "projection_applied",
+        "replayed"
+      ],
+      "properties": {
+        "observation_id": { "$ref": "#/$defs/uuid" },
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "$ref": "#/$defs/safeCounter" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/observationAction" },
+        "progress": { "$ref": "#/$defs/progressProjection" },
+        "projection_applied": { "type": "boolean" },
+        "replayed": { "type": "boolean" }
+      }
+    },
+    "manifestRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "cursor"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
+        },
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "pack": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pack_id",
+            "pack_revision",
+            "schema_version",
+            "format",
+            "compression",
+            "entry_count",
+            "byte_size",
+            "sha256",
+            "download_url"
+          ],
+          "properties": {
+            "pack_id": { "$ref": "#/$defs/uuid" },
+            "pack_revision": { "$ref": "#/$defs/safeCounter" },
+            "schema_version": { "const": 1 },
+            "format": { "const": "jsonl" },
+            "compression": { "const": "zlib" },
+            "entry_count": { "type": "integer", "minimum": 0, "maximum": 5000 },
+            "byte_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "download_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      ]
+    },
+    "manifestNotebook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notebook_id",
+        "title",
+        "change_sequence",
+        "content_revision",
+        "deleted",
+        "pack"
+      ],
+      "properties": {
+        "notebook_id": { "$ref": "#/$defs/uuid" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "change_sequence": { "$ref": "#/$defs/safeCounter" },
+        "content_revision": { "$ref": "#/$defs/safeCounter" },
+        "deleted": { "type": "boolean" },
+        "pack": { "$ref": "#/$defs/pack" }
+      }
+    },
+    "manifestData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cursor", "has_more", "notebooks"],
+      "properties": {
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "has_more": { "type": "boolean" },
+        "notebooks": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/manifestNotebook" }
+        }
+      }
+    }
+  }
+}

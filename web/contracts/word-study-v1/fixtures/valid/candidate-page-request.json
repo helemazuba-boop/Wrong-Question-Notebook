@@ -1,0 +1,8 @@
+{
+  "request_id": "req_word_candidates_0001",
+  "boot_id": "boot_word_contract_0001",
+  "firmware_version": "0.1.0",
+  "capabilities": ["word.study.v1"],
+  "cursor": "32",
+  "limit": 64
+}

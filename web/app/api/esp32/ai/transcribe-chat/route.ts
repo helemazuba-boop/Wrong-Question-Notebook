@@ -7,6 +7,8 @@ import {
 } from '@/lib/esp32-ai-provider';
 import { createRateLimit } from '@/lib/rate-limit';
 import { withSecurity } from '@/lib/security-middleware';
+import { analyzePcmS16le } from '@/lib/esp32-ai-audio-staging';
+import { logger } from '@/lib/logger';
 import { handleV2Streaming, isV2StreamingRequest } from './v2-handler';
 
 export const runtime = 'nodejs';
@@ -14,10 +16,16 @@ export const runtime = 'nodejs';
 export const AUDIO_SAMPLE_RATE = '16000';
 export const AUDIO_SAMPLE_FORMAT = 's16le';
 export const AUDIO_CHANNELS = '1';
-export const MIN_AUDIO_DURATION_MS = 300;
+export const MIN_AUDIO_DURATION_MS = 1000;
 export const MAX_AUDIO_DURATION_MS = 20000;
 export const MAX_PCM_AUDIO_BODY_BYTES =
   (Number(AUDIO_SAMPLE_RATE) * 2 * MAX_AUDIO_DURATION_MS) / 1000;
+export const MIN_PCM_AUDIO_BODY_BYTES =
+  (Number(AUDIO_SAMPLE_RATE) *
+    Number(AUDIO_CHANNELS) *
+    2 *
+    MIN_AUDIO_DURATION_MS) /
+  1000;
 export const AUDIO_BODY_TOLERANCE_BYTES = 4096;
 export const MAX_AUDIO_BODY_BYTES =
   MAX_PCM_AUDIO_BODY_BYTES + AUDIO_BODY_TOLERANCE_BYTES;
@@ -181,6 +189,42 @@ function createTooLargeResponse(): NextResponse {
   );
 }
 
+function createTooShortResponse(): NextResponse {
+  return createEsp32AiErrorResponse(
+    'invalid_audio',
+    `Audio body contains less than ${MIN_AUDIO_DURATION_MS} ms of PCM samples`,
+    422
+  );
+}
+
+function logPcmDiagnostics(input: {
+  req: NextRequest;
+  audio: ArrayBuffer;
+  deviceId: string;
+  protocol: 'v1' | 'v2-streaming';
+}): void {
+  const diagnostics = analyzePcmS16le(
+    input.audio,
+    Number(AUDIO_SAMPLE_RATE),
+    Number(AUDIO_CHANNELS)
+  );
+  logger.info('ESP32 AI raw PCM received', {
+    component: 'Esp32AiTranscribeChat',
+    protocol: input.protocol,
+    deviceId: input.deviceId,
+    tier: input.req.headers.get('x-wqn-ai-tier') || 'std',
+    declaredDurationMs: Number(
+      input.req.headers.get('x-wqn-audio-duration-ms') || 0
+    ),
+    pcmBytes: diagnostics.pcmBytes,
+    sampleCount: diagnostics.sampleCount,
+    sampleDurationMs: diagnostics.sampleDurationMs,
+    peak: diagnostics.peak,
+    rms: diagnostics.rms,
+    zeroSampleRatio: diagnostics.zeroSampleRatio,
+  });
+}
+
 function isMockEnabled(): boolean {
   return (
     process.env.NODE_ENV === 'test' &&
@@ -229,6 +273,15 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
   const audio = await req.arrayBuffer();
   if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
     return createTooLargeResponse();
+  }
+  logPcmDiagnostics({
+    req,
+    audio,
+    deviceId: authResult.deviceId,
+    protocol: 'v1',
+  });
+  if (audio.byteLength < MIN_PCM_AUDIO_BODY_BYTES) {
+    return createTooShortResponse();
   }
 
   if (isMockEnabled()) {
@@ -351,6 +404,15 @@ async function transcribeChatV2(req: NextRequest): Promise<NextResponse> {
   const audio = await req.arrayBuffer();
   if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
     return createTooLargeResponse();
+  }
+  logPcmDiagnostics({
+    req,
+    audio,
+    deviceId: authResult.deviceId,
+    protocol: 'v2-streaming',
+  });
+  if (audio.byteLength < MIN_PCM_AUDIO_BODY_BYTES) {
+    return createTooShortResponse();
   }
 
   return handleV2Streaming(req, undefined, { authResult, audio });

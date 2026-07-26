@@ -29,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Word study sessions**
+  - Bound per-user progress lookups to fixed 100-ID batches so large word decks cannot overflow the Node HTTP parser and stall ESP32 session creation.
 - **Device synchronization**
   - Preserve SM-2 progress and user-timezone day boundaries for device reviews.
   - Use one device-authentication path so database failures cannot be mistaken for invalid credentials.
