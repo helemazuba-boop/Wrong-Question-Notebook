@@ -19,6 +19,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Sparkles, Loader2, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { FilterConfig, SessionConfig, SimpleTag } from '@/lib/types';
+import { PROBLEM_TYPE_VALUES } from '@/lib/schemas';
+import { getProblemTypeDisplayName } from '@/lib/common-utils';
 import { apiUrl } from '@/lib/api-utils';
 
 interface EditSmartSetDialogProps {
@@ -289,11 +291,10 @@ export default function EditSmartSetDialog({
           <div className="space-y-2">
             <Label>{t('problemType')}</Label>
             <div className="flex flex-wrap gap-2">
-              {[
-                { value: 'mcq', label: t('mcq') },
-                { value: 'short', label: t('shortAnswerType') },
-                { value: 'extended', label: t('extended') },
-              ].map(type => (
+              {PROBLEM_TYPE_VALUES.map(value => ({
+                value,
+                label: t(getProblemTypeDisplayName(value)),
+              })).map(type => (
                 <Badge
                   key={type.value}
                   variant={

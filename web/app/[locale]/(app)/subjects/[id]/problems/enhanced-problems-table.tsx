@@ -138,7 +138,8 @@ export default function EnhancedProblemsTable({
           return false;
       }
 
-      if (typeSet && !typeSet.has(p.problem_type)) return false;
+      if (typeSet && !(p.parts || []).some(part => typeSet.has(part.type)))
+        return false;
 
       if (hasTagFilter && tagIdSet) {
         const pTagIdSet = new Set((tagsByProblem[p.id] || []).map(t => t.id));
@@ -178,9 +179,9 @@ export default function EnhancedProblemsTable({
         id: problem.id,
         title: problem.title,
         content: problem.content || null,
-        problem_type: problem.problem_type,
-        correct_answer: problem.correct_answer || null,
-        auto_mark: problem.auto_mark || false,
+        parts: problem.parts || [],
+        source: problem.source,
+        is_optional: problem.is_optional,
         status: problem.status,
         created_at: problem.created_at,
         updated_at: problem.updated_at,

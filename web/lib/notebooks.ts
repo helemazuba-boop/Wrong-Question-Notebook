@@ -488,9 +488,7 @@ export async function searchUserProblems(
   const limit = Math.min(Math.max(input.limit || 5, 1), 5);
   let query = ctx.supabase
     .from('problems')
-    .select(
-      'id, title, subject_id, problem_type, status, updated_at, subjects(name)'
-    )
+    .select('id, title, subject_id, parts, status, updated_at, subjects(name)')
     .eq('user_id', ctx.userId)
     .limit(limit);
 
@@ -512,7 +510,9 @@ export async function searchUserProblems(
       id: problem.id,
       title: problem.title,
       subject_name: problem.subjects?.name || '',
-      problem_type: problem.problem_type,
+      part_types: Array.isArray(problem.parts)
+        ? [...new Set(problem.parts.map((part: any) => part?.type))]
+        : [],
       status: problem.status,
       updated_at: problem.updated_at,
     })),
@@ -525,9 +525,7 @@ export async function getProblemDetail(
 ) {
   const { data, error } = await ctx.supabase
     .from('problems')
-    .select(
-      'id, title, content, solution_text, correct_answer, status, problem_type, subjects(name)'
-    )
+    .select('id, title, content, solution_text, parts, status, subjects(name)')
     .eq('id', input.problem_id)
     .eq('user_id', ctx.userId)
     .maybeSingle();
@@ -543,9 +541,18 @@ export async function getProblemDetail(
       subject_name: (data as any).subjects?.name || '',
       content_text: data.content || '',
       solution_text: data.solution_text || '',
-      correct_answer: data.correct_answer || '',
       status: data.status,
-      problem_type: data.problem_type,
+      // Shell model: expose each part's skeleton so the AI can reference
+      // "第(2)问" and its expected answer.
+      parts: Array.isArray(data.parts)
+        ? (data.parts as any[]).map(part => ({
+            index: part?.index,
+            label: part?.label || '',
+            type: part?.type,
+            full_marks: part?.full_marks ?? null,
+            correct_answer: part?.correct_answer || '',
+          }))
+        : [],
     },
   };
 }

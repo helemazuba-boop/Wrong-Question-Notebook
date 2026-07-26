@@ -7,7 +7,10 @@ import AssetPreview from './asset-preview';
 import { useTranslations } from 'next-intl';
 import { SolutionRevealProps } from '@/lib/types';
 import type {
+  AnswerConfig,
   MCQAnswerConfig,
+  MultiMCQAnswerConfig,
+  ProblemPart,
   ShortAnswerTextConfig,
   ShortAnswerNumericConfig,
 } from '@/lib/types';
@@ -15,32 +18,23 @@ import type {
 function StructuredAnswerDisplay({
   answerConfig,
 }: {
-  answerConfig: NonNullable<SolutionRevealProps['answerConfig']>;
+  answerConfig: AnswerConfig;
 }) {
   const t = useTranslations('Problems');
-  if (answerConfig.type === 'mcq') {
-    const config = answerConfig as MCQAnswerConfig;
-    const correctChoice = config.choices.find(
-      c => c.id === config.correct_choice_id
-    );
+  if (answerConfig.type === 'mcq' || answerConfig.type === 'multi_mcq') {
+    const correctIds =
+      answerConfig.type === 'mcq'
+        ? [(answerConfig as MCQAnswerConfig).correct_choice_id]
+        : (answerConfig as MultiMCQAnswerConfig).correct_choice_ids;
     return (
       <div className="space-y-2">
-        <p className="font-mono text-lg">
-          {config.correct_choice_id}
-          {correctChoice ? (
-            <>
-              : <MathText text={correctChoice.text} />
-            </>
-          ) : (
-            ''
-          )}
-        </p>
+        <p className="font-mono text-lg">{correctIds.join(', ')}</p>
         <div className="space-y-1">
-          {config.choices.map(choice => (
+          {answerConfig.choices.map(choice => (
             <div
               key={choice.id}
               className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm ${
-                choice.id === config.correct_choice_id
+                correctIds.includes(choice.id)
                   ? 'bg-green-100/60 font-medium text-green-800 dark:bg-green-900/20 dark:text-green-300'
                   : 'text-muted-foreground'
               }`}
@@ -93,21 +87,36 @@ function StructuredAnswerDisplay({
   return null;
 }
 
+// True when the part carries anything worth revealing as an answer.
+function partHasAnswer(part: ProblemPart): boolean {
+  return !!part.answer_config || !!part.correct_answer;
+}
+
+function PartAnswerDisplay({ part }: { part: ProblemPart }) {
+  if (part.answer_config) {
+    return <StructuredAnswerDisplay answerConfig={part.answer_config} />;
+  }
+  if (part.type === 'essay') {
+    return (
+      <div className="prose max-w-none rich-text-content">
+        <RichTextDisplay content={String(part.correct_answer ?? '')} />
+      </div>
+    );
+  }
+  return <p className="font-mono text-lg">{part.correct_answer}</p>;
+}
+
 export default function SolutionReveal({
   solutionText,
   solutionAssets,
-  correctAnswer,
-  answerConfig,
-  problemType,
+  parts,
   isRevealed,
   onToggle,
   wrapperClassName,
 }: SolutionRevealProps) {
   const t = useTranslations('Problems');
-  const hasStructuredAnswer = !!answerConfig;
-  const hasCorrectAnswer =
-    hasStructuredAnswer ||
-    (correctAnswer !== undefined && correctAnswer !== null);
+  const answeredParts = parts.filter(partHasAnswer);
+  const hasCorrectAnswer = answeredParts.length > 0;
 
   // Consider it a "solution" if there's solution text, assets, OR a correct answer
   const hasSolution =
@@ -139,25 +148,26 @@ export default function SolutionReveal({
         </div>
       ) : isRevealed ? (
         <div className="space-y-4 print-reveal-content">
-          {/* Correct Answer */}
-          {(hasStructuredAnswer ||
-            (correctAnswer !== undefined && correctAnswer !== null)) && (
+          {/* Correct Answers, one block per part that declares one */}
+          {hasCorrectAnswer && (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-4">
               <h3 className="font-medium text-green-800 dark:text-green-200 mb-2">
                 {t('correctAnswer')}
               </h3>
-              <div className="text-green-700 dark:text-green-300">
-                {hasStructuredAnswer ? (
-                  <StructuredAnswerDisplay answerConfig={answerConfig!} />
-                ) : problemType === 'extended' ? (
-                  <div className="prose max-w-none rich-text-content">
-                    <RichTextDisplay content={String(correctAnswer)} />
+              <div className="text-green-700 dark:text-green-300 space-y-3">
+                {answeredParts.map(part => (
+                  <div key={part.index}>
+                    {parts.length > 1 && (
+                      <p className="mb-1 text-sm font-semibold">
+                        {part.label || `(${part.index})`}
+                        {part.full_marks !== undefined
+                          ? ` · ${part.full_marks}分`
+                          : ''}
+                      </p>
+                    )}
+                    <PartAnswerDisplay part={part} />
                   </div>
-                ) : (
-                  <p className="font-mono text-lg">
-                    {JSON.stringify(correctAnswer)}
-                  </p>
-                )}
+                ))}
               </div>
             </div>
           )}

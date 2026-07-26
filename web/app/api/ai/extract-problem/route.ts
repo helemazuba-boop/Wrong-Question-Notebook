@@ -31,9 +31,11 @@ IMPORTANT: Math is rendered using KaTeX (a subset of LaTeX). Your output is a JS
 1. Extract the problem statement faithfully. Do NOT solve the problem.
 2. Preserve the original language of the problem.
 3. Classify the problem:
-   - "mcq" if it has labeled choices (A, B, C, D or similar)
-   - "short" if it expects a brief answer (number, word, short phrase) AND the image does NOT show multi-step working out or solution steps
-   - "extended" if it requires a longer response, proof, or explanation, OR if the image shows multi-step working out / solution steps alongside the answer (even if the final answer is a number)
+   - "single_choice" if it has labeled choices (A, B, C, D or similar) with exactly ONE correct answer
+   - "multi_choice" if it has labeled choices and the stem indicates MULTIPLE correct answers (多选 / 不定项选择)
+   - "fill_blank" if it expects an exact brief answer filling a blank (number, word, short phrase) AND the image does NOT show multi-step working out or solution steps
+   - "short_answer" if it expects a short written response of a sentence or two
+   - "essay" if it requires a longer response, proof, or explanation, OR if the image shows multi-step working out / solution steps alongside the answer (even if the final answer is a number)
 
 # Title rules
 - Generate a concise, descriptive title (max 50 characters) summarizing the problem topic.
@@ -76,10 +78,11 @@ IMPORTANT: Math is rendered using KaTeX (a subset of LaTeX). Your output is a JS
 If the image shows a visible answer, extract it into the answer_hint field.
 IMPORTANT: Only extract answers that are visually present in the image — do NOT solve the problem yourself.
 
-- For "mcq": If a choice appears circled, ticked, highlighted, or otherwise marked as correct, set mcq_correct_choice_id to the matching choice ID (e.g. "A", "B"). If no choice is visually marked, set it to null.
-- For "short": If a written answer (text or number) is visible, set short_answer_value to that text. short_answer_value MUST be plain text only — no math notation ($...$), no KaTeX. For example: "42", "mitochondria", "3.14". Set short_answer_is_numeric to true if the answer is a pure number. If no answer is visible, set both to null.
-- For "extended": If working out, paragraph responses, or solution steps are visible, transcribe them into extended_working using the same math formatting rules ($...$, $$...$$ on its own line, aligned blocks for related equations, prose between equation groups). If no working is visible, set it to null.
-- IMPORTANT: If the image shows multi-step working out or solution steps (even with a simple numeric final answer), classify as "extended" and use extended_working — do NOT classify as "short".
+- For "single_choice": If a choice appears circled, ticked, highlighted, or otherwise marked as correct, set mcq_correct_choice_id to the matching choice ID (e.g. "A", "B"). If no choice is visually marked, set it to null.
+- For "multi_choice": If several choices are marked as correct, set mcq_correct_choice_id to the concatenated choice IDs (e.g. "ABD"). If none are marked, set it to null.
+- For "fill_blank" and "short_answer": If a written answer (text or number) is visible, set short_answer_value to that text. short_answer_value MUST be plain text only — no math notation ($...$), no KaTeX. For example: "42", "mitochondria", "3.14". Set short_answer_is_numeric to true if the answer is a pure number. If no answer is visible, set both to null.
+- For "essay": If working out, paragraph responses, or solution steps are visible, transcribe them into extended_working using the same math formatting rules ($...$, $$...$$ on its own line, aligned blocks for related equations, prose between equation groups). If no working is visible, set it to null.
+- IMPORTANT: If the image shows multi-step working out or solution steps (even with a simple numeric final answer), classify as "essay" and use extended_working — do NOT classify as "fill_blank" or "short_answer".
 - Only populate fields relevant to the detected problem_type.
 - answer_confidence:
   - "high": a clear visual marker identifies the answer (circled choice, boxed answer, answer key label)
@@ -130,7 +133,13 @@ const RESPONSE_SCHEMA = {
   properties: {
     problem_type: {
       type: 'string' as const,
-      enum: ['mcq', 'short', 'extended'],
+      enum: [
+        'single_choice',
+        'multi_choice',
+        'fill_blank',
+        'short_answer',
+        'essay',
+      ],
     },
     title: { type: 'string' as const },
     content: { type: 'string' as const },
@@ -379,25 +388,33 @@ async function extractProblem(req: Request) {
     if (extraction.answer_hint) {
       const hint = extraction.answer_hint;
       const type = extraction.problem_type;
+      const isChoice = type === 'single_choice' || type === 'multi_choice';
+      const isShortLike = type === 'fill_blank' || type === 'short_answer';
 
-      // Confidence gating: drop low-confidence hints for MCQ/short (keep extended)
-      if (hint.answer_confidence === 'low' && type !== 'extended') {
+      // Confidence gating: drop low-confidence hints for choice/short parts
+      // (keep essay working transcriptions)
+      if (hint.answer_confidence === 'low' && type !== 'essay') {
         extraction.answer_hint = null;
       } else {
         // Zero out fields that don't match the problem type
-        if (type !== 'mcq') hint.mcq_correct_choice_id = null;
-        if (type !== 'short') {
+        if (!isChoice) hint.mcq_correct_choice_id = null;
+        if (!isShortLike) {
           hint.short_answer_value = null;
           hint.short_answer_is_numeric = null;
         }
-        if (type !== 'extended') hint.extended_working = null;
+        if (type !== 'essay') hint.extended_working = null;
 
-        // Validate MCQ choice ID exists in the extracted choices
-        if (type === 'mcq' && hint.mcq_correct_choice_id) {
+        // Validate choice IDs exist in the extracted choices (multi-choice
+        // hints are concatenated letters, e.g. "ABD")
+        if (isChoice && hint.mcq_correct_choice_id) {
           const validIds = new Set(
             (extraction.mcq_choices || []).map((c: { id: string }) => c.id)
           );
-          if (!validIds.has(hint.mcq_correct_choice_id)) {
+          const ids =
+            type === 'multi_choice'
+              ? hint.mcq_correct_choice_id.split('')
+              : [hint.mcq_correct_choice_id];
+          if (!ids.every((id: string) => validIds.has(id))) {
             hint.mcq_correct_choice_id = null;
           }
         }

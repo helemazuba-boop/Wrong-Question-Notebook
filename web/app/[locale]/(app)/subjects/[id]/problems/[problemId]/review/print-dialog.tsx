@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer, X } from 'lucide-react';
 import { Problem, Subject } from '@/lib/types';
-import type { MCQAnswerConfig } from '@/lib/types';
 
 type PrintMode = 'end' | 'below' | 'none';
 
@@ -55,23 +54,38 @@ export default function PrintDialog({
   };
 
   const renderAnswerPreview = () => {
-    if (!problem.answer_config) return null;
-    const cfg = problem.answer_config;
-
-    if (cfg.type === 'mcq') {
-      const mcq = cfg as MCQAnswerConfig;
-      return (
-        <div className="space-y-1">
-          {mcq.choices.map(c => (
-            <div key={c.id} className="text-sm text-muted-foreground">
-              <span className="font-medium">{c.id}.</span> {c.text}
-            </div>
-          ))}
-        </div>
-      );
+    // Shell model: preview the choice lists of every choice part; other
+    // parts print as an answer line.
+    const choiceParts = (problem.parts || []).filter(
+      part =>
+        part.answer_config?.type === 'mcq' ||
+        part.answer_config?.type === 'multi_mcq'
+    );
+    if (choiceParts.length === 0) {
+      return <div className="border-b border-gray-400 w-40" />;
     }
-
-    return <div className="border-b border-gray-400 w-40" />;
+    return (
+      <div className="space-y-2">
+        {choiceParts.map(part => (
+          <div key={part.index} className="space-y-1">
+            {(problem.parts || []).length > 1 && (
+              <p className="text-xs font-medium text-muted-foreground">
+                {part.label || `(${part.index})`}
+              </p>
+            )}
+            {(part.answer_config?.type === 'mcq' ||
+            part.answer_config?.type === 'multi_mcq'
+              ? part.answer_config.choices
+              : []
+            ).map(c => (
+              <div key={c.id} className="text-sm text-muted-foreground">
+                <span className="font-medium">{c.id}.</span> {c.text}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (

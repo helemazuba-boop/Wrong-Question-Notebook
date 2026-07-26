@@ -5,16 +5,16 @@ import { useRouter } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { BackLink } from '@/components/back-link';
-import { ProblemType, ProblemStatus } from '@/lib/schemas';
-import { getProblemTypeDisplayName } from '@/lib/common-utils';
+import { ProblemStatus } from '@/lib/schemas';
+import { getProblemTypeDisplayName, getPartTypes } from '@/lib/common-utils';
+import { problemHasAutoMark, isPartAutoMarkable } from '@/lib/answer-marking';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
-import MathText from '@/components/ui/math-text';
 import AnswerInput from './answer-input';
 import SolutionReveal from './solution-reveal';
 import AttemptStatusForm from '@/components/review/attempt-status-form';
 import ReviewSessionNav from '@/components/review/review-session-nav';
 import AttemptTimeline from '@/components/reflection/attempt-timeline';
-import { Problem, Subject, MCQAnswerConfig } from '@/lib/types';
+import { Problem, Subject, PartResult, ProblemPart } from '@/lib/types';
 import { useOnboarding } from '@/components/onboarding/onboarding-provider';
 import {
   BookOpen,
@@ -31,7 +31,6 @@ import PrintDialog from './print-dialog';
 interface AllProblem {
   id: string;
   title: string;
-  problem_type: ProblemType;
   status: ProblemStatus;
 }
 
@@ -54,8 +53,12 @@ interface SessionNavProps {
 }
 
 export interface AttemptState {
+  /** Per-part answers keyed by part index. */
   submittedAnswer: any;
   isCorrect: boolean | null;
+  partResults?: PartResult[] | null;
+  totalScore?: number | null;
+  totalFullMarks?: number | null;
   attemptId: string | null;
   selectedStatus?: ProblemStatus | null;
   formSaved?: boolean;
@@ -126,9 +129,16 @@ export default function ProblemReview({
   const t = useTranslations('Common');
   const router = useRouter();
   const { refreshChecklistStatus } = useOnboarding();
-  const [userAnswer, setUserAnswer] = useState<any>('');
-  const [submittedAnswer, setSubmittedAnswer] = useState<any>(null);
+  // Shell model: one answer per part, keyed by part index.
+  const [answers, setAnswers] = useState<Record<number, any>>({});
+  const [submittedAnswers, setSubmittedAnswers] = useState<Record<
+    number,
+    any
+  > | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [partResults, setPartResults] = useState<PartResult[] | null>(null);
+  const [totalScore, setTotalScore] = useState<number | null>(null);
+  const [totalFullMarks, setTotalFullMarks] = useState<number | null>(null);
   const [showSolution, setShowSolution] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,9 +166,12 @@ export default function ProblemReview({
   useEffect(() => {
     activeProblemIdRef.current = problem.id;
     const cached = initialAttemptRef.current;
-    setUserAnswer(cached?.submittedAnswer ?? '');
-    setSubmittedAnswer(cached?.submittedAnswer ?? null);
+    setAnswers(cached?.submittedAnswer ?? {});
+    setSubmittedAnswers(cached?.submittedAnswer ?? null);
     setIsCorrect(cached?.isCorrect ?? null);
+    setPartResults(cached?.partResults ?? null);
+    setTotalScore(cached?.totalScore ?? null);
+    setTotalFullMarks(cached?.totalFullMarks ?? null);
     setShowSolution(false);
     setIsSubmitting(false);
     setError(null);
@@ -205,11 +218,31 @@ export default function ProblemReview({
       ? allProblems[currentIndex + 1]
       : null;
 
+  const parts: ProblemPart[] = Array.isArray(problem.parts)
+    ? problem.parts
+    : [];
+  const autoMarkable = problemHasAutoMark(parts);
+  const isAnswerEmpty = (value: any) =>
+    value === undefined ||
+    value === null ||
+    value === '' ||
+    (Array.isArray(value) && value.length === 0);
+  const hasMarkableAnswer = parts.some(
+    part => isPartAutoMarkable(part) && !isAnswerEmpty(answers[part.index])
+  );
+  const partResultByIndex = new Map(
+    (partResults ?? []).map(result => [result.index, result])
+  );
+
   const handleAnswerSubmit = async () => {
-    if (!problem.auto_mark) return;
+    if (!autoMarkable) return;
 
     const submittingProblemId = problem.id;
     const isFirstAttempt = !hasRecordedAttempt;
+    const answersPayload = parts
+      .filter(part => !isAnswerEmpty(answers[part.index]))
+      .map(part => ({ index: part.index, answer: answers[part.index] }));
+    if (answersPayload.length === 0) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -222,7 +255,7 @@ export default function ProblemReview({
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            submitted_answer: userAnswer,
+            answers: answersPayload,
             record: isFirstAttempt && !isReadOnly,
           }),
         }
@@ -237,8 +270,11 @@ export default function ProblemReview({
         throw new Error(result.error || 'Failed to submit answer');
       }
 
-      setSubmittedAnswer(userAnswer);
+      setSubmittedAnswers({ ...answers });
       setIsCorrect(result.data.is_correct);
+      setPartResults(result.data.part_results ?? null);
+      setTotalScore(result.data.total_score ?? null);
+      setTotalFullMarks(result.data.total_full_marks ?? null);
 
       // Capture attempt info for reflection (only on first attempt)
       if (isFirstAttempt && result.data.data?.id) {
@@ -249,8 +285,11 @@ export default function ProblemReview({
 
         // Notify parent so it can cache the attempt state
         onAttemptRecorded?.(submittingProblemId, {
-          submittedAnswer: userAnswer,
+          submittedAnswer: { ...answers },
           isCorrect: result.data.is_correct,
+          partResults: result.data.part_results ?? null,
+          totalScore: result.data.total_score ?? null,
+          totalFullMarks: result.data.total_full_marks ?? null,
           attemptId: result.data.data.id,
         });
       }
@@ -281,8 +320,11 @@ export default function ProblemReview({
 
     // Update attempt cache with form saved state
     onAttemptRecorded?.(problem.id, {
-      submittedAnswer: submittedAnswer,
+      submittedAnswer: submittedAnswers,
       isCorrect: lastAttemptCorrect,
+      partResults: partResults,
+      totalScore: totalScore,
+      totalFullMarks: totalFullMarks,
       attemptId: attemptId,
       selectedStatus: status,
       formSaved: true,
@@ -340,7 +382,12 @@ export default function ProblemReview({
             </h1>
             <p className="text-xs text-muted-foreground">
               {subject.name} •{' '}
-              {tProblems(getProblemTypeDisplayName(problem.problem_type))}
+              {getPartTypes(parts)
+                .map(type => tProblems(getProblemTypeDisplayName(type)))
+                .join(' · ')}
+              {parts.length > 1
+                ? ` • ${tProblems('partsCount', { count: parts.length })}`
+                : ''}
             </p>
           </div>
 
@@ -435,18 +482,32 @@ export default function ProblemReview({
               <span className="print-answer-inline-label">答案：</span>
               <div className="print-answer-inline-line" />
             </div>
-            {problem.answer_config?.type === 'mcq' &&
-              (() => {
-                const mcq = problem.answer_config as MCQAnswerConfig;
-                const correct = mcq.choices.find(
-                  c => c.id === mcq.correct_choice_id
-                );
+            {parts
+              .filter(
+                part =>
+                  part.answer_config?.type === 'mcq' ||
+                  part.answer_config?.type === 'multi_mcq'
+              )
+              .map(part => {
+                const config = part.answer_config!;
+                const correctIds =
+                  config.type === 'mcq'
+                    ? [config.correct_choice_id]
+                    : config.type === 'multi_mcq'
+                      ? config.correct_choice_ids
+                      : [];
                 return (
-                  <div className="print-mcq-inline-answer print-answer-inline">
-                    正确选项：{mcq.correct_choice_id}. {correct?.text}
+                  <div
+                    key={part.index}
+                    className="print-mcq-inline-answer print-answer-inline"
+                  >
+                    {parts.length > 1
+                      ? `${part.label || `(${part.index})`} `
+                      : ''}
+                    正确选项：{correctIds.join(', ')}
                   </div>
                 );
-              })()}
+              })}
 
             {/* Answer Section */}
             <div>
@@ -459,7 +520,7 @@ export default function ProblemReview({
                 </h2>
               </div>
 
-              {!problem.auto_mark && (
+              {!autoMarkable && (
                 <div className="ml-10 mb-4 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md">
                   <p className="text-sm text-blue-800 dark:text-blue-200">
                     {tProblems('manualReviewRequired')}
@@ -467,51 +528,102 @@ export default function ProblemReview({
                 </div>
               )}
 
-              <div className="pl-10">
-                <AnswerInput
-                  key={problem.id}
-                  problemType={problem.problem_type}
-                  correctAnswer={problem.correct_answer}
-                  answerConfig={problem.answer_config}
-                  value={userAnswer}
-                  onChange={setUserAnswer}
-                  onSubmit={problem.auto_mark ? handleAnswerSubmit : undefined}
-                  disabled={
-                    isSubmitting ||
-                    (problem.auto_mark &&
-                      submittedAnswer !== null &&
-                      isCorrect === true)
-                  }
-                  hideChoiceIds={
-                    submittedAnswer === null &&
-                    !showSolution &&
-                    problem.answer_config?.type === 'mcq' &&
-                    (problem.answer_config as MCQAnswerConfig)
-                      .randomize_choices !== false
-                  }
-                />
+              <div className="pl-10 space-y-4">
+                {parts.map(part => {
+                  const result = partResultByIndex.get(part.index);
+                  const config = part.answer_config;
+                  const isChoicePart =
+                    config?.type === 'mcq' || config?.type === 'multi_mcq';
+                  return (
+                    <div key={`${problem.id}-${part.index}`}>
+                      {parts.length > 1 && (
+                        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-blue-900 dark:text-blue-100">
+                          <span>{part.label || `(${part.index})`}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {tProblems(getProblemTypeDisplayName(part.type))}
+                            {part.full_marks !== undefined
+                              ? ` · ${part.full_marks}分`
+                              : ''}
+                          </span>
+                          {submittedAnswers !== null && result && (
+                            <span
+                              className={`text-xs font-semibold ${
+                                result.correct === null
+                                  ? 'text-muted-foreground'
+                                  : result.correct
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-red-600 dark:text-red-400'
+                              }`}
+                            >
+                              {result.correct === null
+                                ? tProblems('pendingSelfAssessment')
+                                : result.correct
+                                  ? '✓'
+                                  : '✗'}
+                              {result.score !== undefined
+                                ? ` ${result.score}分`
+                                : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {part.content && (
+                        <div className="prose max-w-none rich-text-content mb-2">
+                          <RichTextDisplay content={part.content} />
+                        </div>
+                      )}
+                      <AnswerInput
+                        part={part}
+                        value={
+                          answers[part.index] ?? (isChoicePart ? undefined : '')
+                        }
+                        onChange={value =>
+                          setAnswers(previous => ({
+                            ...previous,
+                            [part.index]: value,
+                          }))
+                        }
+                        onSubmit={autoMarkable ? handleAnswerSubmit : undefined}
+                        disabled={
+                          isSubmitting ||
+                          (autoMarkable &&
+                            submittedAnswers !== null &&
+                            isCorrect === true)
+                        }
+                        hideChoiceIds={
+                          submittedAnswers === null &&
+                          !showSolution &&
+                          isChoicePart &&
+                          config?.randomize_choices !== false
+                        }
+                      />
+                    </div>
+                  );
+                })}
 
                 <div className="mt-4 flex gap-3">
-                  {problem.auto_mark && (
+                  {autoMarkable && (
                     <Button
                       onClick={handleAnswerSubmit}
                       disabled={
                         isSubmitting ||
-                        !userAnswer ||
-                        (submittedAnswer !== null && isCorrect === true)
+                        !hasMarkableAnswer ||
+                        (submittedAnswers !== null && isCorrect === true)
                       }
                     >
                       {isSubmitting
                         ? t('submitting')
-                        : submittedAnswer !== null && isCorrect === false
+                        : submittedAnswers !== null && isCorrect === false
                           ? tProblems('resubmitAnswer')
                           : tProblems('submitAnswer')}
                     </Button>
                   )}
 
-                  {!problem.auto_mark &&
-                    userAnswer &&
-                    problem.correct_answer && (
+                  {!autoMarkable &&
+                    Object.values(answers).some(
+                      value => !isAnswerEmpty(value)
+                    ) &&
+                    parts.some(part => part.correct_answer) && (
                       <Button
                         onClick={() => setShowSolution(true)}
                         className="bg-green-600 dark:bg-green-700 text-white hover:bg-green-700 dark:hover:bg-green-600"
@@ -522,7 +634,7 @@ export default function ProblemReview({
                 </div>
 
                 {/* Answer Feedback */}
-                {submittedAnswer !== null && isCorrect !== null && (
+                {submittedAnswers !== null && isCorrect !== null && (
                   <div
                     className={`mt-4 p-4 rounded-md ${
                       isCorrect
@@ -544,34 +656,33 @@ export default function ProblemReview({
                           : tProblems('incorrect')}
                       </span>
                     </div>
-                    {problem.answer_config?.type === 'mcq' ? (
-                      <>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {tProblems('yourChoice')}{' '}
-                          {(() => {
-                            const config =
-                              problem.answer_config as MCQAnswerConfig;
-                            const picked = config.choices.find(
-                              c => c.id === submittedAnswer
-                            );
-                            if (!picked) return submittedAnswer;
-                            return picked.text ? (
-                              <>
-                                {picked.id}. <MathText text={picked.text} />
-                              </>
-                            ) : (
-                              picked.id
-                            );
-                          })()}
-                        </p>
-                      </>
-                    ) : (
+                    {totalScore !== null && totalFullMarks !== null && (
                       <p className="text-sm text-muted-foreground mt-1">
-                        {tProblems('yourAnswerPrefix')}{' '}
-                        {JSON.stringify(submittedAnswer)}
+                        {tProblems('partScoreSummary', {
+                          score: totalScore,
+                          total: totalFullMarks,
+                        })}
                       </p>
                     )}
-                    {!isCorrect && problem.auto_mark && (
+                    {!isCorrect &&
+                      (partResults ?? []).some(
+                        result => result.correct === false
+                      ) && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {tProblems('wrongPartsLabel', {
+                            parts: (partResults ?? [])
+                              .filter(result => result.correct === false)
+                              .map(result => {
+                                const part = parts.find(
+                                  p => p.index === result.index
+                                );
+                                return part?.label || `(${result.index})`;
+                              })
+                              .join(' '),
+                          })}
+                        </p>
+                      )}
+                    {!isCorrect && autoMarkable && (
                       <p className="text-sm text-red-600 dark:text-red-400 mt-2">
                         {tProblems('tryAgain')}
                       </p>
@@ -598,9 +709,7 @@ export default function ProblemReview({
             <SolutionReveal
               solutionText={problem.solution_text || undefined}
               solutionAssets={problem.solution_assets || []}
-              correctAnswer={problem.correct_answer}
-              answerConfig={problem.answer_config}
-              problemType={problem.problem_type}
+              parts={parts}
               isRevealed={showSolution}
               onToggle={() => setShowSolution(!showSolution)}
               wrapperClassName="bg-gradient-to-br from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20 p-4"
@@ -612,25 +721,32 @@ export default function ProblemReview({
             <h2>参考答案</h2>
             <div className="print-answer-appendix-item">
               <strong>题目：</strong>
-              {(() => {
-                if (!problem.answer_config) return '—';
-                const cfg = problem.answer_config;
-                if (cfg.type === 'mcq') {
-                  const mcq = cfg as MCQAnswerConfig;
-                  const correct = mcq.choices.find(
-                    c => c.id === mcq.correct_choice_id
-                  );
-                  return `${mcq.correct_choice_id}. ${correct?.text}`;
-                }
-                if (cfg.type === 'short') {
-                  return (
-                    <span className="font-mono">
-                      {JSON.stringify(problem.correct_answer)}
-                    </span>
-                  );
-                }
-                return JSON.stringify(problem.correct_answer);
-              })()}
+              {parts.some(part => part.answer_config || part.correct_answer) ? (
+                <span>
+                  {parts.map(part => {
+                    const config = part.answer_config;
+                    let answerText: string | null = null;
+                    if (config?.type === 'mcq') {
+                      answerText = config.correct_choice_id;
+                    } else if (config?.type === 'multi_mcq') {
+                      answerText = config.correct_choice_ids.join(', ');
+                    } else if (part.correct_answer) {
+                      answerText = part.correct_answer;
+                    }
+                    if (!answerText) return null;
+                    return (
+                      <span key={part.index} className="mr-3 font-mono">
+                        {parts.length > 1
+                          ? `${part.label || `(${part.index})`} `
+                          : ''}
+                        {answerText}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : (
+                '—'
+              )}
             </div>
           </div>
 
@@ -653,10 +769,10 @@ export default function ProblemReview({
               <AttemptStatusForm
                 problemId={problem.id}
                 currentStatus={problem.status}
-                autoMark={problem.auto_mark}
+                autoMark={autoMarkable}
                 attemptId={lastAttemptId}
                 autoMarkCorrect={lastAttemptCorrect}
-                hasSubmitted={submittedAnswer !== null}
+                hasSubmitted={submittedAnswers !== null}
                 onSaved={handleFormSaved}
                 initialSavedState={formInitialSavedState}
                 disabled={isReadOnly}

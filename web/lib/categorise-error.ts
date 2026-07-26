@@ -8,7 +8,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { normaliseTopicLabel } from '@/lib/insights-utils';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
-import type { AnswerConfig } from '@/lib/types';
+import type { ProblemPart } from '@/lib/types';
 import type { Database } from '@/lib/database.types';
 
 const RESPONSE_SCHEMA = {
@@ -36,16 +36,15 @@ function buildSystemPrompt(
   problem: {
     title: string;
     content: string;
-    problem_type: string;
-    correct_answer: string | null;
+    parts: ProblemPart[];
     solution_text: string | null;
-    answer_config: AnswerConfig | null;
   },
   subjectName: string,
   tags: string[]
 ) {
+  const partTypes = [...new Set(problem.parts.map(part => part.type))];
   let context = `- Subject: <subject_name>${subjectName}</subject_name>
-- Problem type: ${problem.problem_type}`;
+- Part types: ${partTypes.join(', ')}`;
 
   if (tags.length > 0) {
     context += `\n- Tags: <tags>${tags.join(', ')}</tags>`;
@@ -86,12 +85,12 @@ function buildUserPrompt(
   problem: {
     title: string;
     content: string;
-    correct_answer: string | null;
+    parts: ProblemPart[];
     solution_text: string | null;
-    answer_config: AnswerConfig | null;
   },
   attempt: {
     submitted_answer: unknown;
+    part_results: unknown;
     is_correct: boolean | null;
     cause: string | null;
     reflection_notes: string | null;
@@ -106,21 +105,31 @@ function buildUserPrompt(
 ) {
   let prompt = `# Problem
 <problem_title>${problem.title}</problem_title>
-<problem_content>${problem.content || '(no content)'}</problem_content>
-<correct_answer>${problem.correct_answer || '(not provided)'}</correct_answer>`;
+<problem_content>${problem.content || '(no content)'}</problem_content>`;
+
+  // Shell model: one problem holds 1..10 typed parts, each with its own
+  // expected answer; the attempt carries per-part verdicts.
+  for (const part of problem.parts) {
+    const attributes = [
+      `index="${part.index}"`,
+      part.label ? `label="${part.label}"` : '',
+      `type="${part.type}"`,
+      part.full_marks !== undefined ? `full_marks="${part.full_marks}"` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    prompt += `\n<part ${attributes}>${part.correct_answer || '(no expected answer)'}</part>`;
+  }
 
   if (problem.solution_text) {
     prompt += `\n<worked_solution>${problem.solution_text}</worked_solution>`;
-  }
-
-  if (problem.answer_config) {
-    prompt += `\n<answer_config>${JSON.stringify(problem.answer_config)}</answer_config>`;
   }
 
   prompt += `
 
 # Student's Attempt
 <submitted_answer>${JSON.stringify(attempt.submitted_answer)}</submitted_answer>
+<part_results>${JSON.stringify(attempt.part_results ?? [])}</part_results>
 Was correct: ${attempt.is_correct}
 <student_cause>${attempt.cause || '(not provided)'}</student_cause>
 <reflection_notes>${attempt.reflection_notes || '(not provided)'}</reflection_notes>`;
@@ -201,9 +210,7 @@ export async function performErrorCategorisation(
       .single(),
     serviceClient
       .from('problems')
-      .select(
-        'title, content, problem_type, correct_answer, solution_text, answer_config, subject_id'
-      )
+      .select('title, content, parts, solution_text, subject_id')
       .eq('id', problem_id)
       .eq('user_id', user_id)
       .single(),
@@ -270,9 +277,12 @@ export async function performErrorCategorisation(
 
   // Build prompt and call Gemini
   const problemForPrompt = {
-    ...problem,
+    title: problem.title,
     content: problem.content ?? '',
-    answer_config: problem.answer_config as AnswerConfig | null,
+    solution_text: problem.solution_text,
+    parts: (Array.isArray(problem.parts)
+      ? problem.parts
+      : []) as unknown as ProblemPart[],
   };
   const systemPrompt = buildSystemPrompt(problemForPrompt, subject.name, tags);
   const userPrompt = buildUserPrompt(
@@ -306,6 +316,13 @@ export async function performErrorCategorisation(
 
   const result = JSON.parse(text);
 
+  // Locate the categorisation on the failed part: the first part the attempt
+  // marked wrong (null when nothing was auto-marked wrong).
+  const partResults = Array.isArray(attempt.part_results)
+    ? (attempt.part_results as Array<{ index?: number; correct?: unknown }>)
+    : [];
+  const failedPart = partResults.find(entry => entry.correct === false);
+
   // Insert categorisation into database
   const { data: categorisation, error: insertError } = await serviceClient
     .from('error_categorisations')
@@ -314,6 +331,7 @@ export async function performErrorCategorisation(
       problem_id,
       subject_id,
       user_id,
+      part_index: failedPart?.index ?? null,
       broad_category: result.broad_category,
       granular_tag: result.granular_tag,
       topic_label: result.topic_label,

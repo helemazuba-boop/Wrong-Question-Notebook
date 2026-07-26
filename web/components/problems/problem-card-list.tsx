@@ -153,9 +153,13 @@ export default function ProblemCardList({
 
                 {/* Type + tags */}
                 <div className="flex flex-wrap gap-1 mb-2">
-                  <Badge variant="outline" className="text-xs">
-                    {t(getProblemTypeDisplayName(problem.problem_type))}
-                  </Badge>
+                  {[
+                    ...new Set((problem.parts || []).map(part => part.type)),
+                  ].map(type => (
+                    <Badge key={type} variant="outline" className="text-xs">
+                      {t(getProblemTypeDisplayName(type))}
+                    </Badge>
+                  ))}
                   {(problem.tags || []).slice(0, 2).map(tag => (
                     <Badge key={tag.id} variant="outline" className="text-xs">
                       {tag.name}

@@ -25,7 +25,8 @@ import {
 } from '@/components/ui/select';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ProblemSetSharingLevel } from '@/lib/schemas';
+import { ProblemSetSharingLevel, PROBLEM_TYPE_VALUES } from '@/lib/schemas';
+import { getProblemTypeDisplayName } from '@/lib/common-utils';
 import { Subject, SimpleTag } from '@/lib/types';
 import { useContentLimit } from '@/lib/hooks/useContentLimit';
 import { ContentLimitIndicator } from '@/components/ui/content-limit-indicator';
@@ -338,11 +339,10 @@ export default function CreateSmartSetDialog({
               <div className="space-y-2">
                 <Label>{t('problemType')}</Label>
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { value: 'mcq', label: t('mcq') },
-                    { value: 'short', label: t('shortAnswerType') },
-                    { value: 'extended', label: t('extended') },
-                  ].map(type => (
+                  {PROBLEM_TYPE_VALUES.map(value => ({
+                    value,
+                    label: t(getProblemTypeDisplayName(value)),
+                  })).map(type => (
                     <Badge
                       key={type.value}
                       variant={

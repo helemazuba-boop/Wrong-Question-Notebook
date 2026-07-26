@@ -440,7 +440,7 @@ export async function categoriseUncategorisedAttempts(
     return 0;
   }
 
-  const uncategorised = (attempts ?? []) as UncategorisedAttempt[];
+  const uncategorised = (attempts ?? []) as unknown as UncategorisedAttempt[];
   if (uncategorised.length === 0) return 0;
 
   // Pre-fetch topic labels per subject to avoid N+1 queries
@@ -632,6 +632,11 @@ export async function categoriseSingleAttempt(
         problem_id: attempt.problem_id,
         subject_id: attempt.subject_id,
         user_id: userId,
+        // First auto-marked-wrong part locates the failed sub-question.
+        part_index:
+          (Array.isArray(attempt.part_results)
+            ? attempt.part_results.find(entry => entry.correct === false)?.index
+            : undefined) ?? null,
         broad_category: parsed.broad_category,
         granular_tag: parsed.granular_tag,
         topic_label: parsed.topic_label,
@@ -1404,10 +1409,13 @@ function buildCategorisationPrompt(
   attempt: UncategorisedAttempt,
   existingLabels: string[] = []
 ): string {
+  const problemParts = Array.isArray(attempt.problem_parts)
+    ? attempt.problem_parts
+    : [];
   const parts: string[] = [
     `<subject_name>${attempt.subject_name}</subject_name>`,
     `<problem_title>${attempt.problem_title}</problem_title>`,
-    `Problem type: ${attempt.problem_type}`,
+    `Part types: ${[...new Set(problemParts.map(part => part.type))].join(', ')}`,
   ];
 
   if (attempt.problem_content) {
@@ -1418,8 +1426,19 @@ function buildCategorisationPrompt(
     parts.push(`<problem_content>${content}</problem_content>`);
   }
 
-  if (attempt.correct_answer) {
-    parts.push(`<correct_answer>${attempt.correct_answer}</correct_answer>`);
+  // Shell model: per-part expected answers and the attempt's per-part
+  // verdicts locate WHICH sub-question went wrong.
+  for (const part of problemParts) {
+    if (part.correct_answer) {
+      parts.push(
+        `<part index="${part.index}"${part.label ? ` label="${part.label}"` : ''}>${part.correct_answer}</part>`
+      );
+    }
+  }
+  if (Array.isArray(attempt.part_results) && attempt.part_results.length > 0) {
+    parts.push(
+      `<part_results>${JSON.stringify(attempt.part_results)}</part_results>`
+    );
   }
 
   const submittedStr =

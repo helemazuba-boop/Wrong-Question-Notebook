@@ -72,6 +72,7 @@ export type Database = {
           id: string;
           is_correct: boolean | null;
           is_self_assessed: boolean;
+          part_results: Json;
           problem_id: string;
           reflection_notes: string | null;
           selected_status: string | null;
@@ -86,6 +87,7 @@ export type Database = {
           id?: string;
           is_correct?: boolean | null;
           is_self_assessed?: boolean;
+          part_results?: Json;
           problem_id: string;
           reflection_notes?: string | null;
           selected_status?: string | null;
@@ -100,6 +102,7 @@ export type Database = {
           id?: string;
           is_correct?: boolean | null;
           is_self_assessed?: boolean;
+          part_results?: Json;
           problem_id?: string;
           reflection_notes?: string | null;
           selected_status?: string | null;
@@ -378,6 +381,7 @@ export type Database = {
           is_user_override: boolean;
           original_broad_category: string | null;
           original_granular_tag: string | null;
+          part_index: number | null;
           problem_id: string;
           subject_id: string;
           topic_label: string;
@@ -396,6 +400,7 @@ export type Database = {
           is_user_override?: boolean;
           original_broad_category?: string | null;
           original_granular_tag?: string | null;
+          part_index?: number | null;
           problem_id: string;
           subject_id: string;
           topic_label: string;
@@ -414,6 +419,7 @@ export type Database = {
           is_user_override?: boolean;
           original_broad_category?: string | null;
           original_granular_tag?: string | null;
+          part_index?: number | null;
           problem_id?: string;
           subject_id?: string;
           topic_label?: string;
@@ -1733,19 +1739,18 @@ export type Database = {
       };
       problems: {
         Row: {
-          answer_config: Json | null;
           assets: Json;
-          auto_mark: boolean;
           content: string | null;
-          correct_answer: string | null;
           created_at: string;
           embedding: string | null;
           id: string;
+          is_optional: boolean;
           last_reviewed_date: string | null;
-          problem_type: Database['public']['Enums']['problem_type_enum'];
+          parts: Json;
           revision: number;
           solution_assets: Json;
           solution_text: string | null;
+          source: Json;
           status: Database['public']['Enums']['problem_status_enum'];
           subject_id: string;
           title: string;
@@ -1753,19 +1758,18 @@ export type Database = {
           user_id: string;
         };
         Insert: {
-          answer_config?: Json | null;
           assets?: Json;
-          auto_mark?: boolean;
           content?: string | null;
-          correct_answer?: string | null;
           created_at?: string;
           embedding?: string | null;
           id?: string;
+          is_optional?: boolean;
           last_reviewed_date?: string | null;
-          problem_type: Database['public']['Enums']['problem_type_enum'];
+          parts: Json;
           revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
+          source?: Json;
           status: Database['public']['Enums']['problem_status_enum'];
           subject_id: string;
           title: string;
@@ -1773,19 +1777,18 @@ export type Database = {
           user_id: string;
         };
         Update: {
-          answer_config?: Json | null;
           assets?: Json;
-          auto_mark?: boolean;
           content?: string | null;
-          correct_answer?: string | null;
           created_at?: string;
           embedding?: string | null;
           id?: string;
+          is_optional?: boolean;
           last_reviewed_date?: string | null;
-          problem_type?: Database['public']['Enums']['problem_type_enum'];
+          parts?: Json;
           revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
+          source?: Json;
           status?: Database['public']['Enums']['problem_status_enum'];
           subject_id?: string;
           title?: string;
@@ -2368,18 +2371,17 @@ export type Database = {
       get_due_problems_for_subject: {
         Args: { p_limit?: number; p_subject_id: string };
         Returns: {
-          answer_config: Json | null;
           assets: Json;
-          auto_mark: boolean;
           content: string | null;
-          correct_answer: string | null;
           created_at: string;
           embedding: string | null;
           id: string;
+          is_optional: boolean;
           last_reviewed_date: string | null;
-          problem_type: Database['public']['Enums']['problem_type_enum'];
+          parts: Json;
           solution_assets: Json;
           solution_text: string | null;
+          source: Json;
           status: Database['public']['Enums']['problem_status_enum'];
           subject_id: string;
           title: string;
@@ -2471,12 +2473,12 @@ export type Database = {
           attempt_created_at: string;
           attempt_id: string;
           cause: string;
-          correct_answer: string;
           is_correct: boolean;
+          part_results: Json;
           problem_content: string;
           problem_id: string;
+          problem_parts: Json;
           problem_title: string;
-          problem_type: string;
           reflection_notes: string;
           selected_status: string;
           subject_id: string;
@@ -2547,7 +2549,12 @@ export type Database = {
     };
     Enums: {
       problem_status_enum: 'wrong' | 'needs_review' | 'mastered';
-      problem_type_enum: 'mcq' | 'short' | 'extended';
+      problem_part_type:
+        | 'single_choice'
+        | 'multi_choice'
+        | 'fill_blank'
+        | 'short_answer'
+        | 'essay';
       sharing_level: 'private' | 'limited' | 'public';
     };
     CompositeTypes: {
