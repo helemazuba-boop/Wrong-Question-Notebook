@@ -181,11 +181,17 @@ async function getProblems(req: Request) {
     }
   }
 
-  // Apply problem type filter
-  if (problemTypes.length > 0) {
-    query = query.in(
-      'problem_type',
-      problemTypes as Database['public']['Enums']['problem_type_enum'][]
+  // Apply part type filter: a shell matches when ANY of its parts has a
+  // requested type. Values are enum-validated upstream, so embedding them in
+  // the PostgREST filter string is safe; the JSON payload must be quoted for
+  // .or() because it contains commas.
+  if (problemTypes.length === 1) {
+    query = query.contains('parts', [{ type: problemTypes[0] }]);
+  } else if (problemTypes.length > 1) {
+    query = query.or(
+      problemTypes
+        .map(type => `parts.cs."[{\\"type\\":\\"${type}\\"}]"`)
+        .join(',')
     );
   }
 

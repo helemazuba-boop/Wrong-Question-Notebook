@@ -30,7 +30,11 @@ import {
   ShortAnswerConfig,
   type ShortAnswerConfigValue,
 } from '@/components/ui/short-answer-config';
-import { VALIDATION_CONSTANTS, ANSWER_CONFIG_CONSTANTS } from '@/lib/constants';
+import {
+  VALIDATION_CONSTANTS,
+  ANSWER_CONFIG_CONSTANTS,
+  PROBLEM_CONSTANTS,
+} from '@/lib/constants';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -45,7 +49,6 @@ import {
   ProblemFormProps,
   MCQChoice,
   AnswerConfig,
-  MCQAnswerConfig,
   ShortAnswerTextConfig,
   ShortAnswerNumericConfig,
   ExtractedProblemData,
@@ -58,7 +61,7 @@ import {
 import { convertMathTextToTipTapHtml } from '@/lib/math-to-tiptap';
 import { uploadFiles } from '@/lib/storage/client';
 import { apiUrl } from '@/lib/api-utils';
-import { PenLine, Plus, ScanLine } from 'lucide-react';
+import { PenLine, Plus, ScanLine, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 export default function ProblemForm({
@@ -222,31 +225,53 @@ export default function ProblemForm({
   const handleExtractionComplete = useCallback(
     (data: ExtractedProblemData, imageAttachment?: ImageAttachment) => {
       setTitle(data.title);
-      setProblemType(data.problem_type);
+      // Normalize the extracted type: the AI route emits shell part types,
+      // but stay tolerant of the legacy trio.
+      const rawType = data.problem_type as string;
+      const legacyTypeMap: Record<string, ProblemType> = {
+        mcq: 'single_choice',
+        short: 'short_answer',
+        extended: 'essay',
+      };
+      const extractedType: ProblemType = (
+        PROBLEM_TYPE_VALUES as readonly string[]
+      ).includes(rawType)
+        ? (rawType as ProblemType)
+        : (legacyTypeMap[rawType] ?? 'short_answer');
+      const extractedIsChoice =
+        extractedType === 'single_choice' || extractedType === 'multi_choice';
+      const extractedIsShortLike =
+        extractedType === 'fill_blank' || extractedType === 'short_answer';
+      setProblemType(extractedType);
       const html = convertMathTextToTipTapHtml(data.content);
       // Update editor imperatively — onChange callback will sync form state
       contentEditorRef.current?.setContent(html);
       // Also update form state directly in case editor isn't mounted yet
       setContent(html);
       if (
-        data.problem_type === 'mcq' &&
+        extractedIsChoice &&
         data.mcq_choices &&
         data.mcq_choices.length > 0
       ) {
         setUseEnhancedMcq(true);
         setMcqChoices(data.mcq_choices);
         setMcqCorrectChoiceId('');
+        setMultiCorrectText('');
       }
 
       // Apply answer hint suggestions
       if (data.answer_hint) {
         const hint = data.answer_hint;
 
-        if (data.problem_type === 'mcq' && hint.mcq_correct_choice_id) {
-          setMcqCorrectChoiceId(hint.mcq_correct_choice_id);
+        if (extractedIsChoice && hint.mcq_correct_choice_id) {
+          if (extractedType === 'multi_choice') {
+            setMultiCorrectText(hint.mcq_correct_choice_id);
+          } else {
+            setMcqCorrectChoiceId(hint.mcq_correct_choice_id);
+          }
         }
 
-        if (data.problem_type === 'short' && hint.short_answer_value) {
+        if (extractedIsShortLike && hint.short_answer_value) {
           setUseEnhancedShort(true);
           if (hint.short_answer_is_numeric) {
             const numVal = Number(hint.short_answer_value);
@@ -273,7 +298,7 @@ export default function ProblemForm({
           }
         }
 
-        if (data.problem_type === 'extended' && hint.extended_working) {
+        if (extractedType === 'essay' && hint.extended_working) {
           const solutionHtml = convertMathTextToTipTapHtml(
             hint.extended_working
           );
@@ -317,61 +342,65 @@ export default function ProblemForm({
   const [title, setTitle] = useState(problem?.title || '');
   const [titleFocus, setTitleFocus] = useState(false);
   const [content, setContent] = useState(problem?.content || '');
+  // Shell model: the form's rich editors drive the PRIMARY part (parts[0]);
+  // additional parts are lightweight rows (type/label/marks/answer text).
+  const primaryPart = problem?.parts?.[0];
   const [problemType, setProblemType] = useState<ProblemType>(
-    problem?.problem_type || 'short'
+    primaryPart?.type || 'short_answer'
+  );
+  const [partLabel, setPartLabel] = useState(primaryPart?.label || '');
+  const [partFullMarks, setPartFullMarks] = useState(
+    primaryPart?.full_marks !== undefined ? String(primaryPart.full_marks) : ''
+  );
+  interface ExtraPartDraft {
+    type: ProblemType;
+    label: string;
+    full_marks: string;
+    correct_answer: string;
+  }
+  const [extraParts, setExtraParts] = useState<ExtraPartDraft[]>(
+    (problem?.parts || []).slice(1).map(part => ({
+      type: part.type,
+      label: part.label || '',
+      full_marks: part.full_marks !== undefined ? String(part.full_marks) : '',
+      correct_answer: part.correct_answer || '',
+    }))
+  );
+  // Exam provenance (shell level)
+  const [sourceYear, setSourceYear] = useState(
+    problem?.source?.year !== undefined ? String(problem.source.year) : ''
+  );
+  const [sourcePaper, setSourcePaper] = useState(problem?.source?.paper || '');
+  const [sourceExamType, setSourceExamType] = useState<string>(
+    problem?.source?.exam_type || ''
+  );
+  const [sourceQuestionNo, setSourceQuestionNo] = useState(
+    problem?.source?.question_no || ''
+  );
+  const [isOptionalShell, setIsOptionalShell] = useState(
+    problem?.is_optional || false
   );
   const [status, setStatus] = useState<'wrong' | 'needs_review' | 'mastered'>(
     problem?.status || 'needs_review'
   );
-  const [autoMark, setAutoMark] = useState(problem?.auto_mark || false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-update auto-mark based on problem type (only for new problems)
-  useEffect(() => {
-    if (!isEditMode) {
-      switch (problemType) {
-        case 'mcq':
-          setAutoMark(true);
-          break;
-        case 'short':
-          setAutoMark(false);
-          break;
-        case 'extended':
-          setAutoMark(false);
-          break;
-      }
-    }
-  }, [problemType, isEditMode]);
-
-  // Auto-mark behavior based on problem type
-  const autoMarkValue = useMemo(() => {
-    switch (problemType) {
-      case 'mcq':
-        return autoMark;
-      case 'short':
-        return autoMark;
-      case 'extended':
-        return false; // Always false for extended response
-      default:
-        return false;
-    }
-  }, [problemType, autoMark]);
-
-  const isAutoMarkDisabled = problemType === 'extended';
+  // Editor-kind buckets: the choice builder serves both choice types, the
+  // short-answer config serves fill-blank and short-answer parts.
+  const isChoiceType =
+    problemType === 'single_choice' || problemType === 'multi_choice';
+  const isShortLike =
+    problemType === 'fill_blank' || problemType === 'short_answer';
 
   // Correct answer inputs (legacy)
-  const [mcqChoice, setMcqChoice] = useState(
-    typeof problem?.correct_answer === 'string' ? problem.correct_answer : ''
-  );
-  const [shortText, setShortText] = useState(
-    typeof problem?.correct_answer === 'string' ? problem.correct_answer : ''
-  );
+  const [mcqChoice, setMcqChoice] = useState(primaryPart?.correct_answer || '');
+  const [shortText, setShortText] = useState(primaryPart?.correct_answer || '');
 
   // Enhanced answer config state
   const [mcqChoices, setMcqChoices] = useState<MCQChoice[]>(() => {
-    const config = problem?.answer_config;
-    if (config && config.type === 'mcq') {
-      return (config as MCQAnswerConfig).choices;
+    const config = primaryPart?.answer_config;
+    if (config && (config.type === 'mcq' || config.type === 'multi_mcq')) {
+      return config.choices;
     }
     return ANSWER_CONFIG_CONSTANTS.MCQ.DEFAULT_CHOICES.map(id => ({
       id,
@@ -379,22 +408,30 @@ export default function ProblemForm({
     }));
   });
   const [mcqCorrectChoiceId, setMcqCorrectChoiceId] = useState(() => {
-    const config = problem?.answer_config;
+    const config = primaryPart?.answer_config;
     if (config && config.type === 'mcq') {
-      return (config as MCQAnswerConfig).correct_choice_id;
+      return config.correct_choice_id;
+    }
+    return '';
+  });
+  // Multi-choice correct set, edited as compact letters (e.g. "ABD").
+  const [multiCorrectText, setMultiCorrectText] = useState(() => {
+    const config = primaryPart?.answer_config;
+    if (config && config.type === 'multi_mcq') {
+      return config.correct_choice_ids.join('');
     }
     return '';
   });
   const [mcqRandomizeChoices, setMcqRandomizeChoices] = useState(() => {
-    const config = problem?.answer_config;
-    if (config && config.type === 'mcq') {
-      return (config as MCQAnswerConfig).randomize_choices ?? true;
+    const config = primaryPart?.answer_config;
+    if (config && (config.type === 'mcq' || config.type === 'multi_mcq')) {
+      return config.randomize_choices ?? true;
     }
     return true;
   });
   const [shortAnswerConfig, setShortAnswerConfig] =
     useState<ShortAnswerConfigValue>(() => {
-      const config = problem?.answer_config;
+      const config = primaryPart?.answer_config;
       if (config && config.type === 'short') {
         if ((config as ShortAnswerTextConfig).mode === 'text') {
           return {
@@ -419,24 +456,25 @@ export default function ProblemForm({
     });
   // Track whether user is using enhanced mode
   const [useEnhancedMcq, setUseEnhancedMcq] = useState(() => {
-    // For existing problems with MCQ config, use it
-    if (problem?.answer_config?.type === 'mcq') return true;
+    // For existing problems with a choice config, use it
+    const config = primaryPart?.answer_config;
+    if (config?.type === 'mcq' || config?.type === 'multi_mcq') return true;
     // For new problems, default to true
     if (!isEditMode) return true;
     return false;
   });
   const [useEnhancedShort, setUseEnhancedShort] = useState(
-    !!(problem?.answer_config?.type === 'short')
+    !!(primaryPart?.answer_config?.type === 'short')
   );
 
   // Auto-enable enhanced mode when problem type changes (only for new problems)
   useEffect(() => {
     if (!isEditMode) {
-      if (problemType === 'mcq') {
+      if (isChoiceType) {
         setUseEnhancedMcq(true);
       }
     }
-  }, [problemType, isEditMode]);
+  }, [isChoiceType, isEditMode]);
 
   // Assets
   const [problemAssets, setProblemAssets] = useState<
@@ -460,40 +498,62 @@ export default function ProblemForm({
   );
 
   const correctAnswer = useMemo(() => {
-    switch (problemType) {
-      case 'mcq':
-        if (useEnhancedMcq && mcqCorrectChoiceId) {
-          return mcqCorrectChoiceId;
-        }
-        return mcqChoice;
-      case 'short':
-        if (useEnhancedShort && shortAnswerConfig.mode === 'text') {
-          return shortAnswerConfig.acceptable_answers[0] || '';
-        }
-        if (
-          useEnhancedShort &&
-          shortAnswerConfig.mode === 'numeric' &&
-          shortAnswerConfig.numeric_config.correct_value !== ''
-        ) {
-          return String(shortAnswerConfig.numeric_config.correct_value);
-        }
-        return shortText;
-      case 'extended':
-        return undefined;
+    if (problemType === 'single_choice') {
+      if (useEnhancedMcq && mcqCorrectChoiceId) {
+        return mcqCorrectChoiceId;
+      }
+      return mcqChoice;
     }
+    if (problemType === 'multi_choice') {
+      if (useEnhancedMcq && multiCorrectText.trim()) {
+        return multiCorrectText.trim().toUpperCase();
+      }
+      return mcqChoice;
+    }
+    if (isShortLike) {
+      if (useEnhancedShort && shortAnswerConfig.mode === 'text') {
+        return shortAnswerConfig.acceptable_answers[0] || '';
+      }
+      if (
+        useEnhancedShort &&
+        shortAnswerConfig.mode === 'numeric' &&
+        shortAnswerConfig.numeric_config.correct_value !== ''
+      ) {
+        return String(shortAnswerConfig.numeric_config.correct_value);
+      }
+      return shortText;
+    }
+    return undefined; // essay
   }, [
     problemType,
+    isShortLike,
     mcqChoice,
     shortText,
     useEnhancedMcq,
     useEnhancedShort,
     mcqCorrectChoiceId,
+    multiCorrectText,
     shortAnswerConfig,
   ]);
 
+  // Multi-choice correct ids parsed from the compact letters input, kept to
+  // the ids that actually exist among the choices.
+  const multiCorrectChoiceIds = useMemo(() => {
+    const available = new Set(mcqChoices.map(choice => choice.id));
+    return [
+      ...new Set(
+        multiCorrectText
+          .toUpperCase()
+          .split('')
+          .map(letter => letter.trim())
+          .filter(letter => available.has(letter))
+      ),
+    ];
+  }, [multiCorrectText, mcqChoices]);
+
   // Build answer_config for submission
   const answerConfig = useMemo((): AnswerConfig | null => {
-    if (problemType === 'mcq' && useEnhancedMcq) {
+    if (problemType === 'single_choice' && useEnhancedMcq) {
       if (!mcqCorrectChoiceId) return null;
       return {
         type: 'mcq',
@@ -502,7 +562,16 @@ export default function ProblemForm({
         randomize_choices: mcqRandomizeChoices,
       };
     }
-    if (problemType === 'short' && useEnhancedShort) {
+    if (problemType === 'multi_choice' && useEnhancedMcq) {
+      if (multiCorrectChoiceIds.length === 0) return null;
+      return {
+        type: 'multi_mcq',
+        choices: mcqChoices,
+        correct_choice_ids: multiCorrectChoiceIds,
+        randomize_choices: mcqRandomizeChoices,
+      };
+    }
+    if (isShortLike && useEnhancedShort) {
       if (shortAnswerConfig.mode === 'text') {
         if (shortAnswerConfig.acceptable_answers.length === 0) return null;
         return {
@@ -528,10 +597,12 @@ export default function ProblemForm({
     return null;
   }, [
     problemType,
+    isShortLike,
     useEnhancedMcq,
     useEnhancedShort,
     mcqChoices,
     mcqCorrectChoiceId,
+    multiCorrectChoiceIds,
     mcqRandomizeChoices,
     shortAnswerConfig,
   ]);
@@ -545,11 +616,23 @@ export default function ProblemForm({
     }
 
     // Validate enhanced answer config
-    if (problemType === 'mcq' && useEnhancedMcq && !mcqCorrectChoiceId) {
+    if (
+      problemType === 'single_choice' &&
+      useEnhancedMcq &&
+      !mcqCorrectChoiceId
+    ) {
       toast.error(t('correctChoiceRequired'));
       return;
     }
-    if (problemType === 'short' && useEnhancedShort) {
+    if (
+      problemType === 'multi_choice' &&
+      useEnhancedMcq &&
+      multiCorrectChoiceIds.length === 0
+    ) {
+      toast.error(t('correctChoiceRequired'));
+      return;
+    }
+    if (isShortLike && useEnhancedShort) {
       if (
         shortAnswerConfig.mode === 'text' &&
         shortAnswerConfig.acceptable_answers.length === 0
@@ -593,6 +676,49 @@ export default function ProblemForm({
             VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX
           )
         : '';
+
+      // Assemble the shell: primary part from the rich editors, additional
+      // parts from the lightweight rows. Indexes are contiguous from 1.
+      const parts: Record<string, unknown>[] = [
+        {
+          index: 1,
+          type: problemType,
+          ...(partLabel.trim() ? { label: partLabel.trim() } : {}),
+          ...(partFullMarks.trim() !== '' &&
+          !isNaN(Number(partFullMarks.trim()))
+            ? { full_marks: Number(partFullMarks.trim()) }
+            : {}),
+          ...(problemType !== 'essay' && sanitizedCorrectAnswer
+            ? { correct_answer: sanitizedCorrectAnswer }
+            : {}),
+          ...(answerConfig ? { answer_config: answerConfig } : {}),
+        },
+      ];
+      for (const draft of extraParts) {
+        parts.push({
+          index: parts.length + 1,
+          type: draft.type,
+          ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
+          ...(draft.full_marks.trim() !== '' &&
+          !isNaN(Number(draft.full_marks.trim()))
+            ? { full_marks: Number(draft.full_marks.trim()) }
+            : {}),
+          ...(draft.correct_answer.trim() && draft.type !== 'essay'
+            ? { correct_answer: draft.correct_answer.trim() }
+            : {}),
+        });
+      }
+
+      const source: Record<string, unknown> = {
+        ...(sourceYear.trim() !== '' && !isNaN(Number(sourceYear.trim()))
+          ? { year: Number(sourceYear.trim()) }
+          : {}),
+        ...(sourcePaper.trim() ? { paper: sourcePaper.trim() } : {}),
+        ...(sourceExamType ? { exam_type: sourceExamType } : {}),
+        ...(sourceQuestionNo.trim()
+          ? { question_no: sourceQuestionNo.trim() }
+          : {}),
+      };
 
       // Create any pending new tags before submitting the problem
       const finalTagIds = [...selectedTagIds];
@@ -651,11 +777,9 @@ export default function ProblemForm({
       const payload: Record<string, any> = {
         title: sanitizedTitle,
         content: sanitizedContent,
-        problem_type: problemType,
-        correct_answer:
-          problemType === 'extended' ? '' : sanitizedCorrectAnswer,
-        answer_config: answerConfig,
-        auto_mark: autoMarkValue,
+        parts,
+        source,
+        is_optional: isOptionalShell,
         status,
         assets,
         solution_text: sanitizedSolutionText,
@@ -721,6 +845,7 @@ export default function ProblemForm({
           }))
         );
         setMcqCorrectChoiceId('');
+        setMultiCorrectText('');
         setMcqRandomizeChoices(true);
         setShortAnswerConfig({
           mode: 'text',
@@ -731,9 +856,16 @@ export default function ProblemForm({
         setSelectedTagIds([]);
         setPendingNewTags([]);
         setDeselectedPendingTags(new Set());
-        setProblemType('short');
+        setProblemType('short_answer');
+        setPartLabel('');
+        setPartFullMarks('');
+        setExtraParts([]);
+        setSourceYear('');
+        setSourcePaper('');
+        setSourceExamType('');
+        setSourceQuestionNo('');
+        setIsOptionalShell(false);
         setStatus('needs_review');
-        setAutoMark(false);
         setProblemUuid(null); // Reset UUID so a new one is generated next time
         setIsExpanded(false);
       }
@@ -1072,23 +1204,90 @@ export default function ProblemForm({
               </div>
 
               <div className="form-row">
+                <label className="form-label">
+                  {tProblems('fullMarksField')}
+                </label>
+                <Input
+                  type="number"
+                  className="form-input w-24"
+                  min={0}
+                  max={150}
+                  value={partFullMarks}
+                  onChange={e => setPartFullMarks(e.target.value)}
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div className="form-row">
+                <label className="form-label">
+                  {tProblems('sourceSection')}
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="number"
+                    className="form-input w-24"
+                    placeholder={tProblems('sourceYear')}
+                    value={sourceYear}
+                    onChange={e => setSourceYear(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                  <Input
+                    className="form-input w-40"
+                    placeholder={tProblems('sourcePaper')}
+                    maxLength={60}
+                    value={sourcePaper}
+                    onChange={e => setSourcePaper(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                  <Select
+                    value={sourceExamType || 'none'}
+                    onValueChange={value =>
+                      setSourceExamType(value === 'none' ? '' : value)
+                    }
+                  >
+                    <SelectTrigger className="w-28 rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">—</SelectItem>
+                      <SelectItem value="real">
+                        {tProblems('examTypeReal')}
+                      </SelectItem>
+                      <SelectItem value="mock">
+                        {tProblems('examTypeMock')}
+                      </SelectItem>
+                      <SelectItem value="homework">
+                        {tProblems('examTypeHomework')}
+                      </SelectItem>
+                      <SelectItem value="other">
+                        {tProblems('examTypeOther')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    className="form-input w-24"
+                    placeholder={tProblems('sourceQuestionNo')}
+                    maxLength={16}
+                    value={sourceQuestionNo}
+                    onChange={e => setSourceQuestionNo(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
                 <div className="flex items-center gap-2">
                   <Switch
-                    id="auto-mark-switch"
-                    checked={autoMarkValue}
-                    disabled={isAutoMarkDisabled}
-                    onCheckedChange={setAutoMark}
+                    id="optional-problem-switch"
+                    checked={isOptionalShell}
+                    onCheckedChange={setIsOptionalShell}
+                    disabled={isSubmitting}
                   />
                   <Label
-                    htmlFor="auto-mark-switch"
-                    className={`text-sm cursor-pointer ${isAutoMarkDisabled ? 'text-muted-foreground' : ''}`}
+                    htmlFor="optional-problem-switch"
+                    className="text-sm cursor-pointer"
                   >
-                    {tProblems('autoMark')}
-                    {isAutoMarkDisabled && (
-                      <span className="text-body-sm text-muted-foreground ml-1">
-                        {t('autoMarkNotAvailable')}
-                      </span>
-                    )}
+                    {tProblems('optionalProblem')}
                   </Label>
                 </div>
               </div>
@@ -1096,8 +1295,8 @@ export default function ProblemForm({
           </AccordionContent>
         </AccordionItem>
 
-        {/* Answer Configuration - MCQ */}
-        {problemType === 'mcq' && (
+        {/* Answer Configuration - choice parts */}
+        {isChoiceType && (
           <AccordionItem
             value="answer"
             className="rounded-2xl border border-blue-200/40 dark:border-blue-800/30 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/40 dark:to-blue-900/20 px-4 mt-4"
@@ -1146,12 +1345,34 @@ export default function ProblemForm({
                   </div>
                 )}
 
+                {useEnhancedMcq && problemType === 'multi_choice' && (
+                  <div className="form-row">
+                    <label className="form-label">
+                      {tProblems('multiCorrectLabel')}
+                    </label>
+                    <Input
+                      className="form-input w-40"
+                      placeholder={tProblems('multiCorrectPlaceholder')}
+                      value={multiCorrectText}
+                      maxLength={10}
+                      onChange={e => setMultiCorrectText(e.target.value)}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                )}
+
                 {useEnhancedMcq ? (
                   <MCQChoiceEditor
                     choices={mcqChoices}
-                    correctChoiceId={mcqCorrectChoiceId}
+                    correctChoiceId={
+                      problemType === 'multi_choice' ? '' : mcqCorrectChoiceId
+                    }
                     onChoicesChange={setMcqChoices}
-                    onCorrectChoiceChange={setMcqCorrectChoiceId}
+                    onCorrectChoiceChange={
+                      problemType === 'multi_choice'
+                        ? () => undefined
+                        : setMcqCorrectChoiceId
+                    }
                     disabled={isSubmitting}
                   />
                 ) : (
@@ -1173,8 +1394,8 @@ export default function ProblemForm({
           </AccordionItem>
         )}
 
-        {/* Answer Configuration - Short */}
-        {problemType === 'short' && (
+        {/* Answer Configuration - fill-blank / short-answer parts */}
+        {isShortLike && (
           <AccordionItem
             value="answer"
             className="rounded-2xl border border-rose-200/40 dark:border-rose-800/30 bg-gradient-to-br from-rose-50 to-rose-100/50 dark:from-rose-950/40 dark:to-rose-900/20 px-4 mt-4"
@@ -1226,6 +1447,159 @@ export default function ProblemForm({
             </AccordionContent>
           </AccordionItem>
         )}
+        {/* Additional parts: lightweight rows turning this problem into a
+            shell of nested sub-questions (壳{题目+题目...}). */}
+        <AccordionItem
+          value="parts"
+          className="rounded-2xl border border-purple-200/40 dark:border-purple-800/30 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/40 dark:to-purple-900/20 px-4 mt-4"
+        >
+          <AccordionTrigger className="hover:no-underline py-3">
+            <span className="text-sm font-semibold text-purple-800 dark:text-purple-300">
+              {tProblems('moreParts')}
+              {extraParts.length > 0 && (
+                <span className="ml-2 text-xs text-purple-600 dark:text-purple-400">
+                  {tProblems('partsCount', { count: extraParts.length + 1 })}
+                </span>
+              )}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-3">
+              {extraParts.length > 0 && (
+                <div className="form-row">
+                  <label className="form-label">
+                    {tProblems('partLabelField')} (1)
+                  </label>
+                  <Input
+                    className="form-input w-24"
+                    placeholder="(1)"
+                    maxLength={16}
+                    value={partLabel}
+                    onChange={e => setPartLabel(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              )}
+              {extraParts.map((draft, i) => (
+                <div
+                  key={i}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-purple-200/50 dark:border-purple-800/40 p-3"
+                >
+                  <span className="text-xs font-semibold text-purple-700 dark:text-purple-300 w-8">
+                    ({i + 2})
+                  </span>
+                  <Select
+                    value={draft.type}
+                    onValueChange={value =>
+                      setExtraParts(prev =>
+                        prev.map((p, j) =>
+                          j === i ? { ...p, type: value as ProblemType } : p
+                        )
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-32 rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROBLEM_TYPE_VALUES.map(type => (
+                        <SelectItem key={type} value={type}>
+                          {tProblems(getProblemTypeDisplayName(type))}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    className="form-input w-20"
+                    placeholder={tProblems('partLabelField')}
+                    maxLength={16}
+                    value={draft.label}
+                    onChange={e =>
+                      setExtraParts(prev =>
+                        prev.map((p, j) =>
+                          j === i ? { ...p, label: e.target.value } : p
+                        )
+                      )
+                    }
+                    disabled={isSubmitting}
+                  />
+                  <Input
+                    type="number"
+                    className="form-input w-20"
+                    placeholder={tProblems('fullMarksField')}
+                    min={0}
+                    max={150}
+                    value={draft.full_marks}
+                    onChange={e =>
+                      setExtraParts(prev =>
+                        prev.map((p, j) =>
+                          j === i ? { ...p, full_marks: e.target.value } : p
+                        )
+                      )
+                    }
+                    disabled={isSubmitting}
+                  />
+                  {draft.type !== 'essay' && (
+                    <Input
+                      className="form-input flex-1 min-w-32"
+                      placeholder={tProblems('partAnswerField')}
+                      value={draft.correct_answer}
+                      onChange={e =>
+                        setExtraParts(prev =>
+                          prev.map((p, j) =>
+                            j === i
+                              ? { ...p, correct_answer: e.target.value }
+                              : p
+                          )
+                        )
+                      }
+                      disabled={isSubmitting}
+                    />
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setExtraParts(prev => prev.filter((_, j) => j !== i))
+                    }
+                    disabled={isSubmitting}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setExtraParts(prev =>
+                    prev.length + 1 < PROBLEM_CONSTANTS.PARTS.MAX_COUNT
+                      ? [
+                          ...prev,
+                          {
+                            type: 'short_answer',
+                            label: `(${prev.length + 2})`,
+                            full_marks: '',
+                            correct_answer: '',
+                          },
+                        ]
+                      : prev
+                  )
+                }
+                disabled={
+                  isSubmitting ||
+                  extraParts.length + 1 >= PROBLEM_CONSTANTS.PARTS.MAX_COUNT
+                }
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {tProblems('addPart')}
+              </Button>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
         {/* Solution */}
         <AccordionItem
           value="solution"

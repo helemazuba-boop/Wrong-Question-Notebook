@@ -114,8 +114,11 @@ export default function ProblemSetProblemsTable({
         if (!matchTitle && !matchContent && !matchTags) return false;
       }
 
-      // Type filter
-      if (problemTypes.length > 0 && !problemTypes.includes(p.problem_type)) {
+      // Type filter: a shell matches when any of its parts has the type
+      if (
+        problemTypes.length > 0 &&
+        !(p.parts || []).some(part => problemTypes.includes(part.type))
+      ) {
         return false;
       }
 

@@ -77,7 +77,7 @@ async function getProblemIndex(req: Request) {
         id,
         title,
         content,
-        problem_type,
+        parts,
         status,
         subject_id,
         updated_at,
@@ -166,7 +166,10 @@ async function getProblemIndex(req: Request) {
           id: problem.id,
           title: problem.title,
           content: problem.content,
-          problem_type: problem.problem_type,
+          // Shell model: legacy devices get the distinct part types.
+          part_types: Array.isArray(problem.parts)
+            ? [...new Set((problem.parts as any[]).map(part => part?.type))]
+            : [],
           status: problem.status,
           subject_id: problem.subject_id,
           subject_name: subjectNameById.get(problem.subject_id) || '',

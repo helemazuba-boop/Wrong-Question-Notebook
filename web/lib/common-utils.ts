@@ -144,9 +144,11 @@ export function getColumnDisplayName(columnId: string): ColumnDisplayKey {
 }
 
 const PROBLEM_TYPE_DISPLAY_NAMES = {
-  mcq: 'multipleChoiceType',
-  short: 'shortAnswerType',
-  extended: 'extendedResponseType',
+  single_choice: 'singleChoiceType',
+  multi_choice: 'multiChoiceType',
+  fill_blank: 'fillBlankType',
+  short_answer: 'shortAnswerType',
+  essay: 'essayType',
 } as const;
 
 export type ProblemTypeDisplayKey =
@@ -156,8 +158,16 @@ export function getProblemTypeDisplayName(type: string): ProblemTypeDisplayKey {
   return (
     PROBLEM_TYPE_DISPLAY_NAMES[
       type as keyof typeof PROBLEM_TYPE_DISPLAY_NAMES
-    ] ?? 'multipleChoiceType'
+    ] ?? 'singleChoiceType'
   );
+}
+
+/** Distinct part types of a shell, in first-appearance order. */
+export function getPartTypes(
+  parts: ReadonlyArray<{ type: string }> | null | undefined
+): string[] {
+  if (!Array.isArray(parts)) return [];
+  return [...new Set(parts.map(part => part.type))];
 }
 
 const PROBLEM_STATUS_DISPLAY_NAMES = {

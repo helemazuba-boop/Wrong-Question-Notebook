@@ -94,7 +94,12 @@
     "hoursAgo": "{n, plural, one {# hour} other {# hours}} ago",
     "daysAgo": "{n, plural, one {# day} other {# days}} ago",
     "weeksAgo": "{n, plural, one {# week} other {# weeks}} ago",
-    "problemCount": "{count, plural, one {# problem} other {# problems}}"
+    "problemCount": "{count, plural, one {# problem} other {# problems}}",
+    "singleChoiceType": "Single Choice",
+    "multiChoiceType": "Multiple Select",
+    "fillBlankType": "Fill in the Blank",
+    "essayType": "Extended Response",
+    "shortAnswerType": "Short Answer"
   },
   "Navigation": {
     "subjects": "Notebook Shelf",
@@ -607,7 +612,31 @@
     "removeChoice": "Remove choice {id}",
     "addChoice": "Add choice",
     "markCorrectAnswer": "Click a letter to mark the correct answer",
-    "mathTip": "Tip: Use $...$ for math, e.g. $x^2 + 1$"
+    "mathTip": "Tip: Use $...$ for math, e.g. $x^2 + 1$",
+    "singleChoiceType": "Single Choice",
+    "multiChoiceType": "Multiple Select",
+    "fillBlankType": "Fill in the Blank",
+    "essayType": "Extended Response",
+    "partScoreSummary": "Scored {score} of {total}",
+    "wrongPartsLabel": "Wrong: {parts}",
+    "pendingSelfAssessment": "Self-assessment pending",
+    "partsCount": "{count} parts",
+    "moreParts": "Sub-questions",
+    "addPart": "Add sub-question",
+    "partLabelField": "Label",
+    "fullMarksField": "Marks",
+    "partAnswerField": "Answer",
+    "sourceSection": "Source",
+    "sourceYear": "Year",
+    "sourcePaper": "Paper",
+    "sourceQuestionNo": "No.",
+    "optionalProblem": "Optional question",
+    "examTypeReal": "Past exam",
+    "examTypeMock": "Mock",
+    "examTypeHomework": "Homework",
+    "examTypeOther": "Other",
+    "multiCorrectLabel": "Correct choices",
+    "multiCorrectPlaceholder": "e.g. ABD"
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",
@@ -895,7 +924,11 @@
     "selectSubjectError": "Please select a subject",
     "smartSetCreated": "Smart set created",
     "smartSetUpdated": "Smart set updated",
-    "totalProblems": "Total Problems"
+    "totalProblems": "Total Problems",
+    "singleChoiceType": "Single Choice",
+    "multiChoiceType": "Multiple Select",
+    "fillBlankType": "Fill in the Blank",
+    "essayType": "Extended Response"
   },
   "Statistics": {
     "title": "Learning Report",
@@ -1291,7 +1324,11 @@
     "failedToExtractProblem": "Failed to extract problem from image",
     "dailyExtractionsUsed": "{used} / {limit} daily extractions used",
     "2d": "2d",
-    "canvas": "canvas"
+    "canvas": "canvas",
+    "singleChoiceType": "Single Choice",
+    "multiChoiceType": "Multiple Select",
+    "fillBlankType": "Fill in the Blank",
+    "essayType": "Extended Response"
   },
   "Privacy": {
     "title": "Privacy Policy",

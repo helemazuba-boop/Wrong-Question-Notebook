@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
+import { getProblemTypeDisplayName } from '@/lib/common-utils';
 import type {
   ExtractedProblemData,
   QRSessionCreateResponse,
@@ -764,15 +765,18 @@ export function ImageScanUploader({
     const confidence = extractionResult.confidence;
     const warnings = confidence?.warnings || [];
 
-    const problemTypeLabel =
-      extractionResult.problem_type === 'mcq'
-        ? t('multipleChoiceType')
-        : extractionResult.problem_type === 'short'
-          ? t('shortAnswerType')
-          : t('extendedResponseType');
+    const isChoiceResult =
+      extractionResult.problem_type === 'single_choice' ||
+      extractionResult.problem_type === 'multi_choice';
+    const isShortLikeResult =
+      extractionResult.problem_type === 'fill_blank' ||
+      extractionResult.problem_type === 'short_answer';
+    const problemTypeLabel = t(
+      getProblemTypeDisplayName(extractionResult.problem_type)
+    );
 
     const choicesCountLabel =
-      extractionResult.problem_type === 'mcq' &&
+      isChoiceResult &&
       extractionResult.mcq_choices &&
       extractionResult.mcq_choices.length > 0
         ? t('choicesCount', { count: extractionResult.mcq_choices.length })
@@ -828,7 +832,7 @@ export function ImageScanUploader({
           {extractionResult.answer_hint && (
             <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">
               <span className="font-medium">{t('answerDetected')}</span>{' '}
-              {extractionResult.problem_type === 'mcq' &&
+              {isChoiceResult &&
                 extractionResult.answer_hint.mcq_correct_choice_id && (
                   <span>
                     {t('choiceLabel', {
@@ -836,13 +840,13 @@ export function ImageScanUploader({
                     })}
                   </span>
                 )}
-              {extractionResult.problem_type === 'short' &&
+              {isShortLikeResult &&
                 extractionResult.answer_hint.short_answer_value && (
                   <span className="font-mono">
                     {extractionResult.answer_hint.short_answer_value}
                   </span>
                 )}
-              {extractionResult.problem_type === 'extended' &&
+              {extractionResult.problem_type === 'essay' &&
                 extractionResult.answer_hint.extended_working && (
                   <span>
                     {t('workingSolution', {

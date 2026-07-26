@@ -94,7 +94,12 @@
     "hoursAgo": "{n} 小时前",
     "daysAgo": "{n} 天前",
     "weeksAgo": "{n} 周前",
-    "problemCount": "{count}道题目"
+    "problemCount": "{count}道题目",
+    "singleChoiceType": "单选题",
+    "multiChoiceType": "多选题",
+    "fillBlankType": "填空题",
+    "essayType": "解答题",
+    "shortAnswerType": "简答题"
   },
   "Navigation": {
     "subjects": "笔记本架",
@@ -607,7 +612,31 @@
     "removeChoice": "删除选项 {id}",
     "addChoice": "添加选项",
     "markCorrectAnswer": "点击字母标记正确答案",
-    "mathTip": "提示：使用 $...$ 表示数学公式，例如 $x^2 + 1$"
+    "mathTip": "提示：使用 $...$ 表示数学公式，例如 $x^2 + 1$",
+    "singleChoiceType": "单选题",
+    "multiChoiceType": "多选题",
+    "fillBlankType": "填空题",
+    "essayType": "解答题",
+    "partScoreSummary": "本题 {total} 分，得 {score} 分",
+    "wrongPartsLabel": "错在 {parts}",
+    "pendingSelfAssessment": "待自评",
+    "partsCount": "共 {count} 问",
+    "moreParts": "小题（壳）",
+    "addPart": "添加小题",
+    "partLabelField": "标号",
+    "fullMarksField": "分值",
+    "partAnswerField": "参考答案",
+    "sourceSection": "试题来源",
+    "sourceYear": "年份",
+    "sourcePaper": "卷别",
+    "sourceQuestionNo": "题号",
+    "optionalProblem": "选做题",
+    "examTypeReal": "真题",
+    "examTypeMock": "模拟",
+    "examTypeHomework": "作业",
+    "examTypeOther": "其他",
+    "multiCorrectLabel": "正确选项（多选）",
+    "multiCorrectPlaceholder": "如 ABD"
   },
   "ProblemSets": {
     "title": "错题本",
@@ -895,7 +924,11 @@
     "selectSubjectError": "请选择一个科目",
     "smartSetCreated": "智能题集已创建",
     "smartSetUpdated": "智能题集已更新",
-    "totalProblems": "题目总数"
+    "totalProblems": "题目总数",
+    "singleChoiceType": "单选题",
+    "multiChoiceType": "多选题",
+    "fillBlankType": "填空题",
+    "essayType": "解答题"
   },
   "Statistics": {
     "title": "学习报告",
@@ -1291,7 +1324,11 @@
     "failedToExtractProblem": "从图片提取题目失败",
     "dailyExtractionsUsed": "{used} / {limit} 次每日提取已用",
     "2d": "2d",
-    "canvas": "canvas"
+    "canvas": "canvas",
+    "singleChoiceType": "单选题",
+    "multiChoiceType": "多选题",
+    "fillBlankType": "填空题",
+    "essayType": "解答题"
   },
   "Privacy": {
     "title": "隐私政策",

@@ -171,8 +171,7 @@ async function copyProblem(
       .from('problems')
       .select(
         `
-        id, title, content, problem_type, correct_answer,
-        answer_config, auto_mark, status, created_at,
+        id, title, content, parts, source, is_optional, status, created_at,
         solution_text, assets, solution_assets,
         problem_tag(tags:tag_id(id, name))
       `
@@ -291,10 +290,9 @@ async function copyProblem(
         subject_id: target_subject_id,
         title: sourceProblem.title,
         content: sourceProblem.content,
-        problem_type: sourceProblem.problem_type,
-        correct_answer: sourceProblem.correct_answer,
-        answer_config: sourceProblem.answer_config,
-        auto_mark: sourceProblem.auto_mark || false,
+        parts: sourceProblem.parts,
+        source: sourceProblem.source ?? {},
+        is_optional: sourceProblem.is_optional ?? false,
         status: 'needs_review',
         solution_text: sourceProblem.solution_text,
         assets: sourceProblem.assets || [],

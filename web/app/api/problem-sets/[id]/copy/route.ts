@@ -77,8 +77,7 @@ async function copyProblemSet(
         problem_set_problems(
           problem_id,
           problems(
-            id, title, content, problem_type, correct_answer,
-            answer_config, auto_mark, status, created_at,
+            id, title, content, parts, source, is_optional, status, created_at,
             solution_text, assets, solution_assets,
             problem_tag(tags:tag_id(id, name))
           )
@@ -294,10 +293,9 @@ async function copyProblemSet(
       subject_id: target_subject_id,
       title: p.title,
       content: p.content,
-      problem_type: p.problem_type,
-      correct_answer: p.correct_answer,
-      answer_config: p.answer_config,
-      auto_mark: p.auto_mark || false,
+      parts: p.parts,
+      source: p.source ?? {},
+      is_optional: p.is_optional ?? false,
       status: 'needs_review' as const,
       solution_text: p.solution_text,
       assets: p.assets || [],
@@ -307,7 +305,7 @@ async function copyProblemSet(
     const { data: copiedProblems, error: insertError } = await supabase
       .from('problems')
       .insert(problemInserts)
-      .select('id, title, problem_type, content');
+      .select('id, title, content');
 
     if (insertError || !copiedProblems) {
       return NextResponse.json(
@@ -318,12 +316,12 @@ async function copyProblemSet(
 
     // Build source-to-copy mapping using composite key matching
     // rather than relying on INSERT RETURNING order.
-    const makeKey = (title: string, type: string, content: string | null) =>
-      `${title}\0${type}\0${content ?? ''}`;
+    const makeKey = (title: string, content: string | null) =>
+      `${title}\0${content ?? ''}`;
 
     const copiedByKey = new Map<string, string[]>();
     for (const cp of copiedProblems) {
-      const key = makeKey(cp.title, cp.problem_type, cp.content);
+      const key = makeKey(cp.title, cp.content);
       const ids = copiedByKey.get(key);
       if (ids) ids.push(cp.id);
       else copiedByKey.set(key, [cp.id]);
@@ -332,7 +330,7 @@ async function copyProblemSet(
     const sourceToNewId = new Map<number, string>();
     for (let i = 0; i < sourceProblems.length; i++) {
       const src = sourceProblems[i];
-      const key = makeKey(src.title, src.problem_type, src.content);
+      const key = makeKey(src.title, src.content);
       const ids = copiedByKey.get(key);
       if (ids && ids.length > 0) {
         sourceToNewId.set(i, ids.shift()!);

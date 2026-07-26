@@ -62,8 +62,7 @@ async function getProblems(req: Request) {
         id,
         title,
         content,
-        problem_type,
-        answer_config,
+        parts,
         solution_text,
         assets,
         solution_assets
@@ -86,13 +85,16 @@ async function getProblems(req: Request) {
       id: p.id,
       title: p.title,
       content: p.content,
-      problem_type: p.problem_type,
-      // Strip answer choices from MCQ to avoid revealing answer on ESP32
-      // Just send the answer mode, not actual correct answer
-      answer_config:
-        p.problem_type === 'mcq'
-          ? { mode: (p.answer_config as any)?.mode || 'choice' }
-          : p.answer_config,
+      // Shell model: expose the part skeleton WITHOUT answers/configs so the
+      // device cannot reveal the answer key.
+      parts: Array.isArray(p.parts)
+        ? (p.parts as any[]).map(part => ({
+            index: part?.index,
+            type: part?.type,
+            label: part?.label || '',
+            full_marks: part?.full_marks ?? null,
+          }))
+        : [],
       ...serializeEsp32ProblemContent(
         p.content,
         p.solution_text,

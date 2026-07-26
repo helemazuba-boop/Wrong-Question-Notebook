@@ -7,9 +7,24 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import { revalidateProblemAndSubject } from '@/lib/cache-invalidation';
-import { markAnswer } from '@/lib/answer-marking';
+import { markProblem } from '@/lib/answer-marking';
 import { createServiceClient } from '@/lib/supabase-utils';
-import type { AnswerConfig } from '@/lib/types';
+import { StoredProblemPartsSchema } from '@/lib/schemas';
+import type { ProblemPart } from '@/lib/types';
+import { z } from 'zod';
+
+// Shell model: one answer per part, keyed by the part index.
+const AttemptBodySchema = z.object({
+  answers: z
+    .array(
+      z.object({
+        index: z.number().int().min(1).max(10),
+        answer: z.unknown(),
+      })
+    )
+    .min(1),
+  record: z.boolean().default(true),
+});
 
 export async function POST(
   req: Request,
@@ -32,12 +47,20 @@ export async function POST(
     );
   }
 
+  const parsedBody = AttemptBodySchema.safeParse(body);
+  if (!parsedBody.success) {
+    return NextResponse.json(
+      createApiErrorResponse(ERROR_MESSAGES.INVALID_REQUEST, 400),
+      { status: 400 }
+    );
+  }
+  const { answers, record } = parsedBody.data;
+
   try {
     // Use service client to fetch the problem so non-owner viewers
     // (accessing via shared problem sets) can also auto-mark answers
     const serviceClient = createServiceClient();
 
-    // Get the problem to check if auto-marking is enabled
     const { data: problem, error: problemError } = await serviceClient
       .from('problems')
       .select('*')
@@ -51,7 +74,26 @@ export async function POST(
       );
     }
 
-    if (!problem.auto_mark) {
+    // Stored parts may carry non-standard answer_config blobs (word_mistake
+    // projection rows); the tolerant schema accepts them and the marking
+    // engine treats them as non-markable.
+    const parsedParts = StoredProblemPartsSchema.safeParse(problem.parts);
+    if (!parsedParts.success) {
+      return NextResponse.json(
+        createApiErrorResponse(ERROR_MESSAGES.DATABASE_ERROR, 500),
+        { status: 500 }
+      );
+    }
+    const parts = parsedParts.data as ProblemPart[];
+
+    const answerMap = new Map<number, unknown>(
+      answers.map(entry => [entry.index, entry.answer])
+    );
+    const marked = markProblem(parts, answerMap);
+
+    if (!marked.auto_marked) {
+      // No part carries an answer key: nothing to auto-mark (the review flow
+      // self-assesses these shells instead of calling this endpoint).
       return NextResponse.json(
         createApiErrorResponse(
           'Auto-marking is not enabled for this problem',
@@ -61,33 +103,23 @@ export async function POST(
       );
     }
 
-    const { submitted_answer, record = true } = body;
-
-    if (submitted_answer === undefined || submitted_answer === null) {
-      return NextResponse.json(
-        createApiErrorResponse('Submitted answer is required', 400),
-        { status: 400 }
-      );
-    }
-
-    // Compare answers using the marking utility
-    const isCorrect = markAnswer(
-      problem.problem_type,
-      submitted_answer,
-      (problem.answer_config as AnswerConfig | null) ?? null,
-      typeof problem.correct_answer === 'string'
-        ? problem.correct_answer
-        : problem.correct_answer
-          ? String(problem.correct_answer)
-          : null
+    // is_correct is only a verdict when EVERY part got one; a shell with a
+    // pending self-assessed part stays null until the user confirms via
+    // PATCH /api/attempts/[id].
+    const fullyAutoMarked = marked.part_results.every(
+      result => result.correct !== null
     );
+    const isCorrect = fullyAutoMarked ? marked.all_correct : null;
 
     if (user) {
       if (record) {
         // Authenticated user: create attempt record
         const attemptData = {
           problem_id: problemId,
-          submitted_answer,
+          submitted_answer:
+            answers as unknown as import('@/lib/database.types').Json,
+          part_results:
+            marked.part_results as unknown as import('@/lib/database.types').Json,
           is_correct: isCorrect,
           user_id: user.id,
         };
@@ -121,6 +153,9 @@ export async function POST(
           createApiSuccessResponse({
             data: attempt,
             is_correct: isCorrect,
+            part_results: marked.part_results,
+            total_score: marked.total_score,
+            total_full_marks: marked.total_full_marks,
           })
         );
       }
@@ -130,6 +165,9 @@ export async function POST(
         createApiSuccessResponse({
           data: null,
           is_correct: isCorrect,
+          part_results: marked.part_results,
+          total_score: marked.total_score,
+          total_full_marks: marked.total_full_marks,
         })
       );
     }
@@ -139,6 +177,9 @@ export async function POST(
       createApiSuccessResponse({
         data: { is_correct: isCorrect },
         is_correct: isCorrect,
+        part_results: marked.part_results,
+        total_score: marked.total_score,
+        total_full_marks: marked.total_full_marks,
       })
     );
   } catch (error) {
