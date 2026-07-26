@@ -328,15 +328,24 @@ export function isNonEmptyString(value: unknown): value is string {
  */
 export function hasOnlyOwnedAssetPaths(
   userId: string,
-  assets: Array<{ path: string }> | undefined,
-  solutionAssets: Array<{ path: string }> | undefined
+  assets:
+    | Array<{ path: string; display_path?: string; preview_path?: string }>
+    | undefined,
+  solutionAssets:
+    | Array<{ path: string; display_path?: string; preview_path?: string }>
+    | undefined
 ): boolean {
   const prefix = `user/${userId}/`;
-  const allPaths = [...(assets ?? []), ...(solutionAssets ?? [])];
-  return allPaths.every(a => {
+  const allAssets = [...(assets ?? []), ...(solutionAssets ?? [])];
+  const allPaths = allAssets.flatMap(a =>
+    [a.path, a.display_path, a.preview_path].filter(
+      (p): p is string => typeof p === 'string'
+    )
+  );
+  return allPaths.every(path => {
     // Reject paths containing traversal segments before the prefix check
-    if (a.path.includes('/../') || a.path.includes('/./')) return false;
-    return a.path.startsWith(prefix);
+    if (path.includes('/../') || path.includes('/./')) return false;
+    return path.startsWith(prefix);
   });
 }
 

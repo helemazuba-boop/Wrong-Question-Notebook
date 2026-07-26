@@ -18,6 +18,7 @@ import type { Database } from '@/lib/database.types';
 import { checkContentLimit } from '@/lib/content-limits';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -334,6 +335,13 @@ async function createProblem(req: Request) {
   // Use client-provided ID if available, otherwise let database generate one
   const problemId = safeProblemId || undefined;
 
+  // Best-effort WQNI derivations so the device can render the photos; a
+  // failed render never blocks the save (backfill/next edit retries).
+  const [derivedAssets, derivedSolutionAssets] = await Promise.all([
+    deriveProblemImageAssets(assets ?? []),
+    deriveProblemImageAssets(solution_assets ?? []),
+  ]);
+
   // 1) Create problem with assets already in permanent location
   try {
     const { data: created, error: insErr } = await supabase
@@ -342,8 +350,8 @@ async function createProblem(req: Request) {
         ...problem,
         id: problemId,
         user_id: user.id,
-        assets: assets ?? [],
-        solution_assets: solution_assets ?? [],
+        assets: derivedAssets,
+        solution_assets: derivedSolutionAssets,
       })
       .select()
       .single();

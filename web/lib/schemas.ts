@@ -48,10 +48,21 @@ const htmlContent = z
   .transform(html => sanitizeHtmlContent(html))
   .optional();
 
+// Derivation fields (image_id/display_path/preview_path) are written by the
+// server-side WQNI pipeline and round-tripped by clients on edit; they must
+// survive parsing or every save would orphan the derived objects.
 const Asset = z.object({
   path: z.string(),
   kind: z.enum(['image', 'pdf']).optional(),
+  image_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  display_path: z.string().optional(),
+  preview_path: z.string().optional(),
 });
+
+export type ProblemAsset = z.infer<typeof Asset>;
 
 // =====================================================
 // Answer Configuration Schemas
