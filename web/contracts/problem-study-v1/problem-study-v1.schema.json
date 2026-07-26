@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.dev/contracts/problem-study-v1.schema.json",
+  "title": "WQN Problem Study v1",
+  "description": "Device-side problem review over problem-set packs. One problem_set (manual or smart) equals one deterministic JSONL pack; the manifest relists sets by integer offset each round; verdicts (correct/hesitant/wrong/skip) are standalone idempotent observations applied by record_problem_review_v1 (attempt insert + problems.status + SM-2 schedule in one transaction; skip records history only).",
+  "$defs": {
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "requestId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "cursor": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+$" },
+    "isoDateTime": { "type": "string", "format": "date-time" },
+    "requestMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "boot_id", "firmware_version", "capabilities"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "reviewAction": { "enum": ["correct", "hesitant", "wrong", "skip"] },
+    "problemStatus": { "enum": ["wrong", "needs_review", "mastered"] },
+    "partType": {
+      "enum": [
+        "single_choice",
+        "multi_choice",
+        "fill_blank",
+        "short_answer",
+        "essay"
+      ]
+    },
+    "packPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "label",
+        "type",
+        "full_marks",
+        "content_text",
+        "answer_text"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "label": { "type": "string", "maxLength": 20 },
+        "type": { "$ref": "#/$defs/partType" },
+        "full_marks": { "type": "integer", "minimum": 0, "maximum": 200 },
+        "content_text": { "type": "string" },
+        "answer_text": { "type": "string" }
+      }
+    },
+    "packRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_id",
+        "title",
+        "content_text",
+        "parts",
+        "source",
+        "status",
+        "is_optional",
+        "image_ids",
+        "solution_image_ids"
+      ],
+      "properties": {
+        "problem_id": { "$ref": "#/$defs/uuid" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "content_text": { "type": "string" },
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/packPart" }
+        },
+        "source": { "type": "object" },
+        "status": { "$ref": "#/$defs/problemStatus" },
+        "is_optional": { "type": "boolean" },
+        "image_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/sha256" }
+        },
+        "solution_image_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "packMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "problem_set_id", "pack_revision", "count"],
+      "properties": {
+        "v": { "const": 1 },
+        "problem_set_id": { "$ref": "#/$defs/uuid" },
+        "pack_revision": { "$ref": "#/$defs/safeCounter" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 500 }
+      }
+    },
+    "manifestPack": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "pack_revision",
+        "schema_version",
+        "format",
+        "compression",
+        "entry_count",
+        "byte_size",
+        "sha256",
+        "download_url"
+      ],
+      "properties": {
+        "pack_id": { "$ref": "#/$defs/uuid" },
+        "pack_revision": { "$ref": "#/$defs/safeCounter" },
+        "schema_version": { "const": 1 },
+        "format": { "const": "jsonl" },
+        "compression": { "const": "zlib" },
+        "entry_count": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "byte_size": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "download_url": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "manifestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["problem_set_id", "name", "is_smart", "deleted", "pack"],
+      "properties": {
+        "problem_set_id": { "$ref": "#/$defs/uuid" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "is_smart": { "type": "boolean" },
+        "deleted": { "type": "boolean" },
+        "pack": { "$ref": "#/$defs/manifestPack" }
+      }
+    },
+    "manifestRequest": {
+      "allOf": [{ "$ref": "#/$defs/requestMetadata" }],
+      "type": "object",
+      "required": ["cursor"],
+      "properties": {
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "manifestData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cursor", "has_more", "problem_sets"],
+      "properties": {
+        "cursor": { "$ref": "#/$defs/cursor" },
+        "has_more": { "type": "boolean" },
+        "problem_sets": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/manifestSet" }
+        }
+      }
+    },
+    "observationRequest": {
+      "allOf": [{ "$ref": "#/$defs/requestMetadata" }],
+      "type": "object",
+      "required": ["problem_id", "action", "occurred_at"],
+      "properties": {
+        "problem_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/reviewAction" },
+        "occurred_at": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "scheduleProjection": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "next_review_at",
+        "interval_days",
+        "ease_factor",
+        "repetition_number"
+      ],
+      "properties": {
+        "next_review_at": { "$ref": "#/$defs/isoDateTime" },
+        "interval_days": { "type": "integer", "minimum": 0 },
+        "ease_factor": { "type": "number", "minimum": 1 },
+        "repetition_number": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observationData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "problem_id",
+        "action",
+        "status",
+        "schedule",
+        "projection_applied",
+        "replayed"
+      ],
+      "properties": {
+        "observation_id": { "$ref": "#/$defs/uuid" },
+        "problem_id": { "$ref": "#/$defs/uuid" },
+        "action": { "$ref": "#/$defs/reviewAction" },
+        "status": { "$ref": "#/$defs/problemStatus" },
+        "schedule": { "$ref": "#/$defs/scheduleProjection" },
+        "projection_applied": { "type": "boolean" },
+        "replayed": { "type": "boolean" }
+      }
+    },
+    "successEnvelope": {
+      "type": "object",
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/manifestRequest" },
+    { "$ref": "#/$defs/manifestData" },
+    { "$ref": "#/$defs/observationRequest" },
+    { "$ref": "#/$defs/observationData" },
+    { "$ref": "#/$defs/packMeta" },
+    { "$ref": "#/$defs/packRow" }
+  ]
+}

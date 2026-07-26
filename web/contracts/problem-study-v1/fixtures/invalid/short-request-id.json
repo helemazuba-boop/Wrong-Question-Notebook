@@ -1,0 +1,9 @@
+{
+  "request_id": "short",
+  "boot_id": "boot_problem_study_01",
+  "firmware_version": "0.1.0",
+  "capabilities": ["problem.study.v1"],
+  "problem_id": "33333333-3333-4333-8333-333333333333",
+  "action": "correct",
+  "occurred_at": "2026-07-28T03:22:00.000Z"
+}

@@ -1,0 +1,8 @@
+{
+  "request_id": "req_problem_manifest_01",
+  "boot_id": "boot_problem_study_01",
+  "firmware_version": "0.1.0",
+  "capabilities": ["problem.study.v1"],
+  "cursor": "0",
+  "limit": 50
+}
