@@ -133,6 +133,14 @@ export default function NotebookPageClient({
   const [imageBusy, setImageBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  // Fullscreen viewer: original image by default, e-ink render on toggle;
+  // fit-to-screen vs 1:1 (scroll/drag to pan) covers desktop and touch zoom.
+  const [viewerAsset, setViewerAsset] = useState<NoteImageAssetView | null>(
+    null
+  );
+  const [viewerShowEink, setViewerShowEink] = useState(false);
+  const [viewerActualSize, setViewerActualSize] = useState(false);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTitle, setSettingsTitle] = useState(initialNotebook.title);
   const [settingsDescription, setSettingsDescription] = useState(
@@ -632,17 +640,24 @@ export default function NotebookPageClient({
                   {Array.isArray(note.assets) && note.assets.length > 0 ? (
                     <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {note.assets.map(asset => (
-                        <div
+                        <button
+                          type="button"
                           key={asset.image_id}
-                          className="overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
+                          onClick={() => {
+                            setViewerAsset(asset);
+                            setViewerShowEink(false);
+                            setViewerActualSize(false);
+                          }}
+                          className="overflow-hidden rounded-md border border-gray-200 transition hover:opacity-80 dark:border-gray-700"
+                          title="点击全屏查看"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={`/api/files/${encodeURIComponent(asset.preview_path)}`}
-                            alt="墨水屏预览"
+                            src={`/api/files/${encodeURIComponent(asset.path)}`}
+                            alt="笔记图片"
                             className="aspect-[4/3] w-full bg-white object-contain"
                           />
-                        </div>
+                        </button>
                       ))}
                     </div>
                   ) : null}
@@ -860,6 +875,86 @@ export default function NotebookPageClient({
           </form>
         </DialogContent>
       </Dialog>
+
+      {viewerAsset ? (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/90"
+          onClick={() => setViewerAsset(null)}
+        >
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm text-white"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={viewerShowEink ? 'outline' : 'secondary'}
+                onClick={() => setViewerShowEink(false)}
+              >
+                原图
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={viewerShowEink ? 'secondary' : 'outline'}
+                onClick={() => setViewerShowEink(true)}
+              >
+                墨水屏预览
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setViewerActualSize(value => !value)}
+              >
+                {viewerActualSize ? '适应屏幕' : '1:1 缩放'}
+              </Button>
+              <a
+                href={`/api/files/${encodeURIComponent(
+                  viewerShowEink ? viewerAsset.preview_path : viewerAsset.path
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-gray-300 underline-offset-2 hover:underline"
+              >
+                新标签打开
+              </a>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-white hover:bg-white/10"
+              onClick={() => setViewerAsset(null)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <div
+            className={
+              viewerActualSize
+                ? 'flex-1 overflow-auto p-3'
+                : 'flex flex-1 items-center justify-center overflow-hidden p-3'
+            }
+            onClick={event => event.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/files/${encodeURIComponent(
+                viewerShowEink ? viewerAsset.preview_path : viewerAsset.path
+              )}`}
+              alt={viewerShowEink ? '墨水屏预览' : '笔记图片'}
+              className={
+                viewerActualSize
+                  ? 'mx-auto max-w-none cursor-zoom-out bg-white'
+                  : 'max-h-full max-w-full cursor-zoom-in bg-white object-contain'
+              }
+              onClick={() => setViewerActualSize(value => !value)}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

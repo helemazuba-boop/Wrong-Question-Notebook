@@ -152,12 +152,36 @@ export async function renderEinkImage(
 
   // Scale in grayscale, binarize only on the final canvas: thresholding first
   // and then interpolating would re-introduce gray pixels and break strokes.
+  //
+  // Adaptive rotation: the panel is landscape (400x300). A portrait source
+  // matched short-edge-to-long-edge and wasted most of the canvas as padding,
+  // so portrait inputs are rotated 90deg counterclockwise before the contain
+  // fit. EXIF orientation 5-8 swaps the stored dimensions, and sharp honours
+  // only ONE rotation per pipeline -- when both EXIF and our rotation apply,
+  // a lossless pre-pass bakes the EXIF orientation in first.
+  const orientationSwaps = (metadata.orientation ?? 1) >= 5;
+  const effectiveWidth = orientationSwaps ? metadata.height : metadata.width;
+  const effectiveHeight = orientationSwaps ? metadata.width : metadata.height;
+  const isPortrait = effectiveHeight > effectiveWidth;
   let gray: Buffer;
   try {
-    const { data, info } = await sharp(input, {
+    let working = input;
+    if (isPortrait && (metadata.orientation ?? 1) !== 1) {
+      working = await sharp(input, {
+        limitInputPixels: EINK_IMAGE_MAX_INPUT_PIXELS,
+      })
+        .rotate() // bake EXIF orientation, then drop it
+        .png()
+        .toBuffer();
+    }
+    const pipeline = sharp(working, {
       limitInputPixels: EINK_IMAGE_MAX_INPUT_PIXELS,
-    })
-      .rotate() // honor EXIF orientation, then drop it
+    });
+    const { data, info } = await (
+      isPortrait
+        ? pipeline.rotate(270) // 90deg counterclockwise
+        : pipeline.rotate()
+    ) // honor EXIF orientation, then drop it
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .grayscale()
       .resize(EINK_IMAGE_WIDTH, EINK_IMAGE_HEIGHT, {

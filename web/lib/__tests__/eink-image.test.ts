@@ -131,6 +131,77 @@ describe('eink-image', () => {
     expect(byteAt(payload, 360, 150)).toBe(0x00); // far right now black
   });
 
+  it('rotates portrait sources 90deg counterclockwise before the contain fit', async () => {
+    // 100x200 portrait, top half black. Rotated 90deg CCW the top edge
+    // becomes the LEFT edge: 200x100 with the left half black, scaled x2 to
+    // 400x200 and centered with 50 white rows top/bottom.
+    const portrait = await sharp({
+      create: {
+        width: 100,
+        height: 200,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .composite([
+        {
+          input: {
+            create: {
+              width: 100,
+              height: 100,
+              channels: 3,
+              background: { r: 0, g: 0, b: 0 },
+            },
+          },
+          left: 0,
+          top: 0,
+        },
+      ])
+      .png()
+      .toBuffer();
+    const { wqni } = await renderEinkImage(portrait);
+    const payload = payloadOf(wqni);
+    expect(byteAt(payload, 200, 10)).toBe(0xff); // vertical padding stays white
+    expect(byteAt(payload, 100, 150)).toBe(0x00); // left half black (was top)
+    expect(byteAt(payload, 300, 150)).toBe(0xff); // right half white (was bottom)
+    expect(byteAt(payload, 200, 290)).toBe(0xff);
+  });
+
+  it('rotates EXIF-portrait sources via the orientation pre-pass', async () => {
+    // Stored landscape 200x100 (left half black) + orientation=6 (90deg CW on
+    // display) = an effective portrait whose TOP half is black. Our CCW
+    // rotation must then bring the black back to the LEFT edge.
+    const exifPortrait = await sharp({
+      create: {
+        width: 200,
+        height: 100,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .composite([
+        {
+          input: {
+            create: {
+              width: 100,
+              height: 100,
+              channels: 3,
+              background: { r: 0, g: 0, b: 0 },
+            },
+          },
+          left: 0,
+          top: 0,
+        },
+      ])
+      .jpeg({ quality: 95 })
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+    const { wqni } = await renderEinkImage(exifPortrait);
+    const payload = payloadOf(wqni);
+    expect(byteAt(payload, 100, 150)).toBe(0x00);
+    expect(byteAt(payload, 300, 150)).toBe(0xff);
+  });
+
   it('rejects unsupported and invalid inputs', async () => {
     const gif = await sharp({
       create: {
