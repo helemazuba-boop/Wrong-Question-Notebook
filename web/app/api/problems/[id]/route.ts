@@ -9,6 +9,7 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
+import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -122,13 +123,17 @@ export async function PATCH(
     );
   }
 
-  // 2) Update assets directly (they're already in permanent location)
+  // 2) Update assets directly (they're already in permanent location).
+  // Best-effort WQNI derivations for freshly attached photos; failures keep
+  // the original-only asset and never block the save.
   if (assets || solution_assets) {
     await supabase
       .from('problems')
       .update({
-        assets: assets ?? undefined,
-        solution_assets: solution_assets ?? undefined,
+        assets: assets ? await deriveProblemImageAssets(assets) : undefined,
+        solution_assets: solution_assets
+          ? await deriveProblemImageAssets(solution_assets)
+          : undefined,
       })
       .eq('id', id)
       .eq('user_id', user.id);
