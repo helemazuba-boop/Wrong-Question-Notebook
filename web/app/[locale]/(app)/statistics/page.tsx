@@ -75,8 +75,12 @@ async function loadStatistics(): Promise<StatisticsPagePayload> {
 
   const userTz = await getUserTimezone(userId);
 
+  // Client captured by closure, NOT passed as an argument: unstable_cache
+  // JSON.stringify-s its arguments for the cache key and newer supabase-js
+  // auth clients are circular (mfa.webauthn.client).
+  const client = supabase;
   const cachedLoad = unstable_cache(
-    async (uid: string, tz: string, client: any): Promise<StatisticsData> => {
+    async (uid: string, tz: string): Promise<StatisticsData> => {
       const [
         overviewRes,
         streaksRes,
@@ -114,25 +118,27 @@ async function loadStatistics(): Promise<StatisticsPagePayload> {
       return {
         overview: overviewRes.error
           ? emptyData.overview
-          : ((overviewRes.data as StatisticsOverview) ?? emptyData.overview),
+          : ((overviewRes.data as unknown as StatisticsOverview) ??
+            emptyData.overview),
         streaks: streaksRes.error
           ? emptyData.streaks
-          : ((streaksRes.data as StudyStreaks) ?? emptyData.streaks),
+          : ((streaksRes.data as unknown as StudyStreaks) ?? emptyData.streaks),
         sessionStats: sessionRes.error
           ? emptyData.sessionStats
-          : ((sessionRes.data as SessionStatistics) ?? emptyData.sessionStats),
+          : ((sessionRes.data as unknown as SessionStatistics) ??
+            emptyData.sessionStats),
         subjectBreakdown: subjectRes.error
           ? []
-          : ((subjectRes.data as SubjectBreakdownRow[]) ?? []),
+          : ((subjectRes.data as unknown as SubjectBreakdownRow[]) ?? []),
         weeklyProgress: weeklyRes.error
           ? []
-          : ((weeklyRes.data as WeeklyProgressPoint[]) ?? []),
+          : ((weeklyRes.data as unknown as WeeklyProgressPoint[]) ?? []),
         activityHeatmap: heatmapRes.error
           ? []
-          : ((heatmapRes.data as ActivityDay[]) ?? []),
+          : ((heatmapRes.data as unknown as ActivityDay[]) ?? []),
         recentActivity: recentRes.error
           ? []
-          : ((recentRes.data as RecentStudyActivity[]) ?? []),
+          : ((recentRes.data as unknown as RecentStudyActivity[]) ?? []),
         timezone: tz,
       };
     },
@@ -147,7 +153,7 @@ async function loadStatistics(): Promise<StatisticsPagePayload> {
   );
 
   const [statistics, insights] = await Promise.all([
-    cachedLoad(userId, userTz, supabase),
+    cachedLoad(userId, userTz),
     loadInsightReportData(supabase, userId),
   ]);
 
