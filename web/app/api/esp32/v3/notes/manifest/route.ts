@@ -32,7 +32,10 @@ async function manifest(req: NextRequest) {
     body = await readJsonBody(req);
   } catch {
     return createV3Error(
-      requestIdFromUnknown(null),
+      // The body is unparseable, but the header still carries the device's
+      // request id; echoing it lets the firmware close its queue entry
+      // instead of waiting out the timeout on a random id.
+      authRequestId,
       400,
       'INVALID_JSON',
       false
