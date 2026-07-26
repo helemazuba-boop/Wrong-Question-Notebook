@@ -110,3 +110,17 @@ export async function deleteNoteImageObjects(
     .from(BUCKET)
     .remove([asset.path, asset.display_path, asset.preview_path]);
 }
+
+/**
+ * Best-effort removal of only the derived objects (.wqni/.png). Used when the
+ * attach CAS fails after derivation: the client-uploaded original must stay so
+ * a retry can re-render, but orphaned derivations would otherwise leak.
+ */
+export async function deleteNoteImageDerivedObjects(
+  asset: NoteImageAsset
+): Promise<void> {
+  const service = createServiceClient();
+  await service.storage
+    .from(BUCKET)
+    .remove([asset.display_path, asset.preview_path]);
+}

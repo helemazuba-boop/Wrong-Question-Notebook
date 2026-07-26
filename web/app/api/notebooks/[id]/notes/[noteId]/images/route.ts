@@ -6,7 +6,10 @@ import {
   NotebookToolError,
 } from '@/lib/notebooks';
 import { attachNoteImageAsset } from '@/lib/notebook-content-service';
-import { renderNoteImageDerivations } from '@/lib/note-image-service';
+import {
+  deleteNoteImageDerivedObjects,
+  renderNoteImageDerivations,
+} from '@/lib/note-image-service';
 import { checkContentLimit } from '@/lib/content-limits';
 import { CONTENT_LIMIT_CONSTANTS } from '@/lib/constants';
 
@@ -56,13 +59,17 @@ export async function POST(
       noteId,
       parsed.data.path
     );
-    const note = await attachNoteImageAsset(
-      supabase,
-      user.id,
-      id,
-      noteId,
-      asset
-    );
+    let note;
+    try {
+      note = await attachNoteImageAsset(supabase, user.id, id, noteId, asset);
+    } catch (error) {
+      // The derivations are already in storage but the DB attach failed
+      // (revision conflict, note gone, transient DB error): without cleanup
+      // they would leak as unreferenced objects. The original stays so a
+      // retry can re-render it.
+      await deleteNoteImageDerivedObjects(asset).catch(() => undefined);
+      throw error;
+    }
     return notebookSuccessResponse({ note, asset });
   } catch (error) {
     return notebookErrorResponse(error);

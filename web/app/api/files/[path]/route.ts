@@ -77,6 +77,20 @@ export async function GET(
     );
   }
 
+  // The prefix check alone would pass user/<uuid>/../../<victim>/...; reject
+  // traversal and escape sequences outright before the path reaches storage.
+  if (
+    decodedPath.split('/').some(segment => segment === '..' || segment === '.') ||
+    decodedPath.includes('\\') ||
+    decodedPath.includes('\0') ||
+    decodedPath.includes('//')
+  ) {
+    return NextResponse.json(
+      createApiErrorResponse(ERROR_MESSAGES.UNAUTHORIZED, 403),
+      { status: 403 }
+    );
+  }
+
   // Parse bucket and name from the path
   const bucket = FILE_CONSTANTS.STORAGE.BUCKET;
   const name = decodedPath; // Full path is the object name

@@ -24,7 +24,10 @@ export const EINK_IMAGE_PAYLOAD_BYTES =
 export const EINK_IMAGE_THRESHOLD = 180;
 
 export const EINK_IMAGE_MAX_INPUT_BYTES = 10 * 1024 * 1024; // 10MB
-export const EINK_IMAGE_MAX_INPUT_PIXELS = 40_000_000; // 40MP
+// 12MP covers every realistic exam-photo source while keeping the worst-case
+// sharp RGBA expansion near 48 MB; 40MP inputs decoded to ~160 MB and a couple
+// of concurrent uploads could OOM-kill the serverless runtime.
+export const EINK_IMAGE_MAX_INPUT_PIXELS = 12_000_000; // 12MP
 
 // WQNI container: 20-byte little-endian header + raw payload.
 //   magic "WQNI" | version u8 | pixel_format u8 | flags u16 |
