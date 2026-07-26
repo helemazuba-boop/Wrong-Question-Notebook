@@ -124,7 +124,7 @@ export function formatRelativeTime(
 const COLUMN_DISPLAY_NAMES = {
   select: 'selectColumn',
   title: 'titleColumn',
-  problem_type: 'problemTypeColumn',
+  parts: 'problemTypeColumn',
   tags: 'tagsColumn',
   status: 'statusColumn',
   created_at: 'dateCreatedColumn',

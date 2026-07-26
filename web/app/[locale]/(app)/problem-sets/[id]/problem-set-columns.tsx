@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ProblemType, ProblemStatus } from '@/lib/schemas';
+import { ProblemStatus } from '@/lib/schemas';
 import {
   getProblemTypeDisplayName,
   getProblemStatusDisplayName,
@@ -126,7 +126,7 @@ const titleColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
 });
 
 const typeColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
-  accessorKey: 'problem_type',
+  accessorKey: 'parts',
   header: ({ column }) => (
     <DataTableColumnHeader
       column={column}
@@ -135,15 +135,20 @@ const typeColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
     />
   ),
   cell: ({ row }) => {
-    const type = row.getValue('problem_type') as ProblemType;
+    const parts = (row.getValue('parts') as { type: string }[]) || [];
     return (
-      <div className="px-2">
-        <Badge variant="outline">{t(getProblemTypeDisplayName(type))}</Badge>
+      <div className="flex flex-wrap gap-1 px-2">
+        {[...new Set(parts.map(part => part.type))].map(type => (
+          <Badge key={type} variant="outline">
+            {t(getProblemTypeDisplayName(type))}
+          </Badge>
+        ))}
       </div>
     );
   },
   filterFn: (row, id, value) => {
-    return value.includes(row.getValue(id));
+    const parts = (row.getValue(id) as { type: string }[]) || [];
+    return parts.some(part => value.includes(part.type));
   },
 });
 

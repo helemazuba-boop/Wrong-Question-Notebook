@@ -60,7 +60,7 @@ async function getProblemSetProblems(
           id,
           title,
           content,
-          problem_type,
+          parts,
           status,
           last_reviewed_date,
           created_at
