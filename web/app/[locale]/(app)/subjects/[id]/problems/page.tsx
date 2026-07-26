@@ -41,8 +41,13 @@ async function loadData(subjectId: string) {
     };
   }
 
+  // The client must be captured by closure, NOT passed as an argument:
+  // unstable_cache builds its cache key by JSON.stringify-ing the arguments,
+  // and newer supabase-js auth clients contain circular references
+  // (mfa.webauthn.client), which crashes metadata/page rendering.
+  const supabaseClient = supabase;
   const cachedLoadData = unstable_cache(
-    async (subjectId: string, userId: string, supabaseClient: any) => {
+    async (subjectId: string, _userId: string) => {
       // Subject detail
       const { data: subject } = await supabaseClient
         .from('subjects')
@@ -114,11 +119,13 @@ async function loadData(subjectId: string) {
     }
   );
 
-  const cachedData = await cachedLoadData(subjectId, userId, supabase);
+  const cachedData = await cachedLoadData(subjectId, userId);
 
   return {
     subject: cachedData.subject,
-    problems: cachedData.problems,
+    // Row types carry parts as Json; the app-level Problem type owns the
+    // parsed shape (zod-validated on every write path).
+    problems: cachedData.problems as unknown as import('@/lib/types').Problem[],
     tagsByProblem: cachedData.tagsByProblem,
     availableTags: cachedData.availableTags,
   };

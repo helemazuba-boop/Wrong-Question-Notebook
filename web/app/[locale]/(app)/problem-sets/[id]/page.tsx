@@ -64,13 +64,12 @@ async function loadProblemSet(id: string) {
 
   if (user) {
     // Authenticated user: use their Supabase client with caching
+    // Client captured by closure, NOT passed as an argument: unstable_cache
+    // JSON.stringify-s its arguments for the cache key and newer supabase-js
+    // auth clients are circular (mfa.webauthn.client).
+    const supabaseClient = supabase;
     const cachedLoadProblemSet = unstable_cache(
-      async (
-        problemSetId: string,
-        userId: string,
-        userEmail: string,
-        supabaseClient: any
-      ) => {
+      async (problemSetId: string, userId: string, userEmail: string) => {
         return await getProblemSetWithFullData(
           supabaseClient,
           problemSetId,
@@ -89,7 +88,7 @@ async function loadProblemSet(id: string) {
       }
     );
 
-    return await cachedLoadProblemSet(id, user.id, user.email || '', supabase);
+    return await cachedLoadProblemSet(id, user.id, user.email || '');
   }
 
   // Anonymous user: use service client to bypass RLS, only public sets accessible

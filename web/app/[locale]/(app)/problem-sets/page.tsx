@@ -45,8 +45,12 @@ async function loadProblemSets() {
     };
   }
 
+  // Client captured by closure, NOT passed as an argument: unstable_cache
+  // JSON.stringify-s its arguments for the cache key and newer supabase-js
+  // auth clients are circular (mfa.webauthn.client).
+  const supabaseClient = supabase;
   const cachedLoadProblemSets = unstable_cache(
-    async (userId: string, supabaseClient: any) => {
+    async (userId: string) => {
       // Fetch problem sets with subject name and manual-set count in one query
       const { data: problemSets, error: problemSetsError } =
         await supabaseClient
@@ -71,7 +75,8 @@ async function loadProblemSets() {
         };
       }
 
-      const rows: ProblemSetRow[] = problemSets || [];
+      const rows: ProblemSetRow[] = (problemSets ||
+        []) as unknown as ProblemSetRow[];
 
       // Batch-fetch counts for smart sets in parallel
       const smartSets = rows.filter(ps => ps.is_smart && ps.filter_config);
@@ -155,7 +160,7 @@ async function loadProblemSets() {
     }
   );
 
-  return await cachedLoadProblemSets(user.id, supabase);
+  return await cachedLoadProblemSets(user.id);
 }
 
 export default async function ProblemSetsPage() {
