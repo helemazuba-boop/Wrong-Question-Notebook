@@ -97,10 +97,12 @@ function PartAnswerDisplay({ part }: { part: ProblemPart }) {
     return <StructuredAnswerDisplay answerConfig={part.answer_config} />;
   }
   if (part.type === 'essay') {
+    // Essay reference answers are plain text (with optional $...$ math)
+    // typed in the part card, not rich HTML.
     return (
-      <div className="prose max-w-none rich-text-content">
-        <RichTextDisplay content={String(part.correct_answer ?? '')} />
-      </div>
+      <p className="whitespace-pre-wrap text-sm leading-6">
+        <MathText text={String(part.correct_answer ?? '')} />
+      </p>
     );
   }
   return <p className="font-mono text-lg">{part.correct_answer}</p>;

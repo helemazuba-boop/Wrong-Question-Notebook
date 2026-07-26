@@ -638,7 +638,8 @@
     "multiCorrectLabel": "正确选项（多选）",
     "multiCorrectPlaceholder": "如 ABD",
     "partsSection": "小题",
-    "totalMarksLabel": "合计 {total} 分"
+    "totalMarksLabel": "合计 {total} 分",
+    "essayAnswerPlaceholder": "参考答案 / 解题过程（可选，复习时自评）"
   },
   "ProblemSets": {
     "title": "错题本",
