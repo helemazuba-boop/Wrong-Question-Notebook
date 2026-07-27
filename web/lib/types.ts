@@ -352,14 +352,31 @@ export interface AnswerHint {
   answer_confidence: 'high' | 'medium' | 'low';
 }
 
+export interface ExtractedProblemPart {
+  index: number;
+  label?: string | null;
+  type: ProblemType;
+  content: string;
+  full_marks?: number | null;
+  mcq_choices?: { id: string; text: string }[];
+  answer_hint?: AnswerHint | null;
+}
+
+// Shell-model extraction: shared stem in `content`, 1..N typed parts. The
+// legacy single-part fields stay optional so older responses (and cached
+// clients) keep working through the same code path.
 export interface ExtractedProblemData {
-  problem_type: ProblemType;
   title: string;
-  content: string; // raw text with $...$ and $$...$$ math delimiters
+  content: string; // shared stem, raw text with $...$ and $$...$$ math delimiters
+  parts?: ExtractedProblemPart[];
+  /** @deprecated legacy single-part shape */
+  problem_type?: ProblemType;
+  /** @deprecated legacy single-part shape */
   mcq_choices?: { id: string; text: string }[];
   suggest_image_asset: boolean;
-  confidence: ExtractionConfidence;
+  confidence?: ExtractionConfidence;
   suggested_tags?: SuggestedTags;
+  /** @deprecated legacy single-part shape */
   answer_hint?: AnswerHint | null;
 }
 
