@@ -6,7 +6,7 @@ import {
   createApiSuccessResponse,
 } from '@/lib/common-utils';
 import { FILE_CONSTANTS } from '@/lib/constants';
-import type { Database } from '@/lib/database.types';
+import { upsertUserProfileRow } from '@/lib/user-profile';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
@@ -97,15 +97,11 @@ export async function POST(req: NextRequest) {
   const avatarUrl = `${baseAvatarUrl}?v=${Date.now()}`;
 
   // Update profile with new avatar URL
-  const { error: updateError } = await serviceSupabase
-    .from('user_profiles')
-    .upsert(
-      {
-        id: user.id,
-        avatar_url: avatarUrl,
-      } as Database['public']['Tables']['user_profiles']['Insert'],
-      { onConflict: 'id' }
-    );
+  const { error: updateError } = await upsertUserProfileRow(
+    serviceSupabase,
+    user.id,
+    { avatar_url: avatarUrl }
+  );
 
   if (updateError) {
     return NextResponse.json(
@@ -134,15 +130,11 @@ export async function DELETE() {
     );
   }
 
-  const { error: updateError } = await serviceSupabase
-    .from('user_profiles')
-    .upsert(
-      {
-        id: user.id,
-        avatar_url: null,
-      } as Database['public']['Tables']['user_profiles']['Insert'],
-      { onConflict: 'id' }
-    );
+  const { error: updateError } = await upsertUserProfileRow(
+    serviceSupabase,
+    user.id,
+    { avatar_url: null }
+  );
 
   if (updateError) {
     return NextResponse.json(
