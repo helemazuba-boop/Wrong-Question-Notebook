@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   PenLine,
+  ScanLine,
   Settings,
   Users,
   Globe,
@@ -63,6 +64,9 @@ export default function ProblemSetPageClient({
     mastered_count: 0,
   });
   const [createFormOpen, setCreateFormOpen] = useState(false);
+  // Opens the inline form directly on the scan/paste intake instead of the
+  // blank manual form (problem-set flow has no collapsed two-button step).
+  const [createFormScan, setCreateFormScan] = useState(false);
   const [addingToSet, setAddingToSet] = useState(false);
   const [progressLoading, setProgressLoading] = useState(true);
   const [editSmartDialog, setEditSmartDialog] = useState(false);
@@ -401,11 +405,25 @@ export default function ProblemSetPageClient({
       {problemSet.isOwner && !problemSet.is_smart && (
         <div className="flex items-center gap-2 mb-4">
           <Button
-            onClick={() => setCreateFormOpen(true)}
+            onClick={() => {
+              setCreateFormScan(false);
+              setCreateFormOpen(true);
+            }}
             disabled={addingToSet}
           >
             <PenLine className="h-4 w-4 mr-2" />
             新建题目
+          </Button>
+          <Button
+            onClick={() => {
+              setCreateFormScan(true);
+              setCreateFormOpen(true);
+            }}
+            disabled={addingToSet}
+            variant="outline"
+          >
+            <ScanLine className="h-4 w-4 mr-2" />
+            智能导入
           </Button>
           <Button onClick={handleAddProblems} variant="outline">
             <Plus className="h-4 w-4 mr-2" />
@@ -418,9 +436,10 @@ export default function ProblemSetPageClient({
       {createFormOpen && (
         <div className="rounded-lg border bg-card p-4 md:p-6 mb-4 form-slot-enter">
           <ProblemForm
-            key={`create-${problemSet.id}`}
+            key={`create-${problemSet.id}-${createFormScan ? 'scan' : 'manual'}`}
             subjectId={problemSet.subject_id}
             alwaysExpanded
+            initialShowImageScan={createFormScan}
             onCancel={() => setCreateFormOpen(false)}
             onProblemCreated={handleProblemCreated}
           />
