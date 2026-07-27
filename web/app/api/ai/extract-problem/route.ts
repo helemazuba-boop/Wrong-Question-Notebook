@@ -11,6 +11,7 @@ import { AI_CONSTANTS, CONTENT_LIMIT_CONSTANTS } from '@/lib/constants';
 import { checkAndIncrementQuota } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
 import { createAIClient } from '@/lib/ai/client';
+import { cleanHint, type ExtractedPart } from '@/lib/problem-extraction';
 
 const RequestSchema = z.object({
   image: z.string().min(1),
@@ -27,15 +28,24 @@ const SYSTEM_PROMPT = `You are an expert at extracting problems from images of t
 
 IMPORTANT: Math is rendered using KaTeX (a subset of LaTeX). Your output is a JSON string, so all backslashes in KaTeX must be double-escaped (e.g. \\\\frac, \\\\text, \\\\sqrt) so that the parsed JSON produces valid KaTeX with single backslashes.
 
+# Shell model (IMPORTANT)
+A problem is a SHELL with a shared stem plus 1 to 10 typed PARTS (sub-questions):
+- "content" (top level): ONLY the shared stem — introductory text, given conditions, shared data that applies to all parts. For a problem with a single self-contained question, put the full question in parts[0].content and leave the top-level content empty.
+- "parts": one entry per sub-question, in document order, index starting at 1.
+  - "label": the sub-question marker exactly as printed, e.g. "(1)", "(a)", "①". Null for a single-part problem.
+  - "content": the sub-question's own text (without the shared stem, without the label marker itself).
+  - "full_marks": the printed mark allocation for this part (e.g. "(4分)" → 4). Null when not printed.
+  - Each part gets its OWN type, choices, and answer hint.
+
 # Core rules
 1. Extract the problem statement faithfully. Do NOT solve the problem.
 2. Preserve the original language of the problem.
-3. Classify the problem:
+3. Classify EACH PART independently:
    - "single_choice" if it has labeled choices (A, B, C, D or similar) with exactly ONE correct answer
    - "multi_choice" if it has labeled choices and the stem indicates MULTIPLE correct answers (多选 / 不定项选择)
-   - "fill_blank" if it expects an exact brief answer filling a blank (number, word, short phrase) AND the image does NOT show multi-step working out or solution steps
+   - "fill_blank" if it expects an exact brief answer filling a blank (number, word, short phrase) AND the image does NOT show multi-step working out or solution steps for this part
    - "short_answer" if it expects a short written response of a sentence or two
-   - "essay" if it requires a longer response, proof, or explanation, OR if the image shows multi-step working out / solution steps alongside the answer (even if the final answer is a number)
+   - "essay" if it requires a longer response, proof, or explanation, OR if the image shows multi-step working out / solution steps for this part (even if the final answer is a number)
 
 # Title rules
 - Generate a concise, descriptive title (max 50 characters) summarizing the problem topic.
@@ -63,10 +73,7 @@ IMPORTANT: Math is rendered using KaTeX (a subset of LaTeX). Your output is a JS
 - Extract each choice with its label (A, B, C, D, etc.) as "id" and the choice content as "text".
 - MCQ choice text MUST only use inline math ($...$). Never use display math ($$...$$) in choices.
 - Apply the same numeric/math formatting rules: all numbers, variables, and expressions in choices must be wrapped in $...$.
-
-# Multi-part problems
-- If the image contains sub-parts (a, b, c or i, ii, iii), include all sub-parts in the content field as a single problem.
-- Use line breaks and label each sub-part clearly, e.g. "(a) ...", "(b) ...".
+- Attach choices to the PART they belong to.
 
 # Visual content (suggest_image_asset)
 - Set suggest_image_asset to true ONLY when the image contains diagrams, graphs, tables, geometric figures, circuit diagrams, or other visual elements that cannot be faithfully represented as text.
@@ -74,24 +81,24 @@ IMPORTANT: Math is rendered using KaTeX (a subset of LaTeX). Your output is a JS
 - When suggest_image_asset is false, the image is purely text-based and the extracted content is self-contained.
 - Default to false for problems that are entirely text and equations.
 
-# Answer extraction rules (answer_hint)
-If the image shows a visible answer, extract it into the answer_hint field.
+# Answer extraction rules (answer_hint, per part)
+If the image shows a visible answer for a part, extract it into that part's answer_hint field.
 IMPORTANT: Only extract answers that are visually present in the image — do NOT solve the problem yourself.
 
-- For "single_choice": If a choice appears circled, ticked, highlighted, or otherwise marked as correct, set mcq_correct_choice_id to the matching choice ID (e.g. "A", "B"). If no choice is visually marked, set it to null.
-- For "multi_choice": If several choices are marked as correct, set mcq_correct_choice_id to the concatenated choice IDs (e.g. "ABD"). If none are marked, set it to null.
-- For "fill_blank" and "short_answer": If a written answer (text or number) is visible, set short_answer_value to that text. short_answer_value MUST be plain text only — no math notation ($...$), no KaTeX. For example: "42", "mitochondria", "3.14". Set short_answer_is_numeric to true if the answer is a pure number. If no answer is visible, set both to null.
-- For "essay": If working out, paragraph responses, or solution steps are visible, transcribe them into extended_working using the same math formatting rules ($...$, $$...$$ on its own line, aligned blocks for related equations, prose between equation groups). If no working is visible, set it to null.
-- IMPORTANT: If the image shows multi-step working out or solution steps (even with a simple numeric final answer), classify as "essay" and use extended_working — do NOT classify as "fill_blank" or "short_answer".
-- Only populate fields relevant to the detected problem_type.
-- answer_confidence:
+- For "single_choice" parts: If a choice appears circled, ticked, highlighted, or otherwise marked as correct, set mcq_correct_choice_id to the matching choice ID (e.g. "A", "B"). If no choice is visually marked, set it to null.
+- For "multi_choice" parts: If several choices are marked as correct, set mcq_correct_choice_id to the concatenated choice IDs (e.g. "ABD"). If none are marked, set it to null.
+- For "fill_blank" and "short_answer" parts: If a written answer (text or number) is visible, set short_answer_value to that text. short_answer_value MUST be plain text only — no math notation ($...$), no KaTeX. For example: "42", "mitochondria", "3.14". Set short_answer_is_numeric to true if the answer is a pure number. If no answer is visible, set both to null.
+- For "essay" parts: If working out, paragraph responses, or solution steps are visible for this part, transcribe them into extended_working using the same math formatting rules ($...$, $$...$$ on its own line, aligned blocks for related equations, prose between equation groups). If no working is visible, set it to null.
+- IMPORTANT: If the image shows multi-step working out or solution steps for a part (even with a simple numeric final answer), classify that part as "essay" and use extended_working — do NOT classify it as "fill_blank" or "short_answer".
+- Only populate fields relevant to the part's type. Set answer_hint to null for parts with no visible answer.
+- answer_confidence (per part):
   - "high": a clear visual marker identifies the answer (circled choice, boxed answer, answer key label)
   - "medium": an answer is present but the marker is ambiguous
   - "low": no answer is clearly visible — set all type-specific fields to null
 
 # Confidence fields
 Set these honestly:
-- problem_type_confidence: how sure you are about the classification
+- problem_type_confidence: how sure you are about the part classifications overall
 - content_quality: "clear" if fully legible, "partially_unclear" if some parts are hard to read, "unclear" if mostly illegible
 - has_math: whether the problem contains mathematical notation
 - warnings: list any issues (unclear handwriting, non-problem content, partial image, cropped content, referenced figure not fully visible, etc.)`;
@@ -128,46 +135,61 @@ The user has no existing tags for this subject yet.
   return prompt;
 }
 
+const ANSWER_HINT_SCHEMA = {
+  type: 'object' as const,
+  nullable: true,
+  properties: {
+    mcq_correct_choice_id: { type: 'string' as const, nullable: true },
+    short_answer_value: { type: 'string' as const, nullable: true },
+    short_answer_is_numeric: { type: 'boolean' as const, nullable: true },
+    extended_working: { type: 'string' as const, nullable: true },
+    answer_confidence: {
+      type: 'string' as const,
+      enum: ['high', 'medium', 'low'],
+    },
+  },
+  required: ['answer_confidence'] as const,
+};
+
 const RESPONSE_SCHEMA = {
   type: 'object' as const,
   properties: {
-    problem_type: {
-      type: 'string' as const,
-      enum: [
-        'single_choice',
-        'multi_choice',
-        'fill_blank',
-        'short_answer',
-        'essay',
-      ],
-    },
     title: { type: 'string' as const },
     content: { type: 'string' as const },
-    mcq_choices: {
+    parts: {
       type: 'array' as const,
       items: {
         type: 'object' as const,
         properties: {
-          id: { type: 'string' as const },
-          text: { type: 'string' as const },
+          index: { type: 'integer' as const },
+          label: { type: 'string' as const, nullable: true },
+          type: {
+            type: 'string' as const,
+            enum: [
+              'single_choice',
+              'multi_choice',
+              'fill_blank',
+              'short_answer',
+              'essay',
+            ],
+          },
+          content: { type: 'string' as const },
+          full_marks: { type: 'number' as const, nullable: true },
+          mcq_choices: {
+            type: 'array' as const,
+            items: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string' as const },
+                text: { type: 'string' as const },
+              },
+              required: ['id', 'text'] as const,
+            },
+          },
+          answer_hint: ANSWER_HINT_SCHEMA,
         },
-        required: ['id', 'text'] as const,
+        required: ['index', 'type', 'content'] as const,
       },
-    },
-    answer_hint: {
-      type: 'object' as const,
-      nullable: true,
-      properties: {
-        mcq_correct_choice_id: { type: 'string' as const, nullable: true },
-        short_answer_value: { type: 'string' as const, nullable: true },
-        short_answer_is_numeric: { type: 'boolean' as const, nullable: true },
-        extended_working: { type: 'string' as const, nullable: true },
-        answer_confidence: {
-          type: 'string' as const,
-          enum: ['high', 'medium', 'low'],
-        },
-      },
-      required: ['answer_confidence'] as const,
     },
     suggest_image_asset: { type: 'boolean' as const },
     suggested_tags: {
@@ -209,9 +231,9 @@ const RESPONSE_SCHEMA = {
     },
   },
   required: [
-    'problem_type',
     'title',
     'content',
+    'parts',
     'suggest_image_asset',
     'suggested_tags',
     'confidence',
@@ -384,51 +406,42 @@ async function extractProblem(req: Request) {
 
     extraction.suggested_tags = suggestedTags;
 
-    // Post-process answer_hint: validate consistency and apply confidence gating
-    if (extraction.answer_hint) {
-      const hint = extraction.answer_hint;
-      const type = extraction.problem_type;
-      const isChoice = type === 'single_choice' || type === 'multi_choice';
-      const isShortLike = type === 'fill_blank' || type === 'short_answer';
-
-      // Confidence gating: drop low-confidence hints for choice/short parts
-      // (keep essay working transcriptions)
-      if (hint.answer_confidence === 'low' && type !== 'essay') {
-        extraction.answer_hint = null;
-      } else {
-        // Zero out fields that don't match the problem type
-        if (!isChoice) hint.mcq_correct_choice_id = null;
-        if (!isShortLike) {
-          hint.short_answer_value = null;
-          hint.short_answer_is_numeric = null;
-        }
-        if (type !== 'essay') hint.extended_working = null;
-
-        // Validate choice IDs exist in the extracted choices (multi-choice
-        // hints are concatenated letters, e.g. "ABD")
-        if (isChoice && hint.mcq_correct_choice_id) {
-          const validIds = new Set(
-            (extraction.mcq_choices || []).map((c: { id: string }) => c.id)
-          );
-          const ids =
-            type === 'multi_choice'
-              ? hint.mcq_correct_choice_id.split('')
-              : [hint.mcq_correct_choice_id];
-          if (!ids.every((id: string) => validIds.has(id))) {
-            hint.mcq_correct_choice_id = null;
-          }
-        }
-
-        // Null out the entire hint if no data fields remain
-        const hasData =
-          hint.mcq_correct_choice_id ||
-          hint.short_answer_value ||
-          hint.extended_working;
-        if (!hasData) {
-          extraction.answer_hint = null;
-        }
-      }
+    // Post-process parts: normalise indices and apply the shared per-part
+    // answer-hint gating (confidence, type/field consistency, choice-id
+    // validation). Legacy single-part model output (no parts array) is
+    // wrapped into a one-part shell so every consumer sees one shape.
+    if (!Array.isArray(extraction.parts) || extraction.parts.length === 0) {
+      extraction.parts = [
+        {
+          index: 1,
+          label: null,
+          type: extraction.problem_type ?? 'short_answer',
+          content: extraction.content ?? '',
+          full_marks: null,
+          mcq_choices: extraction.mcq_choices,
+          answer_hint: extraction.answer_hint ?? null,
+        },
+      ];
+      extraction.content = '';
     }
+    extraction.parts = (extraction.parts as ExtractedPart[])
+      .sort((a, b) => a.index - b.index)
+      .map((part, i) => ({
+        ...part,
+        index: i + 1,
+        content: part.content ?? '',
+      }))
+      .map((part: ExtractedPart) => ({
+        ...part,
+        answer_hint: cleanHint(part),
+      }));
+
+    // Legacy mirror: expose the first part through the old single-part
+    // fields so stale clients keep rendering something sensible.
+    const firstPart = extraction.parts[0];
+    extraction.problem_type = firstPart.type;
+    extraction.mcq_choices = firstPart.mcq_choices;
+    extraction.answer_hint = firstPart.answer_hint;
 
     return NextResponse.json(
       createApiSuccessResponse({

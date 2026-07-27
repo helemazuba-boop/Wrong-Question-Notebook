@@ -655,86 +655,136 @@ export default function ProblemForm({
   const handleExtractionComplete = useCallback(
     (data: ExtractedProblemData, imageAttachment?: ImageAttachment) => {
       setTitle(data.title);
-      // Normalize the extracted type: the AI route emits shell part types,
-      // but stay tolerant of the legacy trio.
-      const rawType = data.problem_type as string;
+      // Normalize an extracted type: tolerate the legacy trio alongside the
+      // shell part types.
       const legacyTypeMap: Record<string, ProblemType> = {
         mcq: 'single_choice',
         short: 'short_answer',
         extended: 'essay',
       };
-      const extractedType: ProblemType = (
-        PROBLEM_TYPE_VALUES as readonly string[]
-      ).includes(rawType)
-        ? (rawType as ProblemType)
-        : (legacyTypeMap[rawType] ?? 'short_answer');
-      const extractedIsChoice =
-        extractedType === 'single_choice' || extractedType === 'multi_choice';
-      const extractedIsShortLike =
-        extractedType === 'fill_blank' || extractedType === 'short_answer';
-      const html = convertMathTextToTipTapHtml(data.content);
-      // Update editor imperatively — onChange callback will sync form state
-      contentEditorRef.current?.setContent(html);
-      // Also update form state directly in case editor isn't mounted yet
-      setContent(html);
+      const normalizeType = (rawType: string): ProblemType =>
+        (PROBLEM_TYPE_VALUES as readonly string[]).includes(rawType)
+          ? (rawType as ProblemType)
+          : (legacyTypeMap[rawType] ?? 'short_answer');
 
-      // Extraction always describes ONE part; rebuild the shell as a fresh
-      // single-card draft carrying the extracted type, choices and hints.
-      const draft = makePartDraft(1, extractedType);
-      if (
-        extractedIsChoice &&
-        data.mcq_choices &&
-        data.mcq_choices.length > 0
-      ) {
-        draft.choices = data.mcq_choices;
-      }
-
-      // Apply answer hint suggestions
-      if (data.answer_hint) {
-        const hint = data.answer_hint;
-
-        if (extractedIsChoice && hint.mcq_correct_choice_id) {
-          if (extractedType === 'multi_choice') {
-            draft.multiCorrectText = hint.mcq_correct_choice_id;
-          } else {
-            draft.correctChoiceId = hint.mcq_correct_choice_id;
-          }
+      // Build one draft card from one extracted part (type, choices, hints).
+      const draftFromExtractedPart = (
+        position: number,
+        rawType: string,
+        label: string | null | undefined,
+        fullMarks: number | null | undefined,
+        choices: { id: string; text: string }[] | undefined,
+        hint: ExtractedProblemData['answer_hint']
+      ): PartDraft => {
+        const type = normalizeType(rawType);
+        const isChoice = type === 'single_choice' || type === 'multi_choice';
+        const isShortLike = type === 'fill_blank' || type === 'short_answer';
+        const draft = makePartDraft(position, type);
+        if (label && label.trim()) {
+          draft.label = label.trim();
+          draft.labelTouched = draft.label !== `(${position})`;
         }
-
-        if (extractedIsShortLike && hint.short_answer_value) {
-          draft.useAdvancedShort = true;
-          if (hint.short_answer_is_numeric) {
-            const numVal = Number(hint.short_answer_value);
-            if (!isNaN(numVal)) {
-              draft.shortConfig = {
-                mode: 'numeric',
-                numeric_config: {
-                  correct_value: numVal,
-                  tolerance: 0,
-                  unit: '',
-                },
-              };
+        if (fullMarks !== null && fullMarks !== undefined) {
+          draft.fullMarks = String(fullMarks);
+        }
+        if (isChoice && choices && choices.length > 0) {
+          draft.choices = choices;
+        }
+        if (hint) {
+          if (isChoice && hint.mcq_correct_choice_id) {
+            if (type === 'multi_choice') {
+              draft.multiCorrectText = hint.mcq_correct_choice_id;
+            } else {
+              draft.correctChoiceId = hint.mcq_correct_choice_id;
+            }
+          }
+          if (isShortLike && hint.short_answer_value) {
+            draft.useAdvancedShort = true;
+            if (hint.short_answer_is_numeric) {
+              const numVal = Number(hint.short_answer_value);
+              if (!isNaN(numVal)) {
+                draft.shortConfig = {
+                  mode: 'numeric',
+                  numeric_config: {
+                    correct_value: numVal,
+                    tolerance: 0,
+                    unit: '',
+                  },
+                };
+              } else {
+                draft.shortConfig = {
+                  mode: 'text',
+                  acceptable_answers: [hint.short_answer_value],
+                };
+              }
             } else {
               draft.shortConfig = {
                 mode: 'text',
                 acceptable_answers: [hint.short_answer_value],
               };
             }
-          } else {
-            draft.shortConfig = {
-              mode: 'text',
-              acceptable_answers: [hint.short_answer_value],
-            };
+          }
+          if (type === 'essay' && hint.extended_working) {
+            // The transcribed working goes into the essay part's reference
+            // answer (the standalone solution section is gone).
+            draft.answerText = hint.extended_working;
           }
         }
+        return draft;
+      };
 
-        if (extractedType === 'essay' && hint.extended_working) {
-          // The transcribed working goes into the essay part's reference
-          // answer (the standalone solution section is gone).
-          draft.answerText = hint.extended_working;
+      // Shell-model extraction: shared stem + one card per part. Each
+      // part's own text is appended to the stem under its label so the
+      // full problem reads top-to-bottom in the content editor, while
+      // type/choices/answers live on the matching part card. Legacy
+      // single-part responses (no parts array) fall back to one card
+      // built from the flat fields.
+      const capped = (data.parts ?? []).slice(
+        0,
+        PROBLEM_CONSTANTS.PARTS.MAX_COUNT
+      );
+      const stemBlocks: string[] = [];
+      if (data.content.trim()) stemBlocks.push(data.content.trim());
+      if (capped.length > 1) {
+        for (const part of capped) {
+          const partLabel = part.label?.trim() || `(${part.index})`;
+          const partText = part.content?.trim();
+          if (partText) stemBlocks.push(`${partLabel} ${partText}`);
         }
+      } else if (capped[0]?.content?.trim()) {
+        stemBlocks.push(capped[0].content.trim());
       }
-      setParts([draft]);
+      const html = convertMathTextToTipTapHtml(stemBlocks.join('\n'));
+      // Update editor imperatively — onChange callback will sync form state
+      contentEditorRef.current?.setContent(html);
+      // Also update form state directly in case editor isn't mounted yet
+      setContent(html);
+
+      if (capped.length > 0) {
+        setParts(
+          capped.map((part, i) =>
+            draftFromExtractedPart(
+              i + 1,
+              part.type,
+              capped.length > 1 ? part.label : null,
+              part.full_marks,
+              part.mcq_choices,
+              part.answer_hint
+            )
+          )
+        );
+      } else {
+        setParts([
+          draftFromExtractedPart(
+            1,
+            (data.problem_type as string) ?? 'short_answer',
+            null,
+            null,
+            data.mcq_choices,
+            data.answer_hint
+          ),
+        ]);
+      }
 
       if (imageAttachment) {
         const roles: ('problem' | 'solution')[] = [];
