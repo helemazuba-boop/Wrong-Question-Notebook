@@ -95,8 +95,14 @@ function loadV2RuntimeConfig(): V2RuntimeConfig {
     .filter(Boolean);
   return {
     dashScopeApiKey: apiKey,
-    openAiBaseUrlStd: baseUrl,
-    openAiBaseUrlPro: baseUrl,
+    // Per-tier base URL overrides mirror getProviderConfig() in
+    // lib/esp32-ai-provider.ts: _STD/_PRO win over the shared base URL.
+    openAiBaseUrlStd: (process.env.DASHSCOPE_OPENAI_BASE_URL_STD || baseUrl)
+      .trim()
+      .replace(/\/+$/, ''),
+    openAiBaseUrlPro: (process.env.DASHSCOPE_OPENAI_BASE_URL_PRO || baseUrl)
+      .trim()
+      .replace(/\/+$/, ''),
     chatApiKeyStd: chatKeyStd,
     chatApiKeyPro: chatKeyPro,
     chatModelStd:

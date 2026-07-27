@@ -614,17 +614,23 @@ function getProviderConfig(): DashScopeProviderConfig | null {
     chatApiKeyPro,
     openAiBaseUrl: (
       process.env.DASHSCOPE_OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL
-    ).replace(/\/+$/, ''),
+    )
+      .trim()
+      .replace(/\/+$/, ''),
     openAiBaseUrlStd: (
       process.env.DASHSCOPE_OPENAI_BASE_URL_STD ||
       process.env.DASHSCOPE_OPENAI_BASE_URL ||
       DEFAULT_OPENAI_BASE_URL
-    ).replace(/\/+$/, ''),
+    )
+      .trim()
+      .replace(/\/+$/, ''),
     openAiBaseUrlPro: (
       process.env.DASHSCOPE_OPENAI_BASE_URL_PRO ||
       process.env.DASHSCOPE_OPENAI_BASE_URL ||
       DEFAULT_OPENAI_BASE_URL
-    ).replace(/\/+$/, ''),
+    )
+      .trim()
+      .replace(/\/+$/, ''),
     asrTaskUrl: process.env.DASHSCOPE_ASR_TASK_URL || DEFAULT_ASR_TASK_URL,
     taskStatusBaseUrl: (
       process.env.DASHSCOPE_TASK_STATUS_BASE_URL || DEFAULT_TASK_STATUS_BASE_URL
