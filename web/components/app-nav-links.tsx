@@ -10,6 +10,7 @@ import {
   BarChart3,
   Cpu,
   ListTodo,
+  Plug,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -23,7 +24,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type NavLabelKey = 'subjects' | 'todos' | 'statistics' | 'discover' | 'esp32';
+type NavLabelKey =
+  'subjects' | 'todos' | 'statistics' | 'discover' | 'esp32' | 'mcp';
 
 type AppLink = {
   href: string;
@@ -71,6 +73,13 @@ const APP_LINKS: AppLink[] = [
     icon: Cpu,
     iconBg: 'bg-rose-500/10 dark:bg-rose-500/20',
     iconColor: 'text-rose-600 dark:text-rose-400',
+  },
+  {
+    href: '/mcp',
+    labelKey: 'mcp' as const,
+    icon: Plug,
+    iconBg: 'bg-blue-500/10 dark:bg-blue-500/20',
+    iconColor: 'text-blue-600 dark:text-blue-400',
   },
 ];
 

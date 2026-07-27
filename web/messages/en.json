@@ -116,7 +116,8 @@
     "privacyPolicy": "Privacy Policy",
     "discover": "Discover",
     "esp32": "WQN NOTE 4",
-    "todos": "Todo"
+    "todos": "Todo",
+    "mcp": "MCP"
   },
   "Auth": {
     "welcomeBack": "Welcome back",

@@ -246,12 +246,20 @@ export default function NotebookPageClient({
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.message || '创建笔记失败');
       }
+      const payload = await response.json().catch(() => null);
       setCreateOpen(false);
       setTitle('');
       setContent('');
-      toast.success('笔记已创建');
+      toast.success('笔记已创建，可在此添加图片');
       await loadPage({ reset: true });
       router.refresh();
+      // Images can only be attached to an existing note (the storage path
+      // needs the note id), so hand the fresh note straight to the edit
+      // dialog where the image section lives.
+      const created = payload?.data?.note;
+      if (created?.id) {
+        openEdit(created as NoteView);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建笔记失败');
     } finally {
@@ -687,7 +695,8 @@ export default function NotebookPageClient({
           <DialogHeader>
             <DialogTitle>新笔记</DialogTitle>
             <DialogDescription>
-              空白笔记只做记录，不参与错题复习和推荐算法。
+              空白笔记只做记录，不参与错题复习和推荐算法。创建后会直接打开编辑窗口，可在那里添加图片（最多
+              4 张）。
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createNote} className="space-y-4">

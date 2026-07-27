@@ -116,7 +116,8 @@
     "privacyPolicy": "隐私政策",
     "discover": "发现",
     "esp32": "WQN NOTE 4",
-    "todos": "Todo"
+    "todos": "Todo",
+    "mcp": "MCP 接入"
   },
   "Auth": {
     "welcomeBack": "欢迎回来",
