@@ -266,7 +266,9 @@ export async function verifyNotebookOwner(
     );
 }
 
-async function loadNotebookAiAccess(
+// Exported for the MCP read tools (list_notes/get_note), which gate on
+// can_read the same way createNotebookNoteFromAi gates on can_create.
+export async function loadNotebookAiAccess(
   supabase: SupabaseClient<Database>,
   userId: string,
   notebookId: string
