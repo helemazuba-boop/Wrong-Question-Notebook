@@ -1625,5 +1625,26 @@
     "devicesHint": "已配对的 WQN NOTE 4 可同步错题、Todo 和 AI 会话。",
     "noDevicesTitle": "暂无已配对设备",
     "noDevicesDesc": "配对 WQN NOTE 4 后即可同步内容。"
+  },
+  "Mcp": {
+    "title": "MCP 接入",
+    "pageSubtitle": "生成访问令牌，把你的 AI 客户端连接到 WQN，在外部 AI 里复习错题、读写笔记与 Todo",
+    "tokens": "访问令牌",
+    "tokensHint": "令牌等同于你的账号数据访问权，请妥善保管",
+    "createToken": "生成令牌",
+    "createTokenHint": "给令牌起个名字（比如客户端名称），便于区分和吊销。",
+    "tokenNamePlaceholder": "令牌名称，如 Claude Desktop",
+    "plaintextWarning": "令牌只显示这一次，请立即复制保存。关闭后无法再次查看。",
+    "done": "我已保存",
+    "noTokensTitle": "还没有访问令牌",
+    "noTokensDesc": "生成一个令牌，然后在 AI 客户端里配置 WQN MCP 服务。",
+    "createdAt": "创建于 {date}",
+    "lastUsedAt": "最近使用 {date}",
+    "neverUsed": "从未使用",
+    "revoke": "吊销",
+    "connectTitle": "如何接入",
+    "connectExplanation": "在支持 MCP 的 AI 客户端（如 Claude Desktop）中添加远程 MCP 服务：填入下方地址，并在请求头中携带 Bearer 令牌。",
+    "endpointLabel": "服务地址",
+    "configExampleLabel": "配置示例"
   }
 }

@@ -1625,5 +1625,26 @@
     "devicesHint": "Paired WQN NOTE 4 devices can sync wrong-question books, Todo, and AI sessions.",
     "noDevicesTitle": "No devices paired",
     "noDevicesDesc": "Pair WQN NOTE 4 to start syncing content."
+  },
+  "Mcp": {
+    "title": "MCP Access",
+    "pageSubtitle": "Generate access tokens to connect your AI client to WQN: review problems and read/write notes and todos from external AI",
+    "tokens": "Access tokens",
+    "tokensHint": "A token grants full access to your account data; keep it safe",
+    "createToken": "Create token",
+    "createTokenHint": "Name the token (e.g. after the client) so you can tell them apart and revoke them.",
+    "tokenNamePlaceholder": "Token name, e.g. Claude Desktop",
+    "plaintextWarning": "The token is shown only once. Copy and store it now; it cannot be viewed again.",
+    "done": "I saved it",
+    "noTokensTitle": "No access tokens yet",
+    "noTokensDesc": "Create a token, then configure the WQN MCP server in your AI client.",
+    "createdAt": "Created {date}",
+    "lastUsedAt": "Last used {date}",
+    "neverUsed": "Never used",
+    "revoke": "Revoke",
+    "connectTitle": "How to connect",
+    "connectExplanation": "In an MCP-capable AI client (e.g. Claude Desktop), add a remote MCP server with the URL below and a Bearer token header.",
+    "endpointLabel": "Endpoint",
+    "configExampleLabel": "Config example"
   }
 }
