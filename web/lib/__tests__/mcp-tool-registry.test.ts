@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { findMcpTool, MCP_TOOLS } from '@/lib/mcp/tool-registry';
 import type { McpToolContext } from '@/lib/mcp/tool-registry';
 
@@ -82,6 +83,35 @@ describe('MCP_TOOLS registry shape', () => {
       expect(tool.description.length).toBeGreaterThan(0);
       expect(tool.inputSchema).toMatchObject({ type: 'object' });
       expect(typeof tool.handler).toBe('function');
+    }
+  });
+
+  it('argsSchema stays in sync with the advertised inputSchema contract', () => {
+    for (const tool of MCP_TOOLS) {
+      expect(tool.argsSchema, tool.name).toBeDefined();
+      const required = (tool.inputSchema.required as string[]) ?? [];
+      const properties =
+        (tool.inputSchema.properties as Record<string, unknown>) ?? {};
+      // Dropping any advertised-required key must fail validation; a full
+      // set of dummy values for every advertised property must not trip the
+      // "missing key" branch (it may still fail on value constraints).
+      for (const key of required) {
+        const withoutKey = Object.fromEntries(
+          required.filter(k => k !== key).map(k => [k, 'x'])
+        );
+        const parsed = tool.argsSchema.safeParse(withoutKey);
+        expect(parsed.success, `${tool.name} must require ${key}`).toBe(false);
+      }
+      // Every zod-known key must be advertised in the JSON schema.
+      const advertised = new Set(Object.keys(properties));
+      const zodKeys = Object.keys(
+        (tool.argsSchema as z.ZodObject).shape ?? {}
+      );
+      for (const key of zodKeys) {
+        expect(advertised.has(key), `${tool.name}.${key} not advertised`).toBe(
+          true
+        );
+      }
     }
   });
 

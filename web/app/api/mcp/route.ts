@@ -61,6 +61,19 @@ function toolErrorText(error: unknown): string {
   return 'Tool execution failed';
 }
 
+// Summarise zod issues as "path: reason" pairs without echoing back the
+// offending values themselves.
+function invalidParamsMessage(error: z.ZodError): string {
+  const details = error.issues
+    .slice(0, 3)
+    .map(issue => {
+      const path = issue.path.join('.') || 'arguments';
+      return `${path}: ${issue.message}`;
+    })
+    .join('; ');
+  return `Invalid params: ${details}`;
+}
+
 async function handleMcp(req: NextRequest): Promise<NextResponse> {
   const auth = await authenticateApiToken(req);
   if (auth instanceof NextResponse) return auth;
@@ -108,11 +121,13 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
       if (!tool) {
         return rpcError(id, -32602, `Unknown tool: ${toolName}`);
       }
-      const rawArgs = params.arguments;
-      const args =
-        rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
-          ? (rawArgs as Record<string, unknown>)
-          : {};
+      // Per-tool zod gate: reject wrong types, out-of-range sizes and
+      // malformed ids before any handler logic runs.
+      const parsedArgs = tool.argsSchema.safeParse(params.arguments ?? {});
+      if (!parsedArgs.success) {
+        return rpcError(id, -32602, invalidParamsMessage(parsedArgs.error));
+      }
+      const args = parsedArgs.data as Record<string, unknown>;
       const ctx: McpToolContext = {
         userId: auth.userId,
         supabase: createServiceClient(),
@@ -145,6 +160,8 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
 export const POST = withSecurity(handleMcp, {
   rateLimitType: 'api',
   rateLimitKey: 'ip',
+  // Generic pattern scanning stays off (note/problem text is arbitrary user
+  // prose); tools/call arguments are validated per tool with zod instead.
   enableRequestValidation: false,
 });
 

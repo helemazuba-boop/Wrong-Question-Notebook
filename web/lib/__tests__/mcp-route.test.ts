@@ -121,6 +121,75 @@ describe('/api/mcp JSON-RPC dispatch', () => {
     expect(json.error.code).toBe(-32602);
   });
 
+  it('missing required arguments return -32602 with the offending path', async () => {
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: { name: 'get_note', arguments: { notebook_id: 'nb-1' } },
+      })
+    );
+    const json = await res.json();
+    expect(json.error.code).toBe(-32602);
+    expect(json.error.message).toContain('note_id');
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('injection-shaped ids are rejected before the handler runs', async () => {
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: {
+          name: 'get_problem_detail',
+          arguments: { problem_id: "1' OR '1'='1" },
+        },
+      })
+    );
+    const json = await res.json();
+    expect(json.error.code).toBe(-32602);
+    expect(json.error.message).toContain('problem_id');
+    // The rejected value itself must not be echoed back.
+    expect(json.error.message).not.toContain("OR '1'");
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it('oversize payloads return -32602', async () => {
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'tools/call',
+        params: {
+          name: 'create_notebook_note',
+          arguments: {
+            notebook_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            title: 'ok',
+            content: 'x'.repeat(4001),
+          },
+        },
+      })
+    );
+    const json = await res.json();
+    expect(json.error.code).toBe(-32602);
+    expect(json.error.message).toContain('content');
+  });
+
+  it('non-object arguments return -32602', async () => {
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'tools/call',
+        params: { name: 'list_todos', arguments: ['pending'] },
+      })
+    );
+    const json = await res.json();
+    expect(json.error.code).toBe(-32602);
+  });
+
   it('malformed JSON returns -32700 with HTTP 400', async () => {
     const req = new NextRequest('http://localhost/api/mcp', {
       method: 'POST',

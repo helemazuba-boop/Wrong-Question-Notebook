@@ -9,6 +9,7 @@
 // expose (review-due listing and the asset-bearing problem detail).
 
 import { randomBytes } from 'crypto';
+import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 import { FILE_CONSTANTS } from '@/lib/constants';
@@ -39,11 +40,23 @@ export interface McpToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  // Zod twin of inputSchema, enforced by the route before the handler runs.
+  // Keep both in sync when a tool's contract changes.
+  argsSchema: z.ZodType;
   handler: (
     ctx: McpToolContext,
     args: Record<string, unknown>
   ) => Promise<unknown>;
 }
+
+// Row ids are Supabase UUIDs; a bounded URL-safe charset covers them while
+// rejecting injection-shaped payloads.
+const IdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, 'must be a URL-safe id');
+const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 
 // 1 hour: matches the exposure window the web viewer's signPaths accepts.
 const SIGNED_URL_EXPIRES_IN = 3600;
@@ -119,6 +132,9 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         limit: { type: 'number', description: '返回数量，1-20，默认 10' },
       },
     },
+    argsSchema: z.object({
+      limit: z.number().int().min(1).max(20).nullish(),
+    }),
     handler: async (ctx, args) => {
       const limit = Math.min(Math.max(optNum(args.limit) ?? 10, 1), 20);
       const { data, error } = await ctx.supabase
@@ -164,6 +180,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['query'],
     },
+    argsSchema: z.object({
+      query: z.string().min(1).max(200),
+      subject_id: IdSchema.nullish(),
+      limit: z.number().int().min(1).max(5).nullish(),
+    }),
     handler: async (ctx, args) =>
       searchUserProblems(ctx, {
         query: str(args.query),
@@ -182,6 +203,9 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['problem_id'],
     },
+    argsSchema: z.object({
+      problem_id: IdSchema,
+    }),
     handler: async (ctx, args) => {
       const problemId = str(args.problem_id);
       const { data, error } = await ctx.supabase
@@ -253,6 +277,14 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['problem_id', 'action'],
     },
+    argsSchema: z.object({
+      problem_id: IdSchema,
+      action: z.enum(['correct', 'hesitant', 'wrong', 'skip']),
+      request_id: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{16,64}$/, 'must be 16-64 URL-safe characters')
+        .nullish(),
+    }),
     handler: async (ctx, args) => {
       // ProblemObservationRequest is the device-protocol shape; only
       // request_id/problem_id/action/occurred_at reach the RPC. The metadata
@@ -283,6 +315,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     description:
       '列出当前用户授权给 AI 访问的空白笔记本及各自的读/写权限。读笔记前先调它确认 can_read。',
     inputSchema: { type: 'object', properties: {} },
+    argsSchema: z.object({}),
     handler: async ctx => listAuthorizedNotebooks(ctx),
   },
   {
@@ -302,6 +335,12 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['notebook_id'],
     },
+    argsSchema: z.object({
+      notebook_id: IdSchema,
+      query: z.string().max(200).nullish(),
+      cursor: z.string().min(1).max(512).nullish(),
+      limit: z.number().int().min(1).max(100).nullish(),
+    }),
     handler: async (ctx, args) => {
       const notebookId = str(args.notebook_id);
       await requireNotebookAiRead(ctx, notebookId);
@@ -338,6 +377,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['notebook_id', 'note_id'],
     },
+    argsSchema: z.object({
+      notebook_id: IdSchema,
+      note_id: IdSchema,
+    }),
     handler: async (ctx, args) => {
       const notebookId = str(args.notebook_id);
       await requireNotebookAiRead(ctx, notebookId);
@@ -379,6 +422,16 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['notebook_id', 'title', 'content'],
     },
+    argsSchema: z.object({
+      notebook_id: IdSchema,
+      title: z.string().min(1).max(120),
+      content: z.string().min(1).max(4000),
+      linked_problem_id: IdSchema.nullish(),
+      client_request_id: z
+        .string()
+        .regex(/^[A-Za-z0-9_-]{8,128}$/, 'must be 8-128 URL-safe characters')
+        .nullish(),
+    }),
     handler: async (ctx, args) => {
       const result = await createNotebookNoteFromAi(ctx, {
         notebook_id: str(args.notebook_id),
@@ -407,6 +460,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         limit: { type: 'number', description: '返回数量，1-50，默认 20' },
       },
     },
+    argsSchema: z.object({
+      status: z.enum(['pending', 'completed', 'cancelled', 'all']).nullish(),
+      subject_id: IdSchema.nullish(),
+      limit: z.number().int().min(1).max(50).nullish(),
+    }),
     handler: async (ctx, args) => {
       const todos = await loadTodos(ctx.supabase, ctx.userId, {
         status: (optStr(args.status) as TodoStatus | 'all') || 'pending',
@@ -440,6 +498,16 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['title'],
     },
+    argsSchema: z.object({
+      title: z.string().min(1).max(120),
+      description: z.string().max(2000).nullish(),
+      priority: z.enum(['low', 'normal', 'high']).nullish(),
+      due_at: IsoDateTimeSchema.nullish(),
+      reminder_at: IsoDateTimeSchema.nullish(),
+      subject_id: IdSchema.nullish(),
+      problem_id: IdSchema.nullish(),
+      notebook_id: IdSchema.nullish(),
+    }),
     handler: async (ctx, args) => {
       const todo = await createTodo(ctx.supabase, ctx.userId, {
         title: str(args.title),
@@ -473,6 +541,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['todo_id', 'status'],
     },
+    argsSchema: z.object({
+      todo_id: IdSchema,
+      status: z.enum(['pending', 'completed', 'cancelled']),
+    }),
     handler: async (ctx, args) => {
       const todo = await updateTodoStatus(
         ctx.supabase,
