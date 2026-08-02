@@ -4,6 +4,7 @@ import {
   wordErrorResponse,
   wordSuccessResponse,
 } from '@/lib/words';
+import { loadWordMistakeLinks } from '@/lib/word-study-web';
 
 function parseLimit(value: string | null): number {
   const parsed = Number.parseInt(value || '20', 10);
@@ -16,6 +17,15 @@ export async function GET(req: Request) {
 
   try {
     const { searchParams } = new URL(req.url);
+    const wordEntryId = searchParams.get('word_entry_id');
+    if (wordEntryId) {
+      const mistakes = await loadWordMistakeLinks(supabase, user.id, [
+        wordEntryId,
+      ]);
+      return wordSuccessResponse({
+        mistake: mistakes.get(wordEntryId) || null,
+      });
+    }
     const data = await loadWrongWords(supabase, user.id, {
       limit: parseLimit(searchParams.get('limit')),
     });

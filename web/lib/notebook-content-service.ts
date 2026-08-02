@@ -58,6 +58,19 @@ export interface NoteRecord {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  read_state?: {
+    state: 'unread' | 'reading' | 'completed';
+    last_opened_at: string | null;
+    last_completed_at: string | null;
+    completed_count: number;
+  };
+  linked_problem?: {
+    problem_id: string;
+    problem_set_id: string | null;
+    subject_id: string;
+    title: string;
+    status: string;
+  } | null;
 }
 
 export interface NotebookRecord {
@@ -127,6 +140,87 @@ function mapNote(row: any, subjectId: string): NoteRecord {
     updated_at: row.updated_at,
     archived_at: row.archived_at ?? null,
   };
+}
+
+async function enrichNoteReadingContext(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  notes: NoteRecord[]
+): Promise<NoteRecord[]> {
+  if (!notes.length) return notes;
+  const noteIds = notes.map(note => note.id);
+  const problemIds = notes.flatMap(note =>
+    note.linked_problem_id ? [note.linked_problem_id] : []
+  );
+  const [{ data: states, error: stateError }, problemResult, linkResult] =
+    await Promise.all([
+      supabase
+        .from('note_read_state')
+        .select('note_id, last_opened_at, last_completed_at, completed_count')
+        .eq('user_id', userId)
+        .in('note_id', noteIds),
+      problemIds.length
+        ? supabase
+            .from('problems')
+            .select('id, title, status, subject_id')
+            .eq('user_id', userId)
+            .in('id', [...new Set(problemIds)])
+        : Promise.resolve({ data: [], error: null }),
+      problemIds.length
+        ? supabase
+            .from('problem_set_problems')
+            .select('problem_id, problem_set_id')
+            .in('problem_id', [...new Set(problemIds)])
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+  if (stateError || problemResult.error || linkResult.error) {
+    throw new NotebookToolError(
+      'database_error',
+      (stateError || problemResult.error || linkResult.error)?.message ||
+        'Failed to load note reading context',
+      500
+    );
+  }
+  const stateByNote = new Map(
+    (states || []).map((row: any) => [row.note_id, row])
+  );
+  const problemById = new Map(
+    (problemResult.data || []).map((row: any) => [row.id, row])
+  );
+  const setByProblem = new Map<string, string>();
+  for (const row of linkResult.data || []) {
+    if (!setByProblem.has(row.problem_id)) {
+      setByProblem.set(row.problem_id, row.problem_set_id);
+    }
+  }
+  return notes.map(note => {
+    const state = stateByNote.get(note.id);
+    const problem = note.linked_problem_id
+      ? problemById.get(note.linked_problem_id)
+      : null;
+    return {
+      ...note,
+      read_state: {
+        state: state?.last_completed_at
+          ? 'completed'
+          : state?.last_opened_at
+            ? 'reading'
+            : 'unread',
+        last_opened_at: state?.last_opened_at || null,
+        last_completed_at: state?.last_completed_at || null,
+        completed_count: Number(state?.completed_count || 0),
+      },
+      linked_problem: problem
+        ? {
+            problem_id: problem.id,
+            problem_set_id: setByProblem.get(problem.id) || null,
+            subject_id: problem.subject_id,
+            title: problem.title,
+            status: problem.status,
+          }
+        : null,
+    };
+  });
 }
 
 function mapNotebook(row: any): NotebookRecord {
@@ -280,7 +374,11 @@ export async function getNote(
   if (!data) {
     throw new NotebookToolError('note_not_found', 'Note not found', 404);
   }
-  return mapNote(data, notebook.subject_id);
+  return (
+    await enrichNoteReadingContext(supabase, userId, [
+      mapNote(data, notebook.subject_id),
+    ])
+  )[0];
 }
 
 export interface ListNotesInput {
@@ -356,9 +454,10 @@ export async function listNotes(
 
   const rows = (data || []) as any[];
   const hasMore = rows.length > limit;
-  const page = rows
+  const mappedPage = rows
     .slice(0, limit)
     .map(row => mapNote(row, notebook.subject_id));
+  const page = await enrichNoteReadingContext(supabase, userId, mappedPage);
   const nextCursor =
     hasMore && page.length > 0
       ? encodeNoteCursor(order, page[page.length - 1])

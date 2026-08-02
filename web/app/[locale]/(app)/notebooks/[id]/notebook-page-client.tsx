@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from '@/i18n/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useRouter } from '@/i18n/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,10 +29,12 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   FileText,
   ImagePlus,
   Lock,
   Pencil,
+  PlayCircle,
   Plus,
   Search,
   Settings2,
@@ -41,6 +43,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { uploadNoteFiles } from '@/lib/storage/client';
+import { createWebNoteRequestId } from '@/lib/note-study-client';
+import type {
+  NotebookReadSummary,
+  RecentNoteRead,
+  WebNoteStudySessionSummary,
+} from '@/lib/note-study-web';
 
 type NotebookView = {
   id: string;
@@ -68,6 +76,19 @@ type NoteView = {
   content_format?: string;
   source: string;
   linked_problem_id: string | null;
+  linked_problem?: {
+    problem_id: string;
+    problem_set_id: string | null;
+    subject_id: string;
+    title: string;
+    status: string;
+  } | null;
+  read_state?: {
+    state: 'unread' | 'reading' | 'completed';
+    last_opened_at: string | null;
+    last_completed_at: string | null;
+    completed_count: number;
+  };
   assets?: NoteImageAssetView[];
   revision: number;
   sort_index: number;
@@ -104,9 +125,15 @@ function formatDateTime(value: string) {
 export default function NotebookPageClient({
   notebook: initialNotebook,
   initialNotes,
+  initialReadSummary,
+  initialRecentReads,
+  initialResumableSession,
 }: {
   notebook: NotebookView;
   initialNotes: NoteView[];
+  initialReadSummary: NotebookReadSummary;
+  initialRecentReads: RecentNoteRead[];
+  initialResumableSession: WebNoteStudySessionSummary | null;
 }) {
   const router = useRouter();
   const [notebook, setNotebook] = useState(initialNotebook);
@@ -116,6 +143,12 @@ export default function NotebookPageClient({
   const [order, setOrder] = useState<NoteListOrder>('stable');
   const [query, setQuery] = useState('');
   const [listBusy, setListBusy] = useState(false);
+  const [readSummary] = useState(initialReadSummary);
+  const [recentReads] = useState(initialRecentReads);
+  const [resumableSession, setResumableSession] = useState(
+    initialResumableSession
+  );
+  const [readingBusy, setReadingBusy] = useState(false);
 
   const [aiAccess, setAiAccess] = useState(initialNotebook.ai_access);
   const [aiBusy, setAiBusy] = useState(false);
@@ -148,14 +181,58 @@ export default function NotebookPageClient({
   );
   const [settingsBusy, setSettingsBusy] = useState(false);
 
-  const noteCounts = useMemo(
-    () => ({
-      total: notes.length,
-      ai: notes.filter(note => note.source === 'ai').length,
-      user: notes.filter(note => note.source !== 'ai').length,
-    }),
-    [notes]
-  );
+  async function startOrContinueReading() {
+    if (resumableSession) {
+      router.push(
+        `/notebooks/${notebook.id}/read/${resumableSession.session_id}`
+      );
+      return;
+    }
+    if (!readSummary.total) {
+      toast.info('先添加一篇笔记，再开始阅读');
+      return;
+    }
+    setReadingBusy(true);
+    try {
+      const response = await fetch('/api/notes/study/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: createWebNoteRequestId('note_session'),
+          mode: 'sequential',
+          notebook_ids: [notebook.id],
+          optional_count: Math.min(readSummary.total, 500),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data?.session_id) {
+        throw new Error(payload?.error?.message || '开始阅读失败');
+      }
+      const sessionId = payload.data.session_id as string;
+      setResumableSession({
+        session_id: sessionId,
+        mode: 'sequential',
+        status: 'active',
+        notebook_ids: [notebook.id],
+        notebook_titles: [notebook.title],
+        candidate_count: Number(
+          payload.data.candidate_count || readSummary.total
+        ),
+        next_sequence: Number(payload.data.next_sequence || 0),
+        started_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+        device_id: null,
+        current_note_id: payload.data.items?.[0]?.item_id || null,
+        current_note_title: null,
+      });
+      router.push(`/notebooks/${notebook.id}/read/${sessionId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '开始阅读失败');
+    } finally {
+      setReadingBusy(false);
+    }
+  }
 
   // The list is API-managed after first paint so search / order / pagination all
   // share one canonical cursor source instead of the SSR snapshot.
@@ -460,6 +537,18 @@ export default function NotebookPageClient({
                 <Settings2 className="mr-2 h-4 w-4" />
                 笔记本设置
               </Button>
+              <Button
+                variant="outline"
+                disabled={readingBusy || readSummary.total === 0}
+                onClick={startOrContinueReading}
+              >
+                <PlayCircle className="mr-2 h-4 w-4" />
+                {readingBusy
+                  ? '正在准备...'
+                  : resumableSession
+                    ? '继续阅读'
+                    : '开始阅读'}
+              </Button>
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 新笔记
@@ -482,10 +571,17 @@ export default function NotebookPageClient({
                 <Badge variant="secondary">空白笔记</Badge>
               </div>
             </CardHeader>
-            <CardContent className="grid gap-3 p-5 sm:grid-cols-3">
-              <NotebookMetric label="当前加载" value={noteCounts.total} />
-              <NotebookMetric label="AI 生成" value={noteCounts.ai} />
-              <NotebookMetric label="手动创建" value={noteCounts.user} />
+            <CardContent className="grid gap-3 p-5 sm:grid-cols-4">
+              <NotebookMetric label="总笔记" value={readSummary.total} />
+              <NotebookMetric label="未读" value={readSummary.unread_count} />
+              <NotebookMetric
+                label="阅读中"
+                value={readSummary.reading_count}
+              />
+              <NotebookMetric
+                label="已读"
+                value={readSummary.completed_count}
+              />
             </CardContent>
           </Card>
 
@@ -529,6 +625,58 @@ export default function NotebookPageClient({
             </CardContent>
           </Card>
         </div>
+
+        {recentReads.length ? (
+          <Card className="mt-4 rounded-lg shadow-sm">
+            <CardHeader className="border-b p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">最近阅读</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Web 与 NOTE 4 共用同一阅读记录。
+                  </p>
+                </div>
+                {resumableSession?.current_note_title ||
+                readSummary.last_note_title ? (
+                  <Badge variant="outline">
+                    {resumableSession?.current_note_title
+                      ? `继续位置：${resumableSession.current_note_title}`
+                      : `上次读过：${readSummary.last_note_title}`}
+                  </Badge>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-2 p-5 sm:grid-cols-2">
+              {recentReads.slice(0, 6).map(item => (
+                <div
+                  key={item.note_id}
+                  className="flex items-center justify-between gap-3 rounded-md bg-muted/50 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {item.note_title}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDateTime(item.last_opened_at)} ·{' '}
+                      {item.actor === 'note4'
+                        ? 'NOTE 4'
+                        : item.actor === 'web'
+                          ? 'Web'
+                          : '已同步'}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      item.state === 'completed' ? 'secondary' : 'outline'
+                    }
+                  >
+                    {item.state === 'completed' ? '已读' : '阅读中'}
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <form
@@ -620,6 +768,19 @@ export default function NotebookPageClient({
                         {note.linked_problem_id ? (
                           <Badge variant="secondary">关联错题</Badge>
                         ) : null}
+                        <Badge
+                          variant={
+                            note.read_state?.state === 'completed'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
+                          {note.read_state?.state === 'completed'
+                            ? '已读'
+                            : note.read_state?.state === 'reading'
+                              ? '阅读中'
+                              : '未读'}
+                        </Badge>
                         <Badge variant="outline">v{note.revision}</Badge>
                       </div>
                     </div>
@@ -636,6 +797,20 @@ export default function NotebookPageClient({
                         <Pencil className="mr-1 h-3.5 w-3.5" />
                         编辑
                       </Button>
+                      {note.linked_problem ? (
+                        <Button size="sm" variant="ghost" asChild>
+                          <Link
+                            href={
+                              note.linked_problem.problem_set_id
+                                ? `/problem-sets/${note.linked_problem.problem_set_id}/review?problemId=${note.linked_problem.problem_id}`
+                                : `/subjects/${note.linked_problem.subject_id}/problems/${note.linked_problem.problem_id}/review`
+                            }
+                          >
+                            <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                            关联错题
+                          </Link>
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </CardHeader>
@@ -672,6 +847,9 @@ export default function NotebookPageClient({
                 </CardContent>
                 <CardFooter className="border-t bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
                   创建于 {formatDateTime(note.created_at)}
+                  {note.read_state?.last_opened_at
+                    ? ` · 最近阅读 ${formatDateTime(note.read_state.last_opened_at)}`
+                    : ''}
                 </CardFooter>
               </Card>
             ))}

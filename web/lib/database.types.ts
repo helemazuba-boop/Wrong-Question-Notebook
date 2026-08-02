@@ -966,6 +966,41 @@ export type Database = {
           },
         ];
       };
+      note_read_state: {
+        Row: {
+          completed_count: number;
+          last_completed_at: string | null;
+          last_opened_at: string | null;
+          note_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          completed_count?: number;
+          last_completed_at?: string | null;
+          last_opened_at?: string | null;
+          note_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          completed_count?: number;
+          last_completed_at?: string | null;
+          last_opened_at?: string | null;
+          note_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'note_read_state_note_id_fkey';
+            columns: ['note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebook_notes';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       notebooks: {
         Row: {
           archived_at: string | null;
@@ -1547,6 +1582,8 @@ export type Database = {
           title: string;
           updated_at: string;
           user_id: string;
+          word_deck_id: string | null;
+          word_entry_id: string | null;
         };
         Insert: {
           archived_at?: string | null;
@@ -1573,6 +1610,8 @@ export type Database = {
           title: string;
           updated_at?: string;
           user_id: string;
+          word_deck_id?: string | null;
+          word_entry_id?: string | null;
         };
         Update: {
           archived_at?: string | null;
@@ -1599,6 +1638,8 @@ export type Database = {
           title?: string;
           updated_at?: string;
           user_id?: string;
+          word_deck_id?: string | null;
+          word_entry_id?: string | null;
         };
         Relationships: [
           {
@@ -1641,6 +1682,20 @@ export type Database = {
             columns: ['subject_id'];
             isOneToOne: false;
             referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_word_deck_id_fkey';
+            columns: ['word_deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
             referencedColumns: ['id'];
           },
         ];
@@ -2369,6 +2424,22 @@ export type Database = {
           p_user_id: string;
         };
         Returns: Json;
+      };
+      set_web_word_study_session_status_v1: {
+        Args: {
+          p_session_id: string;
+          p_status: string;
+          p_user_id: string;
+        };
+        Returns: Database['public']['Tables']['study_sessions']['Row'];
+      };
+      set_web_note_study_session_status_v1: {
+        Args: {
+          p_session_id: string;
+          p_status: string;
+          p_user_id: string;
+        };
+        Returns: Database['public']['Tables']['study_sessions']['Row'];
       };
       approve_device_claim_v3: {
         Args: {

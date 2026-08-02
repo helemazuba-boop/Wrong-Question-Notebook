@@ -93,7 +93,7 @@ describe('/api/mcp JSON-RPC dispatch', () => {
       mcpRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' })
     );
     const json = await res.json();
-    expect(json.result.tools).toHaveLength(11);
+    expect(json.result.tools).toHaveLength(14);
     for (const tool of json.result.tools) {
       expect(tool.name).toBeTruthy();
       expect(tool.inputSchema.type).toBe('object');

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
+import { listWordEntriesForDeck } from '@/lib/words';
 import WordDeckPageClient, {
   type WordDeckView,
   type WordEntryView,
@@ -32,22 +33,6 @@ type DeckRow = {
         can_update?: boolean | null;
       }[]
     | null;
-};
-
-type EntryRow = {
-  id: string;
-  deck_id: string;
-  word: string;
-  normalized_word: string | null;
-  phonetic: string | null;
-  meaning: string;
-  example: string | null;
-  example_translation: string | null;
-  part_of_speech: string | null;
-  tags: string[] | null;
-  sort_index: number | string | null;
-  revision: number | string | null;
-  updated_at: string | null;
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -98,24 +83,6 @@ function mapDeck(row: DeckRow): WordDeckView {
   };
 }
 
-function mapEntry(row: EntryRow): WordEntryView {
-  return {
-    id: row.id,
-    deck_id: row.deck_id,
-    word: row.word,
-    normalized_word: row.normalized_word || row.word.toLowerCase(),
-    phonetic: row.phonetic,
-    meaning: row.meaning,
-    example: row.example,
-    example_translation: row.example_translation,
-    part_of_speech: row.part_of_speech,
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    sort_index: Number(row.sort_index || 0),
-    revision: Number(row.revision || 1),
-    updated_at: row.updated_at || new Date(0).toISOString(),
-  };
-}
-
 async function queryDeck(
   supabase: WordSupabase,
   userId: string,
@@ -153,32 +120,6 @@ async function loadDeck(
   return mapDeck(result.data as DeckRow);
 }
 
-async function loadEntries(
-  supabase: WordSupabase,
-  deckId: string
-): Promise<{ entries: WordEntryView[]; count: number | null }> {
-  const { data, error, count } = await supabase
-    .from('word_entries')
-    .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at',
-      { count: 'exact' }
-    )
-    .eq('deck_id', deckId)
-    .order('sort_index', { ascending: true })
-    .order('normalized_word', { ascending: true })
-    .limit(500);
-
-  if (error) {
-    console.warn(`Failed to load word entries: ${error.message}`);
-    return { entries: [], count: null };
-  }
-
-  return {
-    entries: ((data || []) as EntryRow[]).map(mapEntry),
-    count: typeof count === 'number' ? count : null,
-  };
-}
-
 async function loadPageData(deckId: string) {
   const { user, supabase } = await requireUser();
   if (!user) return { user: null, deck: null, entries: [], entryCount: null };
@@ -187,11 +128,16 @@ async function loadPageData(deckId: string) {
   const deck = await loadDeck(wordsSupabase, user.id, deckId);
   if (!deck) return { user, deck: null, entries: [], entryCount: null };
 
-  const { entries, count } = await loadEntries(wordsSupabase, deckId);
+  const { entries, count } = await listWordEntriesForDeck(
+    supabase,
+    user.id,
+    deckId,
+    { limit: 50, offset: 0 }
+  );
   return {
     user,
     deck,
-    entries,
+    entries: entries as WordEntryView[],
     entryCount: count ?? deck.word_count,
   };
 }

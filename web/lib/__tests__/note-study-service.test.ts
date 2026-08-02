@@ -125,6 +125,74 @@ describe('recordNoteStudyObservation', () => {
     });
   });
 
+  it('treats an equivalent applied sequence as an idempotent replay', async () => {
+    const { supabase } = makeClient({
+      rpc: {
+        record_note_study_observation_v1: {
+          data: null,
+          error: { message: 'STUDY_SEQUENCE_ALREADY_APPLIED' },
+        },
+      },
+      tables: {
+        study_observations: [
+          {
+            data: {
+              item_id: NOTE_ID,
+              action: 'read_completed',
+              mode: 'sequential',
+              result: readCompletedResult(),
+            },
+            error: null,
+          },
+        ],
+      },
+    });
+    const result = await recordNoteStudyObservation(supabase, USER_ID, null, {
+      ...observationInput('read_completed'),
+      request_id: 'webnote_recovery_new_request',
+    });
+    expect(result).toMatchObject({
+      item_id: NOTE_ID,
+      action: 'read_completed',
+      replayed: true,
+    });
+  });
+
+  it('keeps an applied sequence conflicting when the action differs', async () => {
+    const { supabase } = makeClient({
+      rpc: {
+        record_note_study_observation_v1: {
+          data: null,
+          error: { message: 'STUDY_SEQUENCE_ALREADY_APPLIED' },
+        },
+      },
+      tables: {
+        study_observations: [
+          {
+            data: {
+              item_id: NOTE_ID,
+              action: 'opened',
+              mode: 'sequential',
+              result: { ...readCompletedResult(), action: 'opened' },
+            },
+            error: null,
+          },
+        ],
+      },
+    });
+    await expect(
+      recordNoteStudyObservation(
+        supabase,
+        USER_ID,
+        null,
+        observationInput('read_completed')
+      )
+    ).rejects.toMatchObject({
+      code: 'SEQUENCE_ALREADY_APPLIED',
+      status: 409,
+    });
+  });
+
   it('maps an actor mismatch to 403', async () => {
     const { supabase } = makeClient({
       rpc: {

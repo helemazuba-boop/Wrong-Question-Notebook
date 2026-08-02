@@ -5,6 +5,10 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 import { NOTE_CONTENT_FORMAT } from '@/lib/note-content-format';
+import {
+  loadNotebookReadSummaries,
+  type NotebookReadSummary,
+} from '@/lib/note-study-web';
 
 export type NotebookShelfItemType = 'problem_set' | 'notebook' | 'word_deck';
 
@@ -29,6 +33,7 @@ export interface NotebookShelfItem {
     can_create: boolean;
     can_update: boolean;
   };
+  read_summary?: NotebookReadSummary;
 }
 
 export interface NotebookAiAction {
@@ -115,6 +120,13 @@ export async function loadNotebookShelf(
     );
   }
 
+  const notebookRows = notebooksResult.data || [];
+  const readSummaries = await loadNotebookReadSummaries(
+    supabase,
+    userId,
+    notebookRows.map((item: any) => item.id)
+  );
+
   const problemSets = (problemSetsResult.data || []).map((item: any) => ({
     id: item.id,
     type: 'problem_set' as const,
@@ -126,7 +138,7 @@ export async function loadNotebookShelf(
     updated_at: item.updated_at,
   }));
 
-  const notebooks = (notebooksResult.data || []).map((item: any) => {
+  const notebooks = notebookRows.map((item: any) => {
     const access = Array.isArray(item.notebook_ai_access)
       ? item.notebook_ai_access[0]
       : null;
@@ -144,6 +156,7 @@ export async function loadNotebookShelf(
         can_create: Boolean(access?.can_create),
         can_update: Boolean(access?.can_update),
       },
+      read_summary: readSummaries[item.id],
     };
   });
 

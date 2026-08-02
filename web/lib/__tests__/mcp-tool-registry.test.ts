@@ -60,17 +60,20 @@ function ctxWith(
 }
 
 describe('MCP_TOOLS registry shape', () => {
-  it('exposes exactly the 11 planned tools', () => {
+  it('exposes the planned cross-module tools', () => {
     expect(MCP_TOOLS.map(tool => tool.name).sort()).toEqual(
       [
         'create_notebook_note',
         'create_todo',
         'get_note',
         'get_problem_detail',
+        'get_word_study_session',
         'list_authorized_notebooks',
         'list_notes',
         'list_review_due_problems',
         'list_todos',
+        'list_word_mistakes',
+        'list_word_progress',
         'record_problem_review',
         'search_user_problems',
         'update_todo_status',
@@ -104,9 +107,7 @@ describe('MCP_TOOLS registry shape', () => {
       }
       // Every zod-known key must be advertised in the JSON schema.
       const advertised = new Set(Object.keys(properties));
-      const zodKeys = Object.keys(
-        (tool.argsSchema as z.ZodObject).shape ?? {}
-      );
+      const zodKeys = Object.keys((tool.argsSchema as z.ZodObject).shape ?? {});
       for (const key of zodKeys) {
         expect(advertised.has(key), `${tool.name}.${key} not advertised`).toBe(
           true

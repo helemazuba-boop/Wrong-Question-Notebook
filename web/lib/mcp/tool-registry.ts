@@ -30,6 +30,11 @@ import {
 } from '@/lib/todos';
 import { recordProblemReview } from '@/lib/problem-review-service';
 import type { ProblemObservationRequest } from '@/lib/problem-study-v1';
+import { loadWrongWords, loadWordDecks } from '@/lib/words';
+import {
+  loadWebWordStudySession,
+  loadWordDeckStudySummaries,
+} from '@/lib/word-study-web';
 
 export interface McpToolContext {
   userId: string;
@@ -121,6 +126,88 @@ async function signAssetUrls(
 }
 
 export const MCP_TOOLS: McpToolDefinition[] = [
+  // -- Word domain ------------------------------------------------------------
+  {
+    name: 'list_word_progress',
+    description:
+      '读取当前用户的 Word 词库进度汇总。Web、MCP 与 WQN Note4 使用同一份 word_progress，适合先查看到期词和掌握数量。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deck_id: { type: 'string', description: '可选词库 ID' },
+      },
+    },
+    argsSchema: z.object({ deck_id: IdSchema.nullish() }),
+    handler: async (ctx, args) => {
+      const requestedDeckId = optStr(args.deck_id);
+      const decks = await loadWordDecks(ctx.supabase, ctx.userId, {
+        includeSystem: true,
+        limit: 100,
+      });
+      const visibleDecks = requestedDeckId
+        ? decks.filter(deck => deck.id === requestedDeckId)
+        : decks;
+      if (requestedDeckId && visibleDecks.length === 0) {
+        throw new NotebookToolError(
+          'word_deck_not_found',
+          'Word deck not found',
+          404
+        );
+      }
+      const summaries = await loadWordDeckStudySummaries(
+        ctx.supabase,
+        ctx.userId,
+        visibleDecks.map(deck => deck.id)
+      );
+      return {
+        decks: visibleDecks.map(deck => ({
+          id: deck.id,
+          title: deck.title,
+          subject_id: deck.subject_id,
+          summary: summaries[deck.id],
+        })),
+      };
+    },
+  },
+  {
+    name: 'list_word_mistakes',
+    description:
+      '列出 Word 学习中投影出的错题词条。每条记录都可以继续进入对应的错题集复习。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '返回数量，1-50，默认 20' },
+      },
+    },
+    argsSchema: z.object({
+      limit: z.number().int().min(1).max(50).nullish(),
+    }),
+    handler: async (ctx, args) =>
+      loadWrongWords(ctx.supabase, ctx.userId, {
+        limit: optNum(args.limit) ?? 20,
+      }),
+  },
+  {
+    name: 'get_word_study_session',
+    description:
+      '读取一个 Web Word 学习会话的当前游标、词条快照和已确认结果统计，用于跨端恢复或向用户解释进度。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: 'Web 学习会话 ID' },
+      },
+      required: ['session_id'],
+    },
+    argsSchema: z.object({ session_id: IdSchema }),
+    handler: async (ctx, args) => ({
+      session: await loadWebWordStudySession(
+        ctx.supabase,
+        ctx.userId,
+        str(args.session_id)
+      ),
+    }),
+  },
+
   // -- Problem domain (review offloading core) -------------------------------
   {
     name: 'list_review_due_problems',
@@ -321,7 +408,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'list_notes',
     description:
-      '列出某个已授权（can_read）笔记本中的笔记，正文截断为 200 字符摘要；全文用 get_note 读取。支持关键词过滤与游标分页。',
+      '列出某个已授权（can_read）笔记本中的笔记、阅读状态和正文摘要；全文用 get_note 读取。支持关键词过滤与游标分页。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -358,6 +445,12 @@ export const MCP_TOOLS: McpToolDefinition[] = [
               ? `${note.content.slice(0, 200)}…`
               : note.content,
           image_count: note.assets.length,
+          read_state: note.read_state || {
+            state: 'unread',
+            last_opened_at: null,
+            last_completed_at: null,
+            completed_count: 0,
+          },
           updated_at: note.updated_at,
         })),
         next_cursor: result.next_cursor,
@@ -368,7 +461,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'get_note',
     description:
-      '读取某条笔记的全文（纯文本，最多 4000 字符）。需要该笔记本的 can_read 授权。',
+      '读取某条笔记的全文与共享阅读状态（纯文本，最多 4000 字符）。需要该笔记本的 can_read 授权。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -397,6 +490,12 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           title: note.title,
           content: note.content,
           linked_problem_id: note.linked_problem_id,
+          read_state: note.read_state || {
+            state: 'unread',
+            last_opened_at: null,
+            last_completed_at: null,
+            completed_count: 0,
+          },
           image_count: note.assets.length,
           created_at: note.created_at,
           updated_at: note.updated_at,
@@ -495,6 +594,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_id: { type: 'string', description: '可选错题 ID' },
         notebook_id: { type: 'string', description: '可选空白笔记本 ID' },
+        word_deck_id: { type: 'string', description: '可选 Word 词库 ID' },
+        word_entry_id: { type: 'string', description: '可选 Word 词条 ID' },
       },
       required: ['title'],
     },
@@ -507,6 +608,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       subject_id: IdSchema.nullish(),
       problem_id: IdSchema.nullish(),
       notebook_id: IdSchema.nullish(),
+      word_deck_id: IdSchema.nullish(),
+      word_entry_id: IdSchema.nullish(),
     }),
     handler: async (ctx, args) => {
       const todo = await createTodo(ctx.supabase, ctx.userId, {
@@ -518,6 +621,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         subject_id: optStr(args.subject_id) ?? null,
         problem_id: optStr(args.problem_id) ?? null,
         notebook_id: optStr(args.notebook_id) ?? null,
+        word_deck_id: optStr(args.word_deck_id) ?? null,
+        word_entry_id: optStr(args.word_entry_id) ?? null,
         source: 'ai',
         created_by: 'ai',
         metadata: {} as Json,

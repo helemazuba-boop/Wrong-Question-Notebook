@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createTodo,
   createTodoFromAi,
   loadEsp32TodoTimeline,
   TodoToolError,
@@ -19,6 +20,8 @@ const TODO_ROW = {
   problem_id: null,
   notebook_id: null,
   note_id: null,
+  word_deck_id: null,
+  word_entry_id: null,
   source: 'ai',
   created_by: 'ai',
   created_at: '2026-06-01T00:00:00.000Z',
@@ -112,6 +115,43 @@ describe('Todo AI helpers', () => {
       due_at: null,
       reminder_at: null,
     });
+  });
+
+  it('preserves a verified Word deck reference on a Todo', async () => {
+    const insertQuery = createInsertQuery({
+      data: {
+        ...TODO_ROW,
+        word_deck_id: 'deck-1',
+      },
+      error: null,
+    });
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'word_decks') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            or: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { id: 'deck-1' },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'todos') return insertQuery;
+        throw new Error(`unexpected table ${table}`);
+      }),
+    } as any;
+
+    const todo = await createTodo(supabase, 'user-1', {
+      title: '复习词库',
+      word_deck_id: 'deck-1',
+    });
+
+    expect(todo.word_deck_id).toBe('deck-1');
+    expect(insertQuery.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ word_deck_id: 'deck-1' })
+    );
   });
 
   it('updates status and returns todo_status_updated action', async () => {

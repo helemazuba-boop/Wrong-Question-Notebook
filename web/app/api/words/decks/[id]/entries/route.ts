@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import {
   addWordEntryToDeck,
-  searchWords,
+  listWordEntriesForDeck,
   wordErrorResponse,
   wordSuccessResponse,
   WordToolError,
@@ -26,6 +26,11 @@ function parseLimit(value: string | null): number {
   return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 50;
 }
 
+function parseOffset(value: string | null): number {
+  const parsed = Number.parseInt(value || '0', 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -36,15 +41,14 @@ export async function GET(
   try {
     const { id } = await params;
     const { searchParams } = new URL(req.url);
-    const result = await searchWords(supabase, user.id, {
-      deck_id: id,
+    const result = await listWordEntriesForDeck(supabase, user.id, id, {
       q: searchParams.get('q'),
-      prefix: searchParams.get('prefix'),
       limit: parseLimit(searchParams.get('limit')),
+      offset: parseOffset(searchParams.get('offset')),
     });
     return wordSuccessResponse({
-      entries: result.words,
-      next_letters: result.next_letters,
+      entries: result.entries,
+      count: result.count,
     });
   } catch (error) {
     return wordErrorResponse(error);
