@@ -320,6 +320,7 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
         return {
           id: notebook.id,
           title: notebook.title,
+          subject_id: notebook.subject_id || null,
           subject_name: notebook.subjects?.name || '',
           description: notebook.description || '',
           permissions: {
@@ -330,7 +331,9 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
           note_count: normalizeCount(notebook.notebook_notes),
         };
       })
-      .filter(Boolean),
+      .filter((notebook): notebook is NonNullable<typeof notebook> =>
+        Boolean(notebook)
+      ),
   };
 }
 

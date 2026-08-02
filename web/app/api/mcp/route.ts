@@ -61,6 +61,36 @@ function toolErrorText(error: unknown): string {
   return 'Tool execution failed';
 }
 
+function toolErrorData(error: unknown): {
+  code: string;
+  message: string;
+  retryable: boolean;
+} {
+  if (error && typeof error === 'object') {
+    const candidate = error as {
+      code?: unknown;
+      message?: unknown;
+      retryable?: unknown;
+    };
+    return {
+      code:
+        typeof candidate.code === 'string'
+          ? candidate.code
+          : 'tool_execution_failed',
+      message:
+        typeof candidate.message === 'string'
+          ? candidate.message
+          : 'Tool execution failed',
+      retryable: Boolean(candidate.retryable),
+    };
+  }
+  return {
+    code: 'tool_execution_failed',
+    message: 'Tool execution failed',
+    retryable: false,
+  };
+}
+
 // Summarise zod issues as "path: reason" pairs without echoing back the
 // offending values themselves.
 function invalidParamsMessage(error: z.ZodError): string {
@@ -113,6 +143,11 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema ?? {
+            type: 'object',
+            additionalProperties: true,
+          },
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
         })),
       });
     case 'tools/call': {
@@ -134,8 +169,13 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
       };
       try {
         const data = await tool.handler(ctx, args);
+        const structuredContent =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? data
+            : { value: data };
         return rpcResult(id, {
           content: [{ type: 'text', text: JSON.stringify(data) }],
+          structuredContent,
           isError: false,
         });
       } catch (error) {
@@ -146,8 +186,10 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
           userId: auth.userId,
           message: toolErrorText(error),
         });
+        const errorData = toolErrorData(error);
         return rpcResult(id, {
           content: [{ type: 'text', text: toolErrorText(error) }],
+          structuredContent: { error: errorData },
           isError: true,
         });
       }

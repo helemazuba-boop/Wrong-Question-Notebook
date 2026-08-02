@@ -582,6 +582,7 @@ export async function updateWordEntry(
   userId: string,
   wordId: string,
   input: {
+    expected_revision?: number;
     word?: string;
     phonetic?: string | null;
     meaning?: string;
@@ -635,15 +636,19 @@ export async function updateWordEntry(
     throw new WordToolError('invalid_request', 'No word fields to update', 400);
   }
 
-  const { data, error } = await supabase
+  let updateQuery = supabase
     .from('word_entries')
     .update(patch)
     .eq('id', wordId)
-    .eq('deck_id', current.deck_id)
+    .eq('deck_id', current.deck_id);
+  if (input.expected_revision !== undefined) {
+    updateQuery = updateQuery.eq('revision', input.expected_revision);
+  }
+  const { data, error } = await updateQuery
     .select(
       'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at'
     )
-    .single();
+    .maybeSingle();
   if (error?.code === '23505') {
     throw new WordToolError(
       'duplicate_word',
@@ -652,6 +657,13 @@ export async function updateWordEntry(
     );
   }
   if (error) databaseError('updateWordEntry', error);
+  if (!data) {
+    throw new WordToolError(
+      'revision_conflict',
+      'Word entry changed since it was read',
+      409
+    );
+  }
   return mapEntryRow(data);
 }
 

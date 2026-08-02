@@ -3,6 +3,7 @@ import {
   importWordEntriesToDeck,
   loadEsp32WordSync,
   loadWordDecks,
+  updateWordEntry,
 } from '@/lib/words';
 
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -204,5 +205,59 @@ describe('Word review helpers', () => {
       code: 'invalid_request',
       status: 413,
     });
+  });
+
+  it('reports revision_conflict when an expected revision CAS misses', async () => {
+    let entryReads = 0;
+    const revisionEq = vi.fn().mockReturnThis();
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'word_decks') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            is: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: { id: SYSTEM_DECK_ID },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'word_entries') {
+          entryReads += 1;
+          if (entryReads === 1) {
+            return {
+              select: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { id: 'word-id', deck_id: SYSTEM_DECK_ID },
+                error: null,
+              }),
+            };
+          }
+          return {
+            update: vi.fn().mockReturnThis(),
+            eq: revisionEq,
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: null,
+              error: null,
+            }),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    } as any;
+
+    await expect(
+      updateWordEntry(supabase, USER_ID, 'word-id', {
+        expected_revision: 7,
+        meaning: 'changed',
+      })
+    ).rejects.toMatchObject({
+      code: 'revision_conflict',
+      status: 409,
+    });
+    expect(revisionEq).toHaveBeenCalledWith('revision', 7);
   });
 });

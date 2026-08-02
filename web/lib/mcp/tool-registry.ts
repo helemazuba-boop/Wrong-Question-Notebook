@@ -30,11 +30,12 @@ import {
 } from '@/lib/todos';
 import { recordProblemReview } from '@/lib/problem-review-service';
 import type { ProblemObservationRequest } from '@/lib/problem-study-v1';
-import { loadWrongWords, loadWordDecks } from '@/lib/words';
+import { listAuthorizedWordDecks, loadWrongWords } from '@/lib/words';
 import {
   loadWebWordStudySession,
   loadWordDeckStudySummaries,
 } from '@/lib/word-study-web';
+import { MCP_TOOL_EXTENSIONS } from '@/lib/mcp/tool-extensions';
 
 export interface McpToolContext {
   userId: string;
@@ -45,6 +46,14 @@ export interface McpToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
   // Zod twin of inputSchema, enforced by the route before the handler runs.
   // Keep both in sync when a tool's contract changes.
   argsSchema: z.ZodType;
@@ -65,6 +74,22 @@ const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 
 // 1 hour: matches the exposure window the web viewer's signPaths accepts.
 const SIGNED_URL_EXPIRES_IN = 3600;
+
+const READ_ONLY = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+} as const;
+const IDEMPOTENT_WRITE = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+} as const;
+const NON_IDEMPOTENT_WRITE = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+} as const;
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -138,19 +163,19 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
     },
     argsSchema: z.object({ deck_id: IdSchema.nullish() }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const requestedDeckId = optStr(args.deck_id);
-      const decks = await loadWordDecks(ctx.supabase, ctx.userId, {
-        includeSystem: true,
-        limit: 100,
-      });
+      const authorized = await listAuthorizedWordDecks(ctx);
       const visibleDecks = requestedDeckId
-        ? decks.filter(deck => deck.id === requestedDeckId)
-        : decks;
+        ? authorized.decks.filter(
+            deck => deck.id === requestedDeckId && deck.permissions.can_read
+          )
+        : authorized.decks.filter(deck => deck.permissions.can_read);
       if (requestedDeckId && visibleDecks.length === 0) {
         throw new NotebookToolError(
-          'word_deck_not_found',
-          'Word deck not found',
+          'word_deck_permission_denied',
+          'AI has no permission to read that Word deck',
           404
         );
       }
@@ -164,6 +189,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           id: deck.id,
           title: deck.title,
           subject_id: deck.subject_id,
+          permissions: deck.permissions,
           summary: summaries[deck.id],
         })),
       };
@@ -182,6 +208,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     argsSchema: z.object({
       limit: z.number().int().min(1).max(50).nullish(),
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) =>
       loadWrongWords(ctx.supabase, ctx.userId, {
         limit: optNum(args.limit) ?? 20,
@@ -199,6 +226,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       required: ['session_id'],
     },
     argsSchema: z.object({ session_id: IdSchema }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => ({
       session: await loadWebWordStudySession(
         ctx.supabase,
@@ -222,6 +250,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     argsSchema: z.object({
       limit: z.number().int().min(1).max(20).nullish(),
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const limit = Math.min(Math.max(optNum(args.limit) ?? 10, 1), 20);
       const { data, error } = await ctx.supabase
@@ -272,6 +301,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       subject_id: IdSchema.nullish(),
       limit: z.number().int().min(1).max(5).nullish(),
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) =>
       searchUserProblems(ctx, {
         query: str(args.query),
@@ -293,6 +323,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     argsSchema: z.object({
       problem_id: IdSchema,
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const problemId = str(args.problem_id);
       const { data, error } = await ctx.supabase
@@ -372,6 +403,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         .regex(/^[A-Za-z0-9_-]{16,64}$/, 'must be 16-64 URL-safe characters')
         .nullish(),
     }),
+    annotations: NON_IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
       // ProblemObservationRequest is the device-protocol shape; only
       // request_id/problem_id/action/occurred_at reach the RPC. The metadata
@@ -403,6 +435,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       '列出当前用户授权给 AI 访问的空白笔记本及各自的读/写权限。读笔记前先调它确认 can_read。',
     inputSchema: { type: 'object', properties: {} },
     argsSchema: z.object({}),
+    annotations: READ_ONLY,
     handler: async ctx => listAuthorizedNotebooks(ctx),
   },
   {
@@ -428,6 +461,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       cursor: z.string().min(1).max(512).nullish(),
       limit: z.number().int().min(1).max(100).nullish(),
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const notebookId = str(args.notebook_id);
       await requireNotebookAiRead(ctx, notebookId);
@@ -461,7 +495,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'get_note',
     description:
-      '读取某条笔记的全文与共享阅读状态（纯文本，最多 4000 字符）。需要该笔记本的 can_read 授权。',
+      '读取某条笔记的全文、revision 与共享阅读状态（纯文本，最多 4000 字符）。需要该笔记本的 can_read 授权；更新时把 revision 传给 expected_revision。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -474,6 +508,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       notebook_id: IdSchema,
       note_id: IdSchema,
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const notebookId = str(args.notebook_id);
       await requireNotebookAiRead(ctx, notebookId);
@@ -487,6 +522,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         note: {
           id: note.id,
           notebook_id: note.notebook_id,
+          revision: note.revision,
           title: note.title,
           content: note.content,
           linked_problem_id: note.linked_problem_id,
@@ -497,6 +533,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
             completed_count: 0,
           },
           image_count: note.assets.length,
+          image_assets: await signAssetUrls(ctx, note.assets),
           created_at: note.created_at,
           updated_at: note.updated_at,
         },
@@ -531,6 +568,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         .regex(/^[A-Za-z0-9_-]{8,128}$/, 'must be 8-128 URL-safe characters')
         .nullish(),
     }),
+    annotations: NON_IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
       const result = await createNotebookNoteFromAi(ctx, {
         notebook_id: str(args.notebook_id),
@@ -564,6 +602,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       subject_id: IdSchema.nullish(),
       limit: z.number().int().min(1).max(50).nullish(),
     }),
+    annotations: READ_ONLY,
     handler: async (ctx, args) => {
       const todos = await loadTodos(ctx.supabase, ctx.userId, {
         status: (optStr(args.status) as TodoStatus | 'all') || 'pending',
@@ -592,8 +631,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         due_at: { type: 'string', description: '可选 ISO 时间' },
         reminder_at: { type: 'string', description: '可选 ISO 时间' },
         subject_id: { type: 'string', description: '可选科目 ID' },
+        problem_set_id: { type: 'string', description: '可选错题集 ID' },
         problem_id: { type: 'string', description: '可选错题 ID' },
         notebook_id: { type: 'string', description: '可选空白笔记本 ID' },
+        note_id: { type: 'string', description: '可选 Note ID' },
         word_deck_id: { type: 'string', description: '可选 Word 词库 ID' },
         word_entry_id: { type: 'string', description: '可选 Word 词条 ID' },
       },
@@ -606,11 +647,14 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       due_at: IsoDateTimeSchema.nullish(),
       reminder_at: IsoDateTimeSchema.nullish(),
       subject_id: IdSchema.nullish(),
+      problem_set_id: IdSchema.nullish(),
       problem_id: IdSchema.nullish(),
       notebook_id: IdSchema.nullish(),
+      note_id: IdSchema.nullish(),
       word_deck_id: IdSchema.nullish(),
       word_entry_id: IdSchema.nullish(),
     }),
+    annotations: NON_IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
       const todo = await createTodo(ctx.supabase, ctx.userId, {
         title: str(args.title),
@@ -619,8 +663,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         due_at: optStr(args.due_at) ?? null,
         reminder_at: optStr(args.reminder_at) ?? null,
         subject_id: optStr(args.subject_id) ?? null,
+        problem_set_id: optStr(args.problem_set_id) ?? null,
         problem_id: optStr(args.problem_id) ?? null,
         notebook_id: optStr(args.notebook_id) ?? null,
+        note_id: optStr(args.note_id) ?? null,
         word_deck_id: optStr(args.word_deck_id) ?? null,
         word_entry_id: optStr(args.word_entry_id) ?? null,
         source: 'ai',
@@ -650,6 +696,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       todo_id: IdSchema,
       status: z.enum(['pending', 'completed', 'cancelled']),
     }),
+    annotations: IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
       const todo = await updateTodoStatus(
         ctx.supabase,
@@ -660,6 +707,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       return { todo };
     },
   },
+  ...MCP_TOOL_EXTENSIONS,
 ];
 
 export function findMcpTool(name: string): McpToolDefinition | undefined {

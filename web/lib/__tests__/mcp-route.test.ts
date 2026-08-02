@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from '@/app/api/mcp/route';
+import { MCP_TOOLS } from '@/lib/mcp/tool-registry';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 
 const { mockAuthenticate, mockFrom, mockRpc } = vi.hoisted(() => ({
@@ -93,11 +94,40 @@ describe('/api/mcp JSON-RPC dispatch', () => {
       mcpRequest({ jsonrpc: '2.0', id: 3, method: 'tools/list' })
     );
     const json = await res.json();
-    expect(json.result.tools).toHaveLength(14);
+    expect(json.result.tools).toHaveLength(MCP_TOOLS.length);
     for (const tool of json.result.tools) {
       expect(tool.name).toBeTruthy();
       expect(tool.inputSchema.type).toBe('object');
+      expect(tool.outputSchema.type).toBe('object');
+      expect(tool.annotations).toMatchObject({
+        readOnlyHint: expect.any(Boolean),
+        destructiveHint: false,
+        idempotentHint: expect.any(Boolean),
+      });
     }
+  });
+
+  it('tools/call returns text and structured content on success', async () => {
+    const builder: any = {};
+    for (const method of ['select', 'eq', 'is', 'lte', 'order', 'limit']) {
+      builder[method] = vi.fn(() => builder);
+    }
+    builder.then = (resolve: (value: unknown) => unknown) =>
+      Promise.resolve({ data: [], error: null }).then(resolve);
+    mockFrom.mockReturnValue(builder);
+
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'tools/call',
+        params: { name: 'list_todos', arguments: {} },
+      })
+    );
+    const json = await res.json();
+    expect(json.result.isError).toBe(false);
+    expect(JSON.parse(json.result.content[0].text)).toEqual({ todos: [] });
+    expect(json.result.structuredContent).toEqual({ todos: [] });
   });
 
   it('unknown methods return -32601', async () => {
@@ -236,6 +266,11 @@ describe('/api/mcp JSON-RPC dispatch', () => {
     const json = await res.json();
     expect(json.result.isError).toBe(true);
     expect(json.result.content[0].text).toContain('notebook_permission_denied');
+    expect(json.result.structuredContent.error).toEqual({
+      code: 'notebook_permission_denied',
+      message: expect.any(String),
+      retryable: false,
+    });
   });
 
   it('GET is rejected with 405 (stateless server, no SSE)', async () => {
