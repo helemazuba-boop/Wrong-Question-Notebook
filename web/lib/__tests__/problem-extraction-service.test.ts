@@ -19,6 +19,7 @@ vi.mock('@/lib/timezone-utils', async importOriginal => ({
 
 import {
   extractProblemFromImages,
+  PROBLEM_EXTRACTION_JSON_SCHEMA,
   PROBLEM_EXTRACTION_SYSTEM_PROMPT,
 } from '@/lib/problem-extraction-service';
 
@@ -94,6 +95,18 @@ describe('problem extraction service', () => {
     expect(PROBLEM_EXTRACTION_SYSTEM_PROMPT).toContain(
       'every backslash in KaTeX must be escaped'
     );
+    expect(PROBLEM_EXTRACTION_JSON_SCHEMA.required).toEqual([
+      'title',
+      'content',
+      'parts',
+      'suggest_image_asset',
+      'suggested_tags',
+      'confidence',
+    ]);
+    expect(PROBLEM_EXTRACTION_JSON_SCHEMA.properties.parts).toMatchObject({
+      minItems: 1,
+      maxItems: 10,
+    });
   });
 
   it('rejects invalid image counts and decoded size before spending quota', async () => {

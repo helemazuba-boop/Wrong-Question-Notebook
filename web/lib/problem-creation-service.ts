@@ -9,7 +9,12 @@ import {
   type ProblemExtractionImage,
   type ProblemExtractionResult,
 } from '@/lib/problem-extraction-service';
-import type { ExtractedPart, ParsedExtraction } from '@/lib/problem-extraction';
+import {
+  parsePastedExtraction,
+  type ExtractedPart,
+  type ParsedExtraction,
+  type ProblemExtraction,
+} from '@/lib/problem-extraction';
 import type { ProblemAsset } from '@/lib/schemas';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 import {
@@ -18,15 +23,24 @@ import {
 } from '@/lib/subject-presets';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 
-export interface CreateProblemFromImagesInput {
+interface CreateProblemInputBase {
   request_id: string;
-  images: ProblemExtractionImage[];
   subject_id?: string | null;
   problem_set_id?: string | null;
+}
+
+export interface CreateProblemFromImagesInput extends CreateProblemInputBase {
+  images: ProblemExtractionImage[];
   save_source_images?: boolean;
 }
 
-export interface CreatedProblemFromImages {
+export type CreateProblemInput = CreateProblemInputBase & ProblemExtraction;
+
+type CreateProblemSourceInput =
+  | ({ source_kind: 'images' } & CreateProblemFromImagesInput)
+  | ({ source_kind: 'structured' } & CreateProblemInput);
+
+export interface CreatedProblem {
   problem: {
     id: string;
     subject_id: string;
@@ -47,6 +61,8 @@ export interface CreatedProblemFromImages {
   replayed: boolean;
   quota: ProblemExtractionResult['quota'] | null;
 }
+
+export type CreatedProblemFromImages = CreatedProblem;
 
 export class ProblemCreationServiceError extends Error {
   constructor(
@@ -84,17 +100,67 @@ function imageFingerprint(images: ProblemExtractionImage[]): string[] {
   );
 }
 
-function requestFingerprint(input: CreateProblemFromImagesInput): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        subject_id: input.subject_id ?? null,
-        problem_set_id: input.problem_set_id ?? null,
-        save_source_images: input.save_source_images ?? null,
-        images: imageFingerprint(input.images),
-      })
-    )
-    .digest('hex');
+function requestFingerprint(
+  input: CreateProblemSourceInput,
+  structuredProblem?: ParsedExtraction
+): string {
+  const payload =
+    input.source_kind === 'images'
+      ? {
+          // Keep the original image fingerprint shape stable so requests
+          // created before the structured tool existed remain replayable.
+          subject_id: input.subject_id ?? null,
+          problem_set_id: input.problem_set_id ?? null,
+          save_source_images: input.save_source_images ?? null,
+          images: imageFingerprint(input.images),
+        }
+      : {
+          source_kind: 'structured',
+          subject_id: input.subject_id ?? null,
+          problem_set_id: input.problem_set_id ?? null,
+          problem: {
+            title: structuredProblem?.title,
+            content: structuredProblem?.content,
+            parts: structuredProblem?.parts,
+            suggest_image_asset: structuredProblem?.suggest_image_asset,
+            new_tag_names: structuredProblem?.new_tag_names,
+            confidence: structuredProblem?.confidence ?? null,
+          },
+        };
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function prepareStructuredProblem(input: CreateProblemInput): ParsedExtraction {
+  const parsed = parsePastedExtraction(
+    JSON.stringify({
+      title: input.title,
+      content: input.content,
+      parts: input.parts,
+      suggest_image_asset: input.suggest_image_asset,
+      suggested_tags: input.suggested_tags ?? null,
+      confidence: input.confidence,
+    })
+  );
+  if (!parsed.ok) {
+    throw new ProblemCreationServiceError(
+      'invalid_problem_structure',
+      `Problem structure is invalid: ${parsed.detail}`,
+      400
+    );
+  }
+  const title = parsed.data.title.trim().slice(0, 50);
+  if (!title) {
+    throw new ProblemCreationServiceError(
+      'invalid_problem_structure',
+      'Problem structure is invalid: title must not be blank',
+      400
+    );
+  }
+  return {
+    ...parsed.data,
+    title,
+    new_tag_names: parsed.data.new_tag_names.slice(0, 5),
+  };
 }
 
 async function resolveSubject(
@@ -357,13 +423,36 @@ async function materializeTags(
   supabase: SupabaseClient<Database>,
   userId: string,
   subjectId: string,
-  extraction: ProblemExtractionResult
+  extraction: ParsedExtraction
 ): Promise<{
   tags: Array<{ id: string; name: string }>;
   warnings: string[];
 }> {
-  const tags = [...extraction.suggested_tags.existing];
-  const suggestions = extraction.suggested_tags.new.slice(0, 5);
+  const { data: existingRows, error: existingError } = await supabase
+    .from('tags')
+    .select('id, name')
+    .eq('user_id', userId)
+    .eq('subject_id', subjectId)
+    .order('name')
+    .limit(100);
+  if (existingError) {
+    throw new ProblemCreationServiceError(
+      'tag_lookup_failed',
+      existingError.message,
+      500,
+      true
+    );
+  }
+  const existingByName = new Map(
+    (existingRows ?? []).map(tag => [tag.name.toLocaleLowerCase(), tag])
+  );
+  const tags: Array<{ id: string; name: string }> = [];
+  const suggestions: Array<{ name: string }> = [];
+  for (const name of extraction.new_tag_names.slice(0, 5)) {
+    const existing = existingByName.get(name.toLocaleLowerCase());
+    if (existing) tags.push(existing);
+    else suggestions.push({ name });
+  }
   const tagLimit =
     suggestions.length > 0
       ? await checkContentLimit(
@@ -504,7 +593,7 @@ async function loadExistingProblem(
   userId: string,
   problemId: string,
   fingerprint: string
-): Promise<CreatedProblemFromImages | null> {
+): Promise<CreatedProblem | null> {
   const { data, error } = await supabase
     .from('problems')
     .select(
@@ -589,13 +678,17 @@ async function loadExistingProblem(
   };
 }
 
-export async function createProblemFromImages(
+async function createProblemFromSource(
   supabase: SupabaseClient<Database>,
   userId: string,
-  input: CreateProblemFromImagesInput
-): Promise<CreatedProblemFromImages> {
+  input: CreateProblemSourceInput
+): Promise<CreatedProblem> {
+  const structuredProblem =
+    input.source_kind === 'structured'
+      ? prepareStructuredProblem(input)
+      : undefined;
   const problemId = deterministicProblemId(userId, input.request_id);
-  const fingerprint = requestFingerprint(input);
+  const fingerprint = requestFingerprint(input, structuredProblem);
   const replay = await loadExistingProblem(
     supabase,
     userId,
@@ -625,25 +718,38 @@ export async function createProblemFromImages(
     );
   }
 
-  const extraction = await extractProblemFromImages(
-    supabase,
-    userId,
-    input.images,
-    resolved.subjectId
-  );
+  const prepared: {
+    extraction: ParsedExtraction;
+    quota: ProblemExtractionResult['quota'] | null;
+  } =
+    input.source_kind === 'images'
+      ? await extractProblemFromImages(
+          supabase,
+          userId,
+          input.images,
+          resolved.subjectId
+        )
+      : { extraction: structuredProblem!, quota: null };
   const shouldSaveImages =
-    input.save_source_images ?? extraction.extraction.suggest_image_asset;
-  if (
-    extraction.extraction.suggest_image_asset &&
-    input.save_source_images === false
-  ) {
-    throw new ProblemCreationServiceError(
-      'image_asset_required',
-      'The extracted problem depends on visual content, so source images must be saved',
-      422
-    );
+    input.source_kind === 'images' &&
+    (input.save_source_images ?? prepared.extraction.suggest_image_asset);
+  if (prepared.extraction.suggest_image_asset) {
+    if (input.source_kind === 'structured') {
+      throw new ProblemCreationServiceError(
+        'image_asset_required',
+        'The structured problem depends on visual content that was not supplied',
+        422
+      );
+    }
+    if (input.save_source_images === false) {
+      throw new ProblemCreationServiceError(
+        'image_asset_required',
+        'The extracted problem depends on visual content, so source images must be saved',
+        422
+      );
+    }
   }
-  if (shouldSaveImages) {
+  if (input.source_kind === 'images' && shouldSaveImages) {
     const storageLimit = await checkContentLimit(
       userId,
       CONTENT_LIMIT_CONSTANTS.RESOURCE_TYPES.STORAGE_BYTES
@@ -663,24 +769,26 @@ export async function createProblemFromImages(
     supabase,
     userId,
     resolved.subjectId,
-    extraction
+    prepared.extraction
   );
   const { tags } = tagMaterialization;
-  const assets = shouldSaveImages
-    ? await uploadSourceImages(supabase, userId, problemId, input.images)
-    : [];
-  const parts = extraction.extraction.parts.map(part =>
-    storedPart(part, extraction.extraction.parts.length)
+  const assets =
+    input.source_kind === 'images' && shouldSaveImages
+      ? await uploadSourceImages(supabase, userId, problemId, input.images)
+      : [];
+  const parts = prepared.extraction.parts.map(part =>
+    storedPart(part, prepared.extraction.parts.length)
   ) as Json;
   const source = {
     actor: 'mcp',
+    mcp_source_kind: input.source_kind,
     mcp_request_id: input.request_id,
     mcp_request_fingerprint: fingerprint,
     mcp_problem_set_id: resolved.problemSetId,
     mcp_tag_ids: tags.map(tag => tag.id),
     mcp_creation_warnings: tagMaterialization.warnings,
-    suggest_image_asset: extraction.extraction.suggest_image_asset,
-    extraction_confidence: extraction.extraction.confidence ?? null,
+    suggest_image_asset: prepared.extraction.suggest_image_asset,
+    extraction_confidence: prepared.extraction.confidence ?? null,
   } as Json;
   const { data: created, error } = await supabase
     .from('problems')
@@ -688,8 +796,8 @@ export async function createProblemFromImages(
       id: problemId,
       user_id: userId,
       subject_id: resolved.subjectId,
-      title: extraction.extraction.title,
-      content: extractionContent(extraction.extraction),
+      title: prepared.extraction.title,
+      content: extractionContent(prepared.extraction),
       parts,
       source,
       is_optional: false,
@@ -732,15 +840,37 @@ export async function createProblemFromImages(
       tags,
     },
     extraction: {
-      suggest_image_asset: extraction.extraction.suggest_image_asset,
-      confidence: extraction.extraction.confidence,
+      suggest_image_asset: prepared.extraction.suggest_image_asset,
+      confidence: prepared.extraction.confidence,
       warnings: [
-        ...(extraction.extraction.confidence?.warnings ?? []),
+        ...(prepared.extraction.confidence?.warnings ?? []),
         ...tagMaterialization.warnings,
       ],
     },
     problem_set_id: resolved.problemSetId,
     replayed: false,
-    quota: extraction.quota,
+    quota: prepared.quota,
   };
+}
+
+export async function createProblemFromImages(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  input: CreateProblemFromImagesInput
+): Promise<CreatedProblem> {
+  return createProblemFromSource(supabase, userId, {
+    ...input,
+    source_kind: 'images',
+  });
+}
+
+export async function createProblem(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  input: CreateProblemInput
+): Promise<CreatedProblem> {
+  return createProblemFromSource(supabase, userId, {
+    ...input,
+    source_kind: 'structured',
+  });
 }

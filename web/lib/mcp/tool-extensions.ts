@@ -44,8 +44,17 @@ import {
   updateTodo,
   type TodoPriority,
 } from '@/lib/todos';
-import { createProblemFromImages } from '@/lib/problem-creation-service';
-import { PROBLEM_EXTRACTION_MIME_TYPES } from '@/lib/problem-extraction-service';
+import {
+  createProblem,
+  createProblemFromImages,
+  type CreateProblemInput,
+} from '@/lib/problem-creation-service';
+import {
+  PROBLEM_EXTRACTION_JSON_SCHEMA,
+  PROBLEM_EXTRACTION_MIME_TYPES,
+  PROBLEM_EXTRACTION_SYSTEM_PROMPT,
+} from '@/lib/problem-extraction-service';
+import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -62,6 +71,16 @@ const CursorSchema = z
   .refine(value => Number(value) <= 10_000, 'cursor is too large');
 const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 const MAX_BASE64_IMAGE_CHARS = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
+const CreateProblemToolArgsSchema = z.union([
+  z.object({ get_prompt: z.literal(true) }),
+  ProblemExtractionSchema.extend({
+    get_prompt: z.literal(false).optional(),
+    title: z.string().trim().min(1).max(200),
+    request_id: RequestIdSchema,
+    subject_id: UuidSchema.nullish(),
+    problem_set_id: UuidSchema.nullish(),
+  }),
+]);
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -668,6 +687,61 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         has_more: offset + (data?.length || 0) < total,
         total,
       };
+    },
+  },
+  {
+    name: 'create_problem',
+    description:
+      '两阶段新增错题：先只传 get_prompt=true 获取完整题目识别 Prompt；调用方按 Prompt 阅读图片或文本后，再省略 get_prompt（或传 false）并提交壳题干、1-10 个 typed parts、可见答案提示、标签和置信度。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        get_prompt: {
+          type: 'boolean',
+          description:
+            '设为 true 时只返回完整识别 Prompt，不创建错题；创建时省略或设为 false',
+        },
+        request_id: {
+          type: 'string',
+          description: '16-64 位 URL-safe 幂等 ID；重试必须复用',
+        },
+        ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties,
+        title: {
+          ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties.title,
+          minLength: 1,
+          description: '题目主题摘要；不含题号和数学公式',
+        },
+        subject_id: { type: 'string', description: '可选科目 ID' },
+        problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+      },
+      oneOf: [
+        {
+          properties: { get_prompt: { const: true } },
+          required: ['get_prompt'],
+        },
+        {
+          properties: { get_prompt: { const: false } },
+          required: ['request_id', 'title', 'parts'],
+        },
+      ],
+    },
+    argsSchema: CreateProblemToolArgsSchema,
+    annotations: IDEMPOTENT_WRITE,
+    handler: async (ctx, args) => {
+      if (args.get_prompt === true) {
+        return {
+          prompt: PROBLEM_EXTRACTION_SYSTEM_PROMPT,
+          next_step:
+            'Apply this prompt to the source material, then call create_problem again with get_prompt=false, a 16-64 character URL-safe request_id, and the resulting structured fields. Reuse the same request_id for retries.',
+        };
+      }
+      const extraction = ProblemExtractionSchema.parse(args);
+      return createProblem(ctx.supabase, ctx.userId, {
+        request_id: str(args.request_id),
+        ...extraction,
+        subject_id: optionalString(args.subject_id) ?? null,
+        problem_set_id: optionalString(args.problem_set_id) ?? null,
+      } satisfies CreateProblemInput);
     },
   },
   {

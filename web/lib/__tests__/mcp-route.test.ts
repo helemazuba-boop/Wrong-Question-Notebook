@@ -130,6 +130,30 @@ describe('/api/mcp JSON-RPC dispatch', () => {
     expect(json.result.structuredContent).toEqual({ todos: [] });
   });
 
+  it('create_problem returns its extraction prompt without database access', async () => {
+    const res = await POST(
+      mcpRequest({
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'tools/call',
+        params: {
+          name: 'create_problem',
+          arguments: { get_prompt: true },
+        },
+      })
+    );
+    const json = await res.json();
+    expect(json.result.isError).toBe(false);
+    expect(json.result.structuredContent).toMatchObject({
+      prompt: expect.stringContaining(
+        'Extract faithfully. Do NOT solve the problem.'
+      ),
+      next_step: expect.stringContaining('call create_problem again'),
+    });
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
   it('unknown methods return -32601', async () => {
     const res = await POST(
       mcpRequest({ jsonrpc: '2.0', id: 4, method: 'resources/list' })

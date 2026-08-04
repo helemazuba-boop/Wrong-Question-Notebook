@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'crypto';
 
 const mocks = vi.hoisted(() => ({
   extractProblemFromImages: vi.fn(),
@@ -29,7 +30,10 @@ vi.mock('@/lib/math-to-tiptap', () => ({
   convertMathTextToTipTapHtml: mocks.convertMathTextToTipTapHtml,
 }));
 
-import { createProblemFromImages } from '@/lib/problem-creation-service';
+import {
+  createProblem,
+  createProblemFromImages,
+} from '@/lib/problem-creation-service';
 
 const USER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SUBJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -71,6 +75,36 @@ function extraction(overrides: Record<string, unknown> = {}) {
       new: [{ name: 'motion' }],
     },
     quota: { allowed: true, current: 1, limit: 10, remaining: 9 },
+  };
+}
+
+function structuredProblem(overrides: Record<string, unknown> = {}) {
+  return {
+    title: 'Visible Choice',
+    content: '',
+    parts: [
+      {
+        index: 1,
+        label: null,
+        type: 'single_choice' as const,
+        content: 'Choose one.',
+        full_marks: 2,
+        mcq_choices: [
+          { id: 'A', text: '$1$' },
+          { id: 'B', text: '$2$' },
+        ],
+        answer_hint: null,
+      },
+    ],
+    suggest_image_asset: false,
+    suggested_tags: { new_tag_names: ['motion'] },
+    confidence: {
+      problem_type_confidence: 'high' as const,
+      content_quality: 'clear' as const,
+      has_math: true,
+      warnings: [],
+    },
+    ...overrides,
   };
 }
 
@@ -277,6 +311,24 @@ describe('createProblemFromImages', () => {
     expect(state.tagLinks.size).toBe(1);
     expect(state.setLinked).toBe(true);
     expect(state.reviewCreated).toBe(true);
+    const legacyImageHash = createHash('sha256')
+      .update(IMAGE.mime_type)
+      .update('\0')
+      .update(IMAGE.data)
+      .digest('hex');
+    const legacyFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          subject_id: SUBJECT_ID,
+          problem_set_id: SET_ID,
+          save_source_images: null,
+          images: [legacyImageHash],
+        })
+      )
+      .digest('hex');
+    expect(state.problem.source.mcp_request_fingerprint).toBe(
+      legacyFingerprint
+    );
   });
 
   it('resumes incomplete relation writes before returning a replay', async () => {
@@ -411,5 +463,154 @@ describe('createProblemFromImages', () => {
     expect((result.problem.parts as any)[0]).not.toHaveProperty(
       'answer_config'
     );
+  });
+});
+
+describe('createProblem', () => {
+  it('saves a structured problem without model inference, quota, or image assets', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0001',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+      problem_set_id: SET_ID,
+    };
+    const first = await createProblem(supabase, USER_ID, input);
+    const replay = await createProblem(supabase, USER_ID, input);
+
+    expect(first.problem.assets).toEqual([]);
+    expect(first.quota).toBeNull();
+    expect(state.uploads).toEqual([]);
+    expect(state.problem.source).toMatchObject({
+      actor: 'mcp',
+      mcp_source_kind: 'structured',
+    });
+    expect(state.tagLinks.size).toBe(1);
+    expect(state.setLinked).toBe(true);
+    expect(state.reviewCreated).toBe(true);
+    expect(replay.replayed).toBe(true);
+    expect(mocks.extractProblemFromImages).not.toHaveBeenCalled();
+  });
+
+  it('normalizes part order and discards low-confidence answer hints', async () => {
+    const { supabase, state } = makeSupabase();
+    const result = await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0002',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 9,
+            label: '(2)',
+            type: 'fill_blank',
+            content: 'Second part.',
+            answer_hint: {
+              short_answer_value: '42',
+              short_answer_is_numeric: true,
+              answer_confidence: 'high',
+            },
+          },
+          {
+            index: 3,
+            label: '(1)',
+            type: 'short_answer',
+            content: 'First part.',
+            answer_hint: {
+              short_answer_value: 'uncertain',
+              short_answer_is_numeric: false,
+              answer_confidence: 'low',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    });
+
+    expect(state.problem.parts).toEqual([
+      expect.objectContaining({ index: 1, label: '(1)' }),
+      expect.objectContaining({
+        index: 2,
+        label: '(2)',
+        correct_answer: '42',
+      }),
+    ]);
+    expect(state.problem.parts[0]).not.toHaveProperty('correct_answer');
+    expect(result.problem.content.indexOf('First part.')).toBeLessThan(
+      result.problem.content.indexOf('Second part.')
+    );
+  });
+
+  it('rejects structured input that depends on missing visual content', async () => {
+    const { supabase, state } = makeSupabase();
+    await expect(
+      createProblem(supabase, USER_ID, {
+        request_id: 'create_structured_problem_0003',
+        ...structuredProblem({ suggest_image_asset: true }),
+        subject_id: SUBJECT_ID,
+      })
+    ).rejects.toMatchObject({
+      code: 'image_asset_required',
+      status: 422,
+    });
+    expect(state.problem).toBeNull();
+    expect(mocks.extractProblemFromImages).not.toHaveBeenCalled();
+  });
+
+  it('rejects a blank normalized title before persistence', async () => {
+    const { supabase, state } = makeSupabase();
+    await expect(
+      createProblem(supabase, USER_ID, {
+        request_id: 'create_structured_problem_blank_title',
+        ...structuredProblem({ title: '   ' }),
+        subject_id: SUBJECT_ID,
+      })
+    ).rejects.toMatchObject({
+      code: 'invalid_problem_structure',
+      status: 400,
+    });
+    expect(state.problem).toBeNull();
+  });
+
+  it('rejects changed structured input under the same request_id', async () => {
+    const { supabase } = makeSupabase();
+    const requestId = 'create_structured_problem_0004';
+    await createProblem(supabase, USER_ID, {
+      request_id: requestId,
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+    });
+    await expect(
+      createProblem(supabase, USER_ID, {
+        request_id: requestId,
+        ...structuredProblem({ title: 'Different title' }),
+        subject_id: SUBJECT_ID,
+      })
+    ).rejects.toMatchObject({ code: 'request_id_reused', status: 409 });
+  });
+
+  it('does not allow one request_id to switch between image and structured sources', async () => {
+    const { supabase } = makeSupabase();
+    const requestId = 'create_problem_cross_source_0001';
+    await createProblemFromImages(supabase, USER_ID, {
+      request_id: requestId,
+      images: [IMAGE],
+      subject_id: SUBJECT_ID,
+    });
+    await expect(
+      createProblem(supabase, USER_ID, {
+        request_id: requestId,
+        ...structuredProblem(),
+        subject_id: SUBJECT_ID,
+      })
+    ).rejects.toMatchObject({ code: 'request_id_reused', status: 409 });
+  });
+
+  it('uses the uncategorized subject when subject is omitted', async () => {
+    const { supabase, state } = makeSupabase();
+    const result = await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0005',
+      ...structuredProblem(),
+    });
+    expect(mocks.ensurePresetSubjects).toHaveBeenCalledWith(supabase, USER_ID);
+    expect(result.problem.subject_id).toBe(state.subjectId);
   });
 });

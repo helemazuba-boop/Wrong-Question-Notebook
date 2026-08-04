@@ -133,7 +133,7 @@ const ANSWER_HINT_RESPONSE_SCHEMA = {
   ] as const,
 };
 
-const PROBLEM_EXTRACTION_RESPONSE_SCHEMA = {
+export const PROBLEM_EXTRACTION_JSON_SCHEMA = {
   type: 'object' as const,
   properties: {
     title: { type: 'string' as const },
@@ -359,7 +359,7 @@ export async function extractProblemFromImages(
       config: {
         systemInstruction: promptWithTagContext(existingTags),
         responseMimeType: 'application/json',
-        responseSchema: PROBLEM_EXTRACTION_RESPONSE_SCHEMA,
+        responseSchema: PROBLEM_EXTRACTION_JSON_SCHEMA,
       },
     });
     text = result.text;

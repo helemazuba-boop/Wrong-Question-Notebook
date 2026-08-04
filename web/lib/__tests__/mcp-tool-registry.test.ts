@@ -13,6 +13,7 @@ const PROBLEM_ID = '33333333-3333-4333-8333-333333333333';
 const MCP_TOOL_NAMES = [
   'add_word_entry',
   'create_notebook_note',
+  'create_problem',
   'create_problem_from_images',
   'create_todo',
   'get_learning_overview',
@@ -120,6 +121,9 @@ describe('MCP_TOOLS registry shape', () => {
     expect(
       findMcpTool('create_problem_from_images')?.annotations?.idempotentHint
     ).toBe(true);
+    expect(findMcpTool('create_problem')?.annotations?.idempotentHint).toBe(
+      true
+    );
   });
 
   it('every tool carries a JSON Schema object and a description', () => {
@@ -209,6 +213,95 @@ describe('MCP_TOOLS registry shape', () => {
       expect(properties).toHaveProperty('sequence');
       expect(tool.argsSchema.safeParse({ sequence: -1 }).success).toBe(false);
     }
+  });
+
+  it('validates structured problem creation boundaries', () => {
+    const create = findMcpTool('create_problem')!;
+    const valid = {
+      request_id: 'create_problem_direct_0001',
+      title: 'Prime Numbers',
+      content: '',
+      parts: [
+        {
+          index: 1,
+          label: null,
+          type: 'short_answer',
+          content: 'State a prime number.',
+          full_marks: null,
+          answer_hint: null,
+        },
+      ],
+      suggest_image_asset: false,
+      suggested_tags: { new_tag_names: ['number theory'] },
+      confidence: {
+        problem_type_confidence: 'high',
+        content_quality: 'clear',
+        has_math: false,
+        warnings: [],
+      },
+    };
+    expect(create.argsSchema.safeParse({ get_prompt: true }).success).toBe(
+      true
+    );
+    expect(create.argsSchema.safeParse({ get_prompt: false }).success).toBe(
+      false
+    );
+    expect(create.argsSchema.safeParse({ get_prompt: 'yes' }).success).toBe(
+      false
+    );
+    expect(create.argsSchema.safeParse(valid).success).toBe(true);
+    expect(
+      create.argsSchema.safeParse({ ...valid, get_prompt: false }).success
+    ).toBe(true);
+    expect(
+      create.argsSchema.safeParse({ ...valid, title: '   ' }).success
+    ).toBe(false);
+    for (const required of ['request_id', 'title', 'parts']) {
+      const missing = { ...valid } as Record<string, unknown>;
+      delete missing[required];
+      expect(
+        create.argsSchema.safeParse(missing).success,
+        `missing ${required}`
+      ).toBe(false);
+    }
+    expect(
+      create.argsSchema.safeParse({
+        ...valid,
+        parts: [{ ...valid.parts[0], type: 'calculation' }],
+      }).success
+    ).toBe(false);
+    expect(
+      create.argsSchema.safeParse({
+        ...valid,
+        parts: Array.from({ length: 11 }, (_, index) => ({
+          ...valid.parts[0],
+          index: index + 1,
+        })),
+      }).success
+    ).toBe(false);
+    expect(
+      create.argsSchema.safeParse({ ...valid, problem_set_id: 'not-a-uuid' })
+        .success
+    ).toBe(false);
+    expect(
+      create.argsSchema.safeParse({ ...valid, suggest_image_asset: 'yes' })
+        .success
+    ).toBe(false);
+    expect(create.inputSchema.properties).toHaveProperty('suggest_image_asset');
+    expect(create.inputSchema).toHaveProperty('oneOf');
+  });
+
+  it('returns the shared extraction prompt without touching storage', async () => {
+    const ctx = ctxWith({});
+    const create = findMcpTool('create_problem')!;
+    const result = await create.handler(ctx, { get_prompt: true });
+    expect(result).toMatchObject({
+      prompt: expect.stringContaining(
+        'Extract faithfully. Do NOT solve the problem.'
+      ),
+      next_step: expect.stringContaining('call create_problem again'),
+    });
+    expect(ctx.supabase.from).not.toHaveBeenCalled();
   });
 });
 
