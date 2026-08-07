@@ -21,6 +21,10 @@ import {
 } from '@/lib/cache-invalidation';
 import { checkContentLimit } from '@/lib/content-limits';
 import { CONTENT_LIMIT_CONSTANTS, ERROR_MESSAGES } from '@/lib/constants';
+import {
+  createProblemMarkCopyMapping,
+  inheritProblemMarksBestEffort,
+} from '@/lib/problem-marks/copy';
 import { z } from 'zod';
 
 const CopyProblemBody = z.object({
@@ -282,10 +286,13 @@ async function copyProblem(
       );
     }
 
-    // Insert the copied problem
+    // Insert the copied problem with an explicit identity so semantic inheritance
+    // never relies on returned row ordering or content matching.
+    const markMapping = createProblemMarkCopyMapping(sourceProblem.id);
     const { data: copiedProblem, error: insertError } = await supabase
       .from('problems')
       .insert({
+        id: markMapping.destination_problem_id,
         user_id: user.id,
         subject_id: target_subject_id,
         title: sourceProblem.title,
@@ -333,6 +340,10 @@ async function copyProblem(
       }
     }
 
+    const markInheritance = await inheritProblemMarksBestEffort(serviceClient, [
+      markMapping,
+    ]);
+
     // Invalidate caches for new problem (and tags if copied)
     await Promise.all([
       revalidateUserSubjects(user.id),
@@ -359,6 +370,7 @@ async function copyProblem(
       createApiSuccessResponse({
         problem_id: copiedProblem.id,
         tag_count: tagCount,
+        marks: markInheritance,
       }),
       { status: 201 }
     );

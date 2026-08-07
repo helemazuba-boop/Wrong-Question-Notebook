@@ -120,6 +120,33 @@ export type Database = {
           },
         ];
       };
+      canonical_subjects: {
+        Row: {
+          aliases: string[];
+          created_at: string;
+          name: string;
+          stable_key: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          aliases?: string[];
+          created_at?: string;
+          name: string;
+          stable_key: string;
+          status: string;
+          updated_at?: string;
+        };
+        Update: {
+          aliases?: string[];
+          created_at?: string;
+          name?: string;
+          stable_key?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       content_limit_overrides: {
         Row: {
           created_at: string;
@@ -146,77 +173,6 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [];
-      };
-      esp32_devices: {
-        Row: {
-          access_token_hash: string;
-          config_revision: number;
-          created_at: string | null;
-          device_name: string | null;
-          firmware_version: string | null;
-          flash_session_expires_at: string | null;
-          flash_session_id: string | null;
-          hardware_id: string | null;
-          id: string;
-          last_boot_id: string | null;
-          last_protocol_version: string;
-          last_seen_at: string | null;
-          last_sync_at: string | null;
-          mac_address: string;
-          preferred_tier: string;
-          protocol_capabilities: Json;
-          sync_cursor: number;
-          user_id: string;
-        };
-        Insert: {
-          access_token_hash: string;
-          config_revision?: number;
-          created_at?: string | null;
-          device_name?: string | null;
-          firmware_version?: string | null;
-          flash_session_expires_at?: string | null;
-          flash_session_id?: string | null;
-          hardware_id?: string | null;
-          id?: string;
-          last_boot_id?: string | null;
-          last_protocol_version?: string;
-          last_seen_at?: string | null;
-          last_sync_at?: string | null;
-          mac_address: string;
-          preferred_tier?: string;
-          protocol_capabilities?: Json;
-          sync_cursor?: number;
-          user_id: string;
-        };
-        Update: {
-          access_token_hash?: string;
-          config_revision?: number;
-          created_at?: string | null;
-          device_name?: string | null;
-          firmware_version?: string | null;
-          flash_session_expires_at?: string | null;
-          flash_session_id?: string | null;
-          hardware_id?: string | null;
-          id?: string;
-          last_boot_id?: string | null;
-          last_protocol_version?: string;
-          last_seen_at?: string | null;
-          last_sync_at?: string | null;
-          mac_address?: string;
-          preferred_tier?: string;
-          protocol_capabilities?: Json;
-          sync_cursor?: number;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'esp32_devices_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: false;
-            referencedRelation: 'users';
-            referencedColumns: ['id'];
-          },
-        ];
       };
       device_claims: {
         Row: {
@@ -284,87 +240,10 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: 'device_claims_approved_by_fkey';
-            columns: ['approved_by'];
-            isOneToOne: false;
-            referencedRelation: 'users';
-            referencedColumns: ['id'];
-          },
-          {
             foreignKeyName: 'device_claims_device_id_fkey';
             columns: ['device_id'];
             isOneToOne: false;
             referencedRelation: 'esp32_devices';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      esp32_request_idempotency: {
-        Row: {
-          created_at: string;
-          device_id: string;
-          endpoint: string;
-          expires_at: string;
-          http_status: number;
-          request_fingerprint: string;
-          request_id: string;
-          response_body: Json;
-        };
-        Insert: {
-          created_at?: string;
-          device_id: string;
-          endpoint: string;
-          expires_at?: string;
-          http_status: number;
-          request_fingerprint: string;
-          request_id: string;
-          response_body: Json;
-        };
-        Update: {
-          created_at?: string;
-          device_id?: string;
-          endpoint?: string;
-          expires_at?: string;
-          http_status?: number;
-          request_fingerprint?: string;
-          request_id?: string;
-          response_body?: Json;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'esp32_request_idempotency_device_id_fkey';
-            columns: ['device_id'];
-            isOneToOne: false;
-            referencedRelation: 'esp32_devices';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      esp32_pairing_pending: {
-        Row: {
-          created_at: string | null;
-          device_name: string | null;
-          mac_address: string;
-          user_id: string;
-        };
-        Insert: {
-          created_at?: string | null;
-          device_name?: string | null;
-          mac_address: string;
-          user_id: string;
-        };
-        Update: {
-          created_at?: string | null;
-          device_name?: string | null;
-          mac_address?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'esp32_pairing_pending_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: false;
-            referencedRelation: 'users';
             referencedColumns: ['id'];
           },
         ];
@@ -451,6 +330,170 @@ export type Database = {
           },
         ];
       };
+      esp32_ai_conversations: {
+        Row: {
+          conversation_id: string;
+          created_at: string;
+          device_id: string | null;
+          id: string;
+          last_turn_at: string;
+          tier: string;
+          title: string | null;
+          turns: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          conversation_id: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          last_turn_at?: string;
+          tier?: string;
+          title?: string | null;
+          turns?: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          conversation_id?: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          last_turn_at?: string;
+          tier?: string;
+          title?: string | null;
+          turns?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      esp32_devices: {
+        Row: {
+          access_token_hash: string;
+          config_revision: number;
+          created_at: string | null;
+          device_name: string | null;
+          firmware_version: string | null;
+          flash_session_expires_at: string | null;
+          flash_session_id: string | null;
+          hardware_id: string | null;
+          id: string;
+          last_boot_id: string | null;
+          last_protocol_version: string;
+          last_seen_at: string | null;
+          last_sync_at: string | null;
+          mac_address: string;
+          preferred_tier: string;
+          protocol_capabilities: Json;
+          sync_cursor: number;
+          user_id: string;
+        };
+        Insert: {
+          access_token_hash: string;
+          config_revision?: number;
+          created_at?: string | null;
+          device_name?: string | null;
+          firmware_version?: string | null;
+          flash_session_expires_at?: string | null;
+          flash_session_id?: string | null;
+          hardware_id?: string | null;
+          id?: string;
+          last_boot_id?: string | null;
+          last_protocol_version?: string;
+          last_seen_at?: string | null;
+          last_sync_at?: string | null;
+          mac_address: string;
+          preferred_tier?: string;
+          protocol_capabilities?: Json;
+          sync_cursor?: number;
+          user_id: string;
+        };
+        Update: {
+          access_token_hash?: string;
+          config_revision?: number;
+          created_at?: string | null;
+          device_name?: string | null;
+          firmware_version?: string | null;
+          flash_session_expires_at?: string | null;
+          flash_session_id?: string | null;
+          hardware_id?: string | null;
+          id?: string;
+          last_boot_id?: string | null;
+          last_protocol_version?: string;
+          last_seen_at?: string | null;
+          last_sync_at?: string | null;
+          mac_address?: string;
+          preferred_tier?: string;
+          protocol_capabilities?: Json;
+          sync_cursor?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      esp32_pairing_pending: {
+        Row: {
+          created_at: string | null;
+          device_name: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          device_name?: string | null;
+          mac_address: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string | null;
+          device_name?: string | null;
+          mac_address?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      esp32_request_idempotency: {
+        Row: {
+          created_at: string;
+          device_id: string;
+          endpoint: string;
+          expires_at: string;
+          http_status: number;
+          request_fingerprint: string;
+          request_id: string;
+          response_body: Json;
+        };
+        Insert: {
+          created_at?: string;
+          device_id: string;
+          endpoint: string;
+          expires_at?: string;
+          http_status: number;
+          request_fingerprint: string;
+          request_id: string;
+          response_body: Json;
+        };
+        Update: {
+          created_at?: string;
+          device_id?: string;
+          endpoint?: string;
+          expires_at?: string;
+          http_status?: number;
+          request_fingerprint?: string;
+          request_id?: string;
+          response_body?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_request_idempotency_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       insight_digests: {
         Row: {
           created_at: string;
@@ -501,6 +544,501 @@ export type Database = {
           weak_spots?: Json;
         };
         Relationships: [];
+      };
+      knowledge_marks: {
+        Row: {
+          aliases: string[];
+          created_at: string;
+          description: string | null;
+          exclude_notes: string[];
+          include_notes: string[];
+          kind: string;
+          name: string;
+          parent_key: string | null;
+          stable_key: string;
+          status: string;
+          subject_key: string;
+          updated_at: string;
+        };
+        Insert: {
+          aliases?: string[];
+          created_at?: string;
+          description?: string | null;
+          exclude_notes?: string[];
+          include_notes?: string[];
+          kind: string;
+          name: string;
+          parent_key?: string | null;
+          stable_key: string;
+          status: string;
+          subject_key: string;
+          updated_at?: string;
+        };
+        Update: {
+          aliases?: string[];
+          created_at?: string;
+          description?: string | null;
+          exclude_notes?: string[];
+          include_notes?: string[];
+          kind?: string;
+          name?: string;
+          parent_key?: string | null;
+          stable_key?: string;
+          status?: string;
+          subject_key?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'knowledge_marks_parent_fkey';
+            columns: ['parent_key', 'subject_key', 'kind'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_marks';
+            referencedColumns: ['stable_key', 'subject_key', 'kind'];
+          },
+          {
+            foreignKeyName: 'knowledge_marks_subject_key_fkey';
+            columns: ['subject_key'];
+            isOneToOne: false;
+            referencedRelation: 'canonical_subjects';
+            referencedColumns: ['stable_key'];
+          },
+        ];
+      };
+      knowledge_registry_revisions: {
+        Row: {
+          applied: boolean;
+          completed_at: string;
+          content_sha256: string;
+          id: number;
+          mark_count: number;
+          schema_version: number;
+          source_repository: string;
+          source_sha: string;
+          subject_count: number;
+        };
+        Insert: {
+          applied: boolean;
+          completed_at?: string;
+          content_sha256: string;
+          id?: never;
+          mark_count: number;
+          schema_version: number;
+          source_repository: string;
+          source_sha: string;
+          subject_count: number;
+        };
+        Update: {
+          applied?: boolean;
+          completed_at?: string;
+          content_sha256?: string;
+          id?: never;
+          mark_count?: number;
+          schema_version?: number;
+          source_repository?: string;
+          source_sha?: string;
+          subject_count?: number;
+        };
+        Relationships: [];
+      };
+      knowledge_registry_state: {
+        Row: {
+          active_revision_id: number;
+          singleton: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          active_revision_id: number;
+          singleton?: boolean;
+          updated_at?: string;
+        };
+        Update: {
+          active_revision_id?: number;
+          singleton?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'knowledge_registry_state_active_revision_id_fkey';
+            columns: ['active_revision_id'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_registry_revisions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      note_change_log: {
+        Row: {
+          change_seq: number;
+          changed_at: string;
+          id: number;
+          note_id: string;
+          notebook_id: string;
+          operation: string;
+          revision: number;
+          user_id: string;
+        };
+        Insert: {
+          change_seq: number;
+          changed_at?: string;
+          id?: never;
+          note_id: string;
+          notebook_id: string;
+          operation: string;
+          revision: number;
+          user_id: string;
+        };
+        Update: {
+          change_seq?: number;
+          changed_at?: string;
+          id?: never;
+          note_id?: string;
+          notebook_id?: string;
+          operation?: string;
+          revision?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      note_read_state: {
+        Row: {
+          completed_count: number;
+          last_completed_at: string | null;
+          last_opened_at: string | null;
+          note_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          completed_count?: number;
+          last_completed_at?: string | null;
+          last_opened_at?: string | null;
+          note_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          completed_count?: number;
+          last_completed_at?: string | null;
+          last_opened_at?: string | null;
+          note_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'note_read_state_note_id_fkey';
+            columns: ['note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebook_notes';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebook_ai_access: {
+        Row: {
+          can_create: boolean;
+          can_read: boolean;
+          can_update: boolean;
+          created_at: string;
+          id: string;
+          notebook_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          id?: string;
+          notebook_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          id?: string;
+          notebook_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebook_ai_access_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebook_ai_audit_log: {
+        Row: {
+          content_sha256: string;
+          conversation_id: string | null;
+          created_at: string;
+          id: number;
+          linked_problem_id: string | null;
+          note_id: string;
+          notebook_id: string;
+          title: string;
+          user_id: string;
+        };
+        Insert: {
+          content_sha256: string;
+          conversation_id?: string | null;
+          created_at?: string;
+          id?: never;
+          linked_problem_id?: string | null;
+          note_id: string;
+          notebook_id: string;
+          title: string;
+          user_id: string;
+        };
+        Update: {
+          content_sha256?: string;
+          conversation_id?: string | null;
+          created_at?: string;
+          id?: never;
+          linked_problem_id?: string | null;
+          note_id?: string;
+          notebook_id?: string;
+          title?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      notebook_notes: {
+        Row: {
+          archived_at: string | null;
+          assets: Json;
+          client_request_id: string | null;
+          content: string;
+          content_format: string;
+          created_at: string;
+          id: string;
+          linked_problem_id: string | null;
+          metadata: Json;
+          notebook_id: string;
+          revision: number;
+          sort_index: number;
+          source: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          assets?: Json;
+          client_request_id?: string | null;
+          content: string;
+          content_format?: string;
+          created_at?: string;
+          id?: string;
+          linked_problem_id?: string | null;
+          metadata?: Json;
+          notebook_id: string;
+          revision?: number;
+          sort_index?: number;
+          source?: string;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          assets?: Json;
+          client_request_id?: string | null;
+          content?: string;
+          content_format?: string;
+          created_at?: string;
+          id?: string;
+          linked_problem_id?: string | null;
+          metadata?: Json;
+          notebook_id?: string;
+          revision?: number;
+          sort_index?: number;
+          source?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebook_notes_linked_problem_id_fkey';
+            columns: ['linked_problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'notebook_notes_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notebooks: {
+        Row: {
+          archived_at: string | null;
+          color: string | null;
+          created_at: string;
+          description: string | null;
+          icon: string | null;
+          id: string;
+          revision: number;
+          subject_id: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          color?: string | null;
+          created_at?: string;
+          description?: string | null;
+          icon?: string | null;
+          id?: string;
+          revision?: number;
+          subject_id: string;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          color?: string | null;
+          created_at?: string;
+          description?: string | null;
+          icon?: string | null;
+          id?: string;
+          revision?: number;
+          subject_id?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notebooks_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_mark_annotations: {
+        Row: {
+          completed_at: string | null;
+          created_at: string;
+          last_error_code: string | null;
+          problem_id: string;
+          registry_revision_id: number | null;
+          semantic_revision: number;
+          status: string;
+          unresolved: Json;
+          updated_at: string;
+        };
+        Insert: {
+          completed_at?: string | null;
+          created_at?: string;
+          last_error_code?: string | null;
+          problem_id: string;
+          registry_revision_id?: number | null;
+          semantic_revision: number;
+          status?: string;
+          unresolved?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          completed_at?: string | null;
+          created_at?: string;
+          last_error_code?: string | null;
+          problem_id?: string;
+          registry_revision_id?: number | null;
+          semantic_revision?: number;
+          status?: string;
+          unresolved?: Json;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_mark_annotations_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: true;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_mark_annotations_registry_revision_id_fkey';
+            columns: ['registry_revision_id'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_registry_revisions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_marks: {
+        Row: {
+          created_at: string;
+          mark_key: string;
+          part_index: number | null;
+          problem_id: string;
+          registry_revision_id: number | null;
+          role: string;
+          semantic_revision: number | null;
+          source: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          mark_key: string;
+          part_index?: number | null;
+          problem_id: string;
+          registry_revision_id?: number | null;
+          role: string;
+          semantic_revision?: number | null;
+          source?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          mark_key?: string;
+          part_index?: number | null;
+          problem_id?: string;
+          registry_revision_id?: number | null;
+          role?: string;
+          semantic_revision?: number | null;
+          source?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_marks_mark_key_fkey';
+            columns: ['mark_key'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_marks';
+            referencedColumns: ['stable_key'];
+          },
+          {
+            foreignKeyName: 'problem_marks_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_marks_registry_revision_id_fkey';
+            columns: ['registry_revision_id'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_registry_revisions';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       problem_review_observations: {
         Row: {
@@ -865,841 +1403,6 @@ export type Database = {
           },
         ];
       };
-      notebook_ai_access: {
-        Row: {
-          can_create: boolean;
-          can_read: boolean;
-          can_update: boolean;
-          created_at: string;
-          id: string;
-          notebook_id: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          can_create?: boolean;
-          can_read?: boolean;
-          can_update?: boolean;
-          created_at?: string;
-          id?: string;
-          notebook_id: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          can_create?: boolean;
-          can_read?: boolean;
-          can_update?: boolean;
-          created_at?: string;
-          id?: string;
-          notebook_id?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'notebook_ai_access_notebook_id_fkey';
-            columns: ['notebook_id'];
-            isOneToOne: false;
-            referencedRelation: 'notebooks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      notebook_notes: {
-        Row: {
-          archived_at: string | null;
-          content: string;
-          created_at: string;
-          id: string;
-          linked_problem_id: string | null;
-          metadata: Json;
-          notebook_id: string;
-          revision: number;
-          source: string;
-          title: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          archived_at?: string | null;
-          content: string;
-          created_at?: string;
-          id?: string;
-          linked_problem_id?: string | null;
-          metadata?: Json;
-          notebook_id: string;
-          revision?: number;
-          source?: string;
-          title: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          archived_at?: string | null;
-          content?: string;
-          created_at?: string;
-          id?: string;
-          linked_problem_id?: string | null;
-          metadata?: Json;
-          notebook_id?: string;
-          revision?: number;
-          source?: string;
-          title?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'notebook_notes_linked_problem_id_fkey';
-            columns: ['linked_problem_id'];
-            isOneToOne: false;
-            referencedRelation: 'problems';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'notebook_notes_notebook_id_fkey';
-            columns: ['notebook_id'];
-            isOneToOne: false;
-            referencedRelation: 'notebooks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      note_read_state: {
-        Row: {
-          completed_count: number;
-          last_completed_at: string | null;
-          last_opened_at: string | null;
-          note_id: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          completed_count?: number;
-          last_completed_at?: string | null;
-          last_opened_at?: string | null;
-          note_id: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          completed_count?: number;
-          last_completed_at?: string | null;
-          last_opened_at?: string | null;
-          note_id?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'note_read_state_note_id_fkey';
-            columns: ['note_id'];
-            isOneToOne: false;
-            referencedRelation: 'notebook_notes';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      notebooks: {
-        Row: {
-          archived_at: string | null;
-          color: string | null;
-          created_at: string;
-          description: string | null;
-          icon: string | null;
-          id: string;
-          revision: number;
-          subject_id: string;
-          title: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          archived_at?: string | null;
-          color?: string | null;
-          created_at?: string;
-          description?: string | null;
-          icon?: string | null;
-          id?: string;
-          revision?: number;
-          subject_id: string;
-          title: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          archived_at?: string | null;
-          color?: string | null;
-          created_at?: string;
-          description?: string | null;
-          icon?: string | null;
-          id?: string;
-          revision?: number;
-          subject_id?: string;
-          title?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'notebooks_subject_id_fkey';
-            columns: ['subject_id'];
-            isOneToOne: false;
-            referencedRelation: 'subjects';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      notebook_ai_audit_log: {
-        Row: {
-          id: number;
-          note_id: string;
-          notebook_id: string;
-          user_id: string;
-          conversation_id: string | null;
-          title: string;
-          content_sha256: string;
-          linked_problem_id: string | null;
-          created_at: string;
-        };
-        Insert: {
-          note_id: string;
-          notebook_id: string;
-          user_id: string;
-          conversation_id?: string | null;
-          title: string;
-          content_sha256: string;
-          linked_problem_id?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          note_id?: string;
-          notebook_id?: string;
-          user_id?: string;
-          conversation_id?: string | null;
-          title?: string;
-          content_sha256?: string;
-          linked_problem_id?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      study_observations: {
-        Row: {
-          action: string;
-          created_at: string;
-          device_id: string | null;
-          id: string;
-          item_id: string;
-          mode: string;
-          occurred_at: string;
-          request_id: string;
-          result: Json;
-          sequence: number;
-          session_id: string;
-          user_id: string;
-        };
-        Insert: {
-          action: string;
-          created_at?: string;
-          device_id?: string | null;
-          id?: string;
-          item_id: string;
-          mode: string;
-          occurred_at: string;
-          request_id: string;
-          result: Json;
-          sequence: number;
-          session_id: string;
-          user_id: string;
-        };
-        Update: {
-          action?: string;
-          created_at?: string;
-          device_id?: string | null;
-          id?: string;
-          item_id?: string;
-          mode?: string;
-          occurred_at?: string;
-          request_id?: string;
-          result?: Json;
-          sequence?: number;
-          session_id?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'study_observations_device_id_fkey';
-            columns: ['device_id'];
-            isOneToOne: false;
-            referencedRelation: 'esp32_devices';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'study_observations_session_id_fkey';
-            columns: ['session_id'];
-            isOneToOne: false;
-            referencedRelation: 'study_sessions';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      study_sessions: {
-        Row: {
-          candidate_count: number;
-          candidate_items: Json;
-          create_fingerprint: string;
-          create_request_id: string;
-          created_at: string;
-          cursor: string | null;
-          device_id: string | null;
-          domain: string;
-          ended_at: string | null;
-          expires_at: string;
-          has_more: boolean;
-          id: string;
-          last_activity_at: string;
-          mode: string;
-          next_sequence: number;
-          optional_count: number | null;
-          ordering: string;
-          progress_revision: number;
-          purpose: string;
-          scope: Json;
-          seed: string;
-          snapshot: Json;
-          started_at: string;
-          status: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          candidate_count?: number;
-          candidate_items?: Json;
-          create_fingerprint: string;
-          create_request_id: string;
-          created_at?: string;
-          cursor?: string | null;
-          device_id?: string | null;
-          domain: string;
-          ended_at?: string | null;
-          expires_at?: string;
-          has_more?: boolean;
-          id?: string;
-          last_activity_at?: string;
-          mode: string;
-          next_sequence?: number;
-          optional_count?: number | null;
-          ordering: string;
-          progress_revision?: number;
-          purpose: string;
-          scope: Json;
-          seed: string;
-          snapshot?: Json;
-          started_at?: string;
-          status?: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          candidate_count?: number;
-          candidate_items?: Json;
-          create_fingerprint?: string;
-          create_request_id?: string;
-          created_at?: string;
-          cursor?: string | null;
-          device_id?: string | null;
-          domain?: string;
-          ended_at?: string | null;
-          expires_at?: string;
-          has_more?: boolean;
-          id?: string;
-          last_activity_at?: string;
-          mode?: string;
-          next_sequence?: number;
-          optional_count?: number | null;
-          ordering?: string;
-          progress_revision?: number;
-          purpose?: string;
-          scope?: Json;
-          seed?: string;
-          snapshot?: Json;
-          started_at?: string;
-          status?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'study_sessions_device_id_fkey';
-            columns: ['device_id'];
-            isOneToOne: false;
-            referencedRelation: 'esp32_devices';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      word_change_log: {
-        Row: {
-          created_at: string;
-          deck_id: string;
-          entity_id: string;
-          entity_kind: string;
-          operation: string;
-          payload: Json;
-          sequence: number;
-          user_id: string | null;
-        };
-        Insert: {
-          created_at?: string;
-          deck_id: string;
-          entity_id: string;
-          entity_kind: string;
-          operation: string;
-          payload?: Json;
-          sequence?: never;
-          user_id?: string | null;
-        };
-        Update: {
-          created_at?: string;
-          deck_id?: string;
-          entity_id?: string;
-          entity_kind?: string;
-          operation?: string;
-          payload?: Json;
-          sequence?: never;
-          user_id?: string | null;
-        };
-        Relationships: [];
-      };
-      word_deck_ai_access: {
-        Row: {
-          can_create: boolean;
-          can_read: boolean;
-          can_update: boolean;
-          created_at: string;
-          deck_id: string;
-          updated_at: string;
-          user_id: string;
-        };
-        Insert: {
-          can_create?: boolean;
-          can_read?: boolean;
-          can_update?: boolean;
-          created_at?: string;
-          deck_id: string;
-          updated_at?: string;
-          user_id: string;
-        };
-        Update: {
-          can_create?: boolean;
-          can_read?: boolean;
-          can_update?: boolean;
-          created_at?: string;
-          deck_id?: string;
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'word_deck_ai_access_deck_id_fkey';
-            columns: ['deck_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_decks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      word_decks: {
-        Row: {
-          archived_at: string | null;
-          created_at: string;
-          description: string | null;
-          id: string;
-          is_active: boolean;
-          is_system: boolean;
-          language: string;
-          lexicon_type: string;
-          metadata: Json;
-          revision: number;
-          source: string;
-          subject_id: string | null;
-          target_language: string;
-          title: string;
-          updated_at: string;
-          user_id: string | null;
-        };
-        Insert: {
-          archived_at?: string | null;
-          created_at?: string;
-          description?: string | null;
-          id?: string;
-          is_active?: boolean;
-          is_system?: boolean;
-          language?: string;
-          lexicon_type?: string;
-          metadata?: Json;
-          revision?: number;
-          source?: string;
-          subject_id?: string | null;
-          target_language?: string;
-          title: string;
-          updated_at?: string;
-          user_id?: string | null;
-        };
-        Update: {
-          archived_at?: string | null;
-          created_at?: string;
-          description?: string | null;
-          id?: string;
-          is_active?: boolean;
-          is_system?: boolean;
-          language?: string;
-          lexicon_type?: string;
-          metadata?: Json;
-          revision?: number;
-          source?: string;
-          subject_id?: string | null;
-          target_language?: string;
-          title?: string;
-          updated_at?: string;
-          user_id?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'word_decks_subject_id_fkey';
-            columns: ['subject_id'];
-            isOneToOne: false;
-            referencedRelation: 'subjects';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      word_entries: {
-        Row: {
-          created_at: string;
-          deck_id: string;
-          example: string | null;
-          example_translation: string | null;
-          id: string;
-          meaning: string;
-          metadata: Json;
-          normalized_word: string;
-          part_of_speech: string | null;
-          phonetic: string | null;
-          revision: number;
-          sort_index: number;
-          tags: string[];
-          updated_at: string;
-          word: string;
-        };
-        Insert: {
-          created_at?: string;
-          deck_id: string;
-          example?: string | null;
-          example_translation?: string | null;
-          id?: string;
-          meaning: string;
-          metadata?: Json;
-          normalized_word: string;
-          part_of_speech?: string | null;
-          phonetic?: string | null;
-          revision?: number;
-          sort_index?: number;
-          tags?: string[];
-          updated_at?: string;
-          word: string;
-        };
-        Update: {
-          created_at?: string;
-          deck_id?: string;
-          example?: string | null;
-          example_translation?: string | null;
-          id?: string;
-          meaning?: string;
-          metadata?: Json;
-          normalized_word?: string;
-          part_of_speech?: string | null;
-          phonetic?: string | null;
-          revision?: number;
-          sort_index?: number;
-          tags?: string[];
-          updated_at?: string;
-          word?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'word_entries_deck_id_fkey';
-            columns: ['deck_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_decks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      word_progress: {
-        Row: {
-          correct_streak: number;
-          created_at: string;
-          due_at: string | null;
-          id: string;
-          interval_days: number;
-          known_count: number;
-          lapses: number;
-          last_reviewed_at: string | null;
-          metadata: Json;
-          reviewed_count: number;
-          status: string;
-          unknown_count: number;
-          updated_at: string;
-          user_id: string;
-          word_entry_id: string;
-        };
-        Insert: {
-          correct_streak?: number;
-          created_at?: string;
-          due_at?: string | null;
-          id?: string;
-          interval_days?: number;
-          known_count?: number;
-          lapses?: number;
-          last_reviewed_at?: string | null;
-          metadata?: Json;
-          reviewed_count?: number;
-          status?: string;
-          unknown_count?: number;
-          updated_at?: string;
-          user_id: string;
-          word_entry_id: string;
-        };
-        Update: {
-          correct_streak?: number;
-          created_at?: string;
-          due_at?: string | null;
-          id?: string;
-          interval_days?: number;
-          known_count?: number;
-          lapses?: number;
-          last_reviewed_at?: string | null;
-          metadata?: Json;
-          reviewed_count?: number;
-          status?: string;
-          unknown_count?: number;
-          updated_at?: string;
-          user_id?: string;
-          word_entry_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'word_progress_word_entry_id_fkey';
-            columns: ['word_entry_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_entries';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      word_packs: {
-        Row: {
-          byte_size: number;
-          compression: string;
-          created_at: string;
-          deck_id: string;
-          entry_count: number;
-          format: string;
-          id: string;
-          revision: number;
-          schema_version: number;
-          sha256: string;
-          status: string;
-          storage_path: string;
-          updated_at: string;
-        };
-        Insert: {
-          byte_size: number;
-          compression?: string;
-          created_at?: string;
-          deck_id: string;
-          entry_count: number;
-          format?: string;
-          id?: string;
-          revision: number;
-          schema_version?: number;
-          sha256: string;
-          status?: string;
-          storage_path: string;
-          updated_at?: string;
-        };
-        Update: {
-          byte_size?: number;
-          compression?: string;
-          created_at?: string;
-          deck_id?: string;
-          entry_count?: number;
-          format?: string;
-          id?: string;
-          revision?: number;
-          schema_version?: number;
-          sha256?: string;
-          status?: string;
-          storage_path?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'word_packs_deck_id_fkey';
-            columns: ['deck_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_decks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      todos: {
-        Row: {
-          archived_at: string | null;
-          cancelled_at: string | null;
-          completed_at: string | null;
-          created_at: string;
-          created_by: string;
-          description: string | null;
-          due_at: string | null;
-          id: string;
-          metadata: Json;
-          note_id: string | null;
-          notebook_id: string | null;
-          priority: string;
-          problem_id: string | null;
-          problem_set_id: string | null;
-          reminder_at: string | null;
-          revision: number;
-          source: string;
-          source_conversation_id: string | null;
-          source_device_id: string | null;
-          status: string;
-          subject_id: string | null;
-          title: string;
-          updated_at: string;
-          user_id: string;
-          word_deck_id: string | null;
-          word_entry_id: string | null;
-        };
-        Insert: {
-          archived_at?: string | null;
-          cancelled_at?: string | null;
-          completed_at?: string | null;
-          created_at?: string;
-          created_by?: string;
-          description?: string | null;
-          due_at?: string | null;
-          id?: string;
-          metadata?: Json;
-          note_id?: string | null;
-          notebook_id?: string | null;
-          priority?: string;
-          problem_id?: string | null;
-          problem_set_id?: string | null;
-          reminder_at?: string | null;
-          revision?: number;
-          source?: string;
-          source_conversation_id?: string | null;
-          source_device_id?: string | null;
-          status?: string;
-          subject_id?: string | null;
-          title: string;
-          updated_at?: string;
-          user_id: string;
-          word_deck_id?: string | null;
-          word_entry_id?: string | null;
-        };
-        Update: {
-          archived_at?: string | null;
-          cancelled_at?: string | null;
-          completed_at?: string | null;
-          created_at?: string;
-          created_by?: string;
-          description?: string | null;
-          due_at?: string | null;
-          id?: string;
-          metadata?: Json;
-          note_id?: string | null;
-          notebook_id?: string | null;
-          priority?: string;
-          problem_id?: string | null;
-          problem_set_id?: string | null;
-          reminder_at?: string | null;
-          revision?: number;
-          source?: string;
-          source_conversation_id?: string | null;
-          source_device_id?: string | null;
-          status?: string;
-          subject_id?: string | null;
-          title?: string;
-          updated_at?: string;
-          user_id?: string;
-          word_deck_id?: string | null;
-          word_entry_id?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'todos_note_id_fkey';
-            columns: ['note_id'];
-            isOneToOne: false;
-            referencedRelation: 'notebook_notes';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_notebook_id_fkey';
-            columns: ['notebook_id'];
-            isOneToOne: false;
-            referencedRelation: 'notebooks';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_problem_id_fkey';
-            columns: ['problem_id'];
-            isOneToOne: false;
-            referencedRelation: 'problems';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_problem_set_id_fkey';
-            columns: ['problem_set_id'];
-            isOneToOne: false;
-            referencedRelation: 'problem_sets';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_source_device_id_fkey';
-            columns: ['source_device_id'];
-            isOneToOne: false;
-            referencedRelation: 'esp32_devices';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_subject_id_fkey';
-            columns: ['subject_id'];
-            isOneToOne: false;
-            referencedRelation: 'subjects';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_word_deck_id_fkey';
-            columns: ['word_deck_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_decks';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'todos_word_entry_id_fkey';
-            columns: ['word_entry_id'];
-            isOneToOne: false;
-            referencedRelation: 'word_entries';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
       problem_sets: {
         Row: {
           allow_copying: boolean;
@@ -1715,6 +1418,7 @@ export type Database = {
           session_config: Json | null;
           sharing_level: Database['public']['Enums']['sharing_level'];
           subject_id: string;
+          type: string;
           updated_at: string | null;
           user_id: string;
         };
@@ -1732,6 +1436,7 @@ export type Database = {
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
           subject_id: string;
+          type?: string;
           updated_at?: string | null;
           user_id: string;
         };
@@ -1749,6 +1454,7 @@ export type Database = {
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
           subject_id?: string;
+          type?: string;
           updated_at?: string | null;
           user_id?: string;
         };
@@ -1847,6 +1553,7 @@ export type Database = {
           last_reviewed_date: string | null;
           parts: Json;
           revision: number;
+          semantic_revision: number;
           solution_assets: Json;
           solution_text: string | null;
           source: Json;
@@ -1866,6 +1573,7 @@ export type Database = {
           last_reviewed_date?: string | null;
           parts: Json;
           revision?: number;
+          semantic_revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
           source?: Json;
@@ -1885,6 +1593,7 @@ export type Database = {
           last_reviewed_date?: string | null;
           parts?: Json;
           revision?: number;
+          semantic_revision?: number;
           solution_assets?: Json;
           solution_text?: string | null;
           source?: Json;
@@ -2093,8 +1802,164 @@ export type Database = {
           },
         ];
       };
+      study_observations: {
+        Row: {
+          action: string;
+          created_at: string;
+          device_id: string | null;
+          id: string;
+          item_id: string;
+          mode: string;
+          occurred_at: string;
+          request_id: string;
+          result: Json;
+          sequence: number;
+          session_id: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          item_id: string;
+          mode: string;
+          occurred_at: string;
+          request_id: string;
+          result: Json;
+          sequence: number;
+          session_id: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          item_id?: string;
+          mode?: string;
+          occurred_at?: string;
+          request_id?: string;
+          result?: Json;
+          sequence?: number;
+          session_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'study_observations_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'study_observations_session_id_fkey';
+            columns: ['session_id'];
+            isOneToOne: false;
+            referencedRelation: 'study_sessions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      study_sessions: {
+        Row: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          candidate_count?: number;
+          candidate_items?: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at?: string;
+          cursor?: string | null;
+          device_id?: string | null;
+          domain: string;
+          ended_at?: string | null;
+          expires_at?: string;
+          has_more?: boolean;
+          id?: string;
+          last_activity_at?: string;
+          mode: string;
+          next_sequence?: number;
+          optional_count?: number | null;
+          ordering: string;
+          progress_revision?: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot?: Json;
+          started_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          candidate_count?: number;
+          candidate_items?: Json;
+          create_fingerprint?: string;
+          create_request_id?: string;
+          created_at?: string;
+          cursor?: string | null;
+          device_id?: string | null;
+          domain?: string;
+          ended_at?: string | null;
+          expires_at?: string;
+          has_more?: boolean;
+          id?: string;
+          last_activity_at?: string;
+          mode?: string;
+          next_sequence?: number;
+          optional_count?: number | null;
+          ordering?: string;
+          progress_revision?: number;
+          purpose?: string;
+          scope?: Json;
+          seed?: string;
+          snapshot?: Json;
+          started_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'study_sessions_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       subjects: {
         Row: {
+          canonical_subject_key: string | null;
           color: string | null;
           created_at: string;
           icon: string | null;
@@ -2104,6 +1969,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          canonical_subject_key?: string | null;
           color?: string | null;
           created_at?: string;
           icon?: string | null;
@@ -2113,6 +1979,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          canonical_subject_key?: string | null;
           color?: string | null;
           created_at?: string;
           icon?: string | null;
@@ -2121,7 +1988,15 @@ export type Database = {
           updated_at?: string;
           user_id?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: 'subjects_canonical_subject_key_fkey';
+            columns: ['canonical_subject_key'];
+            isOneToOne: false;
+            referencedRelation: 'canonical_subjects';
+            referencedColumns: ['stable_key'];
+          },
+        ];
       };
       tags: {
         Row: {
@@ -2154,6 +2029,157 @@ export type Database = {
             columns: ['subject_id'];
             isOneToOne: false;
             referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      todos: {
+        Row: {
+          archived_at: string | null;
+          cancelled_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          created_by: string;
+          description: string | null;
+          due_at: string | null;
+          id: string;
+          metadata: Json;
+          note_id: string | null;
+          notebook_id: string | null;
+          priority: string;
+          problem_id: string | null;
+          problem_set_id: string | null;
+          reminder_at: string | null;
+          revision: number;
+          source: string;
+          source_conversation_id: string | null;
+          source_device_id: string | null;
+          status: string;
+          subject_id: string | null;
+          title: string;
+          updated_at: string;
+          user_id: string;
+          word_deck_id: string | null;
+          word_entry_id: string | null;
+        };
+        Insert: {
+          archived_at?: string | null;
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          created_by?: string;
+          description?: string | null;
+          due_at?: string | null;
+          id?: string;
+          metadata?: Json;
+          note_id?: string | null;
+          notebook_id?: string | null;
+          priority?: string;
+          problem_id?: string | null;
+          problem_set_id?: string | null;
+          reminder_at?: string | null;
+          revision?: number;
+          source?: string;
+          source_conversation_id?: string | null;
+          source_device_id?: string | null;
+          status?: string;
+          subject_id?: string | null;
+          title: string;
+          updated_at?: string;
+          user_id: string;
+          word_deck_id?: string | null;
+          word_entry_id?: string | null;
+        };
+        Update: {
+          archived_at?: string | null;
+          cancelled_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          created_by?: string;
+          description?: string | null;
+          due_at?: string | null;
+          id?: string;
+          metadata?: Json;
+          note_id?: string | null;
+          notebook_id?: string | null;
+          priority?: string;
+          problem_id?: string | null;
+          problem_set_id?: string | null;
+          reminder_at?: string | null;
+          revision?: number;
+          source?: string;
+          source_conversation_id?: string | null;
+          source_device_id?: string | null;
+          status?: string;
+          subject_id?: string | null;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+          word_deck_id?: string | null;
+          word_entry_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'todos_note_id_fkey';
+            columns: ['note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebook_notes';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_notebook_id_fkey';
+            columns: ['notebook_id'];
+            isOneToOne: false;
+            referencedRelation: 'notebooks';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_problem_set_id_fkey';
+            columns: ['problem_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'discoverable_problem_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_problem_set_id_fkey';
+            columns: ['problem_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_source_device_id_fkey';
+            columns: ['source_device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_word_deck_id_fkey';
+            columns: ['word_deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todos_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
             referencedColumns: ['id'];
           },
         ];
@@ -2338,6 +2364,474 @@ export type Database = {
         };
         Relationships: [];
       };
+      word_change_log: {
+        Row: {
+          created_at: string;
+          deck_id: string;
+          entity_id: string;
+          entity_kind: string;
+          operation: string;
+          payload: Json;
+          sequence: number;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          deck_id: string;
+          entity_id: string;
+          entity_kind: string;
+          operation: string;
+          payload?: Json;
+          sequence?: never;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          deck_id?: string;
+          entity_id?: string;
+          entity_kind?: string;
+          operation?: string;
+          payload?: Json;
+          sequence?: never;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      word_deck_ai_access: {
+        Row: {
+          can_create: boolean;
+          can_read: boolean;
+          can_update: boolean;
+          created_at: string;
+          deck_id: string;
+          id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          deck_id: string;
+          id?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          can_create?: boolean;
+          can_read?: boolean;
+          can_update?: boolean;
+          created_at?: string;
+          deck_id?: string;
+          id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_deck_ai_access_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_decks: {
+        Row: {
+          archived_at: string | null;
+          created_at: string;
+          description: string | null;
+          id: string;
+          is_active: boolean;
+          is_system: boolean;
+          language: string;
+          lexicon_type: string;
+          metadata: Json;
+          revision: number;
+          source: string;
+          subject_id: string | null;
+          target_language: string;
+          title: string;
+          updated_at: string;
+          user_id: string | null;
+        };
+        Insert: {
+          archived_at?: string | null;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          is_system?: boolean;
+          language?: string;
+          lexicon_type?: string;
+          metadata?: Json;
+          revision?: number;
+          source?: string;
+          subject_id?: string | null;
+          target_language?: string;
+          title: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          archived_at?: string | null;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          is_system?: boolean;
+          language?: string;
+          lexicon_type?: string;
+          metadata?: Json;
+          revision?: number;
+          source?: string;
+          subject_id?: string | null;
+          target_language?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_decks_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_entries: {
+        Row: {
+          created_at: string;
+          deck_id: string;
+          example: string | null;
+          example_translation: string | null;
+          id: string;
+          meaning: string;
+          metadata: Json;
+          normalized_word: string;
+          part_of_speech: string | null;
+          phonetic: string | null;
+          revision: number;
+          sort_index: number;
+          tags: string[];
+          updated_at: string;
+          word: string;
+        };
+        Insert: {
+          created_at?: string;
+          deck_id: string;
+          example?: string | null;
+          example_translation?: string | null;
+          id?: string;
+          meaning: string;
+          metadata?: Json;
+          normalized_word: string;
+          part_of_speech?: string | null;
+          phonetic?: string | null;
+          revision?: number;
+          sort_index?: number;
+          tags?: string[];
+          updated_at?: string;
+          word: string;
+        };
+        Update: {
+          created_at?: string;
+          deck_id?: string;
+          example?: string | null;
+          example_translation?: string | null;
+          id?: string;
+          meaning?: string;
+          metadata?: Json;
+          normalized_word?: string;
+          part_of_speech?: string | null;
+          phonetic?: string | null;
+          revision?: number;
+          sort_index?: number;
+          tags?: string[];
+          updated_at?: string;
+          word?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_entries_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_mistake_links: {
+        Row: {
+          created_at: string;
+          id: string;
+          problem_id: string;
+          problem_set_id: string;
+          updated_at: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          problem_id: string;
+          problem_set_id: string;
+          updated_at?: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          problem_id?: string;
+          problem_set_id?: string;
+          updated_at?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_mistake_links_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_mistake_links_problem_set_id_fkey';
+            columns: ['problem_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'discoverable_problem_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_mistake_links_problem_set_id_fkey';
+            columns: ['problem_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_mistake_links_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_packs: {
+        Row: {
+          byte_size: number;
+          compression: string;
+          created_at: string;
+          deck_id: string;
+          entry_count: number;
+          format: string;
+          id: string;
+          revision: number;
+          schema_version: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          updated_at: string;
+        };
+        Insert: {
+          byte_size: number;
+          compression?: string;
+          created_at?: string;
+          deck_id: string;
+          entry_count: number;
+          format?: string;
+          id?: string;
+          revision: number;
+          schema_version?: number;
+          sha256: string;
+          status?: string;
+          storage_path: string;
+          updated_at?: string;
+        };
+        Update: {
+          byte_size?: number;
+          compression?: string;
+          created_at?: string;
+          deck_id?: string;
+          entry_count?: number;
+          format?: string;
+          id?: string;
+          revision?: number;
+          schema_version?: number;
+          sha256?: string;
+          status?: string;
+          storage_path?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_packs_deck_id_fkey';
+            columns: ['deck_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_decks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_progress: {
+        Row: {
+          correct_streak: number;
+          created_at: string;
+          due_at: string | null;
+          id: string;
+          interval_days: number;
+          known_count: number;
+          lapses: number;
+          last_reviewed_at: string | null;
+          metadata: Json;
+          reviewed_count: number;
+          status: string;
+          unknown_count: number;
+          updated_at: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          correct_streak?: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          interval_days?: number;
+          known_count?: number;
+          lapses?: number;
+          last_reviewed_at?: string | null;
+          metadata?: Json;
+          reviewed_count?: number;
+          status?: string;
+          unknown_count?: number;
+          updated_at?: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          correct_streak?: number;
+          created_at?: string;
+          due_at?: string | null;
+          id?: string;
+          interval_days?: number;
+          known_count?: number;
+          lapses?: number;
+          last_reviewed_at?: string | null;
+          metadata?: Json;
+          reviewed_count?: number;
+          status?: string;
+          unknown_count?: number;
+          updated_at?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_review_events: {
+        Row: {
+          conversation_id: string | null;
+          created_at: string;
+          device_id: string | null;
+          id: string;
+          metadata: Json;
+          mode: string;
+          outcome: string;
+          request_id: string | null;
+          sequence: number | null;
+          session_id: string | null;
+          source: string;
+          study_observation_id: string | null;
+          user_id: string;
+          word_entry_id: string;
+          wrong_problem_id: string | null;
+        };
+        Insert: {
+          conversation_id?: string | null;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          metadata?: Json;
+          mode: string;
+          outcome: string;
+          request_id?: string | null;
+          sequence?: number | null;
+          session_id?: string | null;
+          source?: string;
+          study_observation_id?: string | null;
+          user_id: string;
+          word_entry_id: string;
+          wrong_problem_id?: string | null;
+        };
+        Update: {
+          conversation_id?: string | null;
+          created_at?: string;
+          device_id?: string | null;
+          id?: string;
+          metadata?: Json;
+          mode?: string;
+          outcome?: string;
+          request_id?: string | null;
+          sequence?: number | null;
+          session_id?: string | null;
+          source?: string;
+          study_observation_id?: string | null;
+          user_id?: string;
+          word_entry_id?: string;
+          wrong_problem_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_review_events_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_review_events_session_id_fkey';
+            columns: ['session_id'];
+            isOneToOne: false;
+            referencedRelation: 'study_sessions';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_review_events_study_observation_id_fkey';
+            columns: ['study_observation_id'];
+            isOneToOne: false;
+            referencedRelation: 'study_observations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_review_events_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_review_events_wrong_problem_id_fkey';
+            columns: ['wrong_problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
     };
     Views: {
       discoverable_problem_sets: {
@@ -2361,85 +2855,15 @@ export type Database = {
       };
     };
     Functions: {
-      create_word_study_session_v1: {
+      apply_problem_mark_annotation: {
         Args: {
-          p_candidate_items: Json;
-          p_create_fingerprint: string;
-          p_create_request_id: string;
-          p_cursor: string;
-          p_device_id: string | null;
-          p_domain: string;
-          p_has_more: boolean;
-          p_mode: string;
-          p_optional_count: number;
-          p_ordering: string;
-          p_progress_revision: number;
-          p_purpose: string;
-          p_scope: Json;
-          p_seed: string;
-          p_snapshot: Json;
-          p_user_id: string;
-        };
-        Returns: Database['public']['Tables']['study_sessions']['Row'];
-      };
-      prune_word_packs_v1: {
-        Args: { p_deck_id: string };
-        Returns: { id: string; storage_path: string }[];
-      };
-      record_problem_review_v1: {
-        Args: {
-          p_action: string;
-          p_device_id: string | null;
-          p_occurred_at: string;
+          p_assignments: Json;
           p_problem_id: string;
-          p_request_id: string;
-          p_user_id: string;
+          p_registry_revision_id: number;
+          p_semantic_revision: number;
+          p_unresolved: Json;
         };
         Returns: Json;
-      };
-      record_study_observation_v1: {
-        Args: {
-          p_action: string;
-          p_device_id: string | null;
-          p_item_id: string;
-          p_mode: string;
-          p_occurred_at: string;
-          p_request_id: string;
-          p_sequence: number;
-          p_session_id: string;
-          p_user_id: string;
-        };
-        Returns: Json;
-      };
-      skip_study_observation_v1: {
-        Args: {
-          p_action: string;
-          p_device_id: string | null;
-          p_item_id: string;
-          p_mode: string;
-          p_occurred_at: string;
-          p_request_id: string;
-          p_sequence: number;
-          p_session_id: string;
-          p_user_id: string;
-        };
-        Returns: Json;
-      };
-      set_web_word_study_session_status_v1: {
-        Args: {
-          p_session_id: string;
-          p_status: string;
-          p_user_id: string;
-        };
-        Returns: Database['public']['Tables']['study_sessions']['Row'];
-      };
-      set_web_note_study_session_status_v1: {
-        Args: {
-          p_session_id: string;
-          p_status: string;
-          p_user_id: string;
-        };
-        Returns: Database['public']['Tables']['study_sessions']['Row'];
       };
       approve_device_claim_v3: {
         Args: {
@@ -2466,10 +2890,6 @@ export type Database = {
         };
         Returns: Json;
       };
-      compute_problem_set_count: {
-        Args: { p_problem_set_id: string };
-        Returns: number;
-      };
       cleanup_device_control_v3: { Args: never; Returns: number };
       commit_device_control_response_v3: {
         Args: {
@@ -2488,8 +2908,127 @@ export type Database = {
         };
         Returns: undefined;
       };
+      compute_problem_set_count: {
+        Args: { p_problem_set_id: string };
+        Returns: number;
+      };
       consume_device_claim_v3: {
         Args: { p_device_id: string };
+        Returns: undefined;
+      };
+      create_note_study_session_v1: {
+        Args: {
+          p_candidate_items: Json;
+          p_create_fingerprint: string;
+          p_create_request_id: string;
+          p_cursor: string;
+          p_device_id: string;
+          p_has_more: boolean;
+          p_mode: string;
+          p_optional_count: number;
+          p_ordering: string;
+          p_progress_revision: number;
+          p_purpose: string;
+          p_scope: Json;
+          p_seed: string;
+          p_snapshot: Json;
+          p_user_id: string;
+        };
+        Returns: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'study_sessions';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      create_word_study_session_v1: {
+        Args: {
+          p_candidate_items: Json;
+          p_create_fingerprint: string;
+          p_create_request_id: string;
+          p_cursor: string;
+          p_device_id: string | null;
+          p_domain: string;
+          p_has_more: boolean;
+          p_mode: string;
+          p_optional_count: number;
+          p_ordering: string;
+          p_progress_revision: number;
+          p_purpose: string;
+          p_scope: Json;
+          p_seed: string;
+          p_snapshot: Json;
+          p_user_id: string;
+        };
+        Returns: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'study_sessions';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      fail_problem_mark_annotation: {
+        Args: {
+          p_error_code: string;
+          p_problem_id: string;
+          p_semantic_revision: number;
+        };
         Returns: undefined;
       };
       find_problem_by_asset: { Args: { p_path: string }; Returns: string };
@@ -2535,6 +3074,8 @@ export type Database = {
           is_optional: boolean;
           last_reviewed_date: string | null;
           parts: Json;
+          revision: number;
+          semantic_revision: number;
           solution_assets: Json;
           solution_text: string | null;
           source: Json;
@@ -2572,6 +3113,11 @@ export type Database = {
           topic_label_normalised: string;
         }[];
       };
+      get_problem_mark_annotation_context: {
+        Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      get_problem_semantics: { Args: { p_problem_id: string }; Returns: Json };
       get_problem_set_progress: {
         Args: { problem_set_uuid: string; user_uuid: string };
         Returns: {
@@ -2667,6 +3213,7 @@ export type Database = {
         Args: { p_problem_set_id: string };
         Returns: undefined;
       };
+      inherit_problem_marks: { Args: { p_mappings: Json }; Returns: Json };
       log_user_activity: {
         Args: {
           p_action: string;
@@ -2675,6 +3222,39 @@ export type Database = {
           p_resource_type?: string;
         };
         Returns: string;
+      };
+      problem_parts_valid: { Args: { p: Json }; Returns: boolean };
+      prune_word_packs_v1: {
+        Args: { p_deck_id: string };
+        Returns: {
+          id: string;
+          storage_path: string;
+        }[];
+      };
+      record_note_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      record_problem_review_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string;
+          p_occurred_at: string;
+          p_problem_id: string;
+          p_request_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       record_problem_set_copy: {
         Args: { p_problem_set_id: string; p_user_id: string };
@@ -2688,7 +3268,141 @@ export type Database = {
         };
         Returns: undefined;
       };
+      record_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string | null;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       refresh_ranking_scores: { Args: never; Returns: undefined };
+      requeue_problem_mark_annotation: {
+        Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      set_web_note_study_session_status_v1: {
+        Args: { p_session_id: string; p_status: string; p_user_id: string };
+        Returns: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'study_sessions';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      set_web_word_study_session_status_v1: {
+        Args: { p_session_id: string; p_status: string; p_user_id: string };
+        Returns: {
+          candidate_count: number;
+          candidate_items: Json;
+          create_fingerprint: string;
+          create_request_id: string;
+          created_at: string;
+          cursor: string | null;
+          device_id: string | null;
+          domain: string;
+          ended_at: string | null;
+          expires_at: string;
+          has_more: boolean;
+          id: string;
+          last_activity_at: string;
+          mode: string;
+          next_sequence: number;
+          optional_count: number | null;
+          ordering: string;
+          progress_revision: number;
+          purpose: string;
+          scope: Json;
+          seed: string;
+          snapshot: Json;
+          started_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'study_sessions';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      skip_note_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      skip_study_observation_v1: {
+        Args: {
+          p_action: string;
+          p_device_id: string | null;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      sync_knowledge_registry: {
+        Args: { p_marks: Json; p_subjects: Json };
+        Returns: Json;
+      };
+      sync_knowledge_registry_revision: {
+        Args: {
+          p_artifact_text: string;
+          p_content_sha256: string;
+          p_schema_version: number;
+          p_source_repository: string;
+          p_source_sha: string;
+        };
+        Returns: Json;
+      };
       to_user_date: { Args: { p_ts: string; p_tz?: string }; Returns: string };
       toggle_problem_set_like: {
         Args: { p_problem_set_id: string; p_user_id: string };
@@ -2704,13 +3418,13 @@ export type Database = {
       user_today: { Args: { p_tz?: string }; Returns: string };
     };
     Enums: {
-      problem_status_enum: 'wrong' | 'needs_review' | 'mastered';
       problem_part_type:
         | 'single_choice'
         | 'multi_choice'
         | 'fill_blank'
         | 'short_answer'
         | 'essay';
+      problem_status_enum: 'wrong' | 'needs_review' | 'mastered';
       sharing_level: 'private' | 'limited' | 'public';
     };
     CompositeTypes: {
@@ -2842,8 +3556,14 @@ export const Constants = {
   },
   public: {
     Enums: {
+      problem_part_type: [
+        'single_choice',
+        'multi_choice',
+        'fill_blank',
+        'short_answer',
+        'essay',
+      ],
       problem_status_enum: ['wrong', 'needs_review', 'mastered'],
-      problem_type_enum: ['mcq', 'short', 'extended'],
       sharing_level: ['private', 'limited', 'public'],
     },
   },

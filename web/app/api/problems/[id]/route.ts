@@ -10,6 +10,7 @@ import {
 import { ERROR_MESSAGES } from '@/lib/constants';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
+import { readProblemSemantics } from '@/lib/problem-marks/read';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -45,20 +46,25 @@ export async function GET(
     );
   }
 
-  // Get the tags for this problem
-  const { data: tagLinks } = await supabase
-    .from('problem_tag')
-    .select('tags:tag_id ( id, name )')
-    .eq('problem_id', id)
-    .eq('user_id', user.id);
+  const [tagResult, semantics] = await Promise.all([
+    supabase
+      .from('problem_tag')
+      .select('tags:tag_id ( id, name )')
+      .eq('problem_id', id)
+      .eq('user_id', user.id),
+    readProblemSemantics(supabase, id),
+  ]);
 
   const tags =
-    tagLinks?.map((link: { tags: unknown }) => link.tags).filter(Boolean) || [];
+    tagResult.data
+      ?.map((link: { tags: unknown }) => link.tags)
+      .filter(Boolean) || [];
 
   return NextResponse.json(
     createApiSuccessResponse({
       ...problem,
       tags,
+      semantics,
     })
   );
 }

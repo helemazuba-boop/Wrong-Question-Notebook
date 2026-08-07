@@ -7,6 +7,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "check:client-bundle-secrets": "node scripts/check-client-bundle-secrets.mjs",
+    "marks:verify": "node scripts/sync-knowledge-registry.ts --verify-only",
+    "marks:sync": "node scripts/sync-knowledge-registry.ts",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",

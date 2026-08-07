@@ -17,6 +17,10 @@ import {
 } from '@/lib/cache-invalidation';
 import { checkContentLimit } from '@/lib/content-limits';
 import { CONTENT_LIMIT_CONSTANTS, ERROR_MESSAGES } from '@/lib/constants';
+import {
+  createProblemMarkCopyMapping,
+  inheritProblemMarksBestEffort,
+} from '@/lib/problem-marks/copy';
 import { z } from 'zod';
 
 const CopyProblemSetBody = z.object({
@@ -287,8 +291,12 @@ async function copyProblemSet(
       }
     }
 
-    // Bulk insert copied problems
-    const problemInserts = sourceProblems.map((p: any) => ({
+    // Pre-allocate every destination identity and preserve the exact source mapping.
+    const markMappings = sourceProblems.map((problem: any) =>
+      createProblemMarkCopyMapping(problem.id)
+    );
+    const problemInserts = sourceProblems.map((p: any, index: number) => ({
+      id: markMappings[index].destination_problem_id,
       user_id: user.id,
       subject_id: target_subject_id,
       title: p.title,
@@ -305,7 +313,7 @@ async function copyProblemSet(
     const { data: copiedProblems, error: insertError } = await supabase
       .from('problems')
       .insert(problemInserts)
-      .select('id, title, content');
+      .select('id');
 
     if (insertError || !copiedProblems) {
       return NextResponse.json(
@@ -314,28 +322,12 @@ async function copyProblemSet(
       );
     }
 
-    // Build source-to-copy mapping using composite key matching
-    // rather than relying on INSERT RETURNING order.
-    const makeKey = (title: string, content: string | null) =>
-      `${title}\0${content ?? ''}`;
-
-    const copiedByKey = new Map<string, string[]>();
-    for (const cp of copiedProblems) {
-      const key = makeKey(cp.title, cp.content);
-      const ids = copiedByKey.get(key);
-      if (ids) ids.push(cp.id);
-      else copiedByKey.set(key, [cp.id]);
-    }
-
-    const sourceToNewId = new Map<number, string>();
-    for (let i = 0; i < sourceProblems.length; i++) {
-      const src = sourceProblems[i];
-      const key = makeKey(src.title, src.content);
-      const ids = copiedByKey.get(key);
-      if (ids && ids.length > 0) {
-        sourceToNewId.set(i, ids.shift()!);
-      }
-    }
+    const sourceToNewId = new Map(
+      markMappings.map((mapping, index) => [
+        index,
+        mapping.destination_problem_id,
+      ])
+    );
 
     // Attach tags to copied problems
     if (copy_tags && Object.keys(tagMapping).length > 0) {
@@ -392,7 +384,9 @@ async function copyProblemSet(
     }
 
     // Link copied problems to the new set
-    const copiedProblemIds = copiedProblems.map(p => p.id);
+    const copiedProblemIds = markMappings.map(
+      mapping => mapping.destination_problem_id
+    );
     const linkInserts = copiedProblemIds.map(id => ({
       problem_set_id: newProblemSet.id,
       problem_id: id,
@@ -427,6 +421,11 @@ async function copyProblemSet(
       );
     }
 
+    const markInheritance = await inheritProblemMarksBestEffort(
+      serviceClient,
+      markMappings
+    );
+
     // Record unique copy (idempotent per user per set)
     await serviceClient.rpc('record_problem_set_copy', {
       p_problem_set_id: id,
@@ -444,6 +443,7 @@ async function copyProblemSet(
         problem_set_id: newProblemSet.id,
         problem_count: copiedProblems.length,
         tag_count: tagCount,
+        marks: markInheritance,
       }),
       { status: 201 }
     );

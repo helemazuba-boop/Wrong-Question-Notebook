@@ -18,6 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Data integrity foundations**
   - Add entity revisions and immutable provenance records for AI-created notebook notes.
   - Record authenticated administrative activity through an append-only audit path.
+- **Canonical problem semantics**
+  - Add a Git-governed Canonical Subject and Knowledge/Skill Mark Registry with validated stable identities.
+  - Project the Registry into read-only runtime tables and describe shell/part-level Problem targets and requirements without changing attempts, insights, or scheduling.
 
 ### Changed
 

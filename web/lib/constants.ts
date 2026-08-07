@@ -396,6 +396,7 @@ export const AI_CONSTANTS = {
   MODELS: {
     EXTRACTION: process.env.AI_MODEL_EXTRACTION ?? 'gemini-2.5-flash',
     CATEGORISATION: process.env.AI_MODEL_CATEGORISATION ?? 'gemini-2.5-flash',
+    PROBLEM_MARKING: process.env.AI_MODEL_PROBLEM_MARKING ?? 'gemini-2.5-flash',
     DIGEST: process.env.AI_MODEL_DIGEST ?? 'gemini-3-flash-preview',
   },
 } as const;
