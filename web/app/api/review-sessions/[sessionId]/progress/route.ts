@@ -125,13 +125,8 @@ async function updateProgress(
       );
     }
 
-    // Check if this is a read-only session (shared problem set)
-    const rawState =
-      session.session_state as ReviewSessionState['session_state'];
-    const isReadOnly = !!rawState?.is_read_only;
-
-    // Only create result entries and update last_reviewed_date for actual
-    // answers or skips — not for heartbeat/save-state-only requests.
+    // Only create result entries for actual answers or skips — not for
+    // heartbeat/save-state-only requests.
     if (wasSkipped || isAnswer) {
       const { error: resultError } = await supabase
         .from('review_session_results')
@@ -150,15 +145,8 @@ async function updateProgress(
       await revalidateUserStatistics(user.id);
     }
 
-    // Update problem's last_reviewed_date only when actually answered
-    // and session is NOT read-only (shared sessions don't modify owner's data)
-    if (isAnswer && !isReadOnly) {
-      await supabase
-        .from('problems')
-        .update({ last_reviewed_date: new Date().toISOString() })
-        .eq('id', problemId)
-        .eq('user_id', user.id);
-    }
+    // Review progress is session metadata only. The immutable human Rating
+    // Event/projector owns Problem status and last_reviewed_date.
 
     return NextResponse.json(
       createApiSuccessResponse({ session: updatedSession })

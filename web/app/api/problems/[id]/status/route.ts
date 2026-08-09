@@ -34,40 +34,32 @@ export async function PATCH(
     );
   }
 
-  // Validate the request body
-  const { status, last_reviewed_date } = body;
+  // This endpoint is for manual workflow classification only. Review-derived
+  // status and timestamps are owned by the immutable Rating Event projector.
+  const { status } = body;
 
-  if (!status && !last_reviewed_date) {
+  if (!status) {
     return NextResponse.json(
-      createApiErrorResponse(
-        'Either status or last_reviewed_date must be provided',
-        400
-      ),
+      createApiErrorResponse('Status must be provided', 400),
       { status: 400 }
     );
   }
 
-  if (status && !PROBLEM_STATUS_VALUES.includes(status as any)) {
+  if (
+    !PROBLEM_STATUS_VALUES.includes(
+      status as (typeof PROBLEM_STATUS_VALUES)[number]
+    )
+  ) {
     return NextResponse.json(
       createApiErrorResponse('Invalid status value', 400),
       { status: 400 }
     );
   }
 
-  // Build update object with only provided fields
-  const updateData: any = {};
-  if (status !== undefined) {
-    updateData.status = status;
-  }
-  if (last_reviewed_date !== undefined) {
-    updateData.last_reviewed_date = last_reviewed_date;
-  }
-
   try {
-    // Update only the status and/or last_reviewed_date fields
     const { data, error } = await supabase
       .from('problems')
-      .update(updateData)
+      .update({ status })
       .eq('id', problemId)
       .eq('user_id', user.id)
       .select('id, subject_id')

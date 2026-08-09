@@ -12,6 +12,7 @@ import {
   ERROR_CATEGORY_VALUES,
   DISCOVERY_SUBJECTS,
 } from './constants';
+import { HumanRatingSchema } from './fsrs/schemas';
 import { sanitizeHtmlContent } from './html-sanitizer';
 import { isValidTimezone } from './timezone-utils';
 
@@ -60,6 +61,11 @@ const Asset = z.object({
     .optional(),
   display_path: z.string().optional(),
   preview_path: z.string().optional(),
+  gray4_image_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  gray4_display_path: z.string().optional(),
 });
 
 export type ProblemAsset = z.infer<typeof Asset>;
@@ -227,8 +233,18 @@ export const PartResultSchema = z.object({
   score: z.number().min(0).optional(),
 });
 
-export const CreateProblemDto = z.object({
-  id: z.uuid().optional(), // Allow client-provided UUID for direct upload approach
+export const ProblemInitialIdeaSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .refine(value => value.trim().length > 0, {
+    message: 'Initial idea cannot be blank',
+  })
+  .refine(value => new TextEncoder().encode(value).byteLength <= 16000, {
+    message: 'Initial idea must be at most 16000 UTF-8 bytes',
+  });
+
+const ProblemWriteFields = z.object({
   subject_id: z.uuid(),
   title: z
     .string()
@@ -236,20 +252,29 @@ export const CreateProblemDto = z.object({
     .max(VALIDATION_CONSTANTS.STRING_LIMITS.TITLE_MAX),
   content: htmlContent,
   parts: ProblemPartsSchema,
+  source: ProblemSourceSchema,
+  is_optional: z.boolean(),
+  status: ProblemStatus,
+  assets: z.array(Asset),
+  solution_text: htmlContent,
+  solution_assets: z.array(Asset),
+  last_reviewed_date: z.string().optional(),
+  tag_ids: z.array(z.uuid()).optional(),
+});
+
+export const CreateProblemDto = ProblemWriteFields.extend({
+  id: z.uuid().optional(), // Allow client-provided UUID for direct upload approach
+  initial_idea: ProblemInitialIdeaSchema.optional(),
   source: ProblemSourceSchema.default({}),
   is_optional: z.boolean().default(false),
   status: ProblemStatus.default(PROBLEM_CONSTANTS.STATUS.NEEDS_REVIEW),
   assets: z.array(Asset).default([]),
-
-  // NEW:
-  solution_text: htmlContent,
   solution_assets: z.array(Asset).default([]),
-  last_reviewed_date: z.string().optional(),
-
-  tag_ids: z.array(z.uuid()).optional(),
 });
 
-export const UpdateProblemDto = CreateProblemDto.partial();
+export const UpdateProblemDto = ProblemWriteFields.partial().extend({
+  initial_idea: ProblemInitialIdeaSchema.nullable().optional(),
+});
 
 export const CreateTagDto = z.object({
   subject_id: z.uuid(),
@@ -283,7 +308,6 @@ export const CreateAttemptDto = z.object({
     .string()
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .optional(),
-  selected_status: ProblemStatus.optional(),
 });
 
 export const UpdateAttemptDto = z.object({
@@ -298,7 +322,6 @@ export const UpdateAttemptDto = z.object({
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .nullable()
     .optional(),
-  selected_status: ProblemStatus.nullable().optional(),
   submitted_answer: z
     .union([
       z.string().max(ATTEMPT_CONSTANTS.MAX_RESPONSE_LENGTH),
@@ -308,6 +331,31 @@ export const UpdateAttemptDto = z.object({
     ])
     .optional(),
 });
+
+export const ProblemReviewRatingDto = z
+  .object({
+    attempt_id: z.uuid(),
+    rating: HumanRatingSchema,
+    review_occurrence_id: z.uuid(),
+    request_id: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+  })
+  .strict();
+
+export const ProblemReviewRatingCorrectionDto = z
+  .object({
+    rating: HumanRatingSchema,
+    review_occurrence_id: z.uuid(),
+    terminal_event_id: z.uuid(),
+    request_id: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+  })
+  .strict();
+
+export const ProblemReviewIdeaDto = z
+  .object({
+    review_occurrence_id: z.uuid(),
+    idea: ProblemInitialIdeaSchema.nullable(),
+  })
+  .strict();
 
 export const ListAttemptsQuery = z.object({
   problem_id: z.uuid(),

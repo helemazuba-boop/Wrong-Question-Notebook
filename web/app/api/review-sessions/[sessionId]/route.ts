@@ -11,6 +11,7 @@ import { ERROR_MESSAGES } from '@/lib/constants';
 import type { ReviewSessionState } from '@/lib/types';
 import type { Json } from '@/lib/database.types';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { readProblemInitialIdeas } from '@/lib/problem-initial-idea';
 
 async function getSession(
   req: Request,
@@ -75,6 +76,22 @@ async function getSession(
       problems = problemIds
         .map((id: string) => problemMap.get(id))
         .filter(Boolean);
+
+      if (!isReadOnly) {
+        const initialIdeas = await readProblemInitialIdeas(
+          supabase,
+          user.id,
+          problems.map(problem => problem.id)
+        );
+        problems = problems.map(problem => {
+          const head = initialIdeas.get(problem.id);
+          return {
+            ...problem,
+            initial_idea: head?.revision_kind === 'set' ? head.idea : null,
+            initial_idea_revision: head?.revision ?? null,
+          };
+        });
+      }
 
       // Heal session: strip deleted problem IDs from session state
       const foundIds = new Set(problems.map((p: any) => p.id));

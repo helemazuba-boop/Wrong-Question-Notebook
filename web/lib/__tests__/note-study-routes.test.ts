@@ -7,17 +7,24 @@ import { POST as skip } from '@/app/api/esp32/v3/notes/observations/skip/route';
 import { POST as manifest } from '@/app/api/esp32/v3/notes/manifest/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 
-const { mockAuthenticate, mockFrom, mockRpc } = vi.hoisted(() => ({
-  mockAuthenticate: vi.fn(),
-  mockFrom: vi.fn(),
-  mockRpc: vi.fn(),
-}));
+const { mockAuthenticate, mockFrom, mockRpc, mockStorageFrom } = vi.hoisted(
+  () => ({
+    mockAuthenticate: vi.fn(),
+    mockFrom: vi.fn(),
+    mockRpc: vi.fn(),
+    mockStorageFrom: vi.fn(),
+  })
+);
 
 vi.mock('@/lib/device-control-v3-auth', () => ({
   authenticateDeviceControlV3: mockAuthenticate,
 }));
 vi.mock('@/lib/supabase-utils', () => ({
-  createServiceClient: () => ({ from: mockFrom, rpc: mockRpc }),
+  createServiceClient: () => ({
+    from: mockFrom,
+    rpc: mockRpc,
+    storage: { from: mockStorageFrom },
+  }),
 }));
 
 const DEVICE_ID = '22222222-2222-4222-8222-222222222222';
@@ -116,6 +123,9 @@ beforeEach(() => {
   });
   mockRpc.mockResolvedValue({ data: null, error: null });
   mockFrom.mockImplementation(() => queryBuilder());
+  mockStorageFrom.mockReturnValue({
+    upload: vi.fn().mockResolvedValue({ data: null, error: null }),
+  });
   sessionRow = {
     id: SESSION_ID,
     domain: 'note',
@@ -349,10 +359,24 @@ describe('esp32/v3/notes route integration', () => {
       chain.select = fluent;
       chain.eq = fluent;
       chain.is = fluent;
-      chain.order = fluent;
+      chain.order = vi.fn((column: string) => {
+        if (table === 'notebooks' && column === 'id') {
+          return Promise.resolve({
+            data: [{ id: NB_ID, title: '空白笔记' }],
+            error: null,
+          });
+        }
+        return chain;
+      });
       chain.limit = fluent;
+      chain.upsert = vi.fn(async () => ({ data: null, error: null }));
       chain.maybeSingle = vi.fn(async () => ({
-        data: table === 'note_change_log' ? { change_seq: 4 } : null,
+        data:
+          table === 'note_change_log'
+            ? { change_seq: 4 }
+            : table === 'device_pack_artifacts'
+              ? { storage_path: 'test/device-pack.jsonl' }
+              : null,
         error: null,
       }));
       chain.range = vi.fn(() => ({

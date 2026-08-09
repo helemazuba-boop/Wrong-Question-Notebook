@@ -8,6 +8,11 @@ import {
   problemPackRowSchema,
 } from '@/lib/problem-study-v1';
 
+vi.mock('@/lib/device-content-artifacts', () => ({
+  materializeDevicePackArtifact: vi.fn().mockResolvedValue('artifact.jsonl'),
+  registerDeviceImageArtifacts: vi.fn().mockResolvedValue(undefined),
+}));
+
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const SET_ID = '11111111-1111-4111-8111-111111111111';
 const PROBLEM_ID = '33333333-3333-4333-8333-333333333333';
@@ -15,6 +20,8 @@ const IMAGE_ID =
   '9e00e194c412bff778bfd1235b3b2b25a4f7f8b1d3ef1c72fca11d21b36d1e05';
 const SOLUTION_ID =
   '1b1f4d9c22cf8d0b6cf6a52ad4a3f2e8809d15b9a7f96ff2f4bf1cf3a2b4c6d8';
+const GRAY4_ID =
+  '2c00e194c412bff778bfd1235b3b2b25a4f7f8b1d3ef1c72fca11d21b36d1e05';
 
 const SET_ROW = {
   id: SET_ID,
@@ -54,7 +61,14 @@ const PROBLEM_ROW = {
   source: { year: 2024, paper: '全国甲卷' },
   status: 'wrong',
   is_optional: false,
-  assets: [{ path: 'p/a.png', kind: 'image', image_id: IMAGE_ID }],
+  assets: [
+    {
+      path: 'p/a.png',
+      kind: 'image',
+      image_id: IMAGE_ID,
+      gray4_image_id: GRAY4_ID,
+    },
+  ],
   solution_assets: [{ path: 'p/s.png', kind: 'image', image_id: SOLUTION_ID }],
   updated_at: '2026-07-28T03:05:00.000Z',
 };
@@ -121,7 +135,9 @@ describe('buildProblemPack', () => {
       expect(row.data.parts).toHaveLength(2);
       expect(row.data.parts[0].answer_text).toBe('B');
       expect(row.data.image_ids).toEqual([IMAGE_ID]);
+      expect(row.data.gray4_image_ids).toEqual([GRAY4_ID]);
       expect(row.data.solution_image_ids).toEqual([SOLUTION_ID]);
+      expect(row.data.solution_gray4_image_ids).toEqual([null]);
     }
   });
 
@@ -169,6 +185,8 @@ describe('loadProblemStudyManifest', () => {
     );
     expect(manifest.cursor).toBe('1');
     expect(manifest.has_more).toBe(false);
+    expect(manifest.snapshot_id).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.revision).toBeGreaterThanOrEqual(0);
     expect(manifest.problem_sets).toHaveLength(1);
     const entry = manifest.problem_sets[0];
     expect(entry.problem_set_id).toBe(SET_ID);
@@ -179,7 +197,11 @@ describe('loadProblemStudyManifest', () => {
       format: 'jsonl',
       compression: 'zlib',
       entry_count: 1,
-      download_url: `https://example.com/api/esp32/v3/problems/packs/${SET_ID}`,
+      download_url: expect.stringMatching(
+        new RegExp(
+          `^https://example\\.com/api/esp32/v3/problems/packs/${SET_ID}/[0-9a-f]{64}$`
+        )
+      ),
     });
   });
 });

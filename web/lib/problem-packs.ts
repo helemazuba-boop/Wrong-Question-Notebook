@@ -9,6 +9,10 @@ import {
   PROBLEM_PACK_MAX_ENTRIES,
   PROBLEM_PACK_SCHEMA_VERSION,
 } from './problem-study-v1';
+import {
+  materializeDevicePackArtifact,
+  registerDeviceImageArtifacts,
+} from './device-content-artifacts';
 
 // Deterministic per-problem-set packs, mirroring lib/note-packs.ts. There is
 // no problem_packs table: a pack is computed on demand from the set's member
@@ -64,6 +68,24 @@ function imageIdsOf(assets: unknown): string[] {
         : null
     )
     .filter((id): id is string => typeof id === 'string')
+    .slice(0, 8);
+}
+
+/** GRAY4 ids aligned one-for-one with imageIdsOf; null preserves legacy slots. */
+function gray4ImageIdsOf(assets: unknown): Array<string | null> {
+  if (!Array.isArray(assets)) return [];
+  return assets
+    .filter(
+      asset =>
+        asset &&
+        typeof asset === 'object' &&
+        !Array.isArray(asset) &&
+        typeof (asset as { image_id?: unknown }).image_id === 'string'
+    )
+    .map(asset => {
+      const id = (asset as { gray4_image_id?: unknown }).gray4_image_id;
+      return typeof id === 'string' ? id : null;
+    })
     .slice(0, 8);
 }
 
@@ -145,7 +167,9 @@ function packRowOf(row: ProblemRowSource): string | null {
     status: row.status,
     is_optional: row.is_optional === true,
     image_ids: imageIdsOf(row.assets),
+    gray4_image_ids: gray4ImageIdsOf(row.assets),
     solution_image_ids: imageIdsOf(row.solution_assets),
+    solution_gray4_image_ids: gray4ImageIdsOf(row.solution_assets),
   });
 }
 
@@ -239,7 +263,8 @@ async function loadMemberProblems(
 export async function buildProblemPack(
   supabase: SupabaseClient<Database>,
   userId: string,
-  problemSetId: string
+  problemSetId: string,
+  options: { materialize?: boolean } = {}
 ): Promise<ProblemPackResult> {
   const { data: set, error } = await supabase
     .from('problem_sets')
@@ -289,6 +314,23 @@ export async function buildProblemPack(
   const body = lines.join('\n');
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
 
+  if (options.materialize) {
+    await registerDeviceImageArtifacts(
+      supabase,
+      userId,
+      members.flatMap(row => [row.assets, row.solution_assets])
+    );
+    await materializeDevicePackArtifact({
+      supabase,
+      userId,
+      domain: 'problem_packs',
+      logicalId: problemSetId,
+      revision: packRevision,
+      sha256,
+      body,
+    });
+  }
+
   return {
     problem_set_id: set.id,
     name: set.name,
@@ -304,6 +346,8 @@ export async function buildProblemPack(
 export interface ProblemManifestResult {
   cursor: string;
   has_more: boolean;
+  revision: number;
+  snapshot_id: string;
   problem_sets: Array<{
     problem_set_id: string;
     name: string;
@@ -334,26 +378,25 @@ export async function loadProblemStudyManifest(
   userId: string,
   origin: string,
   cursor: number,
-  limit = 50
+  limit = 50,
+  expectedSnapshotId?: string
 ): Promise<ProblemManifestResult> {
   const pageSize = Math.min(Math.max(limit, 1), 100);
   const { data, error } = await supabase
     .from('problem_sets')
     .select('id, name')
     .eq('user_id', userId)
-    .order('id', { ascending: true })
-    .range(cursor, cursor + pageSize);
+    .order('id', { ascending: true });
   if (error) {
     throw new ProblemStudyToolError('database_error', error.message, 500);
   }
 
   const rows = (data || []) as Array<{ id: string; name: string }>;
-  const hasMore = rows.length > pageSize;
-  const page = rows.slice(0, pageSize);
-
   const problemSets = await Promise.all(
-    page.map(async row => {
-      const pack = await buildProblemPack(supabase, userId, row.id);
+    rows.map(async row => {
+      const pack = await buildProblemPack(supabase, userId, row.id, {
+        materialize: true,
+      });
       return {
         problem_set_id: row.id,
         name: row.name,
@@ -368,16 +411,34 @@ export async function loadProblemStudyManifest(
           entry_count: pack.entry_count,
           byte_size: pack.byte_size,
           sha256: pack.sha256,
-          download_url: `${origin}/api/esp32/v3/problems/packs/${row.id}`,
+          download_url: `${origin}/api/esp32/v3/problems/packs/${row.id}/${pack.sha256}`,
         },
       };
     })
   );
 
+  const snapshotBody = JSON.stringify(problemSets);
+  const snapshotId = createHash('sha256').update(snapshotBody).digest('hex');
+  if (expectedSnapshotId && expectedSnapshotId !== snapshotId) {
+    throw new ProblemStudyToolError(
+      'snapshot_expired',
+      'The problem manifest changed; restart from cursor zero',
+      410
+    );
+  }
+  const page = problemSets.slice(cursor, cursor + pageSize);
+  const hasMore = cursor + pageSize < problemSets.length;
+  const revision = problemSets.reduce(
+    (max, problemSet) => Math.max(max, problemSet.pack?.pack_revision ?? 0),
+    0
+  );
+
   return {
     cursor: String(cursor + page.length),
     has_more: hasMore,
-    problem_sets: problemSets,
+    revision,
+    snapshot_id: snapshotId,
+    problem_sets: page,
   };
 }
 

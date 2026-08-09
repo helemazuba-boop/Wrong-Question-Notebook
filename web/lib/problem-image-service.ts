@@ -34,7 +34,13 @@ export async function deriveProblemImageAssets(
   return Promise.all(
     assets.map(async asset => {
       if (!isImageAsset(asset)) return asset;
-      if (asset.image_id && asset.display_path && asset.preview_path) {
+      if (
+        asset.image_id &&
+        asset.display_path &&
+        asset.preview_path &&
+        asset.gray4_image_id &&
+        asset.gray4_display_path
+      ) {
         return asset;
       }
       try {

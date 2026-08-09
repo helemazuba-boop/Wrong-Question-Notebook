@@ -18,6 +18,9 @@ export const EINK_IMAGE_HEIGHT = 300;
 export const EINK_IMAGE_ROW_BYTES = EINK_IMAGE_WIDTH / 8; // 50
 export const EINK_IMAGE_PAYLOAD_BYTES =
   EINK_IMAGE_ROW_BYTES * EINK_IMAGE_HEIGHT; // 15000
+export const EINK_IMAGE_GRAY4_ROW_BYTES = EINK_IMAGE_WIDTH / 2; // 200
+export const EINK_IMAGE_GRAY4_PAYLOAD_BYTES =
+  EINK_IMAGE_GRAY4_ROW_BYTES * EINK_IMAGE_HEIGHT; // 60000
 
 // Tuning start point per the design doc; a server-side constant so real
 // exam-photo comparisons can adjust it without touching the contract.
@@ -35,6 +38,7 @@ export const EINK_IMAGE_MAX_INPUT_PIXELS = 12_000_000; // 12MP
 export const WQNI_MAGIC = 'WQNI';
 export const WQNI_VERSION = 1;
 export const WQNI_PIXEL_FORMAT_BW1 = 1;
+export const WQNI_PIXEL_FORMAT_GRAY4 = 2;
 // bit0: MSB-first bit order; bit1: bit value 1 renders white.
 export const WQNI_FLAGS_MSB_FIRST_ONE_WHITE = 0x0003;
 export const WQNI_HEADER_BYTES = 20;
@@ -59,6 +63,10 @@ export interface EinkImageResult {
   preview: Buffer;
   /** SHA-256 hex of the full WQNI file; doubles as the stable image id. */
   imageId: string;
+  /** Device-ready 4-bpp/16-gray WQNI file for capable firmware. */
+  gray4Wqni: Buffer;
+  /** SHA-256 hex of gray4Wqni; independent from the legacy BW1 id. */
+  gray4ImageId: string;
 }
 
 /** Packs an 8-bit grayscale 400x300 buffer into the 1-bpp payload. */
@@ -79,22 +87,83 @@ export function packGrayscaleTo1Bpp(
   return packed;
 }
 
-/** Wraps a 1-bpp payload in the WQNI container. */
-export function buildWqniFile(payload: Buffer): Buffer {
-  if (payload.length !== EINK_IMAGE_PAYLOAD_BYTES) {
+// Mirrors the reference demo's final tone preparation while retaining WQN's
+// contain-fit geometry (cropping an exam sheet is not acceptable). Pillow's
+// default autocontrast stretches the occupied range, then Contrast blends
+// around the image mean. Keeping this byte-only makes the server output stable
+// across Sharp/libvips releases.
+export function prepareGrayscaleForGray4(
+  gray: Buffer,
+  contrast = 1.55
+): Buffer {
+  if (gray.length !== EINK_IMAGE_WIDTH * EINK_IMAGE_HEIGHT || contrast <= 0) {
+    throw new EinkImageError('invalid_image', 'invalid gray4 source');
+  }
+  let minimum = 255;
+  let maximum = 0;
+  for (const value of gray) {
+    minimum = Math.min(minimum, value);
+    maximum = Math.max(maximum, value);
+  }
+  const stretched = Buffer.allocUnsafe(gray.length);
+  let sum = 0;
+  for (let i = 0; i < gray.length; i++) {
+    const value =
+      minimum === maximum
+        ? gray[i]
+        : Math.round(((gray[i] - minimum) * 255) / (maximum - minimum));
+    stretched[i] = value;
+    sum += value;
+  }
+  const mean = sum / stretched.length;
+  for (let i = 0; i < stretched.length; i++) {
+    stretched[i] = Math.max(
+      0,
+      Math.min(255, Math.round(mean + contrast * (stretched[i] - mean)))
+    );
+  }
+  return stretched;
+}
+
+/** Packs two pixels per byte, left pixel in the high nibble, 0=black/15=white. */
+export function packGrayscaleTo4Bpp(gray: Buffer): Buffer {
+  if (gray.length !== EINK_IMAGE_WIDTH * EINK_IMAGE_HEIGHT) {
+    throw new EinkImageError('invalid_image', 'invalid gray4 geometry');
+  }
+  const packed = Buffer.allocUnsafe(EINK_IMAGE_GRAY4_PAYLOAD_BYTES);
+  for (let source = 0, target = 0; source < gray.length; source += 2) {
+    const left = Math.floor((gray[source] * 15 + 127) / 255);
+    const right = Math.floor((gray[source + 1] * 15 + 127) / 255);
+    packed[target++] = (left << 4) | right;
+  }
+  return packed;
+}
+
+/** Wraps a BW1 or GRAY4 payload in the WQNI container. */
+export function buildWqniFile(
+  payload: Buffer,
+  pixelFormat:
+    | typeof WQNI_PIXEL_FORMAT_BW1
+    | typeof WQNI_PIXEL_FORMAT_GRAY4 = WQNI_PIXEL_FORMAT_BW1
+): Buffer {
+  const expectedPayloadBytes =
+    pixelFormat === WQNI_PIXEL_FORMAT_BW1
+      ? EINK_IMAGE_PAYLOAD_BYTES
+      : EINK_IMAGE_GRAY4_PAYLOAD_BYTES;
+  if (payload.length !== expectedPayloadBytes) {
     throw new EinkImageError(
       'invalid_image',
-      `payload must be ${EINK_IMAGE_PAYLOAD_BYTES} bytes`
+      `payload must be ${expectedPayloadBytes} bytes`
     );
   }
   const header = Buffer.alloc(WQNI_HEADER_BYTES);
   header.write(WQNI_MAGIC, 0, 'ascii');
   header.writeUInt8(WQNI_VERSION, 4);
-  header.writeUInt8(WQNI_PIXEL_FORMAT_BW1, 5);
+  header.writeUInt8(pixelFormat, 5);
   header.writeUInt16LE(WQNI_FLAGS_MSB_FIRST_ONE_WHITE, 6);
   header.writeUInt16LE(EINK_IMAGE_WIDTH, 8);
   header.writeUInt16LE(EINK_IMAGE_HEIGHT, 10);
-  header.writeUInt32LE(EINK_IMAGE_PAYLOAD_BYTES, 12);
+  header.writeUInt32LE(expectedPayloadBytes, 12);
   header.writeUInt32LE(crc32(payload) >>> 0, 16);
   return Buffer.concat([header, payload]);
 }
@@ -205,6 +274,8 @@ export async function renderEinkImage(
 
   const payload = packGrayscaleTo1Bpp(gray, threshold);
   const wqni = buildWqniFile(payload);
+  const gray4Payload = packGrayscaleTo4Bpp(prepareGrayscaleForGray4(gray));
+  const gray4Wqni = buildWqniFile(gray4Payload, WQNI_PIXEL_FORMAT_GRAY4);
 
   // The preview must come from the binarized payload so what the user sees on
   // the web matches the panel pixel-for-pixel.
@@ -222,5 +293,7 @@ export async function renderEinkImage(
     wqni,
     preview,
     imageId: createHash('sha256').update(wqni).digest('hex'),
+    gray4Wqni,
+    gray4ImageId: createHash('sha256').update(gray4Wqni).digest('hex'),
   };
 }

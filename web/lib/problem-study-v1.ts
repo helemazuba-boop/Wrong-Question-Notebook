@@ -13,7 +13,7 @@ import { PROBLEM_TYPE_VALUES } from './schemas';
 
 export const PROBLEM_STUDY_CONTRACT = 'problem-study-v1' as const;
 export const PROBLEM_STUDY_SCHEMA_SHA256 =
-  'c99894a28b3aa5da2cab05b17ba7b90a782430dd30627bca7e1a00c9c29aea3d' as const;
+  '320e8eb0595f41a3b7b214615da8fccb9881931c52cf564b8423ab4145afc0d7' as const;
 export const PROBLEM_PACK_SCHEMA_VERSION = 1 as const;
 export const PROBLEM_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const PROBLEM_PACK_MAX_ENTRIES = 500;
@@ -52,7 +52,19 @@ export const problemPackRowSchema = z.strictObject({
   status: z.enum(['wrong', 'needs_review', 'mastered']),
   is_optional: z.boolean(),
   image_ids: z.array(sha256Schema).max(8),
+  // Added after v1 shipped; old packs omit the gray derivative and remain
+  // valid. The pack builder always emits the aligned array for new packs.
+  gray4_image_ids: z
+    .array(sha256Schema.nullable())
+    .max(8)
+    .optional()
+    .default([]),
   solution_image_ids: z.array(sha256Schema).max(8),
+  solution_gray4_image_ids: z
+    .array(sha256Schema.nullable())
+    .max(8)
+    .optional()
+    .default([]),
 });
 
 export const problemPackMetaSchema = z.strictObject({
@@ -70,6 +82,10 @@ export const problemManifestRequestSchema = requestMetadataSchema.extend({
     .regex(/^[0-9]+$/)
     .max(20),
   limit: z.number().int().min(1).max(100).optional(),
+  snapshot_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 });
 
 export const problemManifestPackSchema = z
@@ -96,6 +112,8 @@ export const problemManifestSetSchema = z.strictObject({
 });
 
 export const problemManifestDataSchema = z.strictObject({
+  revision: safeCounterSchema.optional(),
+  snapshot_id: sha256Schema.optional(),
   cursor: z
     .string()
     .regex(/^[0-9]+$/)

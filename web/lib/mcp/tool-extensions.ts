@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'crypto';
 import { z } from 'zod';
 import type {
   McpToolContext,
@@ -47,6 +48,7 @@ import {
 import {
   createProblem,
   createProblemFromImages,
+  ProblemCreationServiceError,
   type CreateProblemInput,
 } from '@/lib/problem-creation-service';
 import {
@@ -55,6 +57,7 @@ import {
   PROBLEM_EXTRACTION_SYSTEM_PROMPT,
 } from '@/lib/problem-extraction-service';
 import { ProblemExtractionSchema } from '@/lib/problem-extraction';
+import { ProblemInitialIdeaSchema } from '@/lib/schemas';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -71,6 +74,7 @@ const CursorSchema = z
   .refine(value => Number(value) <= 10_000, 'cursor is too large');
 const IsoDateTimeSchema = z.iso.datetime({ offset: true });
 const MAX_BASE64_IMAGE_CHARS = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
+const MCP_IDEA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const CreateProblemToolArgsSchema = z.union([
   z.object({ get_prompt: z.literal(true) }),
   ProblemExtractionSchema.extend({
@@ -79,6 +83,7 @@ const CreateProblemToolArgsSchema = z.union([
     request_id: RequestIdSchema,
     subject_id: UuidSchema.nullish(),
     problem_set_id: UuidSchema.nullish(),
+    initial_idea_draft: ProblemInitialIdeaSchema.optional(),
   }),
 ]);
 
@@ -94,6 +99,140 @@ function optionalNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function base64UrlToken(bytes = 32): string {
+  return randomBytes(bytes).toString('base64url');
+}
+
+function mcpIdeaConfirmUrl(
+  ctx: McpToolContext,
+  challengeId: string,
+  challengeToken: string
+): string {
+  const path = `${ctx.confirmationPath}/${challengeId}`;
+  const url = new URL(path, ctx.origin);
+  url.hash = `token=${challengeToken}`;
+  return url.toString();
+}
+
+async function createMcpInitialIdeaChallenge(
+  ctx: McpToolContext,
+  problemId: string,
+  requestId: string,
+  proposedIdea: string
+) {
+  const exactTextHash = sha256Hex(proposedIdea);
+  const existing = await ctx.supabase
+    .from('problem_initial_idea_mcp_challenges')
+    .select(
+      'id, problem_id, source_api_token_id, proposed_idea, exact_text_hash, expires_at, consumed_at'
+    )
+    .eq('user_id', ctx.userId)
+    .eq('source_request_id', requestId)
+    .maybeSingle();
+
+  if (existing.error) {
+    throw new ProblemCreationServiceError(
+      'initial_idea_challenge_failed',
+      existing.error.message,
+      500,
+      true
+    );
+  }
+
+  if (existing.data) {
+    const sameRequest =
+      existing.data.problem_id === problemId &&
+      existing.data.source_api_token_id === ctx.apiTokenId &&
+      existing.data.proposed_idea === proposedIdea &&
+      existing.data.exact_text_hash === exactTextHash;
+    if (!sameRequest) {
+      throw new ProblemCreationServiceError(
+        'request_id_reused',
+        'request_id was already used with different initial idea input',
+        409
+      );
+    }
+    if (existing.data.consumed_at) {
+      throw new ProblemCreationServiceError(
+        'initial_idea_challenge_consumed',
+        'The initial idea confirmation challenge was already consumed',
+        409
+      );
+    }
+  }
+
+  // Issue a fresh plaintext token for an identical retry and replace only its
+  // digest. The token is never persisted or logged; old confirmation links are
+  // invalidated. This also repairs an expired or response-lost first call.
+  const challengeToken = base64UrlToken();
+  const expiresAt = new Date(
+    Date.now() + MCP_IDEA_CHALLENGE_TTL_MS
+  ).toISOString();
+  const challengeTokenHash = sha256Hex(challengeToken);
+  let challengeId: string;
+
+  if (existing.data) {
+    const updated = await ctx.supabase
+      .from('problem_initial_idea_mcp_challenges')
+      .update({
+        challenge_token_hash: challengeTokenHash,
+        expires_at: expiresAt,
+      })
+      .eq('id', existing.data.id)
+      .eq('user_id', ctx.userId)
+      .is('consumed_at', null)
+      .select('id')
+      .single();
+    if (updated.error || !updated.data) {
+      throw new ProblemCreationServiceError(
+        'initial_idea_challenge_failed',
+        updated.error?.message ?? 'Failed to refresh confirmation challenge',
+        500,
+        true
+      );
+    }
+    challengeId = updated.data.id;
+  } else {
+    const inserted = await ctx.supabase
+      .from('problem_initial_idea_mcp_challenges')
+      .insert({
+        user_id: ctx.userId,
+        problem_id: problemId,
+        source_api_token_id: ctx.apiTokenId,
+        source_request_id: requestId,
+        proposed_idea: proposedIdea,
+        exact_text_hash: exactTextHash,
+        challenge_token_hash: challengeTokenHash,
+        expires_at: expiresAt,
+      })
+      .select('id')
+      .single();
+    if (inserted.error || !inserted.data) {
+      throw new ProblemCreationServiceError(
+        'initial_idea_challenge_failed',
+        inserted.error?.message ?? 'Failed to create confirmation challenge',
+        500,
+        true
+      );
+    }
+    challengeId = inserted.data.id;
+  }
+
+  return {
+    status: 'confirmation_required' as const,
+    exact_text: proposedIdea,
+    exact_text_hash: exactTextHash,
+    expires_at: expiresAt,
+    confirm_url: mcpIdeaConfirmUrl(ctx, challengeId, challengeToken),
+    next_step:
+      'Stop. Show exact_text verbatim to the user and ask them to open confirm_url. Do not call another tool to attest or confirm on their behalf. Only the signed-in WQN page can promote this machine draft to human evidence.',
+  };
 }
 
 function offsetFromCursor(value: unknown): number {
@@ -713,6 +852,13 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        initial_idea_draft: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 4000,
+          description:
+            '可选机器草稿。不会随建题直接写入个人原话；创建后返回逐字确认链接，只有已登录用户在 WQN 页面确认后才成为 human evidence。',
+        },
       },
       oneOf: [
         {
@@ -736,12 +882,22 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         };
       }
       const extraction = ProblemExtractionSchema.parse(args);
-      return createProblem(ctx.supabase, ctx.userId, {
+      const result = await createProblem(ctx.supabase, ctx.userId, {
         request_id: str(args.request_id),
         ...extraction,
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
       } satisfies CreateProblemInput);
+      const initialIdeaDraft = optionalString(args.initial_idea_draft);
+      if (!initialIdeaDraft) return result;
+
+      const idea_confirmation = await createMcpInitialIdeaChallenge(
+        ctx,
+        result.problem.id,
+        str(args.request_id),
+        initialIdeaDraft
+      );
+      return { ...result, idea_confirmation };
     },
   },
   {
@@ -776,6 +932,13 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        initial_idea_draft: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 4000,
+          description:
+            '可选机器草稿。不会随建题直接写入个人原话；创建后返回逐字确认链接，只有已登录用户在 WQN 页面确认后才成为 human evidence。',
+        },
         save_source_images: {
           type: 'boolean',
           description:
@@ -797,11 +960,12 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         .max(4),
       subject_id: UuidSchema.nullish(),
       problem_set_id: UuidSchema.nullish(),
+      initial_idea_draft: ProblemInitialIdeaSchema.optional(),
       save_source_images: z.boolean().nullish(),
     }),
     annotations: IDEMPOTENT_WRITE,
-    handler: async (ctx, args) =>
-      createProblemFromImages(ctx.supabase, ctx.userId, {
+    handler: async (ctx, args) => {
+      const result = await createProblemFromImages(ctx.supabase, ctx.userId, {
         request_id: str(args.request_id),
         images: args.images as Array<{
           data: string;
@@ -812,7 +976,18 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         ...(typeof args.save_source_images === 'boolean'
           ? { save_source_images: args.save_source_images }
           : {}),
-      }),
+      });
+      const initialIdeaDraft = optionalString(args.initial_idea_draft);
+      if (!initialIdeaDraft) return result;
+
+      const idea_confirmation = await createMcpInitialIdeaChallenge(
+        ctx,
+        result.problem.id,
+        str(args.request_id),
+        initialIdeaDraft
+      );
+      return { ...result, idea_confirmation };
+    },
   },
 ];
 

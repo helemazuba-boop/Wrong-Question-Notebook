@@ -113,7 +113,8 @@ export default function SolutionReveal({
   solutionAssets,
   parts,
   isRevealed,
-  onToggle,
+  onReveal,
+  onHide,
   wrapperClassName,
 }: SolutionRevealProps) {
   const t = useTranslations('Problems');
@@ -134,11 +135,15 @@ export default function SolutionReveal({
         <h2 className="text-base font-semibold text-green-900 dark:text-green-100">
           {t('solutionTitle')}
         </h2>
-        {hasSolution && (
-          <Button onClick={onToggle} variant="secondary">
+        {hasSolution ? (
+          <Button onClick={isRevealed ? onHide : onReveal} variant="secondary">
             {isRevealed ? t('hideSolution') : t('revealSolution')}
           </Button>
-        )}
+        ) : !isRevealed ? (
+          <Button onClick={onReveal} variant="secondary">
+            {t('acknowledgeNoSolution')}
+          </Button>
+        ) : null}
       </div>
 
       {!hasSolution ? (
@@ -146,7 +151,9 @@ export default function SolutionReveal({
           <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center">
             <span className="text-2xl">📝</span>
           </div>
-          <p className="text-sm">{t('noSolutionProvided')}</p>
+          <p className="text-sm">
+            {isRevealed ? t('noSolutionAcknowledged') : t('noSolutionProvided')}
+          </p>
         </div>
       ) : isRevealed ? (
         <div className="space-y-4 print-reveal-content">

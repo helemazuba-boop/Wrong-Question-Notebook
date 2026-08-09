@@ -11,7 +11,7 @@ import {
 
 export const NOTE_STUDY_CONTRACT = 'note-study-v1' as const;
 export const NOTE_STUDY_SCHEMA_SHA256 =
-  'ebf59e78e1fbb963b5a4c533d51cfcbb04b1fe8055923e50735d0cac6d791e05' as const;
+  '78e0cc0788e6c9d470e103b848652a3d81c625030069ffa578a89f6f0036b351' as const;
 export const NOTE_PACK_SCHEMA_VERSION = 1 as const;
 export const NOTE_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const NOTE_PACK_MAX_ENTRIES = 5_000;
@@ -197,6 +197,10 @@ export const noteManifestRequestSchema = requestMetadataSchema.extend({
     .regex(/^[0-9]+$/)
     .max(20),
   limit: z.number().int().min(1).max(100).optional(),
+  snapshot_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 });
 
 export const noteManifestNotebookSchema = z.strictObject({
@@ -209,6 +213,11 @@ export const noteManifestNotebookSchema = z.strictObject({
 });
 
 export const noteManifestDataSchema = z.strictObject({
+  revision: safeCounterSchema.optional(),
+  snapshot_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
   cursor: z
     .string()
     .regex(/^[0-9]+$/)

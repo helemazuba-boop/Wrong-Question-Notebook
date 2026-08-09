@@ -39,6 +39,9 @@ import { MCP_TOOL_EXTENSIONS } from '@/lib/mcp/tool-extensions';
 
 export interface McpToolContext {
   userId: string;
+  apiTokenId: string;
+  origin: string;
+  confirmationPath: string;
   supabase: SupabaseClient<Database>;
 }
 

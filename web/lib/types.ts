@@ -45,6 +45,9 @@ export interface Problem {
   solution_text?: string | null;
   assets?: Asset[];
   solution_assets?: Asset[];
+  /** Owner-private current personal context; omitted from list/share payloads. */
+  initial_idea?: string | null;
+  initial_idea_revision?: number | null;
   tags?: SimpleTag[];
   isInSet?: boolean;
 }
@@ -604,7 +607,8 @@ export interface SolutionRevealProps {
   solutionAssets: SolutionAsset[];
   parts: ProblemPart[];
   isRevealed: boolean;
-  onToggle: () => void;
+  onReveal: () => void;
+  onHide?: () => void;
   wrapperClassName?: string;
 }
 

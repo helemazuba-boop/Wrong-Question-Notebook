@@ -56,7 +56,8 @@ async function manifest(req: NextRequest) {
       auth.userId,
       getEsp32RequestOrigin(req),
       cursor,
-      parsed.data.limit
+      parsed.data.limit,
+      parsed.data.snapshot_id
     );
     const payload = createV3SuccessPayload(requestId, data);
     problemManifestSuccessSchema.parse(payload);

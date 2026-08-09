@@ -7,31 +7,6 @@ export type Json =
   | Json[];
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never;
-    };
-    Views: {
-      [_ in never]: never;
-    };
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
-        Returns: Json;
-      };
-    };
-    Enums: {
-      [_ in never]: never;
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
   public: {
     Tables: {
       admin_settings: {
@@ -494,6 +469,235 @@ export type Database = {
           },
         ];
       };
+      fsrs_authority_cutover_snapshots: {
+        Row: {
+          created_at: string;
+          cutover_id: string;
+          fsrs_projection_revision: number;
+          previous_authority_algorithm: string | null;
+          previous_authority_parameter_set_id: string | null;
+          previous_authority_projection_revision: number | null;
+          previous_ease_factor: number | null;
+          previous_interval_days: number | null;
+          previous_last_reviewed_at: string | null;
+          previous_next_review_at: string | null;
+          previous_repetition_number: number | null;
+          problem_id: string;
+          schedule_existed: boolean;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          cutover_id: string;
+          fsrs_projection_revision: number;
+          previous_authority_algorithm?: string | null;
+          previous_authority_parameter_set_id?: string | null;
+          previous_authority_projection_revision?: number | null;
+          previous_ease_factor?: number | null;
+          previous_interval_days?: number | null;
+          previous_last_reviewed_at?: string | null;
+          previous_next_review_at?: string | null;
+          previous_repetition_number?: number | null;
+          problem_id: string;
+          schedule_existed: boolean;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          cutover_id?: string;
+          fsrs_projection_revision?: number;
+          previous_authority_algorithm?: string | null;
+          previous_authority_parameter_set_id?: string | null;
+          previous_authority_projection_revision?: number | null;
+          previous_ease_factor?: number | null;
+          previous_interval_days?: number | null;
+          previous_last_reviewed_at?: string | null;
+          previous_next_review_at?: string | null;
+          previous_repetition_number?: number | null;
+          problem_id?: string;
+          schedule_existed?: boolean;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'fsrs_authority_cutover_snapshots_cutover_id_fkey';
+            columns: ['cutover_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_authority_cutovers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'fsrs_authority_cutover_snapshots_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
+      fsrs_authority_cutovers: {
+        Row: {
+          cancelled_at: string | null;
+          cutover_at: string;
+          id: string;
+          problem_count: number;
+          status: string;
+          user_id: string;
+        };
+        Insert: {
+          cancelled_at?: string | null;
+          cutover_at?: string;
+          id?: string;
+          problem_count: number;
+          status?: string;
+          user_id: string;
+        };
+        Update: {
+          cancelled_at?: string | null;
+          cutover_at?: string;
+          id?: string;
+          problem_count?: number;
+          status?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      fsrs_parameter_sets: {
+        Row: {
+          algorithm_version: string;
+          config_hash: string;
+          created_at: string;
+          id: string;
+          library_name: string;
+          library_version: string;
+          parameters: Json;
+          stable_key: string;
+        };
+        Insert: {
+          algorithm_version: string;
+          config_hash: string;
+          created_at?: string;
+          id: string;
+          library_name: string;
+          library_version: string;
+          parameters: Json;
+          stable_key: string;
+        };
+        Update: {
+          algorithm_version?: string;
+          config_hash?: string;
+          created_at?: string;
+          id?: string;
+          library_name?: string;
+          library_version?: string;
+          parameters?: Json;
+          stable_key?: string;
+        };
+        Relationships: [];
+      };
+      fsrs_review_schedule_projection: {
+        Row: {
+          calculated_parameter_set_id: string | null;
+          card_initialized: boolean;
+          difficulty: number | null;
+          fsrs_state: string | null;
+          lapses: number | null;
+          last_application_id: string | null;
+          last_event_id: string | null;
+          last_reviewed_at: string | null;
+          learning_step_index: number | null;
+          library_name: string;
+          library_version: string;
+          next_review_at: string | null;
+          problem_id: string;
+          projection_revision: number;
+          reps: number | null;
+          scheduled_days: number | null;
+          scheduler_algorithm: string;
+          stability: number | null;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          calculated_parameter_set_id?: string | null;
+          card_initialized: boolean;
+          difficulty?: number | null;
+          fsrs_state?: string | null;
+          lapses?: number | null;
+          last_application_id?: string | null;
+          last_event_id?: string | null;
+          last_reviewed_at?: string | null;
+          learning_step_index?: number | null;
+          library_name?: string;
+          library_version?: string;
+          next_review_at?: string | null;
+          problem_id: string;
+          projection_revision: number;
+          reps?: number | null;
+          scheduled_days?: number | null;
+          scheduler_algorithm?: string;
+          stability?: number | null;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          calculated_parameter_set_id?: string | null;
+          card_initialized?: boolean;
+          difficulty?: number | null;
+          fsrs_state?: string | null;
+          lapses?: number | null;
+          last_application_id?: string | null;
+          last_event_id?: string | null;
+          last_reviewed_at?: string | null;
+          learning_step_index?: number | null;
+          library_name?: string;
+          library_version?: string;
+          next_review_at?: string | null;
+          problem_id?: string;
+          projection_revision?: number;
+          reps?: number | null;
+          scheduled_days?: number | null;
+          scheduler_algorithm?: string;
+          stability?: number | null;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'fsrs_review_schedule_projectio_calculated_parameter_set_id_fkey';
+            columns: ['calculated_parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'fsrs_review_schedule_projection_last_application_id_fkey';
+            columns: ['last_application_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_schedule_applications';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'fsrs_review_schedule_projection_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
       insight_digests: {
         Row: {
           created_at: string;
@@ -934,6 +1138,117 @@ export type Database = {
           },
         ];
       };
+      problem_initial_idea_mcp_challenges: {
+        Row: {
+          challenge_token_hash: string;
+          consumed_at: string | null;
+          consumed_revision_id: string | null;
+          created_at: string;
+          exact_text_hash: string;
+          expires_at: string;
+          id: string;
+          problem_id: string;
+          proposed_idea: string;
+          source_api_token_id: string;
+          source_request_id: string;
+          user_id: string;
+        };
+        Insert: {
+          challenge_token_hash: string;
+          consumed_at?: string | null;
+          consumed_revision_id?: string | null;
+          created_at?: string;
+          exact_text_hash: string;
+          expires_at: string;
+          id?: string;
+          problem_id: string;
+          proposed_idea: string;
+          source_api_token_id: string;
+          source_request_id: string;
+          user_id: string;
+        };
+        Update: {
+          challenge_token_hash?: string;
+          consumed_at?: string | null;
+          consumed_revision_id?: string | null;
+          created_at?: string;
+          exact_text_hash?: string;
+          expires_at?: string;
+          id?: string;
+          problem_id?: string;
+          proposed_idea?: string;
+          source_api_token_id?: string;
+          source_request_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_initial_idea_mcp_challenges_consumed_revision_fkey';
+            columns: ['consumed_revision_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_initial_idea_revisions';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_initial_idea_mcp_challenges_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+          {
+            foreignKeyName: 'problem_initial_idea_mcp_challenges_source_token_fkey';
+            columns: ['source_api_token_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'user_api_tokens';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
+      problem_initial_idea_revisions: {
+        Row: {
+          channel_source: string;
+          created_at: string;
+          id: string;
+          idea: string | null;
+          idea_origin: string;
+          problem_id: string;
+          revision: number;
+          revision_kind: string;
+          user_id: string;
+        };
+        Insert: {
+          channel_source: string;
+          created_at?: string;
+          id?: string;
+          idea?: string | null;
+          idea_origin: string;
+          problem_id: string;
+          revision: number;
+          revision_kind: string;
+          user_id: string;
+        };
+        Update: {
+          channel_source?: string;
+          created_at?: string;
+          id?: string;
+          idea?: string | null;
+          idea_origin?: string;
+          problem_id?: string;
+          revision?: number;
+          revision_kind?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_initial_idea_revisions_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
       problem_mark_annotations: {
         Row: {
           completed_at: string | null;
@@ -1040,6 +1355,185 @@ export type Database = {
           },
         ];
       };
+      problem_review_events: {
+        Row: {
+          attempt_id: string | null;
+          channel_source: string;
+          created_at: string;
+          device_id: string | null;
+          effective_review_at: string;
+          event_kind: string;
+          human_rating: string | null;
+          id: string;
+          initial_idea_revision_id: string | null;
+          machine_correctness_snapshot: boolean | null;
+          problem_id: string;
+          received_at: string;
+          review_occurrence_id: string;
+          reviewed_at: string;
+          source_request_id: string;
+          supersedes_event_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          attempt_id?: string | null;
+          channel_source: string;
+          created_at?: string;
+          device_id?: string | null;
+          effective_review_at: string;
+          event_kind: string;
+          human_rating?: string | null;
+          id?: string;
+          initial_idea_revision_id?: string | null;
+          machine_correctness_snapshot?: boolean | null;
+          problem_id: string;
+          received_at?: string;
+          review_occurrence_id: string;
+          reviewed_at: string;
+          source_request_id: string;
+          supersedes_event_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          attempt_id?: string | null;
+          channel_source?: string;
+          created_at?: string;
+          device_id?: string | null;
+          effective_review_at?: string;
+          event_kind?: string;
+          human_rating?: string | null;
+          id?: string;
+          initial_idea_revision_id?: string | null;
+          machine_correctness_snapshot?: boolean | null;
+          problem_id?: string;
+          received_at?: string;
+          review_occurrence_id?: string;
+          reviewed_at?: string;
+          source_request_id?: string;
+          supersedes_event_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_events_attempt_owner_fkey';
+            columns: ['attempt_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'attempts';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_initial_idea_fkey';
+            columns: ['initial_idea_revision_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_initial_idea_revisions';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_occurrence_fkey';
+            columns: ['review_occurrence_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_occurrences';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_supersedes_fkey';
+            columns: [
+              'supersedes_event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'effective_problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+          {
+            foreignKeyName: 'problem_review_events_supersedes_fkey';
+            columns: [
+              'supersedes_event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+        ];
+      };
+      problem_review_idea_revisions: {
+        Row: {
+          asr_model: string | null;
+          asr_provider: string | null;
+          asr_request_id: string | null;
+          channel_source: string;
+          created_at: string;
+          id: string;
+          idea: string | null;
+          idea_origin: string;
+          problem_id: string;
+          review_occurrence_id: string;
+          revision: number;
+          revision_kind: string;
+          user_id: string;
+        };
+        Insert: {
+          asr_model?: string | null;
+          asr_provider?: string | null;
+          asr_request_id?: string | null;
+          channel_source: string;
+          created_at?: string;
+          id?: string;
+          idea?: string | null;
+          idea_origin: string;
+          problem_id: string;
+          review_occurrence_id: string;
+          revision: number;
+          revision_kind: string;
+          user_id: string;
+        };
+        Update: {
+          asr_model?: string | null;
+          asr_provider?: string | null;
+          asr_request_id?: string | null;
+          channel_source?: string;
+          created_at?: string;
+          id?: string;
+          idea?: string | null;
+          idea_origin?: string;
+          problem_id?: string;
+          review_occurrence_id?: string;
+          revision?: number;
+          revision_kind?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_idea_revisions_occurrence_fkey';
+            columns: ['review_occurrence_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_occurrences';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+        ];
+      };
       problem_review_observations: {
         Row: {
           action: string;
@@ -1081,6 +1575,366 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: 'problems';
             referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_review_occurrence_parameter_assignments: {
+        Row: {
+          assigned_at: string;
+          assignment_source: string;
+          parameter_set_id: string;
+          problem_id: string;
+          review_occurrence_id: string;
+          user_id: string;
+        };
+        Insert: {
+          assigned_at?: string;
+          assignment_source: string;
+          parameter_set_id: string;
+          problem_id: string;
+          review_occurrence_id: string;
+          user_id: string;
+        };
+        Update: {
+          assigned_at?: string;
+          assignment_source?: string;
+          parameter_set_id?: string;
+          problem_id?: string;
+          review_occurrence_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_occurrence_parameter_assig_parameter_set_id_fkey';
+            columns: ['parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_review_occurrence_parameter_assignments_occurrence_fkey';
+            columns: ['review_occurrence_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_occurrences';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+        ];
+      };
+      problem_review_occurrences: {
+        Row: {
+          attempt_id: string | null;
+          created_at: string;
+          effective_review_at: string;
+          id: string;
+          problem_id: string;
+          reviewed_at: string;
+          user_id: string;
+        };
+        Insert: {
+          attempt_id?: string | null;
+          created_at?: string;
+          effective_review_at: string;
+          id: string;
+          problem_id: string;
+          reviewed_at: string;
+          user_id: string;
+        };
+        Update: {
+          attempt_id?: string | null;
+          created_at?: string;
+          effective_review_at?: string;
+          id?: string;
+          problem_id?: string;
+          reviewed_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_occurrences_attempt_owner_fkey';
+            columns: ['attempt_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'attempts';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_occurrences_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
+      problem_review_projection_jobs: {
+        Row: {
+          attempt_count: number;
+          dirty_from: string;
+          last_error_code: string | null;
+          lease_token: string | null;
+          lease_until: string | null;
+          next_retry_at: string;
+          problem_id: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          dirty_from: string;
+          last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
+          problem_id: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          dirty_from?: string;
+          last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
+          problem_id?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_projection_jobs_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
+      problem_review_projection_runs: {
+        Row: {
+          base_projection_revision: number;
+          completed_at: string | null;
+          error_code: string | null;
+          id: string;
+          lease_token: string;
+          problem_id: string;
+          reason: string;
+          started_at: string;
+          status: string;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+        };
+        Insert: {
+          base_projection_revision: number;
+          completed_at?: string | null;
+          error_code?: string | null;
+          id?: string;
+          lease_token: string;
+          problem_id: string;
+          reason?: string;
+          started_at?: string;
+          status?: string;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+        };
+        Update: {
+          base_projection_revision?: number;
+          completed_at?: string | null;
+          error_code?: string | null;
+          id?: string;
+          lease_token?: string;
+          problem_id?: string;
+          reason?: string;
+          started_at?: string;
+          status?: string;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_projection_runs_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
+      problem_review_schedule_applications: {
+        Row: {
+          algorithm_version: string;
+          applied_at: string;
+          card_after: Json;
+          card_before: Json;
+          event_id: string;
+          id: string;
+          library_name: string;
+          library_version: string;
+          parameter_set_id: string;
+          problem_id: string;
+          projection_revision: number;
+          projection_run_id: string;
+          review_log: Json;
+          review_occurrence_id: string;
+          sequence: number;
+          user_id: string;
+        };
+        Insert: {
+          algorithm_version: string;
+          applied_at?: string;
+          card_after: Json;
+          card_before: Json;
+          event_id: string;
+          id?: string;
+          library_name: string;
+          library_version: string;
+          parameter_set_id: string;
+          problem_id: string;
+          projection_revision: number;
+          projection_run_id: string;
+          review_log: Json;
+          review_occurrence_id: string;
+          sequence: number;
+          user_id: string;
+        };
+        Update: {
+          algorithm_version?: string;
+          applied_at?: string;
+          card_after?: Json;
+          card_before?: Json;
+          event_id?: string;
+          id?: string;
+          library_name?: string;
+          library_version?: string;
+          parameter_set_id?: string;
+          problem_id?: string;
+          projection_revision?: number;
+          projection_run_id?: string;
+          review_log?: Json;
+          review_occurrence_id?: string;
+          sequence?: number;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_schedule_applications_event_fkey';
+            columns: [
+              'event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'effective_problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+          {
+            foreignKeyName: 'problem_review_schedule_applications_event_fkey';
+            columns: [
+              'event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+          {
+            foreignKeyName: 'problem_review_schedule_applications_parameter_set_id_fkey';
+            columns: ['parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_review_schedule_applications_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_schedule_applications_projection_run_id_fkey';
+            columns: ['projection_run_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_projection_runs';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_review_sm2_compatibility_baselines: {
+        Row: {
+          anchor_review_occurrence_id: string;
+          captured_at: string;
+          created_at: string;
+          ease_factor: number;
+          interval_days: number;
+          last_reviewed_at: string | null;
+          next_review_at: string | null;
+          problem_id: string;
+          repetition_number: number;
+          schedule_existed: boolean;
+          timezone: string;
+          user_id: string;
+        };
+        Insert: {
+          anchor_review_occurrence_id: string;
+          captured_at: string;
+          created_at?: string;
+          ease_factor: number;
+          interval_days: number;
+          last_reviewed_at?: string | null;
+          next_review_at?: string | null;
+          problem_id: string;
+          repetition_number: number;
+          schedule_existed: boolean;
+          timezone: string;
+          user_id: string;
+        };
+        Update: {
+          anchor_review_occurrence_id?: string;
+          captured_at?: string;
+          created_at?: string;
+          ease_factor?: number;
+          interval_days?: number;
+          last_reviewed_at?: string | null;
+          next_review_at?: string | null;
+          problem_id?: string;
+          repetition_number?: number;
+          schedule_existed?: boolean;
+          timezone?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_sm2_baselines_anchor_fkey';
+            columns: ['anchor_review_occurrence_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_occurrences';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_sm2_baselines_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
           },
         ];
       };
@@ -1542,6 +2396,49 @@ export type Database = {
           },
         ];
       };
+      problem_user_contexts: {
+        Row: {
+          created_at: string;
+          current_initial_idea_revision_id: string | null;
+          problem_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          current_initial_idea_revision_id?: string | null;
+          problem_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          current_initial_idea_revision_id?: string | null;
+          problem_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_user_contexts_current_revision_fkey';
+            columns: [
+              'current_initial_idea_revision_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'problem_initial_idea_revisions';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_user_contexts_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+        ];
+      };
       problems: {
         Row: {
           assets: Json;
@@ -1654,6 +2551,9 @@ export type Database = {
       };
       review_schedule: {
         Row: {
+          authority_algorithm: string;
+          authority_parameter_set_id: string | null;
+          authority_projection_revision: number | null;
           created_at: string;
           ease_factor: number;
           id: string;
@@ -1666,6 +2566,9 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          authority_algorithm?: string;
+          authority_parameter_set_id?: string | null;
+          authority_projection_revision?: number | null;
           created_at?: string;
           ease_factor?: number;
           id?: string;
@@ -1678,6 +2581,9 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          authority_algorithm?: string;
+          authority_parameter_set_id?: string | null;
+          authority_projection_revision?: number | null;
           created_at?: string;
           ease_factor?: number;
           id?: string;
@@ -1690,6 +2596,13 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: 'review_schedule_authority_parameter_set_id_fkey';
+            columns: ['authority_parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
           {
             foreignKeyName: 'review_schedule_problem_id_fkey';
             columns: ['problem_id'];
@@ -2280,6 +3193,80 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_fsrs_parameter_activations: {
+        Row: {
+          activated_at: string;
+          activation_source: string;
+          id: number;
+          parameter_set_id: string;
+          user_id: string;
+        };
+        Insert: {
+          activated_at?: string;
+          activation_source: string;
+          id?: never;
+          parameter_set_id: string;
+          user_id: string;
+        };
+        Update: {
+          activated_at?: string;
+          activation_source?: string;
+          id?: never;
+          parameter_set_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_fsrs_parameter_activations_parameter_set_id_fkey';
+            columns: ['parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      user_fsrs_settings: {
+        Row: {
+          active_cutover_id: string | null;
+          active_parameter_set_id: string;
+          authority_mode: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          active_cutover_id?: string | null;
+          active_parameter_set_id: string;
+          authority_mode?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          active_cutover_id?: string | null;
+          active_parameter_set_id?: string;
+          authority_mode?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_fsrs_settings_active_cutover_fkey';
+            columns: ['active_cutover_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_authority_cutovers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'user_fsrs_settings_active_parameter_set_id_fkey';
+            columns: ['active_parameter_set_id'];
+            isOneToOne: false;
+            referencedRelation: 'fsrs_parameter_sets';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       user_profiles: {
         Row: {
           avatar_url: string | null;
@@ -2853,8 +3840,135 @@ export type Database = {
         };
         Relationships: [];
       };
+      effective_problem_review_events: {
+        Row: {
+          attempt_id: string | null;
+          channel_source: string | null;
+          created_at: string | null;
+          device_id: string | null;
+          effective_review_at: string | null;
+          event_kind: string | null;
+          human_rating: string | null;
+          id: string | null;
+          initial_idea_revision_id: string | null;
+          machine_correctness_snapshot: boolean | null;
+          problem_id: string | null;
+          received_at: string | null;
+          review_occurrence_id: string | null;
+          reviewed_at: string | null;
+          source_request_id: string | null;
+          supersedes_event_id: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          attempt_id?: string | null;
+          channel_source?: string | null;
+          created_at?: string | null;
+          device_id?: string | null;
+          effective_review_at?: string | null;
+          event_kind?: string | null;
+          human_rating?: string | null;
+          id?: string | null;
+          initial_idea_revision_id?: string | null;
+          machine_correctness_snapshot?: boolean | null;
+          problem_id?: string | null;
+          received_at?: string | null;
+          review_occurrence_id?: string | null;
+          reviewed_at?: string | null;
+          source_request_id?: string | null;
+          supersedes_event_id?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          attempt_id?: string | null;
+          channel_source?: string | null;
+          created_at?: string | null;
+          device_id?: string | null;
+          effective_review_at?: string | null;
+          event_kind?: string | null;
+          human_rating?: string | null;
+          id?: string | null;
+          initial_idea_revision_id?: string | null;
+          machine_correctness_snapshot?: boolean | null;
+          problem_id?: string | null;
+          received_at?: string | null;
+          review_occurrence_id?: string | null;
+          reviewed_at?: string | null;
+          source_request_id?: string | null;
+          supersedes_event_id?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_review_events_attempt_owner_fkey';
+            columns: ['attempt_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'attempts';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_initial_idea_fkey';
+            columns: ['initial_idea_revision_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_initial_idea_revisions';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_occurrence_fkey';
+            columns: ['review_occurrence_id', 'user_id', 'problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_occurrences';
+            referencedColumns: ['id', 'user_id', 'problem_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_problem_owner_fkey';
+            columns: ['problem_id', 'user_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id', 'user_id'];
+          },
+          {
+            foreignKeyName: 'problem_review_events_supersedes_fkey';
+            columns: [
+              'supersedes_event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'effective_problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+          {
+            foreignKeyName: 'problem_review_events_supersedes_fkey';
+            columns: [
+              'supersedes_event_id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+            isOneToOne: false;
+            referencedRelation: 'problem_review_events';
+            referencedColumns: [
+              'id',
+              'review_occurrence_id',
+              'user_id',
+              'problem_id',
+            ];
+          },
+        ];
+      };
     };
     Functions: {
+      activate_user_fsrs_parameter_set: {
+        Args: { p_parameter_set_id: string; p_user_id: string };
+        Returns: Json;
+      };
       apply_problem_mark_annotation: {
         Args: {
           p_assignments: Json;
@@ -2881,6 +3995,10 @@ export type Database = {
         }[];
       };
       can_view_problem: { Args: { p_problem_id: string }; Returns: boolean };
+      cancel_fsrs_authority_cutover: {
+        Args: { p_cutover_id: string; p_user_id: string };
+        Returns: Json;
+      };
       check_and_increment_quota: {
         Args: {
           p_default_limit: number;
@@ -2888,6 +4006,10 @@ export type Database = {
           p_user_id: string;
           p_user_tz?: string;
         };
+        Returns: Json;
+      };
+      claim_problem_review_projection_jobs: {
+        Args: { p_lease_seconds?: number; p_limit?: number };
         Returns: Json;
       };
       cleanup_device_control_v3: { Args: never; Returns: number };
@@ -2908,9 +4030,26 @@ export type Database = {
         };
         Returns: undefined;
       };
+      commit_problem_review_projection: {
+        Args: {
+          p_applications: Json;
+          p_expected_base_revision: number;
+          p_expected_event_count: number;
+          p_expected_fingerprint: string;
+          p_fsrs_card: Json;
+          p_lease_token: string;
+          p_run_id: string;
+          p_sm2_projection: Json;
+        };
+        Returns: Json;
+      };
       compute_problem_set_count: {
         Args: { p_problem_set_id: string };
         Returns: number;
+      };
+      confirm_mcp_problem_initial_idea: {
+        Args: { p_challenge_id: string; p_challenge_token: string };
+        Returns: Json;
       };
       consume_device_claim_v3: {
         Args: { p_device_id: string };
@@ -3023,6 +4162,10 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      cutover_user_review_schedule_to_fsrs: {
+        Args: { p_expected_projections: Json; p_user_id: string };
+        Returns: Json;
+      };
       fail_problem_mark_annotation: {
         Args: {
           p_error_code: string;
@@ -3030,6 +4173,15 @@ export type Database = {
           p_semantic_revision: number;
         };
         Returns: undefined;
+      };
+      fail_problem_review_projection_job: {
+        Args: {
+          p_error_code: string;
+          p_lease_token: string;
+          p_problem_id: string;
+          p_user_id: string;
+        };
+        Returns: boolean;
       };
       find_problem_by_asset: { Args: { p_path: string }; Returns: string };
       generate_username_from_email: {
@@ -3114,6 +4266,10 @@ export type Database = {
         }[];
       };
       get_problem_mark_annotation_context: {
+        Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      get_problem_review_scheduler_diagnostics: {
         Args: { p_problem_id: string };
         Returns: Json;
       };
@@ -3223,6 +4379,14 @@ export type Database = {
         };
         Returns: string;
       };
+      prepare_problem_review_projection: {
+        Args: {
+          p_lease_token: string;
+          p_problem_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       problem_parts_valid: { Args: { p: Json }; Returns: boolean };
       prune_word_packs_v1: {
         Args: { p_deck_id: string };
@@ -3241,6 +4405,25 @@ export type Database = {
           p_request_id: string;
           p_sequence: number;
           p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      record_problem_review_fact: {
+        Args: {
+          p_attempt_id: string | null;
+          p_channel_source: string;
+          p_device_id: string | null;
+          p_event_id: string;
+          p_event_kind: string;
+          p_human_rating: string | null;
+          p_initial_idea_revision_id: string | null;
+          p_machine_correctness_snapshot: boolean | null;
+          p_problem_id: string;
+          p_review_occurrence_id: string;
+          p_reviewed_at: string;
+          p_source_request_id: string;
+          p_supersedes_event_id: string | null;
           p_user_id: string;
         };
         Returns: Json;
@@ -3285,6 +4468,22 @@ export type Database = {
       refresh_ranking_scores: { Args: never; Returns: undefined };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      set_problem_initial_idea: {
+        Args: {
+          p_idea: string | null;
+          p_problem_id: string;
+          p_revision_kind: string;
+        };
+        Returns: Json;
+      };
+      set_problem_review_idea: {
+        Args: {
+          p_idea: string | null;
+          p_review_occurrence_id: string;
+          p_revision_kind: string;
+        };
         Returns: Json;
       };
       set_web_note_study_session_status_v1: {
@@ -3551,9 +4750,6 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       problem_part_type: [

@@ -12,8 +12,9 @@ import { createServiceClient } from '@/lib/supabase-utils';
 
 export const runtime = 'nodejs';
 
-// Serves a note image as the device-ready WQNI file (20-byte header + 15000
-// byte 1-bpp framebuffer payload). Addressed by note id + attachment index so
+// Serves a note image as device-ready WQNI: BW1 by default for old firmware,
+// or the 4bpp gray derivative selected by pixel_format=gray4. Addressed by
+// note id + attachment index so
 // the device needs nothing beyond what the pack JSONL already carries; the
 // X-WQN-Image-Id header lets it verify the pack's image_id before caching.
 
@@ -31,6 +32,7 @@ async function downloadNoteImage(
   if (auth instanceof NextResponse) return auth;
 
   const { noteId, index } = await params;
+  const pixelFormat = req.nextUrl.searchParams.get('pixel_format') ?? 'bw1';
   const imageIndex = Number(index);
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
@@ -38,7 +40,8 @@ async function downloadNoteImage(
     ) ||
     !Number.isInteger(imageIndex) ||
     imageIndex < 0 ||
-    imageIndex > 3
+    imageIndex > 3 ||
+    (pixelFormat !== 'bw1' && pixelFormat !== 'gray4')
   ) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
@@ -60,14 +63,27 @@ async function downloadNoteImage(
     }
     const assets = Array.isArray(note?.assets) ? note.assets : [];
     const asset = assets[imageIndex] as
-      { image_id?: string; display_path?: string } | undefined;
+      | {
+          image_id?: string;
+          display_path?: string;
+          gray4_image_id?: string;
+          gray4_display_path?: string;
+        }
+      | undefined;
     if (!asset?.image_id || !asset?.display_path) {
       return createV3Error(requestId, 404, 'IMAGE_NOT_FOUND', false);
+    }
+    const selectedId =
+      pixelFormat === 'gray4' ? asset.gray4_image_id : asset.image_id;
+    const selectedPath =
+      pixelFormat === 'gray4' ? asset.gray4_display_path : asset.display_path;
+    if (!selectedId || !selectedPath) {
+      return createV3Error(requestId, 404, 'IMAGE_VARIANT_NOT_FOUND', false);
     }
 
     const { data: blob, error: downloadError } = await service.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
-      .download(asset.display_path);
+      .download(selectedPath);
     if (downloadError || !blob) {
       return createV3Error(requestId, 404, 'IMAGE_NOT_FOUND', false);
     }
@@ -83,11 +99,12 @@ async function downloadNoteImage(
         'Content-Length': String(deflated.length),
         // image_id is a content hash, so the bytes are immutable.
         'Cache-Control': 'private, max-age=31536000, immutable',
-        ETag: `"${asset.image_id}"`,
+        ETag: `"${selectedId}"`,
         'X-WQN-Protocol': '3',
         'X-WQN-Request-Id': requestId,
         'X-WQN-Compression': 'zlib',
-        'X-WQN-Image-Id': asset.image_id,
+        'X-WQN-Image-Id': selectedId,
+        'X-WQN-Pixel-Format': pixelFormat,
       },
     });
   } catch {

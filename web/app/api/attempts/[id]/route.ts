@@ -1,4 +1,4 @@
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { UpdateAttemptDto } from '@/lib/schemas';
 import {
@@ -8,14 +8,7 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import type { Database, Json } from '@/lib/database.types';
-import { updateReviewSchedule } from '@/lib/spaced-repetition';
-import { createServiceClient } from '@/lib/supabase-utils';
-import {
-  revalidateProblemAndSubject,
-  revalidateUserReviewSchedule,
-} from '@/lib/cache-invalidation';
-import { getUserTimezone } from '@/lib/timezone-utils';
-import { performErrorCategorisation } from '@/lib/categorise-error';
+import { revalidateProblemAndSubject } from '@/lib/cache-invalidation';
 
 export async function PATCH(
   req: Request,
@@ -85,82 +78,16 @@ export async function PATCH(
       );
     }
 
-    // Sync problem status and recalculate review schedule when selected_status
-    // is updated — but only if this is the latest attempt for the problem.
-    // Editing a historical attempt should not overwrite the current status.
-    if (parsed.data.selected_status !== undefined) {
-      // Fetch problem, latest attempt, and timezone in parallel
-      const [{ data: problem }, { data: latestAttempt }, userTimezone] =
-        await Promise.all([
-          supabase
-            .from('problems')
-            .select('subject_id')
-            .eq('id', data.problem_id)
-            .single(),
-          supabase
-            .from('attempts')
-            .select('id')
-            .eq('problem_id', data.problem_id)
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single(),
-          getUserTimezone(user.id),
-        ]);
-
-      const isLatestAttempt = latestAttempt?.id === attemptId;
-
-      if (parsed.data.selected_status && isLatestAttempt) {
-        await supabase
-          .from('problems')
-          .update({
-            status: parsed.data.selected_status,
-            last_reviewed_date: new Date().toISOString(),
-          })
-          .eq('id', data.problem_id)
-          .eq('user_id', user.id);
-
-        try {
-          const serviceClient = createServiceClient();
-          await updateReviewSchedule(
-            serviceClient,
-            user.id,
-            data.problem_id,
-            parsed.data.selected_status,
-            userTimezone
-          );
-          await revalidateUserReviewSchedule(user.id);
-        } catch (e) {
-          console.error('Failed to update review schedule:', e);
-        }
-      }
-
-      // Invalidate caches
-      if (problem) {
-        await revalidateProblemAndSubject(data.problem_id, problem.subject_id);
-      }
-
-      // Trigger AI error categorisation after the response is sent
-      if (
-        (parsed.data.selected_status === 'wrong' ||
-          parsed.data.selected_status === 'needs_review') &&
-        problem?.subject_id
-      ) {
-        const subjectId = problem.subject_id;
-        const problemId = data.problem_id;
-        after(async () => {
-          try {
-            await performErrorCategorisation({
-              attempt_id: attemptId,
-              problem_id: problemId,
-              subject_id: subjectId,
-              user_id: user.id,
-            });
-          } catch (err) {
-            console.error('[categorise-trigger] failed:', err);
-          }
-        });
-      }
+    // Attempt edits never create or correct a Review. Rating corrections use
+    // the stable occurrence through /api/problem-reviews.
+    const { data: problem } = await supabase
+      .from('problems')
+      .select('subject_id')
+      .eq('id', data.problem_id)
+      .eq('user_id', user.id)
+      .single();
+    if (problem) {
+      await revalidateProblemAndSubject(data.problem_id, problem.subject_id);
     }
 
     return NextResponse.json(createApiSuccessResponse(data));

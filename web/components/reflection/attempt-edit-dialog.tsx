@@ -17,33 +17,7 @@ import CauseSelector from './cause-selector';
 import { cn } from '@/lib/utils';
 import { ATTEMPT_CONSTANTS } from '@/lib/constants';
 import { Attempt } from '@/lib/types';
-import { ProblemStatus } from '@/lib/schemas';
-import { XCircle, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-const statusOptions = [
-  {
-    value: 'wrong' as ProblemStatus,
-    labelKey: 'wrong' as const,
-    icon: XCircle,
-    activeBg:
-      'bg-red-100 dark:bg-red-950/20 text-red-800 dark:text-red-200 border-red-300 dark:border-red-800',
-  },
-  {
-    value: 'needs_review' as ProblemStatus,
-    labelKey: 'needsReview' as const,
-    icon: AlertCircle,
-    activeBg:
-      'bg-yellow-100 dark:bg-yellow-950/20 text-yellow-800 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800',
-  },
-  {
-    value: 'mastered' as ProblemStatus,
-    labelKey: 'mastered' as const,
-    icon: CheckCircle,
-    activeBg:
-      'bg-green-100 dark:bg-green-950/20 text-green-800 dark:text-green-200 border-green-300 dark:border-green-800',
-  },
-];
 
 interface AttemptEditDialogProps {
   open: boolean;
@@ -60,26 +34,19 @@ export default function AttemptEditDialog({
 }: AttemptEditDialogProps) {
   const t = useTranslations('Review');
   const tCommon = useTranslations('Common');
-  const [selectedStatus, setSelectedStatus] = useState<ProblemStatus | null>(
-    null
-  );
   const [cause, setCause] = useState<string | undefined>(undefined);
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const NOTES_MAX = ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH;
 
-  // Derive correctness for cause selector: use the attempt's auto-mark
-  // result when available, otherwise fall back to status-based derivation
-  const effectiveIsCorrect =
-    attempt.is_correct !== null
-      ? attempt.is_correct
-      : selectedStatus === 'mastered';
+  // Cause/reflection remain editable Attempt evidence. Human Rating corrections
+  // use /api/problem-reviews and never pass through this dialog.
+  const effectiveIsCorrect = attempt.is_correct ?? false;
 
   // Populate form when dialog opens
   useEffect(() => {
     if (open) {
-      setSelectedStatus(attempt.selected_status ?? null);
       setCause(attempt.cause || undefined);
       setNotes(attempt.reflection_notes || '');
     }
@@ -92,7 +59,6 @@ export default function AttemptEditDialog({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          selected_status: selectedStatus,
           cause: cause || null,
           reflection_notes: notes || null,
         }),
@@ -112,7 +78,7 @@ export default function AttemptEditDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('editAttempt')}</DialogTitle>
-          <DialogDescription>{t('editAttemptDesc')}</DialogDescription>
+          <DialogDescription>{t('editAttemptEvidenceDesc')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -147,60 +113,13 @@ export default function AttemptEditDialog({
               </div>
             )}
 
-          {/* Status selector */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {t('status')}
-            </label>
-            <div className="space-y-1.5">
-              {statusOptions
-                .filter(option => {
-                  // Self-assessed or unknown correctness: all options available
-                  if (attempt.is_correct === null || attempt.is_self_assessed)
-                    return true;
-                  // Auto-mark incorrect: only Wrong and Needs Review
-                  if (attempt.is_correct === false)
-                    return (
-                      option.value === 'wrong' ||
-                      option.value === 'needs_review'
-                    );
-                  // Auto-mark correct: only Needs Review and Mastered
-                  return (
-                    option.value === 'needs_review' ||
-                    option.value === 'mastered'
-                  );
-                })
-                .map(option => {
-                  const Icon = option.icon;
-                  return (
-                    <button
-                      type="button"
-                      key={option.value}
-                      onClick={() => setSelectedStatus(option.value)}
-                      className={cn(
-                        'w-full px-3 py-2 rounded-lg text-left text-sm font-medium border transition-all flex items-center gap-2',
-                        selectedStatus === option.value
-                          ? option.activeBg
-                          : 'border-border bg-background hover:bg-muted'
-                      )}
-                    >
-                      <Icon className="h-4 w-4 flex-shrink-0" />
-                      <span>{t(option.labelKey)}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-
           {/* Cause selector */}
-          {selectedStatus && (
-            <CauseSelector
-              value={cause}
-              onChange={setCause}
-              isCorrect={effectiveIsCorrect}
-              t={t}
-            />
-          )}
+          <CauseSelector
+            value={cause}
+            onChange={setCause}
+            isCorrect={effectiveIsCorrect}
+            t={t}
+          />
 
           {/* Reflection notes */}
           <div className="space-y-1.5">

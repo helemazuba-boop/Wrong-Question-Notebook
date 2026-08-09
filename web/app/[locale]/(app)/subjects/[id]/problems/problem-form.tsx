@@ -883,6 +883,7 @@ export default function ProblemForm({
   const [solutionText, setSolutionText] = useState(
     problem?.solution_text || ''
   );
+  const [initialIdea, setInitialIdea] = useState(problem?.initial_idea ?? '');
   const [solutionAssets, setSolutionAssets] = useState<
     Array<{ path: string; name: string }>
   >(
@@ -1065,6 +1066,15 @@ export default function ProblemForm({
         tag_ids: finalTagIds,
       };
 
+      const initialIdeaWasSet = problem?.initial_idea != null;
+      if (initialIdea.trim() !== '') {
+        if (!isEditMode || initialIdea !== problem?.initial_idea) {
+          payload.initial_idea = initialIdea;
+        }
+      } else if (isEditMode && initialIdeaWasSet) {
+        payload.initial_idea = null;
+      }
+
       // Add subject_id and problem_id for create operations
       if (!isEditMode) {
         (payload as any).subject_id = subjectId;
@@ -1111,6 +1121,7 @@ export default function ProblemForm({
         setTitle('');
         setContent('');
         setSolutionText('');
+        setInitialIdea('');
         setEditorKey(k => k + 1); // Remount editors to clear content
         setProblemAssets([]);
         setSolutionAssets([]);
@@ -1218,6 +1229,7 @@ export default function ProblemForm({
       problemAssets.length > 0 ||
       solutionText.length > 0 ||
       solutionAssets.length > 0 ||
+      initialIdea.length > 0 ||
       selectedTagIds.length > 0 ||
       pendingNewTags.some(n => !deselectedPendingTags.has(n))
     );
@@ -1230,6 +1242,7 @@ export default function ProblemForm({
     problemAssets,
     solutionText,
     solutionAssets,
+    initialIdea,
     selectedTagIds,
     pendingNewTags,
     deselectedPendingTags,
@@ -1698,6 +1711,27 @@ export default function ProblemForm({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+
+      <div className="rounded-2xl border border-violet-200/50 bg-violet-50/40 p-4 dark:border-violet-800/40 dark:bg-violet-950/20">
+        <label htmlFor="problem-initial-idea" className="text-sm font-semibold">
+          {tProblems('initialIdeaLabel')}
+        </label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {tProblems('initialIdeaDescription')}
+        </p>
+        <Textarea
+          id="problem-initial-idea"
+          className="mt-3 min-h-24 resize-y"
+          value={initialIdea}
+          onChange={event => setInitialIdea(event.target.value)}
+          placeholder={tProblems('initialIdeaPlaceholder')}
+          maxLength={4000}
+          disabled={isSubmitting}
+        />
+        <div className="mt-1 text-right text-xs text-muted-foreground">
+          {initialIdea.length}/4000
+        </div>
+      </div>
 
       <div className="form-actions">
         <Button type="submit" disabled={isSubmitting}>

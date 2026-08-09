@@ -90,6 +90,8 @@ beforeEach(() => {
     solution_text: null,
     assets: [],
     solution_assets: [],
+    initial_idea: `private source idea ${id}`,
+    initial_idea_revision: 4,
     problem_tag: [],
   }));
   const serviceFrom = vi.fn((table: string) => {
@@ -175,6 +177,12 @@ describe('whole Problem Set Copy Mark inheritance', () => {
     expect(mocks.insertedProblems.map(problem => problem.id)).toEqual(
       DESTINATION_IDS
     );
+    expect(
+      mocks.insertedProblems.every(
+        problem =>
+          !('initial_idea' in problem) && !('initial_idea_revision' in problem)
+      )
+    ).toBe(true);
     expect(mocks.inheritProblemMarksBestEffort).toHaveBeenCalledWith(
       mocks.serviceClient,
       SOURCE_IDS.map((sourceId, index) => ({

@@ -357,7 +357,16 @@
             "additionalProperties": false,
             "required": ["kind", "revision"],
             "properties": {
-              "kind": { "enum": ["problems", "todos", "words", "word_packs"] },
+              "kind": {
+                "enum": [
+                  "problems",
+                  "todos",
+                  "words",
+                  "word_packs",
+                  "note_packs",
+                  "problem_packs"
+                ]
+              },
               "revision": {
                 "type": "integer",
                 "minimum": 0,

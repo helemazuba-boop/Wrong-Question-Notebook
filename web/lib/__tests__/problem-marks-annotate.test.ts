@@ -191,6 +191,24 @@ describe('Problem Mark annotator', () => {
     ]);
   });
 
+  it('rejects personal idea fields at the objective annotation boundary', async () => {
+    const db = makeSupabase(
+      context({
+        initial_idea: 'I guessed from the graph.',
+        problem_user_context: { current_initial_idea_revision_id: 'private' },
+      })
+    );
+    const ai = aiResult({ assignments: [], unresolved: [] });
+
+    await expect(
+      annotateProblemMarks(db.supabase, PROBLEM_ID, { aiClient: ai, lock })
+    ).rejects.toThrow();
+    expect(ai.generateContent).not.toHaveBeenCalled();
+    expect(db.calls.map(call => call.name)).toEqual([
+      'get_problem_mark_annotation_context',
+    ]);
+  });
+
   it('records provider failures using the current semantic revision', async () => {
     const db = makeSupabase();
     const ai: AIClient = {

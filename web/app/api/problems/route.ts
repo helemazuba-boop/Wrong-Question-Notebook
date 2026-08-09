@@ -19,9 +19,30 @@ import { checkContentLimit } from '@/lib/content-limits';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
+import {
+  readProblemInitialIdea,
+  setProblemInitialIdea,
+} from '@/lib/problem-initial-idea';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
+
+async function ensureInitialReviewSchedule(userId: string, problemId: string) {
+  try {
+    const serviceClient = createServiceClient();
+    await serviceClient.from('review_schedule').upsert(
+      {
+        user_id: userId,
+        problem_id: problemId,
+        next_review_at: new Date().toISOString(),
+        interval_days: 1,
+      },
+      { onConflict: 'user_id,problem_id' }
+    );
+  } catch (error) {
+    console.error('Failed to create review schedule:', error);
+  }
+}
 
 async function getProblems(req: Request) {
   const { user, supabase } = await requireUser();
@@ -277,6 +298,7 @@ async function createProblem(req: Request) {
     assets,
     solution_assets,
     id: clientProvidedId,
+    initial_idea: initialIdea,
     ...problem
   } = parsed.data;
 
@@ -292,6 +314,90 @@ async function createProblem(req: Request) {
       createApiErrorResponse(ERROR_MESSAGES.UNAUTHORIZED, 403),
       { status: 403 }
     );
+  }
+
+  // Use client-provided ID if available, otherwise let database generate one.
+  // Check a repairable prior create before quota gates: the Problem already
+  // consumed quota, and retrying must still be able to append its context.
+  const problemId = safeProblemId || undefined;
+  if (problemId && initialIdea !== undefined) {
+    const { data: existingProblem, error: existingError } = await supabase
+      .from('problems')
+      .select('*')
+      .eq('id', problemId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          ERROR_MESSAGES.DATABASE_ERROR,
+          500,
+          existingError.message
+        ),
+        { status: 500 }
+      );
+    }
+
+    if (existingProblem) {
+      const existingHead = await readProblemInitialIdea(
+        supabase,
+        user.id,
+        problemId
+      );
+      if (existingHead) {
+        return NextResponse.json(
+          createApiErrorResponse('A Problem with this ID already exists', 409),
+          { status: 409 }
+        );
+      }
+
+      try {
+        const initialIdeaHead = await setProblemInitialIdea(
+          supabase,
+          problemId,
+          initialIdea
+        );
+        const { data: tagLinks } = await supabase
+          .from('problem_tag')
+          .select('tags:tag_id ( id, name )')
+          .eq('problem_id', problemId)
+          .eq('user_id', user.id);
+        const tags =
+          tagLinks?.map((link: any) => link.tags).filter(Boolean) || [];
+
+        await ensureInitialReviewSchedule(user.id, problemId);
+        await revalidateProblemComprehensive(
+          problemId,
+          existingProblem.subject_id,
+          user.id
+        );
+
+        return NextResponse.json(
+          createApiSuccessResponse({
+            ...existingProblem,
+            initial_idea: initialIdeaHead.idea,
+            initial_idea_revision: initialIdeaHead.revision,
+            tags,
+          }),
+          { status: 200 }
+        );
+      } catch (error) {
+        console.error('Initial idea repair failed:', error);
+        return NextResponse.json(
+          createApiErrorResponse(
+            'Problem already exists, but the initial idea was not saved',
+            500,
+            {
+              code: 'INITIAL_IDEA_SAVE_FAILED',
+              problem_id: problemId,
+              retryable: true,
+            }
+          ),
+          { status: 500 }
+        );
+      }
+    }
   }
 
   // Check problem count limit
@@ -331,9 +437,6 @@ async function createProblem(req: Request) {
       );
     }
   }
-
-  // Use client-provided ID if available, otherwise let database generate one
-  const problemId = safeProblemId || undefined;
 
   // Best-effort WQNI derivations so the device can render the photos; a
   // failed render never blocks the save (backfill/next edit retries).
@@ -389,21 +492,40 @@ async function createProblem(req: Request) {
 
     const tags = tagLinks?.map((link: any) => link.tags).filter(Boolean) || [];
 
-    // Insert initial review schedule row
-    try {
-      const serviceClient = createServiceClient();
-      await serviceClient.from('review_schedule').upsert(
-        {
-          user_id: user.id,
-          problem_id: created.id,
-          next_review_at: new Date().toISOString(),
-          interval_days: 1,
-        },
-        { onConflict: 'user_id,problem_id' }
-      );
-    } catch (e) {
-      console.error('Failed to create review schedule:', e);
+    let initialIdeaRevision: number | null = null;
+    if (initialIdea !== undefined) {
+      try {
+        const head = await setProblemInitialIdea(
+          supabase,
+          created.id,
+          initialIdea
+        );
+        initialIdeaRevision = head.revision;
+      } catch (error) {
+        console.error('Problem created but initial idea save failed:', error);
+        await ensureInitialReviewSchedule(user.id, created.id);
+        await revalidateProblemComprehensive(
+          created.id,
+          parsed.data.subject_id,
+          user.id
+        );
+        return NextResponse.json(
+          createApiErrorResponse(
+            'Problem created, but the initial idea was not saved',
+            500,
+            {
+              code: 'INITIAL_IDEA_SAVE_FAILED',
+              problem_id: created.id,
+              retryable: true,
+            }
+          ),
+          { status: 500 }
+        );
+      }
     }
+
+    // Insert initial review schedule row
+    await ensureInitialReviewSchedule(user.id, created.id);
 
     // Invalidate cache after successful creation
     await revalidateProblemComprehensive(
@@ -415,6 +537,8 @@ async function createProblem(req: Request) {
     return NextResponse.json(
       createApiSuccessResponse({
         ...created,
+        initial_idea: initialIdea ?? null,
+        initial_idea_revision: initialIdeaRevision,
         tags,
       }),
       { status: 201 }

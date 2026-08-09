@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import ProblemReview from './problem-review';
 import { unstable_cache } from 'next/cache';
+import { readProblemInitialIdea } from '@/lib/problem-initial-idea';
 import {
   CACHE_DURATIONS,
   CACHE_TAGS,
@@ -75,11 +76,19 @@ async function loadData(subjectId: string, problemId: string) {
 
       const tags =
         tagLinks?.map((link: any) => link.tags).filter(Boolean) || [];
+      const initialIdea = await readProblemInitialIdea(
+        supabaseClient,
+        _userId,
+        problemId
+      );
 
       return {
         problem: {
           ...problem,
           tags,
+          initial_idea:
+            initialIdea?.revision_kind === 'set' ? initialIdea.idea : null,
+          initial_idea_revision: initialIdea?.revision ?? null,
         } as unknown as import('@/lib/types').Problem,
         subject: subject as import('@/lib/types').Subject,
         allProblems: allProblems || [],

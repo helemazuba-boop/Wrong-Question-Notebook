@@ -11,6 +11,10 @@ import { ERROR_MESSAGES } from '@/lib/constants';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 import { readProblemSemantics } from '@/lib/problem-marks/read';
+import {
+  readProblemInitialIdea,
+  setProblemInitialIdea,
+} from '@/lib/problem-initial-idea';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -46,13 +50,14 @@ export async function GET(
     );
   }
 
-  const [tagResult, semantics] = await Promise.all([
+  const [tagResult, semantics, initialIdeaHead] = await Promise.all([
     supabase
       .from('problem_tag')
       .select('tags:tag_id ( id, name )')
       .eq('problem_id', id)
       .eq('user_id', user.id),
     readProblemSemantics(supabase, id),
+    readProblemInitialIdea(supabase, user.id, id),
   ]);
 
   const tags =
@@ -63,6 +68,8 @@ export async function GET(
   return NextResponse.json(
     createApiSuccessResponse({
       ...problem,
+      initial_idea: initialIdeaHead?.idea ?? null,
+      initial_idea_revision: initialIdeaHead?.revision ?? null,
       tags,
       semantics,
     })
@@ -103,7 +110,13 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { tag_ids, assets, solution_assets, ...problem } = parsed.data;
+  const {
+    tag_ids,
+    assets,
+    solution_assets,
+    initial_idea: initialIdea,
+    ...problem
+  } = parsed.data;
 
   // Reject asset paths that don't belong to the current user
   if (!hasOnlyOwnedAssetPaths(user.id, assets, solution_assets)) {
@@ -113,20 +126,26 @@ export async function PATCH(
     );
   }
 
-  // 1) Update the problem row (without assets first)
-  const { error } = await supabase
-    .from('problems')
-    .update(problem)
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .select()
-    .single();
+  // 1) Update objective Problem fields without mixing in personal context.
+  if (Object.keys(problem).length > 0) {
+    const { error } = await supabase
+      .from('problems')
+      .update(problem)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single();
 
-  if (error) {
-    return NextResponse.json(
-      createApiErrorResponse(ERROR_MESSAGES.DATABASE_ERROR, 500, error.message),
-      { status: 500 }
-    );
+    if (error) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          ERROR_MESSAGES.DATABASE_ERROR,
+          500,
+          error.message
+        ),
+        { status: 500 }
+      );
+    }
   }
 
   // 2) Update assets directly (they're already in permanent location).
@@ -161,6 +180,28 @@ export async function PATCH(
       await supabase.from('problem_tag').insert(tagLinks);
     }
   }
+
+  if (initialIdea !== undefined) {
+    try {
+      await setProblemInitialIdea(supabase, id, initialIdea);
+    } catch (error) {
+      console.error('Problem updated but initial idea save failed:', error);
+      return NextResponse.json(
+        createApiErrorResponse(
+          'Problem updated, but the initial idea was not saved',
+          500,
+          {
+            code: 'INITIAL_IDEA_SAVE_FAILED',
+            problem_id: id,
+            retryable: true,
+          }
+        ),
+        { status: 500 }
+      );
+    }
+  }
+
+  const initialIdeaHead = await readProblemInitialIdea(supabase, user.id, id);
 
   // Fetch the updated problem with tags for the response
   const { data: updatedProblem, error: fetchError } = await supabase
@@ -197,6 +238,8 @@ export async function PATCH(
   return NextResponse.json(
     createApiSuccessResponse({
       ...updatedProblem,
+      initial_idea: initialIdeaHead?.idea ?? null,
+      initial_idea_revision: initialIdeaHead?.revision ?? null,
       tags,
     })
   );

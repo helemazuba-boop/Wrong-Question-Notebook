@@ -38,6 +38,8 @@ export interface NoteImageAsset {
   image_id: string;
   display_path: string;
   preview_path: string;
+  gray4_image_id?: string;
+  gray4_display_path?: string;
 }
 
 export const NOTE_IMAGE_MAX_PER_NOTE = 4;
@@ -116,6 +118,13 @@ function mapNoteAssets(value: unknown): NoteImageAsset[] {
         image_id: (entry as any).image_id,
         display_path: (entry as any).display_path,
         preview_path: (entry as any).preview_path,
+        ...(typeof (entry as any).gray4_image_id === 'string' &&
+        typeof (entry as any).gray4_display_path === 'string'
+          ? {
+              gray4_image_id: (entry as any).gray4_image_id,
+              gray4_display_path: (entry as any).gray4_display_path,
+            }
+          : {}),
       });
     }
   }

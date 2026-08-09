@@ -12,8 +12,9 @@ import { createServiceClient } from '@/lib/supabase-utils';
 
 export const runtime = 'nodejs';
 
-// Serves a problem image as the device-ready WQNI file (mirrors the note
-// image route). Addressed by problem id + asset kind + attachment index so
+// Serves a problem image as device-ready WQNI (BW1 by default, or the 4bpp
+// derivative selected by pixel_format=gray4). Addressed by problem id +
+// asset kind + attachment index so
 // the device needs nothing beyond what the pack JSONL already carries
 // (image_ids / solution_image_ids); the X-WQN-Image-Id header lets it verify
 // the pack's image_id before caching.
@@ -34,6 +35,7 @@ async function downloadProblemImage(
   if (auth instanceof NextResponse) return auth;
 
   const { problemId, kind, index } = await params;
+  const pixelFormat = req.nextUrl.searchParams.get('pixel_format') ?? 'bw1';
   const imageIndex = Number(index);
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
@@ -42,7 +44,8 @@ async function downloadProblemImage(
     (kind !== 'assets' && kind !== 'solution') ||
     !Number.isInteger(imageIndex) ||
     imageIndex < 0 ||
-    imageIndex > 7
+    imageIndex > 7 ||
+    (pixelFormat !== 'bw1' && pixelFormat !== 'gray4')
   ) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }
@@ -70,14 +73,27 @@ async function downloadProblemImage(
         typeof (entry as { image_id?: unknown }).image_id === 'string'
     );
     const asset = assets[imageIndex] as
-      { image_id?: string; display_path?: string } | undefined;
+      | {
+          image_id?: string;
+          display_path?: string;
+          gray4_image_id?: string;
+          gray4_display_path?: string;
+        }
+      | undefined;
     if (!asset?.image_id || !asset?.display_path) {
       return createV3Error(requestId, 404, 'IMAGE_NOT_FOUND', false);
+    }
+    const selectedId =
+      pixelFormat === 'gray4' ? asset.gray4_image_id : asset.image_id;
+    const selectedPath =
+      pixelFormat === 'gray4' ? asset.gray4_display_path : asset.display_path;
+    if (!selectedId || !selectedPath) {
+      return createV3Error(requestId, 404, 'IMAGE_VARIANT_NOT_FOUND', false);
     }
 
     const { data: blob, error: downloadError } = await service.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
-      .download(asset.display_path);
+      .download(selectedPath);
     if (downloadError || !blob) {
       return createV3Error(requestId, 404, 'IMAGE_NOT_FOUND', false);
     }
@@ -93,11 +109,12 @@ async function downloadProblemImage(
         'Content-Length': String(deflated.length),
         // image_id is a content hash, so the bytes are immutable.
         'Cache-Control': 'private, max-age=31536000, immutable',
-        ETag: `"${asset.image_id}"`,
+        ETag: `"${selectedId}"`,
         'X-WQN-Protocol': '3',
         'X-WQN-Request-Id': requestId,
         'X-WQN-Compression': 'zlib',
-        'X-WQN-Image-Id': asset.image_id,
+        'X-WQN-Image-Id': selectedId,
+        'X-WQN-Pixel-Format': pixelFormat,
       },
     });
   } catch {

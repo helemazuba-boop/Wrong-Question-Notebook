@@ -1,7 +1,7 @@
 {
   "contract": "problem-study-v1",
   "schema": "problem-study-v1.schema.json",
-  "schema_sha256": "c99894a28b3aa5da2cab05b17ba7b90a782430dd30627bca7e1a00c9c29aea3d",
+  "schema_sha256": "320e8eb0595f41a3b7b214615da8fccb9881931c52cf564b8423ab4145afc0d7",
   "ordering_algorithm": "fixed_pack_order_v1",
   "pack_schema_version": 1
 }

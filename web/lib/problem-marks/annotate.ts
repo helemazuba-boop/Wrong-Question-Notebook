@@ -43,23 +43,25 @@ const candidateSchema = z.object({
   include: z.array(z.string()),
   exclude: z.array(z.string()),
 });
-const contextSchema = z.object({
-  problem_id: z.string().uuid(),
-  semantic_revision: z.number().int().positive(),
-  annotation_status: z.enum(['pending', 'resolved', 'unresolved', 'failed']),
-  title: z.string(),
-  content: z.string().nullable(),
-  parts: z.unknown(),
-  solution_text: z.string().nullable(),
-  assets: z.unknown(),
-  solution_assets: z.unknown(),
-  subject_key: z.string().nullable(),
-  registry_revision_id: z.number().int().positive().nullable(),
-  registry_source_sha: z.string().nullable(),
-  registry_content_sha256: z.string().nullable(),
-  registry_schema_version: z.number().int().nullable(),
-  candidates: z.array(candidateSchema),
-});
+const contextSchema = z
+  .object({
+    problem_id: z.string().uuid(),
+    semantic_revision: z.number().int().positive(),
+    annotation_status: z.enum(['pending', 'resolved', 'unresolved', 'failed']),
+    title: z.string(),
+    content: z.string().nullable(),
+    parts: z.unknown(),
+    solution_text: z.string().nullable(),
+    assets: z.unknown(),
+    solution_assets: z.unknown(),
+    subject_key: z.string().nullable(),
+    registry_revision_id: z.number().int().positive().nullable(),
+    registry_source_sha: z.string().nullable(),
+    registry_content_sha256: z.string().nullable(),
+    registry_schema_version: z.number().int().nullable(),
+    candidates: z.array(candidateSchema),
+  })
+  .strict();
 
 type Context = z.infer<typeof contextSchema>;
 type Assignment = z.infer<typeof assignmentSchema>;

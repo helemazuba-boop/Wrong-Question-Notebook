@@ -138,6 +138,8 @@ beforeEach(() => {
           solution_text: null,
           assets: [],
           solution_assets: [],
+          initial_idea: 'source owner private context must not copy',
+          initial_idea_revision: 9,
           problem_tag: [],
         },
         error: null,
@@ -186,6 +188,10 @@ describe('single Problem Copy Mark inheritance', () => {
       user_id: USER_ID,
       subject_id: SUBJECT_ID,
     });
+    expect((mocks as any).problemInsert).not.toHaveProperty('initial_idea');
+    expect((mocks as any).problemInsert).not.toHaveProperty(
+      'initial_idea_revision'
+    );
     expect(mocks.inheritProblemMarksBestEffort).toHaveBeenCalledWith(
       mocks.serviceClient,
       [

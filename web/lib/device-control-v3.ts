@@ -10,7 +10,7 @@ import { getSecurityHeaders } from './request-validation';
 export const DEVICE_CONTROL_PROTOCOL = '3' as const;
 export const DEVICE_CONTROL_HEADER = 'X-WQN-Protocol' as const;
 export const DEVICE_CONTROL_SCHEMA_SHA256 =
-  'de3d23473d804e4ed55514f351d92ae99dbbf5ab83c0b5dbf1971902eeddc556' as const;
+  '82cd68ce7b75f72b9fd089fb0daf10fc858a2c1bf9b15f0568434f98d5e0792e' as const;
 export const MAX_SAFE_PROTOCOL_COUNTER = Number.MAX_SAFE_INTEGER;
 
 const requestIdSchema = z
@@ -136,7 +136,14 @@ export const syncDataSchema = z.strictObject({
   content_manifest: z
     .array(
       z.strictObject({
-        kind: z.enum(['problems', 'todos', 'words', 'word_packs']),
+        kind: z.enum([
+          'problems',
+          'todos',
+          'words',
+          'word_packs',
+          'note_packs',
+          'problem_packs',
+        ]),
         revision: protocolCounterSchema,
         cursor: z.string().max(256).optional(),
       })

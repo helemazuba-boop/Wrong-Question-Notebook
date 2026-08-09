@@ -4,6 +4,7 @@ import {
   StoredProblemPartsSchema,
   ProblemSourceSchema,
   CreateProblemDto,
+  UpdateProblemDto,
 } from '@/lib/schemas';
 import {
   markPart,
@@ -140,6 +141,51 @@ describe('CreateProblemDto (shell model)', () => {
       expect(parsed.data.source).toEqual({});
       expect(parsed.data.is_optional).toBe(false);
     }
+  });
+
+  it('accepts a nonblank optional initial idea on create', () => {
+    const parsed = CreateProblemDto.safeParse({
+      subject_id: '2c8f3b1a-1111-4222-8333-444455556666',
+      title: '带初始想法的题目',
+      parts: [{ index: 1, type: 'essay' }],
+      initial_idea: '我先尝试了反证法。',
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.initial_idea).toBe('我先尝试了反证法。');
+    }
+  });
+
+  it('rejects blank or oversized initial ideas', () => {
+    const problem = {
+      subject_id: '2c8f3b1a-1111-4222-8333-444455556666',
+      title: 'idea validation',
+      parts: [{ index: 1, type: 'essay' }],
+    };
+
+    expect(
+      CreateProblemDto.safeParse({ ...problem, initial_idea: '   ' }).success
+    ).toBe(false);
+    expect(
+      CreateProblemDto.safeParse({
+        ...problem,
+        initial_idea: '你'.repeat(4001),
+      }).success
+    ).toBe(false);
+  });
+
+  it('reserves null for explicit edit clears', () => {
+    const update = UpdateProblemDto.safeParse({ initial_idea: null });
+    expect(update.success).toBe(true);
+    expect(
+      CreateProblemDto.safeParse({
+        subject_id: '2c8f3b1a-1111-4222-8333-444455556666',
+        title: 'create clear is invalid',
+        parts: [{ index: 1, type: 'essay' }],
+        initial_idea: null,
+      }).success
+    ).toBe(false);
   });
 
   it('rejects the legacy flat fields', () => {

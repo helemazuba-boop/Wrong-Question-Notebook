@@ -15,19 +15,30 @@ export function fingerprintDeviceControlRequest(body: unknown): string {
   return createHash('sha256').update(canonicalJson(body)).digest('hex');
 }
 
+function deterministicUuid(input: string): string {
+  const bytes = createHash('sha256').update(input).digest().subarray(0, 16);
+  // RFC 9562 UUIDv8: deterministic application-defined payload plus RFC variant.
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function deterministicDeviceAttemptId(
   deviceId: string,
   requestId: string,
   resultIndex: number,
   problemId: string
 ): string {
-  const bytes = createHash('sha256')
-    .update(`${deviceId}\0${requestId}\0${resultIndex}\0${problemId}`)
-    .digest()
-    .subarray(0, 16);
-  // RFC 9562 UUIDv8: deterministic application-defined payload plus RFC variant.
-  bytes[6] = (bytes[6] & 0x0f) | 0x80;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return deterministicUuid(
+    `attempt\0${deviceId}\0${requestId}\0${resultIndex}\0${problemId}`
+  );
+}
+
+export function deterministicDeviceReviewId(
+  deviceId: string,
+  requestId: string,
+  resultIndex: number
+): string {
+  return deterministicUuid(`review\0${deviceId}\0${requestId}\0${resultIndex}`);
 }

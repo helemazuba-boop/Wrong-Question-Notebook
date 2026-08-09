@@ -34,7 +34,9 @@
   "image_ids": [
     "9e00e194c412bff778bfd1235b3b2b25a4f7f8b1d3ef1c72fca11d21b36d1e05"
   ],
+  "gray4_image_ids": [null],
   "solution_image_ids": [
     "1b1f4d9c22cf8d0b6cf6a52ad4a3f2e8809d15b9a7f96ff2f4bf1cf3a2b4c6d8"
-  ]
+  ],
+  "solution_gray4_image_ids": [null]
 }

@@ -98,7 +98,13 @@ function makeSupabaseMock(
 function ctxWith(
   results: Record<string, { data: unknown; error: unknown }>
 ): McpToolContext {
-  return { userId: USER_ID, supabase: makeSupabaseMock(results) };
+  return {
+    userId: USER_ID,
+    apiTokenId: '77777777-7777-4777-8777-777777777777',
+    origin: 'https://wqn.example.test',
+    confirmationPath: '/mcp/idea-confirm',
+    supabase: makeSupabaseMock(results),
+  };
 }
 
 describe('MCP_TOOLS registry shape', () => {

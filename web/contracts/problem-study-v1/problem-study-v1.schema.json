@@ -108,10 +108,24 @@
           "maxItems": 8,
           "items": { "$ref": "#/$defs/sha256" }
         },
+        "gray4_image_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+          }
+        },
         "solution_image_ids": {
           "type": "array",
           "maxItems": 8,
           "items": { "$ref": "#/$defs/sha256" }
+        },
+        "solution_gray4_image_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+          }
         }
       }
     },
@@ -170,6 +184,7 @@
       "required": ["cursor"],
       "properties": {
         "cursor": { "$ref": "#/$defs/cursor" },
+        "snapshot_id": { "$ref": "#/$defs/sha256" },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
       }
     },
@@ -179,6 +194,8 @@
       "required": ["cursor", "has_more", "problem_sets"],
       "properties": {
         "cursor": { "$ref": "#/$defs/cursor" },
+        "revision": { "$ref": "#/$defs/safeCounter" },
+        "snapshot_id": { "$ref": "#/$defs/sha256" },
         "has_more": { "type": "boolean" },
         "problem_sets": {
           "type": "array",

@@ -2,6 +2,10 @@ import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NotebookToolError } from './notebooks';
 import { NOTE_PACK_SCHEMA_VERSION } from './note-study-v1';
+import {
+  materializeDevicePackArtifact,
+  registerDeviceImageArtifacts,
+} from './device-content-artifacts';
 
 // Deterministic per-notebook note packs. There is no separate note_packs table:
 // a pack is computed on demand from the notebook's active notes. The manifest,
@@ -17,6 +21,8 @@ export interface NotePackNote {
   content: string;
   /** SHA-256 ids of the note's e-ink images (WQNI files), display order. */
   image_ids: string[];
+  /** GRAY4 ids aligned with image_ids; null means BW1-only legacy asset. */
+  gray4_image_ids: Array<string | null>;
 }
 
 export interface NotePackResult {
@@ -56,7 +62,8 @@ export async function computeNotebookContentRevision(
 export async function buildNotePack(
   supabase: SupabaseClient<any>,
   userId: string,
-  notebookId: string
+  notebookId: string,
+  options: { materialize?: boolean } = {}
 ): Promise<NotePackResult> {
   const contentRevision = await computeNotebookContentRevision(
     supabase,
@@ -76,21 +83,23 @@ export async function buildNotePack(
     throw new NotebookToolError('database_error', error.message, 500);
   }
 
-  const notes: NotePackNote[] = (data || []).map((row: any) => ({
-    note_id: row.id,
-    notebook_id: row.notebook_id,
-    sort_index: Number(row.sort_index ?? 0),
-    revision: Number(row.revision ?? 1),
-    title: row.title,
-    content: row.content,
-    image_ids: Array.isArray(row.assets)
-      ? row.assets
-          .map((asset: any) =>
-            typeof asset?.image_id === 'string' ? asset.image_id : null
-          )
-          .filter((id: string | null): id is string => id !== null)
-      : [],
-  }));
+  const notes: NotePackNote[] = (data || []).map((row: any) => {
+    const imageAssets = Array.isArray(row.assets)
+      ? row.assets.filter((asset: any) => typeof asset?.image_id === 'string')
+      : [];
+    return {
+      note_id: row.id,
+      notebook_id: row.notebook_id,
+      sort_index: Number(row.sort_index ?? 0),
+      revision: Number(row.revision ?? 1),
+      title: row.title,
+      content: row.content,
+      image_ids: imageAssets.map((asset: any) => asset.image_id),
+      gray4_image_ids: imageAssets.map((asset: any) =>
+        typeof asset.gray4_image_id === 'string' ? asset.gray4_image_id : null
+      ),
+    };
+  });
 
   // NOTE_PACK_V1: a metadata line followed by one JSONL record per note. The
   // fixed key order keeps the bytes (and therefore the SHA) stable. image_ids
@@ -112,11 +121,29 @@ export async function buildNotePack(
         title: note.title,
         content: note.content,
         image_ids: note.image_ids,
+        gray4_image_ids: note.gray4_image_ids,
       })
     ),
   ];
   const body = lines.join('\n');
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
+
+  if (options.materialize) {
+    await registerDeviceImageArtifacts(
+      supabase,
+      userId,
+      (data || []).map((row: any) => row.assets)
+    );
+    await materializeDevicePackArtifact({
+      supabase,
+      userId,
+      domain: 'note_packs',
+      logicalId: notebookId,
+      revision: contentRevision,
+      sha256,
+      body,
+    });
+  }
 
   return {
     notebook_id: notebookId,
@@ -132,6 +159,8 @@ export async function buildNotePack(
 export interface NoteManifestData {
   cursor: string;
   has_more: boolean;
+  revision: number;
+  snapshot_id: string;
   notebooks: Array<{
     notebook_id: string;
     title: string;
@@ -163,7 +192,8 @@ export async function loadNoteStudyManifest(
   userId: string,
   origin: string,
   cursor: number,
-  limit = 50
+  limit = 50,
+  expectedSnapshotId?: string
 ): Promise<NoteManifestData> {
   const pageSize = Math.min(Math.max(limit, 1), 100);
   const { data, error } = await supabase
@@ -171,19 +201,17 @@ export async function loadNoteStudyManifest(
     .select('id, title')
     .eq('user_id', userId)
     .is('archived_at', null)
-    .order('id', { ascending: true })
-    .range(cursor, cursor + pageSize);
+    .order('id', { ascending: true });
   if (error) {
     throw new NotebookToolError('database_error', error.message, 500);
   }
 
   const rows = (data || []) as Array<{ id: string; title: string }>;
-  const hasMore = rows.length > pageSize;
-  const page = rows.slice(0, pageSize);
-
   const notebooks = await Promise.all(
-    page.map(async row => {
-      const pack = await buildNotePack(supabase, userId, row.id);
+    rows.map(async row => {
+      const pack = await buildNotePack(supabase, userId, row.id, {
+        materialize: true,
+      });
       return {
         notebook_id: row.id,
         title: row.title,
@@ -199,16 +227,34 @@ export async function loadNoteStudyManifest(
           entry_count: pack.entry_count,
           byte_size: pack.byte_size,
           sha256: pack.sha256,
-          download_url: `${origin}/api/esp32/v3/notes/packs/${row.id}`,
+          download_url: `${origin}/api/esp32/v3/notes/packs/${row.id}/${pack.sha256}`,
         },
       };
     })
   );
 
+  const snapshotBody = JSON.stringify(notebooks);
+  const snapshotId = createHash('sha256').update(snapshotBody).digest('hex');
+  if (expectedSnapshotId && expectedSnapshotId !== snapshotId) {
+    throw new NotebookToolError(
+      'snapshot_expired',
+      'The note manifest changed; restart from cursor zero',
+      410
+    );
+  }
+  const page = notebooks.slice(cursor, cursor + pageSize);
+  const hasMore = cursor + pageSize < notebooks.length;
+  const revision = notebooks.reduce(
+    (max, notebook) => Math.max(max, notebook.content_revision),
+    0
+  );
+
   return {
     cursor: String(cursor + page.length),
     has_more: hasMore,
-    notebooks,
+    revision,
+    snapshot_id: snapshotId,
+    notebooks: page,
   };
 }
 

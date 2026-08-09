@@ -144,10 +144,8 @@ export async function POST(
         // Invalidate cache after successful attempt creation
         await revalidateProblemAndSubject(problemId, problem.subject_id);
 
-        // Note: SM-2 schedule is NOT updated here. The user will confirm
-        // their assessment via PATCH /api/attempts/[id] with selected_status,
-        // which triggers the schedule update. Updating here would cause
-        // double-advancement of the SM-2 algorithm.
+        // Attempt persistence is machine evidence only. The human-final Rating
+        // is recorded separately through /api/problem-reviews.
 
         return NextResponse.json(
           createApiSuccessResponse({

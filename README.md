@@ -160,6 +160,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup, database 
 
 ## Documentation
 
+- [ARCHITECTURE.md](ARCHITECTURE.md) -- Cross-feature authority and dependency boundaries
 - [CONTRIBUTING.md](CONTRIBUTING.md) -- Development setup & contributing guide
 - [CHANGELOG.md](CHANGELOG.md) -- Version history
 - [Proposal.md](Proposal.md) -- Initial project proposal

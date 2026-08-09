@@ -74,6 +74,7 @@ async function sync(req: NextRequest) {
     todoRevisionResult,
     wordRevisionResult,
     packRevisionResult,
+    contentRevisionResult,
   ] = await Promise.all([
     svc
       .from('review_schedule')
@@ -120,6 +121,9 @@ async function sync(req: NextRequest) {
       .order('revision', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    (svc as any).rpc('get_device_content_revisions', {
+      p_user_id: auth.userId,
+    }),
   ]);
 
   const queryError = [
@@ -130,6 +134,7 @@ async function sync(req: NextRequest) {
     todoRevisionResult.error,
     wordRevisionResult.error,
     packRevisionResult.error,
+    contentRevisionResult.error,
   ].find(Boolean);
   if (queryError) {
     logger.error('Device-control sync query failed', queryError, {
@@ -145,6 +150,19 @@ async function sync(req: NextRequest) {
   const todoRevision = revisionOf(todoRevisionResult.data);
   const wordRevision = revisionOf(wordRevisionResult.data);
   const packRevision = revisionOf(packRevisionResult.data);
+  const contentRevisions = new Map<string, number>(
+    (
+      (contentRevisionResult.data || []) as Array<{
+        domain: string;
+        revision: number | string;
+      }>
+    ).map(row => [row.domain, Number(row.revision)])
+  );
+  const contentRevision = (domain: string) => contentRevisions.get(domain) ?? 0;
+  const todoContentRevision = contentRevision('todos');
+  const wordPackContentRevision = contentRevision('word_packs');
+  const notePackContentRevision = contentRevision('note_packs');
+  const problemPackContentRevision = contentRevision('problem_packs');
   const acknowledgedSyncCursor = Math.max(
     auth.syncCursor,
     parsed.data.sync_cursor
@@ -154,7 +172,11 @@ async function sync(req: NextRequest) {
     problemRevision,
     todoRevision,
     wordRevision,
-    packRevision
+    packRevision,
+    todoContentRevision,
+    wordPackContentRevision,
+    notePackContentRevision,
+    problemPackContentRevision
   );
   const data = syncDataSchema.parse({
     config_revision: auth.configRevision,
@@ -173,8 +195,8 @@ async function sync(req: NextRequest) {
       },
       {
         kind: 'todos',
-        revision: todoRevision,
-        cursor: `todos:${todoRevision}`,
+        revision: todoContentRevision,
+        cursor: `todos:${todoContentRevision}`,
       },
       {
         kind: 'words',
@@ -183,8 +205,18 @@ async function sync(req: NextRequest) {
       },
       {
         kind: 'word_packs',
-        revision: packRevision,
-        cursor: `word_packs:${packRevision}`,
+        revision: wordPackContentRevision,
+        cursor: `word_packs:${wordPackContentRevision}`,
+      },
+      {
+        kind: 'note_packs',
+        revision: notePackContentRevision,
+        cursor: `note_packs:${notePackContentRevision}`,
+      },
+      {
+        kind: 'problem_packs',
+        revision: problemPackContentRevision,
+        cursor: `problem_packs:${problemPackContentRevision}`,
       },
     ],
   });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from '@/app/api/mcp/route';
-import { MCP_TOOLS } from '@/lib/mcp/tool-registry';
+import { MCP_TOOLS, findMcpTool } from '@/lib/mcp/tool-registry';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 
 const { mockAuthenticate, mockFrom, mockRpc } = vi.hoisted(() => ({
@@ -20,8 +20,8 @@ vi.mock('@/lib/supabase-utils', () => ({
 const USER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TOKEN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
-function mcpRequest(body: unknown) {
-  return new NextRequest('http://localhost/api/mcp', {
+function mcpRequest(body: unknown, url = 'http://localhost/api/mcp') {
+  return new NextRequest(url, {
     method: 'POST',
     headers: {
       authorization: `Bearer wqn_mcp_${'a'.repeat(64)}`,
@@ -36,6 +36,7 @@ function mcpRequest(body: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   _resetRateLimitStore();
+  process.env.SITE_URL = 'https://wqn.example.test';
   mockAuthenticate.mockResolvedValue({ userId: USER_ID, tokenId: TOKEN_ID });
 });
 
@@ -152,6 +153,35 @@ describe('/api/mcp JSON-RPC dispatch', () => {
     });
     expect(mockFrom).not.toHaveBeenCalled();
     expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it('does not derive confirmation links from the request Host', async () => {
+    const handler = vi
+      .spyOn(findMcpTool('create_problem')!, 'handler')
+      .mockImplementation(async ctx => ({ confirmation_origin: ctx.origin }));
+
+    const res = await POST(
+      mcpRequest(
+        {
+          jsonrpc: '2.0',
+          id: 33,
+          method: 'tools/call',
+          params: {
+            name: 'create_problem',
+            arguments: { get_prompt: true },
+          },
+        },
+        'https://attacker.example/api/mcp'
+      )
+    );
+    const json = await res.json();
+    expect(json.result.structuredContent.confirmation_origin).toBe(
+      'https://wqn.example.test'
+    );
+    expect(json.result.structuredContent.confirmation_origin).not.toContain(
+      'attacker.example'
+    );
+    handler.mockRestore();
   });
 
   it('unknown methods return -32601', async () => {

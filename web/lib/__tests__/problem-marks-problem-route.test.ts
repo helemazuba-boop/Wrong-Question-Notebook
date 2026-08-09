@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
   readProblemSemantics: vi.fn(),
+  readProblemInitialIdea: vi.fn(),
 }));
 
 vi.mock('@/lib/supabase/requireUser', () => ({
@@ -11,6 +12,10 @@ vi.mock('@/lib/supabase/requireUser', () => ({
 }));
 vi.mock('@/lib/problem-marks/read', () => ({
   readProblemSemantics: mocks.readProblemSemantics,
+}));
+vi.mock('@/lib/problem-initial-idea', () => ({
+  readProblemInitialIdea: mocks.readProblemInitialIdea,
+  setProblemInitialIdea: vi.fn(),
 }));
 vi.mock('@/lib/cache-invalidation', () => ({
   revalidateProblemComprehensive: vi.fn(),
@@ -64,6 +69,12 @@ beforeEach(() => {
     required: { knowledge: [], skills: [] },
     unresolved: [],
   });
+  mocks.readProblemInitialIdea.mockResolvedValue({
+    revision_id: '22222222-2222-4222-8222-222222222222',
+    revision: 3,
+    revision_kind: 'set',
+    idea: '我先尝试了配方法。',
+  });
 });
 
 describe('Problem GET semantics', () => {
@@ -79,6 +90,13 @@ describe('Problem GET semantics', () => {
       semantic_revision: 1,
       annotation_status: 'pending',
     });
+    expect(body.data.initial_idea).toBe('我先尝试了配方法。');
+    expect(body.data.initial_idea_revision).toBe(3);
+    expect(mocks.readProblemInitialIdea).toHaveBeenCalledWith(
+      expect.anything(),
+      USER_ID,
+      PROBLEM_ID
+    );
     expect(mocks.readProblemSemantics).toHaveBeenCalledWith(
       expect.anything(),
       PROBLEM_ID

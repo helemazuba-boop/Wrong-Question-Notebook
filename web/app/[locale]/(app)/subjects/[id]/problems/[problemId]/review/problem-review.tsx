@@ -11,8 +11,12 @@ import { problemHasAutoMark, isPartAutoMarkable } from '@/lib/answer-marking';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
 import AnswerInput from './answer-input';
 import SolutionReveal from './solution-reveal';
-import AttemptStatusForm from '@/components/review/attempt-status-form';
+import AttemptStatusForm, {
+  type PendingReviewRatingRequest,
+  type SavedReviewRatingState,
+} from '@/components/review/attempt-status-form';
 import ReviewSessionNav from '@/components/review/review-session-nav';
+import SchedulerDiagnostics from '@/components/review/scheduler-diagnostics';
 import AttemptTimeline from '@/components/reflection/attempt-timeline';
 import { Problem, Subject, PartResult, ProblemPart } from '@/lib/types';
 import { useOnboarding } from '@/components/onboarding/onboarding-provider';
@@ -60,7 +64,8 @@ export interface AttemptState {
   totalScore?: number | null;
   totalFullMarks?: number | null;
   attemptId: string | null;
-  selectedStatus?: ProblemStatus | null;
+  reviewRating?: SavedReviewRatingState | null;
+  pendingReviewRequest?: PendingReviewRatingRequest | null;
   formSaved?: boolean;
   cause?: string | null;
   reflectionNotes?: string | null;
@@ -79,7 +84,7 @@ interface ProblemReviewProps {
   isReadOnly?: boolean;
   /** Hide the built-in bottom navigation (session mode uses its own nav) */
   hideNavigation?: boolean;
-  /** Called when the user saves the assessment form */
+  /** Called when the human-final Rating Event becomes durable */
   onFormSaved?: (status: ProblemStatus) => void;
   /** Optional exit session button (for review sessions) */
   showExitButton?: boolean;
@@ -148,6 +153,11 @@ export default function ProblemReview({
     null
   );
   const [hasRecordedAttempt, setHasRecordedAttempt] = useState(false);
+  const [pendingReviewRequest, setPendingReviewRequest] =
+    useState<PendingReviewRatingRequest | null>(null);
+  const [hasDurableRating, setHasDurableRating] = useState(
+    initialAttemptState?.formSaved === true
+  );
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
 
@@ -178,6 +188,8 @@ export default function ProblemReview({
     setHasRecordedAttempt(!!cached?.attemptId);
     setLastAttemptId(cached?.attemptId ?? null);
     setLastAttemptCorrect(cached?.isCorrect ?? null);
+    setPendingReviewRequest(cached?.pendingReviewRequest ?? null);
+    setHasDurableRating(cached?.formSaved === true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [problem.id]);
 
@@ -303,35 +315,53 @@ export default function ProblemReview({
     }
   };
 
-  const handleFormSaved = (
-    status: ProblemStatus,
-    attemptId: string,
-    details?: {
-      cause?: string | null;
-      reflectionNotes?: string | null;
-      submittedResponse?: string | null;
-      needsReviewIsCorrect?: boolean | null;
-    }
-  ) => {
+  const handleFormSaved = (reviewRating: SavedReviewRatingState) => {
+    setHasDurableRating(true);
     setTimelineRefreshKey(k => k + 1);
-    onFormSaved?.(status);
+    const compatibilityStatus: ProblemStatus =
+      reviewRating.rating === 'Again'
+        ? 'wrong'
+        : reviewRating.rating === 'Hard'
+          ? 'needs_review'
+          : 'mastered';
+    onFormSaved?.(compatibilityStatus);
     refreshChecklistStatus();
     router.refresh();
 
-    // Update attempt cache with form saved state
+    // Session completion follows the durable Rating Event. Reflection remains
+    // optional and can update the cached occurrence independently.
     onAttemptRecorded?.(problem.id, {
       submittedAnswer: submittedAnswers,
       isCorrect: lastAttemptCorrect,
       partResults: partResults,
       totalScore: totalScore,
       totalFullMarks: totalFullMarks,
-      attemptId: attemptId,
-      selectedStatus: status,
+      attemptId: reviewRating.attemptId,
+      reviewRating,
+      pendingReviewRequest: null,
       formSaved: true,
-      cause: details?.cause ?? null,
-      reflectionNotes: details?.reflectionNotes ?? null,
-      submittedResponse: details?.submittedResponse ?? null,
-      needsReviewIsCorrect: details?.needsReviewIsCorrect ?? null,
+    });
+  };
+
+  const formInitialSavedState =
+    initialAttemptState?.formSaved && initialAttemptState.reviewRating
+      ? initialAttemptState.reviewRating
+      : null;
+
+  const handlePendingRequestChange = (
+    request: PendingReviewRatingRequest | null
+  ) => {
+    setPendingReviewRequest(request);
+    onAttemptRecorded?.(problem.id, {
+      submittedAnswer: submittedAnswers ?? answers,
+      isCorrect: lastAttemptCorrect,
+      partResults,
+      totalScore,
+      totalFullMarks,
+      attemptId: request?.attemptId ?? lastAttemptId,
+      reviewRating: formInitialSavedState,
+      pendingReviewRequest: request,
+      formSaved: formInitialSavedState !== null,
     });
   };
 
@@ -346,20 +376,6 @@ export default function ProblemReview({
       router.push(`/subjects/${subject.id}/problems/${problemId}/review`);
     }
   };
-
-  // Build initialSavedState for AttemptStatusForm from cached state
-  const formInitialSavedState =
-    initialAttemptState?.formSaved && initialAttemptState?.selectedStatus
-      ? {
-          selectedStatus: initialAttemptState.selectedStatus,
-          attemptId: initialAttemptState.attemptId!,
-          cause: initialAttemptState.cause ?? null,
-          reflectionNotes: initialAttemptState.reflectionNotes ?? null,
-          submittedResponse: initialAttemptState.submittedResponse ?? null,
-          needsReviewIsCorrect:
-            initialAttemptState.needsReviewIsCorrect ?? null,
-        }
-      : null;
 
   return (
     <div className="space-y-4">
@@ -711,7 +727,10 @@ export default function ProblemReview({
               solutionAssets={problem.solution_assets || []}
               parts={parts}
               isRevealed={showSolution}
-              onToggle={() => setShowSolution(!showSolution)}
+              onReveal={() => setShowSolution(true)}
+              onHide={() => {
+                if (!hasDurableRating) setShowSolution(false);
+              }}
               wrapperClassName="bg-gradient-to-br from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20 p-4"
             />
           </div>
@@ -771,13 +790,22 @@ export default function ProblemReview({
                 currentStatus={problem.status}
                 autoMark={autoMarkable}
                 attemptId={lastAttemptId}
+                submittedAnswer={submittedAnswers ?? answers}
                 autoMarkCorrect={lastAttemptCorrect}
                 hasSubmitted={submittedAnswers !== null}
+                solutionRevealed={showSolution}
+                initialIdea={problem.initial_idea ?? null}
                 onSaved={handleFormSaved}
+                onPendingRequestChange={handlePendingRequestChange}
+                initialPendingRequest={pendingReviewRequest}
                 initialSavedState={formInitialSavedState}
                 disabled={isReadOnly}
               />
             </div>
+          )}
+
+          {!isReadOnly && hasDurableRating && (
+            <SchedulerDiagnostics problemId={problem.id} />
           )}
 
           {/* Add to Notebook (shared problem set viewers) */}

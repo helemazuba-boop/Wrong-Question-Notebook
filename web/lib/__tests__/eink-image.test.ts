@@ -4,11 +4,14 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
   EINK_IMAGE_PAYLOAD_BYTES,
+  EINK_IMAGE_GRAY4_PAYLOAD_BYTES,
   EINK_IMAGE_ROW_BYTES,
   EinkImageError,
   WQNI_HEADER_BYTES,
+  WQNI_PIXEL_FORMAT_GRAY4,
   buildWqniFile,
   packGrayscaleTo1Bpp,
+  packGrayscaleTo4Bpp,
   renderEinkImage,
 } from '@/lib/eink-image';
 
@@ -60,6 +63,23 @@ describe('eink-image', () => {
     expect(() => buildWqniFile(Buffer.alloc(10))).toThrow(EinkImageError);
   });
 
+  it('packs GRAY4 with the left pixel in the high nibble', () => {
+    const gray = Buffer.alloc(400 * 300, 255);
+    gray[0] = 0;
+    gray[1] = 128;
+    const payload = packGrayscaleTo4Bpp(gray);
+    expect(payload).toHaveLength(EINK_IMAGE_GRAY4_PAYLOAD_BYTES);
+    expect(payload[0]).toBe(0x08);
+    expect(payload[1]).toBe(0xff);
+    const wqni = buildWqniFile(payload, WQNI_PIXEL_FORMAT_GRAY4);
+    expect(wqni).toHaveLength(
+      WQNI_HEADER_BYTES + EINK_IMAGE_GRAY4_PAYLOAD_BYTES
+    );
+    expect(wqni.readUInt8(5)).toBe(WQNI_PIXEL_FORMAT_GRAY4);
+    expect(wqni.readUInt32LE(12)).toBe(EINK_IMAGE_GRAY4_PAYLOAD_BYTES);
+    expect(wqni.readUInt32LE(16)).toBe(crc32(payload) >>> 0);
+  });
+
   it('renders a black image as an all-black canvas with a stable image id', async () => {
     const input = await solidPng(400, 300, { r: 0, g: 0, b: 0 });
     const first = await renderEinkImage(input);
@@ -70,6 +90,12 @@ describe('eink-image', () => {
       createHash('sha256').update(first.wqni).digest('hex')
     );
     expect(second.imageId).toBe(first.imageId); // deterministic pipeline
+    expect(first.gray4ImageId).toBe(
+      createHash('sha256').update(first.gray4Wqni).digest('hex')
+    );
+    expect(
+      first.gray4Wqni.subarray(WQNI_HEADER_BYTES).every(byte => byte === 0)
+    ).toBe(true);
   });
 
   it('contain-fits without cropping and pads with white', async () => {

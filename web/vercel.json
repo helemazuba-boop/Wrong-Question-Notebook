@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/generate-digests",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/project-problem-reviews",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
