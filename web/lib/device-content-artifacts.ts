@@ -152,9 +152,65 @@ export async function registerDeviceImageArtifacts(
       .map(row => [row.image_id, row] as const)
   );
   if (unique.size === 0) return;
+
+  // Attachment cleanup owns the source `derived/` directory and may remove
+  // those objects after a note/problem is edited. A device pack, however, is
+  // an immutable snapshot and can keep referencing the old image id. Copy
+  // every referenced WQNI into a content-addressed device namespace before
+  // publishing the lookup row so detach/reorder cannot invalidate an already
+  // issued pack.
+  const immutableRows = [...unique.values()].map(row => ({
+    ...row,
+    storage_path: `user/${userId}/device-images/${row.pixel_format}/${row.image_id}.wqni`,
+  }));
+  const existingPaths = new Map<string, string>();
+  for (let offset = 0; offset < immutableRows.length; offset += 100) {
+    const ids = immutableRows
+      .slice(offset, offset + 100)
+      .map(row => row.image_id);
+    const { data, error } = await supabase
+      .from('device_image_artifacts')
+      .select('image_id, storage_path')
+      .eq('user_id', userId)
+      .in('image_id', ids);
+    if (error) {
+      throw new DeviceContentArtifactError(
+        'artifact_storage_error',
+        error.message,
+        500
+      );
+    }
+    for (const row of data || []) {
+      existingPaths.set(row.image_id, row.storage_path);
+    }
+  }
+  const copyOne = async (row: (typeof immutableRows)[number]) => {
+    const source = unique.get(row.image_id)?.storage_path;
+    if (
+      !source ||
+      source === row.storage_path ||
+      existingPaths.get(row.image_id) === row.storage_path
+    ) {
+      return;
+    }
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .copy(source, row.storage_path);
+    if (error && !/already exists|duplicate/i.test(error.message)) {
+      throw new DeviceContentArtifactError(
+        'artifact_storage_error',
+        error.message,
+        500
+      );
+    }
+  };
+  for (let offset = 0; offset < immutableRows.length; offset += 8) {
+    await Promise.all(immutableRows.slice(offset, offset + 8).map(copyOne));
+  }
+
   const now = new Date().toISOString();
   const { error } = await supabase.from('device_image_artifacts').upsert(
-    [...unique.values()].map(row => ({
+    immutableRows.map(row => ({
       user_id: userId,
       ...row,
       last_seen_at: now,
