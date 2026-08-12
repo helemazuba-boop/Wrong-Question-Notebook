@@ -8,6 +8,8 @@ const markKeySchema = z
   .regex(/^[a-z][a-z0-9_]*\.(?:knowledge|skill)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*$/);
 const nonBlankSchema = z.string().trim().min(1);
 const stringListSchema = z.array(nonBlankSchema);
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const revisionSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 
 const subjectSchema = z
   .object({
@@ -91,6 +93,25 @@ export const KnowledgeRegistryArtifactSchema = z
     }
   });
 
+export const SkillRetrievalLockSchema = z
+  .object({
+    profile_id: z.literal('skill-rag-qwen37-v1'),
+    profile_fingerprint: revisionSchema,
+    provider_protocol: z.literal('dashscope-qwen37-native-v1'),
+    representation_revision: revisionSchema,
+    artifact_url: z
+      .string()
+      .url()
+      .refine(value => value.startsWith('https://')),
+    artifact_sha256: sha256Schema,
+    manifest_url: z
+      .string()
+      .url()
+      .refine(value => value.startsWith('https://')),
+    manifest_sha256: sha256Schema,
+  })
+  .strict();
+
 export const KnowledgeRegistryLockSchema = z
   .object({
     repository: z
@@ -103,23 +124,31 @@ export const KnowledgeRegistryLockSchema = z
       .string()
       .url()
       .refine(value => value.startsWith('https://')),
-    content_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    content_sha256: sha256Schema,
+    skill_retrieval: SkillRetrievalLockSchema,
   })
   .strict()
   .superRefine((lock, context) => {
-    const pathSegments = new URL(lock.artifact_url).pathname.split('/');
-    if (!pathSegments.includes(lock.source_sha)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['artifact_url'],
-        message: 'Artifact URL does not reference the locked source SHA',
-      });
+    for (const [field, url] of [
+      ['artifact_url', lock.artifact_url],
+      ['skill_retrieval.artifact_url', lock.skill_retrieval.artifact_url],
+      ['skill_retrieval.manifest_url', lock.skill_retrieval.manifest_url],
+    ] as const) {
+      const pathSegments = new URL(url).pathname.split('/');
+      if (!pathSegments.includes(lock.source_sha)) {
+        context.addIssue({
+          code: 'custom',
+          path: field.split('.'),
+          message: 'Artifact URL does not reference the locked source SHA',
+        });
+      }
     }
   });
 
 export type KnowledgeRegistryArtifact = z.infer<
   typeof KnowledgeRegistryArtifactSchema
 >;
+export type SkillRetrievalLock = z.infer<typeof SkillRetrievalLockSchema>;
 export type KnowledgeRegistryLock = z.infer<typeof KnowledgeRegistryLockSchema>;
 
 export function parseKnowledgeRegistryArtifactText(text: string): {

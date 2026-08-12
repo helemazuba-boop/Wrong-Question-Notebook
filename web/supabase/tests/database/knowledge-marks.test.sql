@@ -1,6 +1,6 @@
 begin;
 
-select plan(84);
+select plan(95);
 
 select has_table(
   'public',
@@ -774,8 +774,13 @@ select is(
 );
 select is(
   (select count(*)::integer from public.problem_marks where problem_id = 'c0000000-0000-4000-8000-000000000003'),
+  3,
+  'semantic Problem edit retains prior projection rows while replacement is pending'
+);
+select is(
+  jsonb_array_length(public.get_problem_semantics('c0000000-0000-4000-8000-000000000003') -> 'targets'),
   0,
-  'semantic Problem edit clears stale current edges without blocking the edit'
+  'stable semantics read hides retained rows from an older semantic revision'
 );
 select lives_ok(
   $$select public.apply_problem_mark_annotation(
@@ -816,16 +821,114 @@ select is(
   'pending',
   'explicit requeue returns annotation to pending'
 );
-select lives_ok(
-  $$select public.apply_problem_mark_annotation(
-    'c0000000-0000-4000-8000-000000000003',
-    2,
-    (select active_revision_id from public.knowledge_registry_state where singleton),
-    '[{"mark_key":"math.knowledge.function","role":"target","part_index":null},{"mark_key":"math.knowledge.function.extremum","role":"required","part_index":1},{"mark_key":"math.skill.parameter_separation","role":"required","part_index":2}]'::jsonb,
-    '[]'::jsonb
-  )$$,
-  'requeued Problem can resolve against the current Registry revision'
+
+create temporary table mark_claim_fixture as
+select public.claim_problem_mark_annotation(
+  'c0000000-0000-4000-8000-000000000003',
+  120
+) as payload;
+select is(
+  (select payload ->> 'problem_id' from mark_claim_fixture),
+  'c0000000-0000-4000-8000-000000000003',
+  'targeted annotation claim acquires the pending head'
 );
+select is(
+  public.claim_problem_mark_annotation(
+    'c0000000-0000-4000-8000-000000000003',
+    120
+  ),
+  null::jsonb,
+  'a live annotation lease prevents a second claim'
+);
+
+create temporary table prepared_mark_run as
+select public.prepare_problem_mark_annotation(
+  'c0000000-0000-4000-8000-000000000003',
+  2,
+  (payload ->> 'lease_token')::uuid
+) as payload
+from mark_claim_fixture;
+select is(
+  (select payload ->> 'annotation_status' from prepared_mark_run),
+  'pending',
+  'prepare returns the current objective annotation context'
+);
+select is(
+  (
+    select status
+    from public.problem_mark_annotation_runs
+    where id = (
+      select (payload ->> 'run_id')::uuid from prepared_mark_run
+    )
+  ),
+  'processing',
+  'prepare creates one processing annotation run'
+);
+
+select is(
+  public.commit_problem_mark_annotation_run(
+    (select (payload ->> 'run_id')::uuid from prepared_mark_run),
+    (select (payload ->> 'lease_token')::uuid from prepared_mark_run),
+    repeat('1', 64),
+    repeat('2', 64),
+    'checkpoint-a-compatibility',
+    'skill-query-v1',
+    'subject-candidates-v0',
+    'fixture-model',
+    'problem-marking-v1',
+    'selected',
+    '["math.skill.parameter_separation"]'::jsonb,
+    '[{"mark_key":"math.knowledge.function","role":"target","part_index":null},{"mark_key":"math.knowledge.function.extremum","role":"required","part_index":1},{"mark_key":"math.skill.parameter_separation","role":"required","part_index":2}]'::jsonb,
+    '[]'::jsonb,
+    '{"skill":[{"stable_key":"math.skill.parameter_separation","rank":1,"score":1.0}]}'::jsonb
+  ) ->> 'status',
+  'resolved',
+  'lease-bound commit atomically promotes a validated run'
+);
+select is(
+  (
+    select active_run_id::text
+    from public.problem_mark_annotations
+    where problem_id = 'c0000000-0000-4000-8000-000000000003'
+  ),
+  (select payload ->> 'run_id' from prepared_mark_run),
+  'annotation head points at the committed run'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.problem_marks
+    where problem_id = 'c0000000-0000-4000-8000-000000000003'
+      and semantic_revision = 2
+  ),
+  3,
+  'committed run replaces the active Problem Mark projection'
+);
+select throws_ok(
+  $$select public.commit_problem_mark_annotation_run(
+    (select (payload ->> 'run_id')::uuid from prepared_mark_run),
+    (select (payload ->> 'lease_token')::uuid from prepared_mark_run),
+    repeat('1', 64), repeat('2', 64),
+    'checkpoint-a-compatibility', 'skill-query-v1',
+    'subject-candidates-v0', 'fixture-model', 'problem-marking-v1',
+    'selected', '["math.skill.parameter_separation"]'::jsonb,
+    '[]'::jsonb, '[]'::jsonb, '{}'::jsonb
+  )$$,
+  '40001',
+  'PROBLEM_MARK_RUN_STALE',
+  'terminal annotation run cannot be committed twice'
+);
+select is(
+  (
+    select source
+    from public.problem_marks
+    where problem_id = 'c0000000-0000-4000-8000-000000000003'
+      and mark_key = 'math.skill.parameter_separation'
+  ),
+  'ai',
+  'committed AI Skill remains an AI-origin Problem Mark'
+);
+
 select is(
   public.inherit_problem_marks('[{"source_problem_id":"c0000000-0000-4000-8000-000000000003","destination_problem_id":"c0000000-0000-4000-8000-000000000004"},{"source_problem_id":"c0000000-0000-4000-8000-000000000003","destination_problem_id":"c0000000-0000-4000-8000-000000000005"}]'::jsonb),
   '{"inherited": 1, "pending": 1}'::jsonb,
@@ -840,6 +943,29 @@ select is(
   (select count(*)::integer from public.problem_marks where problem_id = 'c0000000-0000-4000-8000-000000000004'),
   3,
   'same-subject Copy inherits exact shell and Part edges'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.problem_marks
+    where problem_id = 'c0000000-0000-4000-8000-000000000004'
+      and source = 'ai'
+  ),
+  3,
+  'new Copy preserves the source semantic origin instead of writing source=copy'
+);
+select is(
+  (
+    select copied_from_problem_id::text
+    from public.problem_mark_annotation_runs
+    where id = (
+      select active_run_id
+      from public.problem_mark_annotations
+      where problem_id = 'c0000000-0000-4000-8000-000000000004'
+    )
+  ),
+  'c0000000-0000-4000-8000-000000000003',
+  'Copy provenance is recorded on the annotation run'
 );
 select is(
   (select status from public.problem_mark_annotations where problem_id = 'c0000000-0000-4000-8000-000000000005'),

@@ -1,10 +1,18 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { AI_CONSTANTS } from '@/lib/constants';
-import type { Database, Json } from '@/lib/database.types';
 import { createAIClient, type AIClient } from '@/lib/ai/client';
+import { AI_CONSTANTS } from '@/lib/constants';
+import type { Database } from '@/lib/database.types';
+import {
+  claimProblemMarkAnnotation,
+  commitProblemMarkAnnotationRun,
+  failProblemMarkAnnotationRun,
+  prepareProblemMarkAnnotation,
+  type ProblemMarkAnnotationClaim,
+} from '@/lib/problem-marks/lifecycle';
 import {
   KnowledgeRegistryLockSchema,
   type KnowledgeRegistryLock,
@@ -32,20 +40,24 @@ const modelResultSchema = z
   })
   .strict();
 
-const candidateSchema = z.object({
-  stable_key: z.string(),
-  name: z.string(),
-  kind: z.enum(['knowledge', 'skill']),
-  subject: z.string(),
-  aliases: z.array(z.string()),
-  description: z.string().nullable(),
-  parent: z.string().nullable(),
-  include: z.array(z.string()),
-  exclude: z.array(z.string()),
-});
-const contextSchema = z
+const candidateSchema = z
   .object({
-    problem_id: z.string().uuid(),
+    stable_key: z.string(),
+    name: z.string(),
+    kind: z.enum(['knowledge', 'skill']),
+    subject: z.string(),
+    aliases: z.array(z.string()),
+    description: z.string().nullable(),
+    parent: z.string().nullable(),
+    include: z.array(z.string()),
+    exclude: z.array(z.string()),
+  })
+  .strict();
+const preparedContextSchema = z
+  .object({
+    run_id: z.uuid(),
+    lease_token: z.uuid(),
+    problem_id: z.uuid(),
     semantic_revision: z.number().int().positive(),
     annotation_status: z.enum(['pending', 'resolved', 'unresolved', 'failed']),
     title: z.string(),
@@ -62,9 +74,18 @@ const contextSchema = z
     candidates: z.array(candidateSchema),
   })
   .strict();
+const runEnvelopeSchema = z
+  .object({ run_id: z.uuid(), lease_token: z.uuid() })
+  .passthrough();
 
-type Context = z.infer<typeof contextSchema>;
+const COMPATIBILITY_RETRIEVER_VERSION = 'subject-candidates-v0';
+const COMPATIBILITY_EMBEDDING_PROFILE = 'none:subject-candidates-v0';
+const SKILL_QUERY_TEMPLATE_VERSION = 'skill-question-v1';
+const MARKING_PROMPT_VERSION = 'objective-problem-marking-v1';
+
+type Context = z.infer<typeof preparedContextSchema>;
 type Assignment = z.infer<typeof assignmentSchema>;
+type SkillResolution = 'selected' | 'no_applicable' | 'unresolved';
 type Unresolved = {
   role: 'target' | 'required';
   kind: 'knowledge' | 'skill';
@@ -89,22 +110,40 @@ export async function annotateProblemMarks(
   problemId: string,
   options: { aiClient?: AIClient; lock?: KnowledgeRegistryLock } = {}
 ): Promise<ProblemMarkAnnotationResult> {
-  const { data, error } = await supabase.rpc(
-    'get_problem_mark_annotation_context',
-    { p_problem_id: problemId }
-  );
-  if (error)
-    throw new Error(`Unable to load Problem Mark context: ${error.message}`);
-  const context = contextSchema.parse(data);
-  if (!['pending', 'failed'].includes(context.annotation_status)) {
+  const claim = await claimProblemMarkAnnotation(supabase, problemId);
+  if (!claim) {
     return { status: 'skipped', assignments: 0, unresolved: 0 };
   }
 
+  const rawContext = await prepareProblemMarkAnnotation(supabase, claim);
+  const envelope = runEnvelopeSchema.parse(rawContext);
+  let context: Context;
+  try {
+    context = preparedContextSchema.parse(rawContext);
+  } catch (error) {
+    await failProblemMarkAnnotationRun(
+      supabase,
+      envelope.run_id,
+      envelope.lease_token,
+      'INVALID_ANNOTATION_CONTEXT'
+    );
+    throw error;
+  }
+
   const lock = options.lock ?? (await loadKnowledgeRegistryLock());
-  assertLockedRevision(context, lock);
+  try {
+    assertLockedRevision(context, lock);
+  } catch (error) {
+    return recordFailure(
+      supabase,
+      claim,
+      context.run_id,
+      annotationErrorCode(error)
+    );
+  }
 
   if (!context.subject_key) {
-    return applyResult(
+    return commitResult(
       supabase,
       context,
       [],
@@ -112,7 +151,7 @@ export async function annotateProblemMarks(
     );
   }
   if (context.candidates.length === 0) {
-    return applyResult(
+    return commitResult(
       supabase,
       context,
       [],
@@ -172,7 +211,12 @@ export async function annotateProblemMarks(
     });
     parsed = modelResultSchema.parse(JSON.parse(response.text));
   } catch (error) {
-    return recordFailure(supabase, context, annotationErrorCode(error));
+    return recordFailure(
+      supabase,
+      claim,
+      context.run_id,
+      annotationErrorCode(error)
+    );
   }
 
   const invalidReason = validateModelResult(
@@ -181,14 +225,14 @@ export async function annotateProblemMarks(
     parsed.unresolved
   );
   if (invalidReason) {
-    return applyResult(
+    return commitResult(
       supabase,
       context,
       [],
       [unresolved('target', 'knowledge', invalidReason)]
     );
   }
-  return applyResult(supabase, context, parsed.assignments, parsed.unresolved);
+  return commitResult(supabase, context, parsed.assignments, parsed.unresolved);
 }
 
 function assertLockedRevision(
@@ -274,26 +318,77 @@ function validPartIndex(
   return partIndex === null || partIndexes.has(partIndex);
 }
 
-async function applyResult(
+async function commitResult(
   supabase: SupabaseClient<Database>,
   context: Context,
   assignments: Assignment[],
   unresolvedItems: Unresolved[]
 ): Promise<ProblemMarkAnnotationResult> {
-  const { data, error } = await supabase.rpc('apply_problem_mark_annotation', {
-    p_problem_id: context.problem_id,
-    p_semantic_revision: context.semantic_revision,
-    p_registry_revision_id: context.registry_revision_id!,
-    p_assignments: assignments as unknown as Json,
-    p_unresolved: unresolvedItems as unknown as Json,
+  const skillCandidateKeys = context.candidates
+    .filter(candidate => candidate.kind === 'skill')
+    .map(candidate => candidate.stable_key);
+  const skillResolution = deriveSkillResolution(
+    context,
+    assignments,
+    unresolvedItems
+  );
+  const objectiveSnapshot = {
+    title: context.title,
+    content: context.content,
+    parts: context.parts,
+    solution_text: context.solution_text,
+    assets: context.assets,
+    solution_assets: context.solution_assets,
+  };
+  const skillQuery = {
+    title: context.title,
+    content: context.content,
+    parts: context.parts,
+    assets: context.assets,
+  };
+
+  const data = await commitProblemMarkAnnotationRun(supabase, {
+    runId: context.run_id,
+    leaseToken: context.lease_token,
+    objectiveSnapshotHash: hashJson(objectiveSnapshot),
+    queryHash: hashJson(skillQuery),
+    embeddingProfileId: COMPATIBILITY_EMBEDDING_PROFILE,
+    queryTemplateVersion: SKILL_QUERY_TEMPLATE_VERSION,
+    retrieverVersion: COMPATIBILITY_RETRIEVER_VERSION,
+    markingModel: AI_CONSTANTS.MODELS.PROBLEM_MARKING,
+    markingPromptVersion: MARKING_PROMPT_VERSION,
+    skillResolution,
+    skillCandidateKeys,
+    assignments,
+    unresolved: unresolvedItems,
+    retrievalDebug: { skill: [] },
   });
-  if (error) throw new Error(`Unable to apply Problem Marks: ${error.message}`);
-  const result = data as unknown as Record<string, unknown>;
+  const result = data as Record<string, unknown>;
   return {
     status: result.status === 'unresolved' ? 'unresolved' : 'resolved',
     assignments: Number(result.assignments),
     unresolved: Number(result.unresolved),
   };
+}
+
+function deriveSkillResolution(
+  context: Context,
+  assignments: Assignment[],
+  unresolvedItems: Unresolved[]
+): SkillResolution {
+  if (unresolvedItems.some(item => item.kind === 'skill')) return 'unresolved';
+  const kinds = new Map(
+    context.candidates.map(candidate => [candidate.stable_key, candidate.kind])
+  );
+  return assignments.some(
+    assignment => kinds.get(assignment.mark_key) === 'skill'
+  )
+    ? 'selected'
+    : 'no_applicable';
+}
+
+function hashJson(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 function annotationPrompt(context: Context): string {
@@ -317,19 +412,11 @@ function annotationPrompt(context: Context): string {
 
 async function recordFailure(
   supabase: SupabaseClient<Database>,
-  context: Context,
+  claim: ProblemMarkAnnotationClaim,
+  runId: string,
   code: string
 ): Promise<ProblemMarkAnnotationResult> {
-  const failure = await supabase.rpc('fail_problem_mark_annotation', {
-    p_problem_id: context.problem_id,
-    p_semantic_revision: context.semantic_revision,
-    p_error_code: code,
-  });
-  if (failure.error) {
-    throw new Error(
-      `Unable to record Problem Mark failure: ${failure.error.message}`
-    );
-  }
+  await failProblemMarkAnnotationRun(supabase, runId, claim.lease_token, code);
   return {
     status: 'failed',
     assignments: 0,

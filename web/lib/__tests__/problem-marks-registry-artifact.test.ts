@@ -39,6 +39,19 @@ function artifactText() {
   )}\n`;
 }
 
+function skillRetrievalLock(sourceSha = SOURCE_SHA) {
+  return {
+    profile_id: 'skill-rag-qwen37-v1',
+    profile_fingerprint: `sha256:${'1'.repeat(64)}`,
+    provider_protocol: 'dashscope-qwen37-native-v1',
+    representation_revision: `sha256:${'2'.repeat(64)}`,
+    artifact_url: `https://raw.githubusercontent.com/example/registry/${sourceSha}/dist/skill-retrieval/skill-rag-qwen37-v1.json`,
+    artifact_sha256: '3'.repeat(64),
+    manifest_url: `https://raw.githubusercontent.com/example/registry/${sourceSha}/dist/skill-retrieval/skill-rag-qwen37-v1.manifest.json`,
+    manifest_sha256: '4'.repeat(64),
+  };
+}
+
 function lock(text = artifactText()) {
   return KnowledgeRegistryLockSchema.parse({
     repository: 'https://github.com/example/registry',
@@ -46,6 +59,7 @@ function lock(text = artifactText()) {
     schema_version: 1,
     artifact_url: `https://raw.githubusercontent.com/example/registry/${SOURCE_SHA}/dist/registry.json`,
     content_sha256: createHash('sha256').update(text, 'utf8').digest('hex'),
+    skill_retrieval: skillRetrievalLock(),
   });
 }
 
@@ -68,8 +82,11 @@ describe('Knowledge Registry artifact consumer', () => {
     expect(() =>
       KnowledgeRegistryLockSchema.parse({
         ...lock(text),
-        artifact_url:
-          'https://raw.githubusercontent.com/example/registry/main/dist/registry.json',
+        skill_retrieval: {
+          ...skillRetrievalLock(),
+          artifact_url:
+            'https://raw.githubusercontent.com/example/registry/main/dist/skill-retrieval/skill-rag-qwen37-v1.json',
+        },
       })
     ).toThrow('locked source SHA');
   });

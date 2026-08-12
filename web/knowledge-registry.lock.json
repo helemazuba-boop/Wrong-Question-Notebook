@@ -1,7 +1,17 @@
 {
   "repository": "https://github.com/helemazuba-boop/WQN-Knowledge-Registry",
-  "source_sha": "df80cecb716c065d5524b107d83f103086236911",
+  "source_sha": "8a21c923b6eb54258feee159770fd7f710879a75",
   "schema_version": 1,
-  "artifact_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/df80cecb716c065d5524b107d83f103086236911/dist/registry.json",
-  "content_sha256": "32b33a245d5c982734dc9dbd35ed61059c21aaf7a14bf6238f3df893cb4bd326"
+  "artifact_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/8a21c923b6eb54258feee159770fd7f710879a75/dist/registry.json",
+  "content_sha256": "d52a13bd722a422e594c9ae1a846122fe79b3b8a54aa836a4d24e1c4ae171ecb",
+  "skill_retrieval": {
+    "profile_id": "skill-rag-qwen37-v1",
+    "profile_fingerprint": "sha256:94f4cb42b1235d4553ca0fd287b9ec127e3c5c61c07e65459e2c3b0f2324c9d8",
+    "provider_protocol": "dashscope-qwen37-native-v1",
+    "representation_revision": "sha256:b24460d012b2945753acefbdb999c7be1c42ec35feb900d9a4a470b8db3ccf43",
+    "artifact_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/8a21c923b6eb54258feee159770fd7f710879a75/dist/skill-retrieval/skill-rag-qwen37-v1.json",
+    "artifact_sha256": "b24460d012b2945753acefbdb999c7be1c42ec35feb900d9a4a470b8db3ccf43",
+    "manifest_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/8a21c923b6eb54258feee159770fd7f710879a75/dist/skill-retrieval/skill-rag-qwen37-v1.manifest.json",
+    "manifest_sha256": "494eb34d80e172cca158fd7a43f11bc2ad8929ae8a93b626e10a3cf8ef55bc8d"
+  }
 }

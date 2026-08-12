@@ -223,6 +223,90 @@ export type Database = {
           },
         ];
       };
+      device_content_revisions: {
+        Row: {
+          domain: string;
+          revision: number;
+          scope_key: string;
+          updated_at: string;
+        };
+        Insert: {
+          domain: string;
+          revision?: number;
+          scope_key: string;
+          updated_at?: string;
+        };
+        Update: {
+          domain?: string;
+          revision?: number;
+          scope_key?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      device_image_artifacts: {
+        Row: {
+          created_at: string;
+          image_id: string;
+          last_seen_at: string;
+          pixel_format: string;
+          storage_path: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          image_id: string;
+          last_seen_at?: string;
+          pixel_format: string;
+          storage_path: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          image_id?: string;
+          last_seen_at?: string;
+          pixel_format?: string;
+          storage_path?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      device_pack_artifacts: {
+        Row: {
+          byte_size: number;
+          created_at: string;
+          domain: string;
+          last_seen_at: string;
+          logical_id: string;
+          revision: number;
+          sha256: string;
+          storage_path: string;
+          user_id: string;
+        };
+        Insert: {
+          byte_size: number;
+          created_at?: string;
+          domain: string;
+          last_seen_at?: string;
+          logical_id: string;
+          revision: number;
+          sha256: string;
+          storage_path: string;
+          user_id: string;
+        };
+        Update: {
+          byte_size?: number;
+          created_at?: string;
+          domain?: string;
+          last_seen_at?: string;
+          logical_id?: string;
+          revision?: number;
+          sha256?: string;
+          storage_path?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -1249,11 +1333,120 @@ export type Database = {
           },
         ];
       };
+      problem_mark_annotation_runs: {
+        Row: {
+          assignments: Json;
+          completed_at: string | null;
+          copied_from_problem_id: string | null;
+          copied_from_run_id: string | null;
+          embedding_profile_id: string | null;
+          id: string;
+          last_error_code: string | null;
+          marking_model: string | null;
+          marking_prompt_version: string | null;
+          objective_snapshot_hash: string | null;
+          problem_id: string;
+          query_hash: string | null;
+          query_template_version: string | null;
+          registry_revision_id: number | null;
+          retrieval_debug: Json;
+          retriever_version: string | null;
+          semantic_revision: number;
+          skill_candidate_keys: Json;
+          skill_resolution: string | null;
+          started_at: string;
+          status: string;
+          unresolved: Json;
+        };
+        Insert: {
+          assignments?: Json;
+          completed_at?: string | null;
+          copied_from_problem_id?: string | null;
+          copied_from_run_id?: string | null;
+          embedding_profile_id?: string | null;
+          id?: string;
+          last_error_code?: string | null;
+          marking_model?: string | null;
+          marking_prompt_version?: string | null;
+          objective_snapshot_hash?: string | null;
+          problem_id: string;
+          query_hash?: string | null;
+          query_template_version?: string | null;
+          registry_revision_id?: number | null;
+          retrieval_debug?: Json;
+          retriever_version?: string | null;
+          semantic_revision: number;
+          skill_candidate_keys?: Json;
+          skill_resolution?: string | null;
+          started_at?: string;
+          status?: string;
+          unresolved?: Json;
+        };
+        Update: {
+          assignments?: Json;
+          completed_at?: string | null;
+          copied_from_problem_id?: string | null;
+          copied_from_run_id?: string | null;
+          embedding_profile_id?: string | null;
+          id?: string;
+          last_error_code?: string | null;
+          marking_model?: string | null;
+          marking_prompt_version?: string | null;
+          objective_snapshot_hash?: string | null;
+          problem_id?: string;
+          query_hash?: string | null;
+          query_template_version?: string | null;
+          registry_revision_id?: number | null;
+          retrieval_debug?: Json;
+          retriever_version?: string | null;
+          semantic_revision?: number;
+          skill_candidate_keys?: Json;
+          skill_resolution?: string | null;
+          started_at?: string;
+          status?: string;
+          unresolved?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_mark_annotation_runs_copied_from_problem_id_fkey';
+            columns: ['copied_from_problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_mark_annotation_runs_copied_from_run_id_fkey';
+            columns: ['copied_from_run_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_mark_annotation_runs';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_mark_annotation_runs_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: false;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_mark_annotation_runs_registry_revision_id_fkey';
+            columns: ['registry_revision_id'];
+            isOneToOne: false;
+            referencedRelation: 'knowledge_registry_revisions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       problem_mark_annotations: {
         Row: {
+          active_run_id: string | null;
+          attempt_count: number;
           completed_at: string | null;
           created_at: string;
           last_error_code: string | null;
+          lease_token: string | null;
+          lease_until: string | null;
+          next_retry_at: string;
           problem_id: string;
           registry_revision_id: number | null;
           semantic_revision: number;
@@ -1262,9 +1455,14 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          active_run_id?: string | null;
+          attempt_count?: number;
           completed_at?: string | null;
           created_at?: string;
           last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
           problem_id: string;
           registry_revision_id?: number | null;
           semantic_revision: number;
@@ -1273,9 +1471,14 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          active_run_id?: string | null;
+          attempt_count?: number;
           completed_at?: string | null;
           created_at?: string;
           last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
           problem_id?: string;
           registry_revision_id?: number | null;
           semantic_revision?: number;
@@ -1284,6 +1487,13 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: 'problem_mark_annotations_active_run_id_fkey';
+            columns: ['active_run_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_mark_annotation_runs';
+            referencedColumns: ['id'];
+          },
           {
             foreignKeyName: 'problem_mark_annotations_problem_id_fkey';
             columns: ['problem_id'];
@@ -3994,6 +4204,10 @@ export type Database = {
           sealed_credential: Json;
         }[];
       };
+      bump_device_content_revision: {
+        Args: { p_domain: string; p_scope_key: string };
+        Returns: undefined;
+      };
       can_view_problem: { Args: { p_problem_id: string }; Returns: boolean };
       cancel_fsrs_authority_cutover: {
         Args: { p_cutover_id: string; p_user_id: string };
@@ -4006,6 +4220,14 @@ export type Database = {
           p_user_id: string;
           p_user_tz?: string;
         };
+        Returns: Json;
+      };
+      claim_problem_mark_annotation: {
+        Args: { p_lease_seconds?: number; p_problem_id: string };
+        Returns: Json;
+      };
+      claim_problem_mark_annotations: {
+        Args: { p_lease_seconds?: number; p_limit?: number };
         Returns: Json;
       };
       claim_problem_review_projection_jobs: {
@@ -4029,6 +4251,25 @@ export type Database = {
           p_seen_at: string;
         };
         Returns: undefined;
+      };
+      commit_problem_mark_annotation_run: {
+        Args: {
+          p_assignments: Json;
+          p_embedding_profile_id: string;
+          p_lease_token: string;
+          p_marking_model: string;
+          p_marking_prompt_version: string;
+          p_objective_snapshot_hash: string;
+          p_query_hash: string;
+          p_query_template_version: string;
+          p_retrieval_debug: Json;
+          p_retriever_version: string;
+          p_run_id: string;
+          p_skill_candidate_keys: Json;
+          p_skill_resolution: string;
+          p_unresolved: Json;
+        };
+        Returns: Json;
       };
       commit_problem_review_projection: {
         Args: {
@@ -4174,6 +4415,10 @@ export type Database = {
         };
         Returns: undefined;
       };
+      fail_problem_mark_annotation_run: {
+        Args: { p_error_code: string; p_lease_token: string; p_run_id: string };
+        Returns: Json;
+      };
       fail_problem_review_projection_job: {
         Args: {
           p_error_code: string;
@@ -4199,6 +4444,13 @@ export type Database = {
           total_attempts: number;
           total_problems: number;
           total_subjects: number;
+        }[];
+      };
+      get_device_content_revisions: {
+        Args: { p_user_id: string };
+        Returns: {
+          domain: string;
+          revision: number;
         }[];
       };
       get_discovery_subject_counts: {
@@ -4378,6 +4630,14 @@ export type Database = {
           p_resource_type?: string;
         };
         Returns: string;
+      };
+      prepare_problem_mark_annotation: {
+        Args: {
+          p_lease_token: string;
+          p_problem_id: string;
+          p_semantic_revision: number;
+        };
+        Returns: Json;
       };
       prepare_problem_review_projection: {
         Args: {
