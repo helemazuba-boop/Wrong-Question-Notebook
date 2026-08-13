@@ -52,7 +52,7 @@ export interface SkillRetrievalRuntime {
   maxCacheEntries?: number;
 }
 
-interface QueryCacheEntry {
+export interface QueryCacheEntry {
   queryHash: string;
   candidates: SkillRetrievalCandidate[];
 }

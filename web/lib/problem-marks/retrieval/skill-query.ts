@@ -10,14 +10,15 @@ interface SkillQueryInput {
 }
 
 const nonBlankTextSchema = z.string().trim().min(1).max(20_000);
-const queryTemplateVersion = 'skill-question-instruction-v1';
+export const SKILL_QUERY_TEMPLATE_VERSION = 'skill-question-instruction-v1';
+const queryTemplateVersion = SKILL_QUERY_TEMPLATE_VERSION;
 
 const partSchema = z
   .object({
     index: z.number().int().min(1).max(10),
-    label: nonBlankTextSchema.optional(),
     type: nonBlankTextSchema.optional(),
-    prompt: nonBlankTextSchema,
+    label: nonBlankTextSchema.optional(),
+    content: nonBlankTextSchema.optional(),
     choices: z
       .array(
         z
@@ -48,20 +49,31 @@ export interface SkillRetrievalQueryText {
   text: string;
 }
 
-// Fields known to exist on source problem/choice rows that must never reach a
-// retrieval query. These are stripped silently; every other key is preserved so
-// the strict schema can reject any structure we have not explicitly audited.
-const FORBIDDEN_PART_KEYS = new Set(['correct_answer', 'answer_config']);
-const FORBIDDEN_CHOICE_KEYS = new Set(['is_correct']);
+// Problem Part fields (see lib/types.ts ProblemPart) that carry answers or
+// scoring and must never reach a retrieval query. answer_config is reduced to
+// visible choice text only; every other field it holds (correct ids,
+// acceptable answers, numeric config, ...) is dropped. Any other Part key is
+// preserved so the strict schema can reject structure we have not audited.
+const STRIPPED_PART_KEYS = new Set([
+  'correct_answer',
+  'full_marks',
+  'answer_config',
+]);
 
-function projectedChoice(choice: unknown): unknown {
-  if (!choice || typeof choice !== 'object') return choice;
-  const record = choice as Record<string, unknown>;
-  const projected: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (!FORBIDDEN_CHOICE_KEYS.has(key)) projected[key] = value;
-  }
-  return projected;
+// Only the visible choice text may leave answer_config; choice ids and any
+// correctness metadata stay behind the security boundary.
+function choiceTexts(answerConfig: unknown): { text: string }[] | undefined {
+  if (!answerConfig || typeof answerConfig !== 'object') return undefined;
+  const choices = (answerConfig as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return undefined;
+  const texts = choices
+    .map(choice =>
+      choice && typeof choice === 'object' && 'text' in choice
+        ? String((choice as { text: unknown }).text).trim()
+        : ''
+    )
+    .filter(text => text.length > 0);
+  return texts.length > 0 ? texts.map(text => ({ text })) : undefined;
 }
 
 function projectedPart(part: unknown): unknown {
@@ -69,12 +81,11 @@ function projectedPart(part: unknown): unknown {
   const record = part as Record<string, unknown>;
   const projected: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
-    if (FORBIDDEN_PART_KEYS.has(key)) continue;
-    projected[key] =
-      key === 'choices' && Array.isArray(value)
-        ? value.map(projectedChoice)
-        : value;
+    if (STRIPPED_PART_KEYS.has(key)) continue;
+    projected[key] = value;
   }
+  const choices = choiceTexts(record.answer_config);
+  if (choices) projected.choices = choices;
   return projected;
 }
 
@@ -114,7 +125,7 @@ export function buildSkillRetrievalQueryText(
         `Part ${part.index}${part.label ? ` (${part.label})` : ''}${
           part.type ? ` [${part.type}]` : ''
         }`,
-        part.prompt,
+        ...(part.content ? [part.content] : []),
         ...(part.choices?.map(
           (choice, index) =>
             `Choice ${String.fromCharCode(65 + index)}: ${choice.text}`

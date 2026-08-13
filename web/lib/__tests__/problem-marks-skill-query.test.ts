@@ -15,15 +15,19 @@ describe('Skill retrieval statement-only query', () => {
       parts: [
         {
           index: 1,
-          type: 'single_choice',
+          type: 'mcq',
           label: '第一问',
-          prompt: '滑块 A 受到的摩擦力方向是什么？',
-          correct_answer: '向左',
-          answer_config: { scoring: 'hidden' },
-          choices: [
-            { text: '向左', is_correct: true },
-            { text: '向右', is_correct: false },
-          ],
+          full_marks: 6,
+          content: '滑块 A 受到的摩擦力方向是什么？',
+          correct_answer: 'A',
+          answer_config: {
+            type: 'mcq',
+            correct_choice_id: 'c1',
+            choices: [
+              { id: 'c1', text: '向左' },
+              { id: 'c2', text: '向右' },
+            ],
+          },
         },
       ],
     });
@@ -36,7 +40,9 @@ describe('Skill retrieval statement-only query', () => {
     expect(query.text).toContain('Choice B: 向右');
     expect(query.text).not.toContain('正确答案');
     expect(query.text).not.toContain('解析');
-    expect(query.text).not.toContain('is_correct');
+    expect(query.text).not.toContain('correct_choice_id');
+    expect(query.text).not.toContain('c1');
+    expect(query.text).not.toContain('full_marks');
     expect(query.text).not.toContain('个人想法');
     expect(query.text).not.toContain('vision-answer');
   });
@@ -48,7 +54,7 @@ describe('Skill retrieval statement-only query', () => {
         parts: [
           {
             index: 1,
-            prompt: '判断方向。',
+            content: '判断方向。',
             hidden_rubric: 'secret',
           },
         ],
