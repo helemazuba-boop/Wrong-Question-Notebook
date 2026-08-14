@@ -124,7 +124,7 @@ export function formatRelativeTime(
 const COLUMN_DISPLAY_NAMES = {
   select: 'selectColumn',
   title: 'titleColumn',
-  problem_type: 'problemTypeColumn',
+  parts: 'problemTypeColumn',
   tags: 'tagsColumn',
   status: 'statusColumn',
   created_at: 'dateCreatedColumn',
@@ -144,9 +144,11 @@ export function getColumnDisplayName(columnId: string): ColumnDisplayKey {
 }
 
 const PROBLEM_TYPE_DISPLAY_NAMES = {
-  mcq: 'multipleChoiceType',
-  short: 'shortAnswerType',
-  extended: 'extendedResponseType',
+  single_choice: 'singleChoiceType',
+  multi_choice: 'multiChoiceType',
+  fill_blank: 'fillBlankType',
+  short_answer: 'shortAnswerType',
+  essay: 'essayType',
 } as const;
 
 export type ProblemTypeDisplayKey =
@@ -156,8 +158,16 @@ export function getProblemTypeDisplayName(type: string): ProblemTypeDisplayKey {
   return (
     PROBLEM_TYPE_DISPLAY_NAMES[
       type as keyof typeof PROBLEM_TYPE_DISPLAY_NAMES
-    ] ?? 'multipleChoiceType'
+    ] ?? 'singleChoiceType'
   );
+}
+
+/** Distinct part types of a shell, in first-appearance order. */
+export function getPartTypes(
+  parts: ReadonlyArray<{ type: string }> | null | undefined
+): string[] {
+  if (!Array.isArray(parts)) return [];
+  return [...new Set(parts.map(part => part.type))];
 }
 
 const PROBLEM_STATUS_DISPLAY_NAMES = {
@@ -318,15 +328,34 @@ export function isNonEmptyString(value: unknown): value is string {
  */
 export function hasOnlyOwnedAssetPaths(
   userId: string,
-  assets: Array<{ path: string }> | undefined,
-  solutionAssets: Array<{ path: string }> | undefined
+  assets:
+    | Array<{
+        path: string;
+        display_path?: string;
+        preview_path?: string;
+        gray4_display_path?: string;
+      }>
+    | undefined,
+  solutionAssets:
+    | Array<{
+        path: string;
+        display_path?: string;
+        preview_path?: string;
+        gray4_display_path?: string;
+      }>
+    | undefined
 ): boolean {
   const prefix = `user/${userId}/`;
-  const allPaths = [...(assets ?? []), ...(solutionAssets ?? [])];
-  return allPaths.every(a => {
+  const allAssets = [...(assets ?? []), ...(solutionAssets ?? [])];
+  const allPaths = allAssets.flatMap(a =>
+    [a.path, a.display_path, a.preview_path, a.gray4_display_path].filter(
+      (p): p is string => typeof p === 'string'
+    )
+  );
+  return allPaths.every(path => {
     // Reject paths containing traversal segments before the prefix check
-    if (a.path.includes('/../') || a.path.includes('/./')) return false;
-    return a.path.startsWith(prefix);
+    if (path.includes('/../') || path.includes('/./')) return false;
+    return path.startsWith(prefix);
   });
 }
 

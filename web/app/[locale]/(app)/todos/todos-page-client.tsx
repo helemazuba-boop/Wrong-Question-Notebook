@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { Link } from '@/i18n/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -333,6 +334,18 @@ export default function TodosPageClient({
                       <span>提醒 {formatDateTime(todo.reminder_at)}</span>
                     ) : null}
                   </div>
+                  {todo.word_entry_id || todo.word_deck_id ? (
+                    <Link
+                      className="text-sm text-primary hover:underline"
+                      href={
+                        todo.word_entry_id
+                          ? `/words/progress?entry=${todo.word_entry_id}`
+                          : `/words/decks/${todo.word_deck_id}`
+                      }
+                    >
+                      查看 Word 进度
+                    </Link>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 gap-2">
                   {todo.status === 'pending' ? (

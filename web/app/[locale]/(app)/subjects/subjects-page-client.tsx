@@ -32,6 +32,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { NotebookShelfItem } from '@/lib/notebooks';
+import { createWebNoteRequestId } from '@/lib/note-study-client';
 import {
   findDefaultSubjectId,
   sortSubjectsByPresetOrder,
@@ -44,6 +45,7 @@ import {
   CheckCircle2,
   FileText,
   NotebookPen,
+  PlayCircle,
   Plus,
   Search,
   SlidersHorizontal,
@@ -116,6 +118,7 @@ export default function SubjectsPageClient({
   );
   const [createBusy, setCreateBusy] = useState(false);
   const [accessBusyId, setAccessBusyId] = useState<string | null>(null);
+  const [readingBusyId, setReadingBusyId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
@@ -174,7 +177,10 @@ export default function SubjectsPageClient({
       toast.error('请输入名称');
       return;
     }
-    if (!createSubjectId) {
+    if (
+      createKind !== 'word_deck' &&
+      (!createSubjectId || createSubjectId === '_none')
+    ) {
       toast.error('请选择归档位置');
       return;
     }
@@ -196,7 +202,10 @@ export default function SubjectsPageClient({
             }
           : createKind === 'word_deck'
             ? {
-                subject_id: createSubjectId,
+                subject_id:
+                  createSubjectId && createSubjectId !== '_none'
+                    ? createSubjectId
+                    : null,
                 title: createTitle.trim(),
                 description: createDescription.trim() || null,
                 source: 'user',
@@ -299,6 +308,42 @@ export default function SubjectsPageClient({
           ? `/words/decks/${item.id}`
           : `/notebooks/${item.id}`
     );
+  }
+
+  async function startOrContinueReading(item: NotebookShelfItem) {
+    if (item.type !== 'notebook') return;
+    const existing = item.read_summary?.resumable_session_id;
+    if (existing) {
+      router.push(`/notebooks/${item.id}/read/${existing}`);
+      return;
+    }
+    const readableCount = item.read_summary?.total ?? item.count;
+    if (!readableCount) {
+      toast.info('先添加一篇笔记，再开始阅读');
+      return;
+    }
+    setReadingBusyId(item.id);
+    try {
+      const response = await fetch('/api/notes/study/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: createWebNoteRequestId('note_session'),
+          mode: 'sequential',
+          notebook_ids: [item.id],
+          optional_count: Math.min(Math.max(readableCount, 1), 500),
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data?.session_id) {
+        throw new Error(payload?.error?.message || '开始阅读失败');
+      }
+      router.push(`/notebooks/${item.id}/read/${payload.data.session_id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '开始阅读失败');
+    } finally {
+      setReadingBusyId(null);
+    }
   }
 
   function resetFilters() {
@@ -413,7 +458,9 @@ export default function SubjectsPageClient({
                 key={`${item.type}-${item.id}`}
                 item={item}
                 accessBusy={accessBusyId === item.id}
+                readingBusy={readingBusyId === item.id}
                 onOpen={() => openItem(item)}
+                onContinue={() => startOrContinueReading(item)}
                 onAiAccessChange={checked =>
                   handleAiAccessChange(item, checked)
                 }
@@ -478,6 +525,9 @@ export default function SubjectsPageClient({
                   <SelectValue placeholder="选择归档位置" />
                 </SelectTrigger>
                 <SelectContent>
+                  {createKind === 'word_deck' ? (
+                    <SelectItem value="_none">无科目</SelectItem>
+                  ) : null}
                   {subjects.map(subject => (
                     <SelectItem key={subject.id} value={subject.id}>
                       {subject.name}
@@ -485,13 +535,15 @@ export default function SubjectsPageClient({
                   ))}
                 </SelectContent>
               </Select>
-              {subjects.length === 0 ? (
+              {subjects.length === 0 && createKind !== 'word_deck' ? (
                 <p className="text-xs text-muted-foreground">
                   当前还没有可用科目，暂时无法创建内容。
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  仅用于筛选和整理，不会形成新的页面层级。
+                  {createKind === 'word_deck'
+                    ? '词库可以不指定科目；科目仅用于筛选和整理。'
+                    : '仅用于筛选和整理，不会形成新的页面层级。'}
                 </p>
               )}
             </div>
@@ -531,12 +583,16 @@ export default function SubjectsPageClient({
 function ShelfItemCard({
   item,
   accessBusy,
+  readingBusy,
   onOpen,
+  onContinue,
   onAiAccessChange,
 }: {
   item: NotebookShelfItem;
   accessBusy: boolean;
+  readingBusy: boolean;
   onOpen: () => void;
+  onContinue: () => void;
   onAiAccessChange: (checked: boolean) => void;
 }) {
   const isProblemSet = item.type === 'problem_set';
@@ -622,23 +678,59 @@ function ShelfItemCard({
             </p>
           </div>
         </div>
+        {!isProblemSet && !isWordDeck && item.read_summary ? (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <Badge variant="outline">
+              未读 {item.read_summary.unread_count}
+            </Badge>
+            <Badge variant="outline">
+              阅读中 {item.read_summary.reading_count}
+            </Badge>
+            <Badge variant="secondary">
+              已读 {item.read_summary.completed_count}
+            </Badge>
+          </div>
+        ) : null}
       </CardContent>
       {!isProblemSet && !isWordDeck ? (
         <CardFooter
-          className="justify-between gap-4 border-t bg-muted/20 px-5 py-4"
+          className="flex-col items-stretch gap-3 border-t bg-muted/20 px-5 py-4"
           onClick={event => event.stopPropagation()}
         >
-          <div className="min-w-0">
-            <p className="text-sm font-medium">AI 写入授权</p>
-            <p className="text-xs text-muted-foreground">
-              {isAiWritable ? '已允许 AI 添加笔记' : '仅手动维护'}
-            </p>
+          <Button
+            onClick={onContinue}
+            disabled={
+              readingBusy || (item.read_summary?.total ?? item.count) === 0
+            }
+          >
+            <PlayCircle className="mr-2 h-4 w-4" />
+            {readingBusy
+              ? '正在准备...'
+              : item.read_summary?.resumable_session_id
+                ? '继续阅读'
+                : '开始阅读'}
+          </Button>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">AI 写入授权</p>
+              <p className="text-xs text-muted-foreground">
+                {isAiWritable ? '已允许 AI 添加笔记' : '仅手动维护'}
+              </p>
+            </div>
+            <Switch
+              checked={isAiWritable}
+              disabled={accessBusy}
+              onCheckedChange={onAiAccessChange}
+            />
           </div>
-          <Switch
-            checked={isAiWritable}
-            disabled={accessBusy}
-            onCheckedChange={onAiAccessChange}
-          />
+          {item.read_summary?.resume_note_title ||
+          item.read_summary?.last_note_title ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {item.read_summary.resume_note_title
+                ? `继续位置：${item.read_summary.resume_note_title}`
+                : `上次读过：${item.read_summary.last_note_title}`}
+            </p>
+          ) : null}
         </CardFooter>
       ) : null}
     </Card>

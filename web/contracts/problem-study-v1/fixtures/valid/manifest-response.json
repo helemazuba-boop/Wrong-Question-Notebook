@@ -1,0 +1,45 @@
+{
+  "ok": true,
+  "request_id": "req_problem_manifest_01",
+  "server_time_ms": 1784512800000,
+  "data": {
+    "cursor": "2",
+    "has_more": false,
+    "problem_sets": [
+      {
+        "problem_set_id": "11111111-1111-4111-8111-111111111111",
+        "name": "圆锥曲线专项",
+        "is_smart": false,
+        "deleted": false,
+        "pack": {
+          "pack_id": "11111111-1111-4111-8111-111111111111",
+          "pack_revision": 1784512700,
+          "schema_version": 1,
+          "format": "jsonl",
+          "compression": "zlib",
+          "entry_count": 12,
+          "byte_size": 20480,
+          "sha256": "9e00e194c412bff778bfd1235b3b2b25a4f7f8b1d3ef1c72fca11d21b36d1e05",
+          "download_url": "https://example.com/api/esp32/v3/problems/packs/11111111-1111-4111-8111-111111111111"
+        }
+      },
+      {
+        "problem_set_id": "22222222-2222-4222-8222-222222222222",
+        "name": "全部错题",
+        "is_smart": true,
+        "deleted": false,
+        "pack": {
+          "pack_id": "22222222-2222-4222-8222-222222222222",
+          "pack_revision": 1784512750,
+          "schema_version": 1,
+          "format": "jsonl",
+          "compression": "zlib",
+          "entry_count": 48,
+          "byte_size": 96031,
+          "sha256": "1b1f4d9c22cf8d0b6cf6a52ad4a3f2e8809d15b9a7f96ff2f4bf1cf3a2b4c6d8",
+          "download_url": "https://example.com/api/esp32/v3/problems/packs/22222222-2222-4222-8222-222222222222"
+        }
+      }
+    ]
+  }
+}

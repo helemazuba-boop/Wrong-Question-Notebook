@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "request_id": "req_problem_observe_01",
+  "server_time_ms": 1784512801000,
+  "data": {
+    "observation_id": "44444444-4444-4444-8444-444444444444",
+    "problem_id": "33333333-3333-4333-8333-333333333333",
+    "action": "correct",
+    "status": "mastered",
+    "schedule": {
+      "next_review_at": "2026-07-31T16:00:00+00:00",
+      "interval_days": 3,
+      "ease_factor": 2.6,
+      "repetition_number": 2
+    },
+    "projection_applied": true,
+    "replayed": false
+  }
+}

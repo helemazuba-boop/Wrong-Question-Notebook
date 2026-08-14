@@ -7,18 +7,20 @@ request-id idempotency, monotonic sequence) but for the `note` domain only.
 
 ## gate-0 decision (locked)
 
-The single explicit, durable user action for blank notebooks is **`opened`** — the
-user deliberately opens a note from the notebook's title list (笔记本 -> 标题 ->
-笔记; long-press Confirm goes back one level). Opening is a real explicit choice
-and is the action whose durable outbox commit N4 validates; it records
-`last_opened_at` and drives the least-recently-viewed recommendation. It is
-deliberately **not** a mastery signal.
+On Note4, the single explicit durable action is **`opened`** — the user
+deliberately opens a note from the notebook's title list (笔记本 -> 标题 -> 笔记;
+long-press Confirm goes back one level). It records `last_opened_at` and drives
+the least-recently-viewed recommendation. It is deliberately **not** a mastery
+signal.
 
 - The device never forces "read to the end": the reader can long-press back at any
   point. There is no forced `read_completed` gate.
-- `read_completed` remains an allowed contract action for a future opt-in "mark
-  read", but device v1 emits only `opened`. If the product later changes the
-  explicit action, this lock must be revised before the contract is re-frozen.
+- Web exposes an explicit opt-in “标记读完”. A Web candidate emits exactly one
+  terminal action: `read_completed` for that button, or `opened` for “稍后再看”.
+  Closing or refreshing without choosing emits nothing and does not advance the
+  session. Web never infers completion from scrolling or time spent.
+- The wire schema is unchanged: device v1 still emits only `opened`, while Web
+  uses the already-frozen `read_completed` action.
 
 ## User semantics
 
@@ -41,7 +43,8 @@ and no recommendation reason on the wire. Each session/candidate item carries
 ## Observations and projection
 
 Allowed actions: `opened`, `read_completed`, `skipped`, `session_paused`.
-Device v1 emits only `opened`; the others remain allowed for future use.
+Device v1 emits only `opened`; Web emits one of `opened`, `read_completed`, or
+`skipped` per candidate. Lifecycle pause/resume does not consume a candidate.
 
 Only `opened` and `read_completed` touch the read-state projection
 (`note_read_state`): `opened` sets `last_opened_at`; `read_completed` sets

@@ -15,6 +15,9 @@ import {
   Smartphone,
   RefreshCw,
   Timer,
+  ClipboardPaste,
+  ScanLine,
+  Paperclip,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { TranslatorProp } from '@/i18n/types';
@@ -24,6 +27,8 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
+import { getProblemTypeDisplayName } from '@/lib/common-utils';
+import { parsePastedExtraction } from '@/lib/problem-extraction';
 import type {
   ExtractedProblemData,
   QRSessionCreateResponse,
@@ -53,6 +58,7 @@ interface ImageScanUploaderProps {
 }
 
 type UploaderState = 'initial' | 'preview' | 'result';
+type UploaderTab = 'scan' | 'paste';
 
 const ALLOWED_MIME_TYPES = AI_CONSTANTS.EXTRACTION.ALLOWED_MIME_TYPES;
 const MAX_SIZE = AI_CONSTANTS.EXTRACTION.MAX_IMAGE_SIZE;
@@ -166,6 +172,15 @@ export function ImageScanUploader({
   const t = useTranslations('ImageScan');
   const tCommon = useTranslations('Common');
   const [state, setState] = useState<UploaderState>('initial');
+  // 'scan': platform vision extraction. 'paste': the user ran our
+  // off-platform prompt on an external LLM and pastes the JSON back — zero
+  // platform tokens, zero quota; validation is fully client-side.
+  const [tab, setTab] = useState<UploaderTab>('scan');
+  const [pasteText, setPasteText] = useState('');
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  // Optional original image attached alongside pasted JSON (for diagrams).
+  const [pasteImageFile, setPasteImageFile] = useState<File | null>(null);
+  const pasteFileInputRef = useRef<HTMLInputElement>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -239,9 +254,10 @@ export function ImageScanUploader({
     [stopListening, t]
   );
 
-  // Clipboard paste handler — active in initial state
+  // Clipboard paste handler — active in initial state on the scan tab (the
+  // paste tab owns its own textarea; a global listener would fight it)
   useEffect(() => {
-    if (state !== 'initial') return;
+    if (state !== 'initial' || tab !== 'scan') return;
 
     const handlePaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -259,7 +275,7 @@ export function ImageScanUploader({
 
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [state, validateAndSetFile]);
+  }, [state, tab, validateAndSetFile]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -480,12 +496,67 @@ export function ImageScanUploader({
     }
   }, [imageFile, imagePreview, onQuotaChange, subjectId, t]);
 
+  const handleParsePasted = useCallback(() => {
+    const parsed = parsePastedExtraction(pasteText);
+    if (!parsed.ok) {
+      setPasteError(
+        parsed.error === 'invalid_json'
+          ? t('pasteInvalidJson', { detail: parsed.detail })
+          : t('pasteSchemaMismatch', { detail: parsed.detail })
+      );
+      return;
+    }
+    setPasteError(null);
+    const firstPart = parsed.data.parts[0];
+    const data: ExtractedProblemData = {
+      title: parsed.data.title,
+      content: parsed.data.content,
+      parts: parsed.data.parts,
+      suggest_image_asset: parsed.data.suggest_image_asset,
+      confidence: parsed.data.confidence,
+      suggested_tags: {
+        existing: [],
+        new: parsed.data.new_tag_names.map(name => ({ name })),
+      },
+      // Legacy mirror keeps the shared result preview logic simple.
+      problem_type: firstPart.type,
+      mcq_choices: firstPart.mcq_choices,
+      answer_hint: firstPart.answer_hint,
+    };
+    setExtractionResult(data);
+    if (pasteImageFile) {
+      setImageFile(pasteImageFile);
+      if (data.suggest_image_asset) setSaveAsProblemAsset(true);
+    }
+    setState('result');
+  }, [pasteText, pasteImageFile, t]);
+
+  const handlePasteImageSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+          toast.error(t('imageRequired'));
+        } else if (file.size > MAX_SIZE) {
+          toast.error(t('imageTooLarge'));
+        } else {
+          setPasteImageFile(file);
+        }
+      }
+      e.target.value = '';
+    },
+    [t]
+  );
+
   const reset = useCallback(() => {
     stopListening();
     setImageFile(null);
     setImagePreview(null);
     setExtractionResult(null);
     setError(null);
+    setPasteText('');
+    setPasteError(null);
+    setPasteImageFile(null);
     setQrSession(null);
     setQrLoading(false);
     setSaveAsProblemAsset(false);
@@ -534,133 +605,228 @@ export function ImageScanUploader({
 
     return (
       <div className="space-y-3">
-        <div className="flex gap-3">
-          {/* Left: dropzone */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={e => {
-              e.preventDefault();
-              setIsDragOver(true);
-            }}
-            onDragLeave={() => setIsDragOver(false)}
-            onClick={() => fileInputRef.current?.click()}
-            className={`relative flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition-colors ${
-              isDragOver
-                ? 'border-amber-400 bg-amber-50/50 dark:border-amber-500 dark:bg-amber-950/20'
-                : 'border-gray-300/60 dark:border-gray-700/40 hover:border-amber-400/50 dark:hover:border-amber-500/50 hover:bg-amber-50/30 dark:hover:bg-amber-950/10'
+        {/* Tab bar: platform vision scan vs off-platform JSON paste */}
+        <div className="flex gap-1 rounded-xl bg-gray-100/70 p-1 dark:bg-gray-800/50">
+          <button
+            type="button"
+            onClick={() => setTab('scan')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === 'scan'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             }`}
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <div className="rounded-xl bg-amber-500/10 p-2.5 dark:bg-amber-500/20">
-              <Upload className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t('dropPasteOrBrowse')}
-              </p>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t('imageFormats')}
-              </p>
-            </div>
-          </div>
+            <ScanLine className="h-3.5 w-3.5" />
+            {t('scanTab')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('paste')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === 'paste'
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            <ClipboardPaste className="h-3.5 w-3.5" />
+            {t('pasteTab')}
+          </button>
+        </div>
 
-          {/* Divider + QR code (desktop only) */}
-          {isDesktop && (
-            <>
-              <div className="flex flex-col items-center justify-center gap-1.5">
-                <div className="h-full w-px bg-gray-200/60 dark:bg-gray-700/40" />
-                <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                  {tCommon('or')}
-                </span>
-                <div className="h-full w-px bg-gray-200/60 dark:bg-gray-700/40" />
+        {tab === 'scan' ? (
+          <div className="flex gap-3">
+            {/* Left: dropzone */}
+            <div
+              onDrop={handleDrop}
+              onDragOver={e => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onClick={() => fileInputRef.current?.click()}
+              className={`relative flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-5 text-center transition-colors ${
+                isDragOver
+                  ? 'border-amber-400 bg-amber-50/50 dark:border-amber-500 dark:bg-amber-950/20'
+                  : 'border-gray-300/60 dark:border-gray-700/40 hover:border-amber-400/50 dark:hover:border-amber-500/50 hover:bg-amber-50/30 dark:hover:bg-amber-950/10'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <div className="rounded-xl bg-amber-500/10 p-2.5 dark:bg-amber-500/20">
+                <Upload className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t('dropPasteOrBrowse')}
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {t('imageFormats')}
+                </p>
+              </div>
+            </div>
 
-              <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-200/40 bg-gradient-to-br from-gray-50 to-gray-100/50 p-4 dark:border-gray-700/30 dark:from-gray-800/40 dark:to-gray-700/20">
-                {/* QR code area */}
-                {qrLoading && !qrSession ? (
-                  <div className="flex h-[120px] w-[120px] items-center justify-center">
-                    <Spinner className="h-6 w-6 text-gray-400" />
-                  </div>
-                ) : qrSession ? (
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div className="rounded-lg bg-white p-1.5 shadow-sm">
-                      <QRCodeSVG
-                        value={qrSession.uploadUrl}
-                        size={108}
-                        level="M"
-                        includeMargin={false}
-                        className={isExpired ? 'opacity-30' : ''}
-                      />
+            {/* Divider + QR code (desktop only) */}
+            {isDesktop && (
+              <>
+                <div className="flex flex-col items-center justify-center gap-1.5">
+                  <div className="h-full w-px bg-gray-200/60 dark:bg-gray-700/40" />
+                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    {tCommon('or')}
+                  </span>
+                  <div className="h-full w-px bg-gray-200/60 dark:bg-gray-700/40" />
+                </div>
+
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-200/40 bg-gradient-to-br from-gray-50 to-gray-100/50 p-4 dark:border-gray-700/30 dark:from-gray-800/40 dark:to-gray-700/20">
+                  {/* QR code area */}
+                  {qrLoading && !qrSession ? (
+                    <div className="flex h-[120px] w-[120px] items-center justify-center">
+                      <Spinner className="h-6 w-6 text-gray-400" />
                     </div>
-                    {isExpired ? (
+                  ) : qrSession ? (
+                    <div className="flex flex-col items-center gap-1.5">
+                      <div className="rounded-lg bg-white p-1.5 shadow-sm">
+                        <QRCodeSVG
+                          value={qrSession.uploadUrl}
+                          size={108}
+                          level="M"
+                          includeMargin={false}
+                          className={isExpired ? 'opacity-30' : ''}
+                        />
+                      </div>
+                      {isExpired ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            stopListening();
+                            setQrSession(null);
+                            createQrSession();
+                          }}
+                          className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          {t('refreshCode')}
+                        </button>
+                      ) : (
+                        <div className="flex items-center justify-center gap-1 text-[10px] text-gray-400 dark:text-gray-500">
+                          <Timer className="h-2.5 w-2.5" />
+                          {minutes}:{seconds.toString().padStart(2, '0')}
+                          <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex h-[120px] w-[120px] flex-col items-center justify-center gap-2">
+                      <Smartphone className="h-5 w-5 text-gray-400" />
                       <button
                         type="button"
-                        onClick={() => {
-                          stopListening();
-                          setQrSession(null);
-                          createQrSession();
-                        }}
-                        className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                        onClick={createQrSession}
+                        className="text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
                       >
-                        <RefreshCw className="h-3 w-3" />
-                        {t('refreshCode')}
+                        {t('generateQR')}
                       </button>
-                    ) : (
-                      <div className="flex items-center justify-center gap-1 text-[10px] text-gray-400 dark:text-gray-500">
-                        <Timer className="h-2.5 w-2.5" />
-                        {minutes}:{seconds.toString().padStart(2, '0')}
-                        <span className="ml-0.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex h-[120px] w-[120px] flex-col items-center justify-center gap-2">
-                    <Smartphone className="h-5 w-5 text-gray-400" />
-                    <button
-                      type="button"
-                      onClick={createQrSession}
-                      className="text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-                    >
-                      {t('generateQR')}
-                    </button>
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                {/* Instructions */}
-                <ol className="space-y-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
-                  <li className="flex gap-1.5">
-                    <span className="font-semibold text-gray-400 dark:text-gray-500">
-                      1.
-                    </span>
-                    {t('scanWithPhone')}
-                  </li>
-                  <li className="flex gap-1.5">
-                    <span className="font-semibold text-gray-400 dark:text-gray-500">
-                      2.
-                    </span>
-                    {t('takePhoto')}
-                  </li>
-                  <li className="flex gap-1.5">
-                    <span className="font-semibold text-gray-400 dark:text-gray-500">
-                      3.
-                    </span>
-                    {t('appearsAutomatically')}
-                  </li>
-                </ol>
+                  {/* Instructions */}
+                  <ol className="space-y-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    <li className="flex gap-1.5">
+                      <span className="font-semibold text-gray-400 dark:text-gray-500">
+                        1.
+                      </span>
+                      {t('scanWithPhone')}
+                    </li>
+                    <li className="flex gap-1.5">
+                      <span className="font-semibold text-gray-400 dark:text-gray-500">
+                        2.
+                      </span>
+                      {t('takePhoto')}
+                    </li>
+                    <li className="flex gap-1.5">
+                      <span className="font-semibold text-gray-400 dark:text-gray-500">
+                        3.
+                      </span>
+                      {t('appearsAutomatically')}
+                    </li>
+                  </ol>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <textarea
+              value={pasteText}
+              onChange={e => {
+                setPasteText(e.target.value);
+                if (pasteError) setPasteError(null);
+              }}
+              placeholder={t('pasteJsonPlaceholder')}
+              rows={8}
+              className="w-full resize-y rounded-2xl border-2 border-dashed border-gray-300/60 bg-transparent p-3 font-mono text-xs text-gray-700 placeholder:font-sans placeholder:text-gray-400 focus:border-amber-400/60 focus:outline-none dark:border-gray-700/40 dark:text-gray-300 dark:placeholder:text-gray-500 dark:focus:border-amber-500/50"
+            />
+            {pasteError && (
+              <div className="flex items-start gap-1.5 text-xs text-rose-600 dark:text-rose-400">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span className="break-all">{pasteError}</span>
               </div>
-            </>
-          )}
-        </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <input
+                ref={pasteFileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={handlePasteImageSelect}
+                className="hidden"
+              />
+              {pasteImageFile ? (
+                <button
+                  type="button"
+                  onClick={() => setPasteImageFile(null)}
+                  className="flex min-w-0 items-center gap-1.5 text-xs text-gray-600 hover:text-rose-600 dark:text-gray-400 dark:hover:text-rose-400"
+                >
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{pasteImageFile.name}</span>
+                  <X className="h-3 w-3 shrink-0" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => pasteFileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-amber-600 dark:text-gray-400 dark:hover:text-amber-400"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  {t('attachOriginalImage')}
+                </button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleParsePasted}
+                disabled={!pasteText.trim()}
+              >
+                <CheckCircle2 className="mr-1 h-4 w-4" />
+                {t('parsePasted')}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-between">
-          <div>{quotaIndicator}</div>
+          <div>
+            {tab === 'scan' ? (
+              quotaIndicator
+            ) : (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('pasteNoQuotaHint')}
+              </p>
+            )}
+          </div>
           <Button
             type="button"
             variant="ghost"
@@ -764,15 +930,21 @@ export function ImageScanUploader({
     const confidence = extractionResult.confidence;
     const warnings = confidence?.warnings || [];
 
-    const problemTypeLabel =
-      extractionResult.problem_type === 'mcq'
-        ? t('multipleChoiceType')
-        : extractionResult.problem_type === 'short'
-          ? t('shortAnswerType')
-          : t('extendedResponseType');
+    // Shell model: badge the first part's type; legacy responses only carry
+    // the flat problem_type.
+    const primaryType =
+      extractionResult.parts?.[0]?.type ??
+      extractionResult.problem_type ??
+      'short_answer';
+    const partsCount = extractionResult.parts?.length ?? 1;
+    const isChoiceResult =
+      primaryType === 'single_choice' || primaryType === 'multi_choice';
+    const isShortLikeResult =
+      primaryType === 'fill_blank' || primaryType === 'short_answer';
+    const problemTypeLabel = t(getProblemTypeDisplayName(primaryType));
 
     const choicesCountLabel =
-      extractionResult.problem_type === 'mcq' &&
+      isChoiceResult &&
       extractionResult.mcq_choices &&
       extractionResult.mcq_choices.length > 0
         ? t('choicesCount', { count: extractionResult.mcq_choices.length })
@@ -822,13 +994,18 @@ export function ImageScanUploader({
           <div className="text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">{t('type')}</span> {problemTypeLabel}
             {choicesCountLabel}
+            {partsCount > 1 && (
+              <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-200/50 bg-amber-100/80 px-2 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-300">
+                {t('partsCount', { count: partsCount })}
+              </span>
+            )}
           </div>
 
           {/* Answer hint preview */}
           {extractionResult.answer_hint && (
             <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">
               <span className="font-medium">{t('answerDetected')}</span>{' '}
-              {extractionResult.problem_type === 'mcq' &&
+              {isChoiceResult &&
                 extractionResult.answer_hint.mcq_correct_choice_id && (
                   <span>
                     {t('choiceLabel', {
@@ -836,13 +1013,13 @@ export function ImageScanUploader({
                     })}
                   </span>
                 )}
-              {extractionResult.problem_type === 'short' &&
+              {isShortLikeResult &&
                 extractionResult.answer_hint.short_answer_value && (
                   <span className="font-mono">
                     {extractionResult.answer_hint.short_answer_value}
                   </span>
                 )}
-              {extractionResult.problem_type === 'extended' &&
+              {primaryType === 'essay' &&
                 extractionResult.answer_hint.extended_working && (
                   <span>
                     {t('workingSolution', {
@@ -904,19 +1081,21 @@ export function ImageScanUploader({
             )}
         </div>
 
-        <ImageAssetToggles
-          idPrefix="result"
-          saveAsProblemAsset={saveAsProblemAsset}
-          onProblemAssetChange={setSaveAsProblemAsset}
-          saveAsSolutionAsset={saveAsSolutionAsset}
-          onSolutionAssetChange={setSaveAsSolutionAsset}
-          t={t}
-          hint={
-            extractionResult.suggest_image_asset
-              ? t('visualContentDetected')
-              : undefined
-          }
-        />
+        {imageFile && (
+          <ImageAssetToggles
+            idPrefix="result"
+            saveAsProblemAsset={saveAsProblemAsset}
+            onProblemAssetChange={setSaveAsProblemAsset}
+            saveAsSolutionAsset={saveAsSolutionAsset}
+            onSolutionAssetChange={setSaveAsSolutionAsset}
+            t={t}
+            hint={
+              extractionResult.suggest_image_asset
+                ? t('visualContentDetected')
+                : undefined
+            }
+          />
+        )}
 
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -933,9 +1112,9 @@ export function ImageScanUploader({
             size="sm"
             onClick={() => {
               const attachment =
-                saveAsProblemAsset || saveAsSolutionAsset
+                imageFile && (saveAsProblemAsset || saveAsSolutionAsset)
                   ? {
-                      file: imageFile!,
+                      file: imageFile,
                       saveAsProblemAsset,
                       saveAsSolutionAsset,
                     }

@@ -494,6 +494,56 @@ function mapObservationRpcError(
   databaseError(action, error);
 }
 
+async function loadEquivalentAppliedObservation(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  deviceId: string | null,
+  input: NoteObservationRequest
+) {
+  let query = supabase
+    .from('study_observations')
+    .select('item_id, action, mode, result')
+    .eq('user_id', userId)
+    .eq('session_id', input.session_id)
+    .eq('sequence', input.sequence);
+  query = deviceId
+    ? query.eq('device_id', deviceId)
+    : query.is('device_id', null);
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    logger.warn('Failed to reconcile an applied Note observation', {
+      component: 'NoteStudyV1',
+      action: 'loadEquivalentAppliedObservation',
+      sessionId: input.session_id,
+      sequence: input.sequence,
+      error: error.message,
+    });
+    return null;
+  }
+  if (
+    !data ||
+    data.item_id !== input.item_id ||
+    data.action !== input.action ||
+    data.mode !== input.mode
+  ) {
+    return null;
+  }
+  const parsed = noteObservationDataSchema.safeParse({
+    ...(data.result as Record<string, unknown>),
+    replayed: true,
+  });
+  if (!parsed.success) {
+    logger.warn('Applied Note observation has an invalid stored result', {
+      component: 'NoteStudyV1',
+      action: 'loadEquivalentAppliedObservation.parse',
+      sessionId: input.session_id,
+      sequence: input.sequence,
+    });
+    return null;
+  }
+  return parsed.data;
+}
+
 export async function recordNoteStudyObservation(
   supabase: SupabaseClient<any>,
   userId: string,
@@ -514,7 +564,20 @@ export async function recordNoteStudyObservation(
       p_occurred_at: input.occurred_at,
     }
   );
-  if (error) mapObservationRpcError('recordNoteStudyObservation', error);
+  if (error) {
+    if (
+      String(error.message || '').includes('STUDY_SEQUENCE_ALREADY_APPLIED')
+    ) {
+      const replay = await loadEquivalentAppliedObservation(
+        supabase,
+        userId,
+        deviceId,
+        input
+      );
+      if (replay) return replay;
+    }
+    mapObservationRpcError('recordNoteStudyObservation', error);
+  }
 
   const parsed = noteObservationDataSchema.safeParse(data);
   if (!parsed.success) {
@@ -549,7 +612,20 @@ export async function skipNoteStudyObservation(
     p_mode: input.mode,
     p_occurred_at: input.occurred_at,
   });
-  if (error) mapObservationRpcError('skipNoteStudyObservation', error);
+  if (error) {
+    if (
+      String(error.message || '').includes('STUDY_SEQUENCE_ALREADY_APPLIED')
+    ) {
+      const replay = await loadEquivalentAppliedObservation(
+        supabase,
+        userId,
+        deviceId,
+        input
+      );
+      if (replay) return replay;
+    }
+    mapObservationRpcError('skipNoteStudyObservation', error);
+  }
 
   const parsed = noteObservationDataSchema.safeParse(data);
   if (!parsed.success) {

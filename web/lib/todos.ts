@@ -24,6 +24,8 @@ export interface TodoListItem {
   problem_id: string | null;
   notebook_id: string | null;
   note_id: string | null;
+  word_deck_id: string | null;
+  word_entry_id: string | null;
   source: TodoSource;
   created_by: TodoCreatedBy;
   created_at: string;
@@ -98,7 +100,7 @@ export class TodoToolError extends Error {
 const VALID_STATUSES: TodoStatus[] = ['pending', 'completed', 'cancelled'];
 const VALID_PRIORITIES: TodoPriority[] = ['low', 'normal', 'high'];
 const TODO_SELECT_COLUMNS =
-  'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)';
+  'id, title, description, status, priority, due_at, reminder_at, subject_id, problem_set_id, problem_id, notebook_id, note_id, word_deck_id, word_entry_id, source, created_by, created_at, updated_at, completed_at, cancelled_at, subjects(name)';
 const ESP32_TIMELINE_MAX_ROWS = 200;
 
 function normalizeStatus(value: string): TodoStatus {
@@ -185,6 +187,8 @@ function mapTodoRow(row: any): TodoListItem {
     problem_id: row.problem_id,
     notebook_id: row.notebook_id,
     note_id: row.note_id,
+    word_deck_id: row.word_deck_id,
+    word_entry_id: row.word_entry_id,
     source: normalizeSource(row.source),
     created_by: normalizeCreatedBy(row.created_by),
     created_at: row.created_at,
@@ -296,6 +300,55 @@ async function ensureNotebookNoteOwner(
   }
 }
 
+async function ensureWordDeckOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  wordDeckId?: string | null
+) {
+  if (!wordDeckId) return;
+  const { data, error } = await supabase
+    .from('word_decks')
+    .select('id')
+    .eq('id', wordDeckId)
+    .eq('is_active', true)
+    .or(`user_id.eq.${userId},is_system.eq.true`)
+    .maybeSingle();
+  if (error) throw new TodoToolError('database_error', error.message, 500);
+  if (!data) {
+    throw new TodoToolError('word_deck_not_found', 'Word deck not found', 404);
+  }
+}
+
+async function ensureWordEntryOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  wordEntryId?: string | null,
+  expectedDeckId?: string | null
+) {
+  if (!wordEntryId) return;
+  const { data, error } = await supabase
+    .from('word_entries')
+    .select('id, deck_id')
+    .eq('id', wordEntryId)
+    .maybeSingle();
+  if (error) throw new TodoToolError('database_error', error.message, 500);
+  if (!data) {
+    throw new TodoToolError(
+      'word_entry_not_found',
+      'Word entry not found',
+      404
+    );
+  }
+  if (expectedDeckId && data.deck_id !== expectedDeckId) {
+    throw new TodoToolError(
+      'word_link_mismatch',
+      'Word entry does not belong to the selected deck',
+      409
+    );
+  }
+  await ensureWordDeckOwner(supabase, userId, data.deck_id);
+}
+
 async function verifyTodoLinks(
   supabase: SupabaseClient<Database>,
   userId: string,
@@ -305,6 +358,8 @@ async function verifyTodoLinks(
     problem_id?: string | null;
     notebook_id?: string | null;
     note_id?: string | null;
+    word_deck_id?: string | null;
+    word_entry_id?: string | null;
   }
 ) {
   await Promise.all([
@@ -313,6 +368,13 @@ async function verifyTodoLinks(
     ensureProblemOwner(supabase, userId, input.problem_id),
     ensureNotebookOwner(supabase, userId, input.notebook_id),
     ensureNotebookNoteOwner(supabase, userId, input.note_id),
+    ensureWordDeckOwner(supabase, userId, input.word_deck_id),
+    ensureWordEntryOwner(
+      supabase,
+      userId,
+      input.word_entry_id,
+      input.word_deck_id
+    ),
   ]);
 }
 
@@ -382,6 +444,8 @@ export async function createTodo(
     problem_id?: string | null;
     notebook_id?: string | null;
     note_id?: string | null;
+    word_deck_id?: string | null;
+    word_entry_id?: string | null;
     source?: TodoSource;
     created_by?: TodoCreatedBy;
     source_conversation_id?: string | null;
@@ -403,6 +467,8 @@ export async function createTodo(
     problem_id: input.problem_id || null,
     notebook_id: input.notebook_id || null,
     note_id: input.note_id || null,
+    word_deck_id: input.word_deck_id || null,
+    word_entry_id: input.word_entry_id || null,
     source: input.source || 'manual',
     created_by: input.created_by || 'user',
     source_conversation_id: input.source_conversation_id || null,
@@ -438,6 +504,8 @@ export async function updateTodo(
     problem_id?: string | null;
     notebook_id?: string | null;
     note_id?: string | null;
+    word_deck_id?: string | null;
+    word_entry_id?: string | null;
     metadata?: Json;
   }
 ): Promise<TodoListItem> {
@@ -466,6 +534,10 @@ export async function updateTodo(
   if (input.notebook_id !== undefined)
     updatePayload.notebook_id = input.notebook_id;
   if (input.note_id !== undefined) updatePayload.note_id = input.note_id;
+  if (input.word_deck_id !== undefined)
+    updatePayload.word_deck_id = input.word_deck_id;
+  if (input.word_entry_id !== undefined)
+    updatePayload.word_entry_id = input.word_entry_id;
   if (input.metadata !== undefined) updatePayload.metadata = input.metadata;
 
   const { data, error } = await supabase
@@ -726,6 +798,8 @@ export async function listTodosForAi(
       due_at: todo.due_at,
       reminder_at: todo.reminder_at,
       subject_name: todo.subject_name,
+      word_deck_id: todo.word_deck_id,
+      word_entry_id: todo.word_entry_id,
     })),
   };
 }
@@ -741,6 +815,8 @@ export async function createTodoFromAi(
     subject_id?: string | null;
     problem_id?: string | null;
     notebook_id?: string | null;
+    word_deck_id?: string | null;
+    word_entry_id?: string | null;
   }
 ): Promise<{ todo: TodoListItem; action: TodoCreatedAction }> {
   const todo = await createTodo(ctx.supabase, ctx.userId, {

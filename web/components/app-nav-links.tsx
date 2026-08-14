@@ -5,11 +5,13 @@ import { Link } from '@/i18n/navigation';
 import { usePathname } from '@/i18n/navigation';
 import {
   Menu,
+  BookA,
   BookOpen,
   Globe,
   BarChart3,
   Cpu,
   ListTodo,
+  Plug,
   type LucideIcon,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -23,7 +25,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type NavLabelKey = 'subjects' | 'todos' | 'statistics' | 'discover' | 'esp32';
+type NavLabelKey =
+  'subjects' | 'words' | 'todos' | 'statistics' | 'discover' | 'esp32' | 'mcp';
 
 type AppLink = {
   href: string;
@@ -42,6 +45,13 @@ const APP_LINKS: AppLink[] = [
     iconBg: 'bg-amber-500/10 dark:bg-amber-500/20',
     iconColor: 'text-amber-600 dark:text-amber-400',
     activeHrefs: ['/problem-sets', '/notebooks'],
+  },
+  {
+    href: '/words',
+    labelKey: 'words' as const,
+    icon: BookA,
+    iconBg: 'bg-sky-500/10 dark:bg-sky-500/20',
+    iconColor: 'text-sky-600 dark:text-sky-400',
   },
   {
     href: '/todos',
@@ -71,6 +81,13 @@ const APP_LINKS: AppLink[] = [
     icon: Cpu,
     iconBg: 'bg-rose-500/10 dark:bg-rose-500/20',
     iconColor: 'text-rose-600 dark:text-rose-400',
+  },
+  {
+    href: '/mcp',
+    labelKey: 'mcp' as const,
+    icon: Plug,
+    iconBg: 'bg-blue-500/10 dark:bg-blue-500/20',
+    iconColor: 'text-blue-600 dark:text-blue-400',
   },
 ];
 

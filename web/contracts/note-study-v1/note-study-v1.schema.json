@@ -349,6 +349,7 @@
           "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
         },
         "cursor": { "$ref": "#/$defs/cursor" },
+        "snapshot_id": { "$ref": "#/$defs/sha256" },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
       }
     },
@@ -417,6 +418,8 @@
       "required": ["cursor", "has_more", "notebooks"],
       "properties": {
         "cursor": { "$ref": "#/$defs/cursor" },
+        "revision": { "$ref": "#/$defs/safeCounter" },
+        "snapshot_id": { "$ref": "#/$defs/sha256" },
         "has_more": { "type": "boolean" },
         "notebooks": {
           "type": "array",

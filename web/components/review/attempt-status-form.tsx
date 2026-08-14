@@ -1,33 +1,51 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from '@/components/ui/collapsible';
-import CauseSelector from '@/components/reflection/cause-selector';
-import { ProblemStatus } from '@/lib/schemas';
-import { cn } from '@/lib/utils';
-import { ATTEMPT_CONSTANTS } from '@/lib/constants';
-import { apiUrl } from '@/lib/api-utils';
-import {
-  XCircle,
   AlertCircle,
   CheckCircle,
-  ChevronRight,
-  Pencil,
   Loader2,
+  Pencil,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { apiUrl } from '@/lib/api-utils';
+import type { HumanRating } from '@/lib/fsrs/schemas';
+import type { ProblemStatus } from '@/lib/schemas';
+import { cn } from '@/lib/utils';
 
-const statusOptions = [
+const pendingRequestStoragePrefix = 'wqn:pending-review-rating:v1:';
+
+function pendingRequestStorageKey(problemId: string): string {
+  return `${pendingRequestStoragePrefix}${problemId}`;
+}
+
+function parsePendingRequest(
+  value: string | null
+): PendingReviewRatingRequest | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<PendingReviewRatingRequest>;
+    if (
+      (parsed.attemptId === null || typeof parsed.attemptId === 'string') &&
+      typeof parsed.reviewOccurrenceId === 'string' &&
+      typeof parsed.requestId === 'string' &&
+      ['Again', 'Hard', 'Good', 'Easy'].includes(String(parsed.rating))
+    ) {
+      return parsed as PendingReviewRatingRequest;
+    }
+  } catch {
+    // Ignore malformed or stale browser state.
+  }
+  return null;
+}
+
+const ratingOptions = [
   {
-    value: 'wrong' as ProblemStatus,
-    label: 'Wrong',
+    value: 'Again' as const,
     icon: XCircle,
     activeBg:
       'bg-red-100 dark:bg-red-950/20 text-red-800 dark:text-red-200 border-red-300 dark:border-red-800',
@@ -35,51 +53,65 @@ const statusOptions = [
       'hover:bg-red-50 hover:border-red-200 dark:hover:bg-red-950/10 dark:hover:border-red-900/30',
   },
   {
-    value: 'needs_review' as ProblemStatus,
-    label: 'Needs Review',
+    value: 'Hard' as const,
     icon: AlertCircle,
     activeBg:
-      'bg-yellow-100 dark:bg-yellow-950/20 text-yellow-800 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800',
+      'bg-orange-100 dark:bg-orange-950/20 text-orange-800 dark:text-orange-200 border-orange-300 dark:border-orange-800',
     hoverBg:
-      'hover:bg-yellow-50 hover:border-yellow-200 dark:hover:bg-yellow-950/10 dark:hover:border-yellow-900/30',
+      'hover:bg-orange-50 hover:border-orange-200 dark:hover:bg-orange-950/10 dark:hover:border-orange-900/30',
   },
   {
-    value: 'mastered' as ProblemStatus,
-    label: 'Mastered',
+    value: 'Good' as const,
     icon: CheckCircle,
     activeBg:
       'bg-green-100 dark:bg-green-950/20 text-green-800 dark:text-green-200 border-green-300 dark:border-green-800',
     hoverBg:
       'hover:bg-green-50 hover:border-green-200 dark:hover:bg-green-950/10 dark:hover:border-green-900/30',
   },
+  {
+    value: 'Easy' as const,
+    icon: CheckCircle,
+    activeBg:
+      'bg-blue-100 dark:bg-blue-950/20 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-800',
+    hoverBg:
+      'hover:bg-blue-50 hover:border-blue-200 dark:hover:bg-blue-950/10 dark:hover:border-blue-900/30',
+  },
 ];
+
+export interface PendingReviewRatingRequest {
+  attemptId: string | null;
+  reviewOccurrenceId: string;
+  requestId: string;
+  rating: HumanRating;
+}
+
+export interface SavedReviewRatingState {
+  rating: HumanRating;
+  attemptId: string;
+  reviewOccurrenceId: string;
+  terminalEventId: string;
+  reviewIdea?: string | null;
+}
 
 interface AttemptStatusFormProps {
   problemId: string;
   currentStatus: ProblemStatus;
   autoMark: boolean;
   attemptId?: string | null;
+  submittedAnswer?: unknown;
   autoMarkCorrect?: boolean | null;
   hasSubmitted?: boolean;
-  onSaved: (
-    status: ProblemStatus,
-    attemptId: string,
-    details?: {
-      cause?: string | null;
-      reflectionNotes?: string | null;
-      submittedResponse?: string | null;
-      needsReviewIsCorrect?: boolean | null;
-    }
-  ) => void;
-  initialSavedState?: {
-    selectedStatus: ProblemStatus;
-    attemptId: string;
-    cause?: string | null;
-    reflectionNotes?: string | null;
-    submittedResponse?: string | null;
-    needsReviewIsCorrect?: boolean | null;
-  } | null;
+  solutionRevealed: boolean;
+  initialIdea?: string | null;
+  onSaved: (state: SavedReviewRatingState) => void;
+  onPendingRequestChange?: (request: PendingReviewRatingRequest | null) => void;
+  initialPendingRequest?: PendingReviewRatingRequest | null;
+  initialSavedState?: SavedReviewRatingState | null;
   disabled?: boolean;
+}
+
+function newRequestId() {
+  return crypto.randomUUID().replaceAll('-', '');
 }
 
 export default function AttemptStatusForm({
@@ -87,440 +119,329 @@ export default function AttemptStatusForm({
   currentStatus,
   autoMark,
   attemptId,
+  submittedAnswer,
   autoMarkCorrect,
   hasSubmitted,
+  solutionRevealed,
+  initialIdea,
   onSaved,
+  onPendingRequestChange,
+  initialPendingRequest,
   initialSavedState,
   disabled,
 }: AttemptStatusFormProps) {
   const t = useTranslations('Review');
   const tCommon = useTranslations('Common');
-
-  const [selectedStatus, setSelectedStatus] = useState<ProblemStatus | null>(
-    initialSavedState?.selectedStatus ?? null
+  const [selectedRating, setSelectedRating] = useState<HumanRating | null>(
+    initialSavedState?.rating ?? null
   );
-  const [cause, setCause] = useState<string | undefined>(
-    initialSavedState?.cause ?? undefined
-  );
-  const [notes, setNotes] = useState(initialSavedState?.reflectionNotes ?? '');
-  const [response, setResponse] = useState(
-    initialSavedState?.submittedResponse ?? ''
-  );
-  const [needsReviewIsCorrect, setNeedsReviewIsCorrect] = useState<boolean>(
-    initialSavedState?.needsReviewIsCorrect ?? false
-  );
-  const [isSaving, setIsSaving] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [savedState, setSavedState] = useState<{
-    selectedStatus: ProblemStatus;
-    attemptId: string;
-  } | null>(
-    initialSavedState
-      ? {
-          selectedStatus: initialSavedState.selectedStatus,
-          attemptId: initialSavedState.attemptId,
-        }
-      : null
+  const [savedState, setSavedState] = useState<SavedReviewRatingState | null>(
+    initialSavedState ?? null
   );
   const [isEditing, setIsEditing] = useState(false);
-
-  const NOTES_MAX = ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH;
-  const RESPONSE_MAX = ATTEMPT_CONSTANTS.MAX_RESPONSE_LENGTH;
-
-  // Pre-attempt state: auto-mark problem where answer hasn't been submitted yet
+  const [isSaving, setIsSaving] = useState(false);
+  const [idea, setIdea] = useState(initialSavedState?.reviewIdea ?? '');
+  const [isSavingIdea, setIsSavingIdea] = useState(false);
+  const [pendingRequest, setPendingRequest] =
+    useState<PendingReviewRatingRequest | null>(initialPendingRequest ?? null);
   const isPreAttempt = autoMark && !hasSubmitted;
-
-  // Whether the form is in saved (read-only) state
+  const isRatingLocked = isPreAttempt || !solutionRevealed;
   const isSaved = savedState !== null && !isEditing;
 
-  // Determine which status options are available based on auto-mark constraints
-  const getAvailableOptions = () => {
-    if (
-      !autoMark ||
-      autoMarkCorrect === null ||
-      autoMarkCorrect === undefined
-    ) {
-      return statusOptions;
-    }
-    if (autoMarkCorrect === false) {
-      return statusOptions.filter(
-        o => o.value === 'wrong' || o.value === 'needs_review'
-      );
-    }
-    // autoMarkCorrect === true
-    return statusOptions.filter(
-      o => o.value === 'needs_review' || o.value === 'mastered'
+  useEffect(() => {
+    if (initialPendingRequest || savedState || pendingRequest) return;
+    const stored = parsePendingRequest(
+      window.sessionStorage.getItem(pendingRequestStorageKey(problemId))
     );
-  };
+    if (!stored) return;
+    setPendingRequest(stored);
+    setSelectedRating(stored.rating);
+    onPendingRequestChange?.(stored);
+  }, [
+    initialPendingRequest,
+    onPendingRequestChange,
+    pendingRequest,
+    problemId,
+    savedState,
+  ]);
 
-  const availableOptions = getAvailableOptions();
-
-  // Show correctness sub-option for needs_review on non-auto-mark problems
-  const showNeedsReviewSubOption =
-    selectedStatus === 'needs_review' &&
-    (!autoMark || autoMarkCorrect === null || autoMarkCorrect === undefined);
-
-  const handleStatusChange = (status: ProblemStatus) => {
-    setSelectedStatus(status);
-    if (status !== 'needs_review') {
-      setNeedsReviewIsCorrect(false);
-    }
-  };
-
-  const handleNeedsReviewToggle = (isCorrect: boolean) => {
-    setNeedsReviewIsCorrect(isCorrect);
-    setCause(undefined); // Reset cause since categories switch
-  };
-
-  // Auto-select default status based on auto-mark result (only when not restoring from saved state)
-  const getDefaultStatus = (): ProblemStatus | null => {
-    if (initialSavedState) return null;
-    if (!autoMark || autoMarkCorrect === null || autoMarkCorrect === undefined)
-      return null;
-    return autoMarkCorrect ? 'mastered' : 'wrong';
-  };
-
-  // Apply default selection when form becomes active (e.g. after answer submission)
   useEffect(() => {
     if (
-      !isPreAttempt &&
-      !isSaved &&
-      selectedStatus === null &&
-      !initialSavedState
+      !isRatingLocked &&
+      !savedState &&
+      !selectedRating &&
+      autoMarkCorrect !== null &&
+      autoMarkCorrect !== undefined
     ) {
-      const defaultStatus = getDefaultStatus();
-      if (defaultStatus) {
-        setSelectedStatus(defaultStatus);
-      }
+      setSelectedRating(autoMarkCorrect ? 'Good' : 'Again');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPreAttempt, autoMark, autoMarkCorrect, hasSubmitted]);
+  }, [autoMarkCorrect, isRatingLocked, savedState, selectedRating]);
 
-  // Derive correctness for cause selector: use the auto-mark result when
-  // available, otherwise fall back to status-based derivation
-  const effectiveIsCorrect =
-    autoMarkCorrect !== null && autoMarkCorrect !== undefined
-      ? autoMarkCorrect
-      : selectedStatus === 'needs_review'
-        ? needsReviewIsCorrect
-        : selectedStatus === 'mastered';
+  const updatePendingRequest = (request: PendingReviewRatingRequest | null) => {
+    setPendingRequest(request);
+    if (request) {
+      window.sessionStorage.setItem(
+        pendingRequestStorageKey(problemId),
+        JSON.stringify(request)
+      );
+    } else {
+      window.sessionStorage.removeItem(pendingRequestStorageKey(problemId));
+    }
+    onPendingRequestChange?.(request);
+  };
 
-  const handleSave = async () => {
-    if (!selectedStatus) return;
+  const handleSaveRating = async () => {
+    if (!selectedRating || isRatingLocked) return;
     setIsSaving(true);
-
     try {
-      let resultAttemptId: string;
-
-      if (attemptId || savedState?.attemptId) {
-        // PATCH existing attempt
-        const patchId = savedState?.attemptId || attemptId!;
-        const patchBody: Record<string, unknown> = {
-          selected_status: selectedStatus,
-          cause: cause || null,
-          reflection_notes: notes || null,
+      const correcting = savedState !== null;
+      let request = pendingRequest;
+      if (!request || request.rating !== selectedRating) {
+        request = {
+          attemptId: correcting
+            ? savedState.attemptId
+            : (attemptId ?? pendingRequest?.attemptId ?? null),
+          reviewOccurrenceId:
+            savedState?.reviewOccurrenceId ??
+            pendingRequest?.reviewOccurrenceId ??
+            crypto.randomUUID(),
+          requestId: newRequestId(),
+          rating: selectedRating,
         };
-        // Include response update for non-auto-mark edits
-        if (!autoMark && response) {
-          patchBody.submitted_answer = response;
-        }
-        const res = await fetch(apiUrl(`/api/attempts/${patchId}`), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patchBody),
-        });
-        if (!res.ok) throw new Error(t('failedSaveAssessment'));
-        resultAttemptId = patchId;
-      } else {
-        // POST new attempt (non-auto-mark or no existing attempt)
-        const res = await fetch(apiUrl('/api/attempts'), {
+        updatePendingRequest(request);
+      }
+
+      let ratingAttemptId = request.attemptId;
+      if (!ratingAttemptId) {
+        const attemptResponse = await fetch(apiUrl('/api/attempts'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             problem_id: problemId,
-            submitted_answer:
-              response || ATTEMPT_CONSTANTS.SELF_ASSESSED_PLACEHOLDER,
-            is_correct:
-              selectedStatus === 'needs_review'
-                ? needsReviewIsCorrect
-                : selectedStatus === 'mastered',
+            submitted_answer: submittedAnswer ?? {},
+            is_correct: null,
             is_self_assessed: true,
-            selected_status: selectedStatus,
-            cause: cause || undefined,
-            reflection_notes: notes || undefined,
           }),
         });
-        if (!res.ok) throw new Error(t('failedSaveAssessment'));
-        const result = await res.json();
-        resultAttemptId = result.data.id;
+        const attemptResult = await attemptResponse.json();
+        if (!attemptResponse.ok || !attemptResult.data?.id) {
+          throw new Error(attemptResult.error || t('failedSaveRating'));
+        }
+        ratingAttemptId = attemptResult.data.id;
+        request = { ...request, attemptId: ratingAttemptId };
+        updatePendingRequest(request);
       }
+      if (!ratingAttemptId) throw new Error(t('failedSaveRating'));
 
-      setSavedState({ selectedStatus, attemptId: resultAttemptId });
-      setIsEditing(false);
-      onSaved(selectedStatus, resultAttemptId, {
-        cause: cause || null,
-        reflectionNotes: notes || null,
-        submittedResponse: response || null,
-        needsReviewIsCorrect:
-          selectedStatus === 'needs_review' ? needsReviewIsCorrect : null,
+      const response = await fetch(apiUrl('/api/problem-reviews'), {
+        method: correcting ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          correcting
+            ? {
+                rating: selectedRating,
+                review_occurrence_id: request.reviewOccurrenceId,
+                terminal_event_id: savedState.terminalEventId,
+                request_id: request.requestId,
+              }
+            : {
+                attempt_id: ratingAttemptId,
+                rating: selectedRating,
+                review_occurrence_id: request.reviewOccurrenceId,
+                request_id: request.requestId,
+              }
+        ),
       });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || t('failedSaveRating'));
+
+      const nextState = {
+        rating: selectedRating,
+        attemptId: ratingAttemptId,
+        reviewOccurrenceId: result.data.review_occurrence_id,
+        terminalEventId: result.data.event_id,
+        reviewIdea: savedState?.reviewIdea ?? null,
+      };
+      setSavedState(nextState);
+      updatePendingRequest(null);
+      setIsEditing(false);
+      onSaved(nextState);
     } catch {
-      toast.error(t('failedToSaveAssessment'));
+      toast.error(t('failedSaveRating'));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Pre-attempt state
-  if (isPreAttempt) {
+  const handleSaveIdea = async () => {
+    if (!savedState) return;
+    setIsSavingIdea(true);
+    try {
+      const normalizedIdea = idea.trim() || null;
+      const response = await fetch(apiUrl('/api/problem-reviews/idea'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          review_occurrence_id: savedState.reviewOccurrenceId,
+          idea: normalizedIdea,
+        }),
+      });
+      if (!response.ok) throw new Error();
+      const nextState = { ...savedState, reviewIdea: normalizedIdea };
+      setSavedState(nextState);
+      onSaved(nextState);
+      toast.success(t('reviewIdeaSaved'));
+    } catch {
+      toast.error(t('failedSaveReviewIdea'));
+    } finally {
+      setIsSavingIdea(false);
+    }
+  };
+
+  if (isRatingLocked && !isSaved) {
     return (
-      <div className="opacity-50 pointer-events-none">
-        <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-2">
-          {t('assessment')}
+      <div className="pointer-events-none opacity-50">
+        <h3 className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-100">
+          {t('rating')}
         </h3>
-        <p className="text-xs text-muted-foreground">{t('submitFirst')}</p>
-        <div className="space-y-1.5 mt-2">
-          {statusOptions.map(option => {
-            const Icon = option.icon;
-            return (
-              <div
-                key={option.value}
-                className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium border border-border bg-background flex items-center gap-2"
-              >
-                <Icon className="h-4 w-4 flex-shrink-0" />
-                <span>{t(option.value)}</span>
-              </div>
-            );
-          })}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          {isPreAttempt ? t('submitFirst') : t('revealSolutionFirst')}
+        </p>
       </div>
     );
   }
 
-  // Saved state (read-only)
   if (isSaved && savedState) {
-    const savedOption = statusOptions.find(
-      o => o.value === savedState.selectedStatus
+    const savedOption = ratingOptions.find(
+      option => option.value === savedState.rating
     )!;
     const SavedIcon = savedOption.icon;
     return (
-      <div>
-        <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-2">
-          {t('assessment')}
-        </h3>
-        <div
-          className={cn(
-            'w-full px-3 py-2.5 rounded-lg text-sm font-medium border flex items-center gap-2',
-            savedOption.activeBg
-          )}
-        >
-          <SavedIcon className="h-4 w-4 flex-shrink-0" />
-          <span>{t(savedState.selectedStatus)}</span>
-        </div>
-        {savedState.selectedStatus === 'needs_review' &&
-          showNeedsReviewSubOption && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {needsReviewIsCorrect
-                ? t('correctButUnsure')
-                : t('wrongButClose')}
-            </p>
-          )}
-        {cause &&
-          (() => {
-            const matched = (
-              effectiveIsCorrect
-                ? ATTEMPT_CONSTANTS.CAUSE_CATEGORIES.CORRECT
-                : ATTEMPT_CONSTANTS.CAUSE_CATEGORIES.INCORRECT
-            ).find(c => c.value === cause);
-            return (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                {t('cause')}: {matched ? t(matched.labelKey) : cause}
-              </p>
-            );
-          })()}
-        {notes && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-            {t('notes')}: {notes}
-          </p>
-        )}
-        {!disabled && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-2 h-7 px-2 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-            onClick={() => setIsEditing(true)}
+      <div className="space-y-4">
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-100">
+            {t('rating')}
+          </h3>
+          <div
+            className={cn(
+              'flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium',
+              savedOption.activeBg
+            )}
           >
-            <Pencil className="w-3 h-3" />
-            {tCommon('edit')}
+            <SavedIcon className="h-4 w-4" />
+            <span>{t(`rating${savedState.rating}`)}</span>
+          </div>
+          {!disabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-7 px-2 text-xs"
+              onClick={() => {
+                setIsEditing(true);
+                updatePendingRequest(null);
+              }}
+            >
+              <Pencil className="h-3 w-3" />
+              {tCommon('edit')}
+            </Button>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t border-amber-200/60 pt-4 dark:border-amber-800/40">
+          <h4 className="text-sm font-semibold">
+            {t('reflectionAfterRating')}
+          </h4>
+          {initialIdea ? (
+            <div className="rounded-lg border bg-background/70 p-3">
+              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                {t('yourInitialIdea')}
+              </p>
+              <p className="whitespace-pre-wrap text-sm">{initialIdea}</p>
+            </div>
+          ) : null}
+          <Textarea
+            value={idea}
+            onChange={event => setIdea(event.target.value)}
+            maxLength={4000}
+            placeholder={t('reviewIdeaPlaceholder')}
+            className="min-h-20 resize-y text-sm"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={handleSaveIdea}
+            disabled={isSavingIdea || disabled}
+          >
+            {isSavingIdea ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              t('saveReviewIdea')
+            )}
           </Button>
-        )}
+        </div>
       </div>
     );
   }
 
-  // Active state
   return (
     <div>
-      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-2">
-        {t('assessment')}
+      <h3 className="mb-1 text-sm font-semibold text-amber-900 dark:text-amber-100">
+        {t('rating')}
       </h3>
-      <div className="space-y-1.5">
-        {availableOptions.map(option => {
+      <p className="mb-3 text-xs text-muted-foreground">
+        {autoMarkCorrect === null || autoMarkCorrect === undefined
+          ? t('chooseHumanRating')
+          : autoMarkCorrect
+            ? t('machineSuggestsGood')
+            : t('machineSuggestsAgain')}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {ratingOptions.map(option => {
           const Icon = option.icon;
           return (
             <button
               type="button"
               key={option.value}
-              onClick={() => handleStatusChange(option.value)}
+              onClick={() => {
+                setSelectedRating(option.value);
+                if (pendingRequest?.rating !== option.value) {
+                  updatePendingRequest(null);
+                }
+              }}
               disabled={disabled}
               className={cn(
-                'w-full px-3 py-2 rounded-lg text-left text-sm font-medium border transition-all flex items-center gap-2',
-                selectedStatus === option.value
+                'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium transition-all',
+                selectedRating === option.value
                   ? option.activeBg
                   : `border-border bg-background ${option.hoverBg}`
               )}
             >
-              <Icon className="h-4 w-4 flex-shrink-0" />
-              <span>{t(option.value)}</span>
+              <Icon className="h-4 w-4" />
+              <span>{t(`rating${option.value}`)}</span>
             </button>
           );
         })}
       </div>
-
-      {/* Needs Review correctness sub-option */}
-      {showNeedsReviewSubOption && (
-        <div className="mt-1.5 space-y-1">
-          <p className="text-xs font-medium text-yellow-700 dark:text-yellow-300">
-            {t('howDidItGo')}
-          </p>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => handleNeedsReviewToggle(true)}
-              disabled={disabled}
-              className={cn(
-                'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all text-left',
-                needsReviewIsCorrect
-                  ? 'bg-green-100 dark:bg-green-950/20 text-green-800 dark:text-green-200 border-green-300 dark:border-green-800'
-                  : 'border-border bg-background hover:bg-green-50 dark:hover:bg-green-950/10 hover:border-green-200 dark:hover:border-green-900/30'
-              )}
-            >
-              {t('correctButUnsure')}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNeedsReviewToggle(false)}
-              disabled={disabled}
-              className={cn(
-                'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all text-left',
-                !needsReviewIsCorrect
-                  ? 'bg-red-100 dark:bg-red-950/20 text-red-800 dark:text-red-200 border-red-300 dark:border-red-800'
-                  : 'border-border bg-background hover:bg-red-50 dark:hover:bg-red-950/10 hover:border-red-200 dark:hover:border-red-900/30'
-              )}
-            >
-              {t('wrongButClose')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <p className="text-xs text-muted-foreground mt-2 text-center">
+      <p className="mt-2 text-center text-xs text-muted-foreground">
         {t('currentStatus', {
           status: t(
             currentStatus === 'needs_review' ? 'needsReview' : currentStatus
           ),
         })}
       </p>
-
-      {/* Collapsible details */}
-      <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <CollapsibleTrigger className="flex items-center gap-1 mt-3 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full">
-          <ChevronRight
-            className={cn(
-              'h-3.5 w-3.5 transition-transform',
-              detailsOpen && 'rotate-90'
-            )}
-          />
-          {t('detailsOptional')}
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-3 space-y-3">
-          {/* Response textarea — non-auto-mark only */}
-          {!autoMark && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {t('yourResponse')}
-                </label>
-                <span
-                  className={cn(
-                    'text-xs',
-                    response.length >= RESPONSE_MAX
-                      ? 'text-amber-500'
-                      : 'text-muted-foreground'
-                  )}
-                >
-                  {response.length}/{RESPONSE_MAX}
-                </span>
-              </div>
-              <Textarea
-                value={response}
-                onChange={e => setResponse(e.target.value)}
-                maxLength={RESPONSE_MAX}
-                placeholder={t('whatDidYouAnswer')}
-                className="h-16 resize-none text-sm"
-              />
-            </div>
-          )}
-
-          {/* Cause selector */}
-          {selectedStatus && (
-            <CauseSelector
-              value={cause}
-              onChange={setCause}
-              isCorrect={effectiveIsCorrect}
-              t={t}
-            />
-          )}
-
-          {/* Reflection notes */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                {t('notes')}
-              </label>
-              <span
-                className={cn(
-                  'text-xs',
-                  notes.length >= NOTES_MAX
-                    ? 'text-amber-500'
-                    : 'text-muted-foreground'
-                )}
-              >
-                {notes.length}/{NOTES_MAX}
-              </span>
-            </div>
-            <Textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              maxLength={NOTES_MAX}
-              placeholder={t('notesPlaceholder')}
-              className="h-16 resize-none text-sm"
-            />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-
-      {/* Save button */}
       <Button
-        onClick={handleSave}
-        disabled={!selectedStatus || isSaving || disabled}
+        onClick={handleSaveRating}
+        disabled={!selectedRating || isSaving || disabled}
         size="sm"
-        className="w-full mt-3 bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-800 text-white"
+        className="mt-3 w-full bg-amber-600 text-white hover:bg-amber-700"
       >
         {isSaving ? (
           <Loader2 className="h-4 w-4 animate-spin" />
+        ) : isEditing ? (
+          t('correctRating')
         ) : (
-          t('saveAssessment')
+          t('confirmRating')
         )}
       </Button>
     </div>

@@ -11,6 +11,7 @@ export interface DeviceControlV3AuthContext {
   hardwareId: string;
   configRevision: number;
   syncCursor: number;
+  autoSyncIntervalMinutes: number;
 }
 
 const BEARER_PREFIX = 'Bearer ';
@@ -35,7 +36,7 @@ export async function authenticateDeviceControlV3(
   const { data: device, error } = await svc
     .from('esp32_devices')
     .select(
-      'id, user_id, hardware_id, mac_address, config_revision, sync_cursor'
+      'id, user_id, hardware_id, mac_address, config_revision, sync_cursor, auto_sync_interval_minutes'
     )
     .eq('access_token_hash', hashDeviceToken(token))
     .maybeSingle();
@@ -64,6 +65,7 @@ export async function authenticateDeviceControlV3(
     hardwareId: device.hardware_id || device.mac_address,
     configRevision: Number(device.config_revision),
     syncCursor: Number(device.sync_cursor),
+    autoSyncIntervalMinutes: Number(device.auto_sync_interval_minutes),
   };
 }
 

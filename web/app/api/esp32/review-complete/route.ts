@@ -9,14 +9,49 @@ import {
 import { createServiceClient } from '@/lib/supabase-utils';
 import { revalidateUserReviewSchedule } from '@/lib/cache-invalidation';
 import type { Json } from '@/lib/database.types';
-import { updateReviewSchedule } from '@/lib/spaced-repetition';
-import { getUserTimezone } from '@/lib/timezone-utils';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { fingerprintDeviceControlRequest } from '@/lib/device-control-v3-auth';
-import { deterministicDeviceAttemptId } from '@/lib/device-control-v3-idempotency';
+import {
+  deterministicDeviceAttemptId,
+  deterministicDeviceReviewId,
+} from '@/lib/device-control-v3-idempotency';
 
 const MAX_RESULTS_PER_REQUEST = 200;
 const IDEMPOTENCY_ENDPOINT = 'legacy-review-complete';
+
+function legacyResultRequestId(
+  requestId: string,
+  resultIndex: number,
+  result: {
+    problem_id: string;
+    selected_status: 'wrong' | 'needs_review' | 'mastered';
+    is_correct?: boolean;
+    submitted_answer?: Json;
+  }
+): string {
+  const suffix = fingerprintDeviceControlRequest({
+    result_index: resultIndex,
+    result,
+  }).slice(0, 16);
+  return `${requestId.slice(0, 47)}_${suffix}`;
+}
+
+function fallbackResultRequestId(
+  requestFingerprint: string,
+  resultIndex: number,
+  result: {
+    problem_id: string;
+    selected_status: 'wrong' | 'needs_review' | 'mastered';
+    is_correct?: boolean;
+    submitted_answer?: Json;
+  }
+): string {
+  return `legacy_${fingerprintDeviceControlRequest({
+    request_fingerprint: requestFingerprint,
+    result_index: resultIndex,
+    result,
+  }).slice(0, 56)}`;
+}
 
 function replayReviewResponse(
   replay: {
@@ -127,9 +162,6 @@ async function completeReview(req: Request) {
       if (reservationError) throw reservationError;
       reservedRequestId = requestId;
     }
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const userTimezone = await getUserTimezone(userId);
     const validStatuses = new Set(['wrong', 'needs_review', 'mastered']);
     let processed = 0;
 
@@ -147,55 +179,130 @@ async function completeReview(req: Request) {
       if (problemError) throw problemError;
       if (!problem) continue;
 
-      await updateReviewSchedule(
-        svc,
-        userId,
-        result.problem_id,
-        result.selected_status,
-        userTimezone
-      );
-
-      const { error: updateError } = await svc
-        .from('problems')
-        .update({
-          status: result.selected_status,
-          last_reviewed_date: nowIso,
-          updated_at: nowIso,
-        })
-        .eq('id', result.problem_id)
-        .eq('user_id', userId);
-
-      if (updateError) throw updateError;
-
-      if (result.submitted_answer !== undefined) {
+      const stableRequestIdentity = reservedRequestId ?? requestFingerprint;
+      const attemptId =
+        result.submitted_answer !== undefined
+          ? deterministicDeviceAttemptId(
+              deviceId,
+              stableRequestIdentity,
+              resultIndex,
+              result.problem_id
+            )
+          : null;
+      if (attemptId) {
         const attempt = {
-          ...(reservedRequestId
-            ? {
-                id: deterministicDeviceAttemptId(
-                  deviceId,
-                  reservedRequestId,
-                  resultIndex,
-                  result.problem_id
-                ),
-              }
-            : {}),
+          id: attemptId,
           problem_id: result.problem_id,
           user_id: userId,
-          submitted_answer: result.submitted_answer,
-          is_correct: result.is_correct ?? false,
+          submitted_answer: result.submitted_answer as Json,
+          is_correct: result.is_correct ?? null,
           is_self_assessed: true,
-          selected_status: result.selected_status,
         };
-        const attemptQuery = reservedRequestId
-          ? svc
-              .from('attempts')
-              .upsert(attempt, { onConflict: 'id', ignoreDuplicates: true })
-          : svc.from('attempts').insert(attempt);
-        const { error: attemptError } = await attemptQuery;
+        const { error: attemptError } = await svc
+          .from('attempts')
+          .upsert(attempt, { onConflict: 'id', ignoreDuplicates: true });
         if (attemptError) throw attemptError;
       }
 
-      processed += 1;
+      const rating =
+        result.selected_status === 'wrong'
+          ? 'Again'
+          : result.selected_status === 'needs_review'
+            ? 'Hard'
+            : 'Good';
+      const sourceRequestId = reservedRequestId
+        ? legacyResultRequestId(reservedRequestId, resultIndex, result)
+        : fallbackResultRequestId(requestFingerprint, resultIndex, result);
+      const reviewOccurrenceId = deterministicDeviceReviewId(
+        deviceId,
+        stableRequestIdentity,
+        resultIndex
+      );
+      const existingReview = await svc
+        .from('problem_review_events')
+        .select(
+          'id, review_occurrence_id, problem_id, attempt_id, event_kind, human_rating, machine_correctness_snapshot, channel_source'
+        )
+        .eq('user_id', userId)
+        .eq('device_id', deviceId)
+        .eq('source_request_id', sourceRequestId)
+        .maybeSingle();
+      if (existingReview.error) throw existingReview.error;
+
+      let reviewRecorded = false;
+      if (existingReview.data) {
+        const replay = existingReview.data;
+        if (
+          replay.review_occurrence_id !== reviewOccurrenceId ||
+          replay.problem_id !== result.problem_id ||
+          replay.attempt_id !== attemptId ||
+          replay.event_kind !== 'review' ||
+          replay.human_rating !== rating ||
+          replay.machine_correctness_snapshot !== (result.is_correct ?? null) ||
+          replay.channel_source !== 'device'
+        ) {
+          throw new Error('REVIEW_REQUEST_ID_REUSED');
+        }
+        reviewRecorded = true;
+      } else {
+        const reviewedAt = new Date().toISOString();
+        const { error: reviewError } = await svc.rpc(
+          'record_problem_review_fact',
+          {
+            p_event_id: deterministicDeviceReviewId(
+              deviceId,
+              `${stableRequestIdentity}_event`,
+              resultIndex
+            ),
+            p_review_occurrence_id: reviewOccurrenceId,
+            p_user_id: userId,
+            p_problem_id: result.problem_id,
+            p_attempt_id: attemptId,
+            p_event_kind: 'review',
+            p_human_rating: rating,
+            p_machine_correctness_snapshot: result.is_correct ?? null,
+            p_channel_source: 'device',
+            p_device_id: deviceId,
+            p_source_request_id: sourceRequestId,
+            p_reviewed_at: reviewedAt,
+            p_initial_idea_revision_id: null,
+            p_supersedes_event_id: null,
+          }
+        );
+        if (reviewError) {
+          if (reviewError.message.includes('REVIEW_REQUEST_ID_REUSED')) {
+            const replayLookup = await svc
+              .from('problem_review_events')
+              .select(
+                'review_occurrence_id, problem_id, attempt_id, event_kind, human_rating, machine_correctness_snapshot, channel_source'
+              )
+              .eq('user_id', userId)
+              .eq('device_id', deviceId)
+              .eq('source_request_id', sourceRequestId)
+              .maybeSingle();
+            if (replayLookup.error) throw replayLookup.error;
+            const replay = replayLookup.data;
+            if (
+              replay &&
+              replay.review_occurrence_id === reviewOccurrenceId &&
+              replay.problem_id === result.problem_id &&
+              replay.attempt_id === attemptId &&
+              replay.event_kind === 'review' &&
+              replay.human_rating === rating &&
+              replay.machine_correctness_snapshot ===
+                (result.is_correct ?? null) &&
+              replay.channel_source === 'device'
+            ) {
+              reviewRecorded = true;
+            }
+          }
+          if (!reviewRecorded) throw reviewError;
+        } else {
+          reviewRecorded = true;
+        }
+      }
+
+      if (reviewRecorded) processed += 1;
     }
 
     // Invalidate cache
@@ -236,9 +343,18 @@ async function completeReview(req: Request) {
         .eq('endpoint', IDEMPOTENCY_ENDPOINT);
     }
     const { message, status } = handleAsyncError(error);
-    return NextResponse.json(createApiErrorResponse(message, status), {
-      status,
-    });
+    const responseStatus = message.includes('REVIEW_REQUEST_ID_REUSED')
+      ? 409
+      : status;
+    return NextResponse.json(
+      createApiErrorResponse(
+        message.includes('REVIEW_REQUEST_ID_REUSED')
+          ? 'Request ID was reused'
+          : message,
+        responseStatus
+      ),
+      { status: responseStatus }
+    );
   }
 }
 

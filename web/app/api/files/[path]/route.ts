@@ -80,7 +80,9 @@ export async function GET(
   // The prefix check alone would pass user/<uuid>/../../<victim>/...; reject
   // traversal and escape sequences outright before the path reaches storage.
   if (
-    decodedPath.split('/').some(segment => segment === '..' || segment === '.') ||
+    decodedPath
+      .split('/')
+      .some(segment => segment === '..' || segment === '.') ||
     decodedPath.includes('\\') ||
     decodedPath.includes('\0') ||
     decodedPath.includes('//')

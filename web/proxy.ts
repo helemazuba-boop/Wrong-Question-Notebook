@@ -183,6 +183,7 @@ export async function proxy(request: NextRequest) {
     '/api/files',
     '/api/problems',
     '/api/qr-upload',
+    '/api/internal/problem-marks',
     '/api/cron/generate-digests',
   ];
 

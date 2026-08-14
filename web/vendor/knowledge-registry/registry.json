@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "subjects": [
+    {
+      "stable_key": "biology",
+      "name": "生物",
+      "aliases": [
+        "Biology"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "chemistry",
+      "name": "化学",
+      "aliases": [
+        "Chemistry"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "chinese",
+      "name": "语文",
+      "aliases": [
+        "Chinese"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "english",
+      "name": "英语",
+      "aliases": [
+        "English",
+        "English Vocabulary"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "geography",
+      "name": "地理",
+      "aliases": [
+        "Geography"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "history",
+      "name": "历史",
+      "aliases": [
+        "History"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "information_technology",
+      "name": "信息技术",
+      "aliases": [
+        "Information Technology"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "math",
+      "name": "数学",
+      "aliases": [
+        "Mathematics"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "other",
+      "name": "其他",
+      "aliases": [
+        "Other"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "physics",
+      "name": "物理",
+      "aliases": [
+        "Physics"
+      ],
+      "status": "active"
+    },
+    {
+      "stable_key": "politics",
+      "name": "政治",
+      "aliases": [
+        "Politics"
+      ],
+      "status": "active"
+    }
+  ],
+  "marks": []
+}

@@ -149,8 +149,12 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/creators/') &&
     !request.nextUrl.pathname.startsWith('/api/files/') &&
     !request.nextUrl.pathname.startsWith('/api/problems/') &&
+    // MCP endpoint authenticates with a Bearer PAT, and its token-management
+    // API answers 401 itself; a 302-to-login would break JSON-RPC clients.
+    !request.nextUrl.pathname.startsWith('/api/mcp') &&
     !request.nextUrl.pathname.startsWith('/upload/') &&
     !request.nextUrl.pathname.startsWith('/api/qr-upload/') &&
+    !request.nextUrl.pathname.startsWith('/api/internal/problem-marks/') &&
     request.nextUrl.pathname !== '/api/cron/generate-digests'
   ) {
     const loginUrl = new URL(ROUTES.AUTH.LOGIN, request.url);

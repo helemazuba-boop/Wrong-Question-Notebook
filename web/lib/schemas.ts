@@ -12,14 +12,19 @@ import {
   ERROR_CATEGORY_VALUES,
   DISCOVERY_SUBJECTS,
 } from './constants';
+import { HumanRatingSchema } from './fsrs/schemas';
 import { sanitizeHtmlContent } from './html-sanitizer';
 import { isValidTimezone } from './timezone-utils';
 
 // Database enum values - these should match the PostgreSQL enum type
+// (problem_part_type). Since the gaokao shell model these are PART types:
+// the shell itself has no type, its 1..10 inner parts each carry one.
 export const PROBLEM_TYPE_VALUES = [
-  PROBLEM_CONSTANTS.TYPES.MCQ,
-  PROBLEM_CONSTANTS.TYPES.SHORT,
-  PROBLEM_CONSTANTS.TYPES.EXTENDED,
+  PROBLEM_CONSTANTS.TYPES.SINGLE_CHOICE,
+  PROBLEM_CONSTANTS.TYPES.MULTI_CHOICE,
+  PROBLEM_CONSTANTS.TYPES.FILL_BLANK,
+  PROBLEM_CONSTANTS.TYPES.SHORT_ANSWER,
+  PROBLEM_CONSTANTS.TYPES.ESSAY,
 ] as const;
 export const PROBLEM_STATUS_VALUES = [
   PROBLEM_CONSTANTS.STATUS.WRONG,
@@ -29,6 +34,10 @@ export const PROBLEM_STATUS_VALUES = [
 
 export const ProblemType = z.enum(PROBLEM_TYPE_VALUES);
 export type ProblemType = z.infer<typeof ProblemType>;
+// Alias with the shell-model name; ProblemType is kept for the many existing
+// consumers (filters, tables) whose values are now part types.
+export const PartType = ProblemType;
+export type PartType = ProblemType;
 
 export const ProblemStatus = z.enum(PROBLEM_STATUS_VALUES);
 export type ProblemStatus = z.infer<typeof ProblemStatus>;
@@ -40,10 +49,26 @@ const htmlContent = z
   .transform(html => sanitizeHtmlContent(html))
   .optional();
 
+// Derivation fields (image_id/display_path/preview_path) are written by the
+// server-side WQNI pipeline and round-tripped by clients on edit; they must
+// survive parsing or every save would orphan the derived objects.
 const Asset = z.object({
   path: z.string(),
   kind: z.enum(['image', 'pdf']).optional(),
+  image_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  display_path: z.string().optional(),
+  preview_path: z.string().optional(),
+  gray4_image_id: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  gray4_display_path: z.string().optional(),
 });
+
+export type ProblemAsset = z.infer<typeof Asset>;
 
 // =====================================================
 // Answer Configuration Schemas
@@ -100,39 +125,156 @@ const ShortAnswerNumericConfigSchema = z.object({
   }),
 });
 
+// Gaokao multi-choice: several correct choices, marked with the standard
+// partial-credit rule (exact match = full marks, non-empty strict subset =
+// partial ratio, any wrong pick = zero).
+const MultiMCQAnswerConfigSchema = z
+  .object({
+    type: z.literal('multi_mcq'),
+    choices: z
+      .array(MCQChoiceSchema)
+      .min(ANSWER_CONFIG_CONSTANTS.MCQ.MIN_CHOICES)
+      .max(ANSWER_CONFIG_CONSTANTS.MCQ.MAX_CHOICES),
+    correct_choice_ids: z.array(z.string().min(1)).min(1),
+    partial_credit_ratio: z.number().min(0).max(1).optional(),
+    randomize_choices: z.boolean().optional().default(true),
+  })
+  .refine(
+    data =>
+      data.correct_choice_ids.every(id =>
+        data.choices.some(c => c.id === id)
+      ) &&
+      new Set(data.correct_choice_ids).size === data.correct_choice_ids.length,
+    { message: 'correct_choice_ids must be distinct choice IDs' }
+  );
+
 export const AnswerConfigSchema = z.union([
   MCQAnswerConfigSchema,
+  MultiMCQAnswerConfigSchema,
   ShortAnswerTextConfigSchema,
   ShortAnswerNumericConfigSchema,
 ]);
 
-export const CreateProblemDto = z.object({
-  id: z.uuid().optional(), // Allow client-provided UUID for direct upload approach
+// =====================================================
+// Shell model: problem parts and exam source
+// =====================================================
+
+// One inner part of a problem shell. Auto-markability is derived, not
+// declared: a part with an answer_config (or bare correct_answer) can be
+// auto-marked; short_answer/essay parts usually carry neither and are
+// self-assessed.
+export const ProblemPartSchema = z.object({
+  index: z.number().int().min(1).max(PROBLEM_CONSTANTS.PARTS.MAX_COUNT),
+  type: ProblemType,
+  label: z.string().max(PROBLEM_CONSTANTS.PARTS.MAX_LABEL_LENGTH).optional(),
+  full_marks: z
+    .number()
+    .int()
+    .min(0)
+    .max(PROBLEM_CONSTANTS.PARTS.MAX_FULL_MARKS)
+    .optional(),
+  content: htmlContent,
+  correct_answer: z
+    .string()
+    .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
+    .optional(),
+  answer_config: AnswerConfigSchema.nullable().optional(),
+});
+
+// The shell holds 1..10 parts with contiguous 1-based indexes -- nesting is
+// capped at exactly one level by construction.
+export const ProblemPartsSchema = z
+  .array(ProblemPartSchema)
+  .min(1)
+  .max(PROBLEM_CONSTANTS.PARTS.MAX_COUNT)
+  .refine(parts => parts.every((part, i) => part.index === i + 1), {
+    message: 'part indexes must be contiguous starting at 1',
+  });
+
+// Parts as READ back from storage: answer_config tolerates unknown shapes
+// (e.g. the word_mistake projection metadata that rides in that slot). The
+// marking engine treats unrecognized configs as non-markable and falls back
+// to the part's correct_answer, so reads must not reject them.
+export const StoredProblemPartsSchema = z
+  .array(
+    ProblemPartSchema.extend({
+      answer_config: z.record(z.string(), z.unknown()).nullable().optional(),
+    })
+  )
+  .min(1)
+  .max(PROBLEM_CONSTANTS.PARTS.MAX_COUNT)
+  .refine(parts => parts.every((part, i) => part.index === i + 1), {
+    message: 'part indexes must be contiguous starting at 1',
+  });
+
+// Exam provenance, deliberately loose (jsonb at rest): promote fields to
+// columns only when query patterns demand it.
+export const ProblemSourceSchema = z.object({
+  year: z
+    .number()
+    .int()
+    .min(PROBLEM_CONSTANTS.SOURCE.MIN_YEAR)
+    .max(PROBLEM_CONSTANTS.SOURCE.MAX_YEAR)
+    .optional(),
+  paper: z.string().max(PROBLEM_CONSTANTS.SOURCE.MAX_PAPER_LENGTH).optional(),
+  exam_type: z.enum(PROBLEM_CONSTANTS.SOURCE.EXAM_TYPES).optional(),
+  question_no: z
+    .string()
+    .max(PROBLEM_CONSTANTS.SOURCE.MAX_QUESTION_NO_LENGTH)
+    .optional(),
+});
+
+// Per-part outcome recorded on an attempt. score is only meaningful when the
+// part declared full_marks; correct=null marks a self-assessed part the user
+// has not judged yet.
+export const PartResultSchema = z.object({
+  index: z.number().int().min(1).max(PROBLEM_CONSTANTS.PARTS.MAX_COUNT),
+  correct: z.boolean().nullable(),
+  score: z.number().min(0).optional(),
+});
+
+export const ProblemInitialIdeaSchema = z
+  .string()
+  .min(1)
+  .max(4000)
+  .refine(value => value.trim().length > 0, {
+    message: 'Initial idea cannot be blank',
+  })
+  .refine(value => new TextEncoder().encode(value).byteLength <= 16000, {
+    message: 'Initial idea must be at most 16000 UTF-8 bytes',
+  });
+
+const ProblemWriteFields = z.object({
   subject_id: z.uuid(),
   title: z
     .string()
     .min(VALIDATION_CONSTANTS.STRING_LIMITS.TITLE_MIN)
     .max(VALIDATION_CONSTANTS.STRING_LIMITS.TITLE_MAX),
   content: htmlContent,
-  problem_type: ProblemType,
-  correct_answer: z
-    .string()
-    .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
-    .optional(),
-  answer_config: AnswerConfigSchema.nullable().optional(),
-  auto_mark: z.boolean().default(false),
-  status: ProblemStatus.default(PROBLEM_CONSTANTS.STATUS.NEEDS_REVIEW),
-  assets: z.array(Asset).default([]),
-
-  // NEW:
+  parts: ProblemPartsSchema,
+  source: ProblemSourceSchema,
+  is_optional: z.boolean(),
+  status: ProblemStatus,
+  assets: z.array(Asset),
   solution_text: htmlContent,
-  solution_assets: z.array(Asset).default([]),
+  solution_assets: z.array(Asset),
   last_reviewed_date: z.string().optional(),
-
   tag_ids: z.array(z.uuid()).optional(),
 });
 
-export const UpdateProblemDto = CreateProblemDto.partial();
+export const CreateProblemDto = ProblemWriteFields.extend({
+  id: z.uuid().optional(), // Allow client-provided UUID for direct upload approach
+  initial_idea: ProblemInitialIdeaSchema.optional(),
+  source: ProblemSourceSchema.default({}),
+  is_optional: z.boolean().default(false),
+  status: ProblemStatus.default(PROBLEM_CONSTANTS.STATUS.NEEDS_REVIEW),
+  assets: z.array(Asset).default([]),
+  solution_assets: z.array(Asset).default([]),
+});
+
+export const UpdateProblemDto = ProblemWriteFields.partial().extend({
+  initial_idea: ProblemInitialIdeaSchema.nullable().optional(),
+});
 
 export const CreateTagDto = z.object({
   subject_id: z.uuid(),
@@ -166,7 +308,6 @@ export const CreateAttemptDto = z.object({
     .string()
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .optional(),
-  selected_status: ProblemStatus.optional(),
 });
 
 export const UpdateAttemptDto = z.object({
@@ -181,7 +322,6 @@ export const UpdateAttemptDto = z.object({
     .max(ATTEMPT_CONSTANTS.MAX_REFLECTION_NOTES_LENGTH)
     .nullable()
     .optional(),
-  selected_status: ProblemStatus.nullable().optional(),
   submitted_answer: z
     .union([
       z.string().max(ATTEMPT_CONSTANTS.MAX_RESPONSE_LENGTH),
@@ -191,6 +331,31 @@ export const UpdateAttemptDto = z.object({
     ])
     .optional(),
 });
+
+export const ProblemReviewRatingDto = z
+  .object({
+    attempt_id: z.uuid(),
+    rating: HumanRatingSchema,
+    review_occurrence_id: z.uuid(),
+    request_id: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+  })
+  .strict();
+
+export const ProblemReviewRatingCorrectionDto = z
+  .object({
+    rating: HumanRatingSchema,
+    review_occurrence_id: z.uuid(),
+    terminal_event_id: z.uuid(),
+    request_id: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+  })
+  .strict();
+
+export const ProblemReviewIdeaDto = z
+  .object({
+    review_occurrence_id: z.uuid(),
+    idea: ProblemInitialIdeaSchema.nullable(),
+  })
+  .strict();
 
 export const ListAttemptsQuery = z.object({
   problem_id: z.uuid(),

@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/supabase/requireUser';
+import { listNotes } from '@/lib/notebook-content-service';
+import {
+  loadNotebookReadSummaries,
+  loadRecentNoteReads,
+  loadResumableWebNoteStudySessions,
+} from '@/lib/note-study-web';
 import NotebookPageClient from './notebook-page-client';
 
 type NotebookRow = {
@@ -18,20 +23,6 @@ type NotebookRow = {
     can_create: boolean;
     can_update: boolean;
   }[];
-};
-
-type NoteRow = {
-  id: string;
-  notebook_id: string;
-  title: string;
-  content: string;
-  content_format: string;
-  source: string;
-  linked_problem_id: string | null;
-  revision: number;
-  sort_index: number;
-  created_at: string;
-  updated_at: string;
 };
 
 async function loadNotebook(id: string) {
@@ -51,29 +42,26 @@ async function loadNotebook(id: string) {
 
   if (notebookError || !notebook) return null;
 
-  // sort_index / content_format are added by 20260724000000 and are not yet in
-  // the generated database types; cast to an untyped client for this read.
-  const { data: notes, error: notesError } = await (
-    supabase as unknown as SupabaseClient<any>
-  )
-    .from('notebook_notes')
-    .select(
-      'id, notebook_id, title, content, content_format, source, linked_problem_id, revision, sort_index, created_at, updated_at'
-    )
-    .eq('notebook_id', id)
-    .eq('user_id', user.id)
-    .is('archived_at', null)
-    .order('sort_index', { ascending: true })
-    .order('id', { ascending: true })
-    .limit(50);
-
-  if (notesError) {
-    console.error('Failed to load notebook notes:', notesError);
-  }
+  const [notesResult, summaries, recentReads, resumableSessions] =
+    await Promise.all([
+      listNotes(supabase, user.id, id, { order: 'stable', limit: 50 }),
+      loadNotebookReadSummaries(supabase, user.id, [id]),
+      loadRecentNoteReads(supabase, user.id, {
+        notebook_id: id,
+        limit: 8,
+      }),
+      loadResumableWebNoteStudySessions(supabase, user.id, {
+        notebook_id: id,
+        limit: 1,
+      }),
+    ]);
 
   return {
     notebook: notebook as NotebookRow,
-    notes: (notes || []) as NoteRow[],
+    notes: notesResult.notes,
+    readSummary: summaries[id],
+    recentReads,
+    resumableSession: resumableSessions[0] || null,
   };
 }
 
@@ -117,6 +105,9 @@ export default async function NotebookPage({
         },
       }}
       initialNotes={data.notes}
+      initialReadSummary={data.readSummary}
+      initialRecentReads={data.recentReads}
+      initialResumableSession={data.resumableSession}
     />
   );
 }

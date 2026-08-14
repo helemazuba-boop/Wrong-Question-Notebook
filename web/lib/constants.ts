@@ -270,10 +270,28 @@ export const USER_ROLES = {
 // Problem Types and Status
 // =====================================================
 export const PROBLEM_CONSTANTS = {
+  // Gaokao shell model: every problem is a shell holding 1..10 typed parts.
+  // These are PART types (a biology 大题 can nest a choice, blanks and a
+  // written answer in one shell); they must match the problem_part_type
+  // Postgres enum.
   TYPES: {
-    MCQ: 'mcq',
-    SHORT: 'short',
-    EXTENDED: 'extended',
+    SINGLE_CHOICE: 'single_choice',
+    MULTI_CHOICE: 'multi_choice',
+    FILL_BLANK: 'fill_blank',
+    SHORT_ANSWER: 'short_answer',
+    ESSAY: 'essay',
+  },
+  PARTS: {
+    MAX_COUNT: 10,
+    MAX_LABEL_LENGTH: 16,
+    MAX_FULL_MARKS: 150,
+  },
+  SOURCE: {
+    MIN_YEAR: 1990,
+    MAX_YEAR: 2100,
+    MAX_PAPER_LENGTH: 60,
+    MAX_QUESTION_NO_LENGTH: 16,
+    EXAM_TYPES: ['real', 'mock', 'homework', 'other'],
   },
   STATUS: {
     WRONG: 'wrong',
@@ -336,6 +354,12 @@ export const ANSWER_CONFIG_CONSTANTS = {
     DEFAULT_CHOICES: ['A', 'B', 'C', 'D'],
     MAX_CHOICE_TEXT_LENGTH: 500,
   },
+  MULTI_MCQ: {
+    // Gaokao multi-choice marking: full marks when the selection matches
+    // exactly, a partial-credit fraction when it is a non-empty strict subset
+    // of the correct set, zero as soon as a wrong choice is picked.
+    DEFAULT_PARTIAL_CREDIT_RATIO: 0.5,
+  },
   SHORT_ANSWER: {
     MAX_ACCEPTABLE_ANSWERS: 20,
     MAX_ANSWER_LENGTH: 200,
@@ -372,6 +396,7 @@ export const AI_CONSTANTS = {
   MODELS: {
     EXTRACTION: process.env.AI_MODEL_EXTRACTION ?? 'gemini-2.5-flash',
     CATEGORISATION: process.env.AI_MODEL_CATEGORISATION ?? 'gemini-2.5-flash',
+    PROBLEM_MARKING: process.env.AI_MODEL_PROBLEM_MARKING ?? 'gemini-2.5-flash',
     DIGEST: process.env.AI_MODEL_DIGEST ?? 'gemini-3-flash-preview',
   },
 } as const;

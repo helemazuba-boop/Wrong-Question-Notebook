@@ -7,7 +7,7 @@ import {
   createApiSuccessResponse,
 } from '@/lib/common-utils';
 import { CreateUserProfileDto } from '@/lib/schemas';
-import type { Database } from '@/lib/database.types';
+import { upsertUserProfileRow } from '@/lib/user-profile';
 
 export async function GET() {
   const { user, error } = await requireUser();
@@ -38,9 +38,10 @@ export async function PATCH(req: NextRequest) {
 
   const rawBody = body as Record<string, unknown>;
 
-  // Fields that can be explicitly cleared to null ('' or null → null in DB)
+  // Fields that can be explicitly cleared to null ('' or null → null in DB).
+  // username is NOT NULL in the schema, so it is intentionally not clearable
+  // (clearing it produced a guaranteed 23502).
   const clearableFields = [
-    'username',
     'first_name',
     'last_name',
     'bio',
@@ -95,17 +96,11 @@ export async function PATCH(req: NextRequest) {
   }
 
   const serviceSupabase = createServiceClient();
-  const { data, error: upsertError } = await serviceSupabase
-    .from('user_profiles')
-    .upsert(
-      {
-        id: user.id,
-        ...validatedData,
-      } as Database['public']['Tables']['user_profiles']['Insert'],
-      { onConflict: 'id' }
-    )
-    .select()
-    .single();
+  const { data, error: upsertError } = await upsertUserProfileRow(
+    serviceSupabase,
+    user.id,
+    validatedData
+  );
 
   if (upsertError || !data) {
     return NextResponse.json(

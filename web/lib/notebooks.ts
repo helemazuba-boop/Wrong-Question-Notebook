@@ -5,6 +5,10 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 import { NOTE_CONTENT_FORMAT } from '@/lib/note-content-format';
+import {
+  loadNotebookReadSummaries,
+  type NotebookReadSummary,
+} from '@/lib/note-study-web';
 
 export type NotebookShelfItemType = 'problem_set' | 'notebook' | 'word_deck';
 
@@ -29,6 +33,7 @@ export interface NotebookShelfItem {
     can_create: boolean;
     can_update: boolean;
   };
+  read_summary?: NotebookReadSummary;
 }
 
 export interface NotebookAiAction {
@@ -115,6 +120,13 @@ export async function loadNotebookShelf(
     );
   }
 
+  const notebookRows = notebooksResult.data || [];
+  const readSummaries = await loadNotebookReadSummaries(
+    supabase,
+    userId,
+    notebookRows.map((item: any) => item.id)
+  );
+
   const problemSets = (problemSetsResult.data || []).map((item: any) => ({
     id: item.id,
     type: 'problem_set' as const,
@@ -126,7 +138,7 @@ export async function loadNotebookShelf(
     updated_at: item.updated_at,
   }));
 
-  const notebooks = (notebooksResult.data || []).map((item: any) => {
+  const notebooks = notebookRows.map((item: any) => {
     const access = Array.isArray(item.notebook_ai_access)
       ? item.notebook_ai_access[0]
       : null;
@@ -144,6 +156,7 @@ export async function loadNotebookShelf(
         can_create: Boolean(access?.can_create),
         can_update: Boolean(access?.can_update),
       },
+      read_summary: readSummaries[item.id],
     };
   });
 
@@ -266,7 +279,9 @@ export async function verifyNotebookOwner(
     );
 }
 
-async function loadNotebookAiAccess(
+// Exported for the MCP read tools (list_notes/get_note), which gate on
+// can_read the same way createNotebookNoteFromAi gates on can_create.
+export async function loadNotebookAiAccess(
   supabase: SupabaseClient<Database>,
   userId: string,
   notebookId: string
@@ -305,6 +320,7 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
         return {
           id: notebook.id,
           title: notebook.title,
+          subject_id: notebook.subject_id || null,
           subject_name: notebook.subjects?.name || '',
           description: notebook.description || '',
           permissions: {
@@ -315,7 +331,9 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
           note_count: normalizeCount(notebook.notebook_notes),
         };
       })
-      .filter(Boolean),
+      .filter((notebook): notebook is NonNullable<typeof notebook> =>
+        Boolean(notebook)
+      ),
   };
 }
 
@@ -488,9 +506,7 @@ export async function searchUserProblems(
   const limit = Math.min(Math.max(input.limit || 5, 1), 5);
   let query = ctx.supabase
     .from('problems')
-    .select(
-      'id, title, subject_id, problem_type, status, updated_at, subjects(name)'
-    )
+    .select('id, title, subject_id, parts, status, updated_at, subjects(name)')
     .eq('user_id', ctx.userId)
     .limit(limit);
 
@@ -512,7 +528,9 @@ export async function searchUserProblems(
       id: problem.id,
       title: problem.title,
       subject_name: problem.subjects?.name || '',
-      problem_type: problem.problem_type,
+      part_types: Array.isArray(problem.parts)
+        ? [...new Set(problem.parts.map((part: any) => part?.type))]
+        : [],
       status: problem.status,
       updated_at: problem.updated_at,
     })),
@@ -525,9 +543,7 @@ export async function getProblemDetail(
 ) {
   const { data, error } = await ctx.supabase
     .from('problems')
-    .select(
-      'id, title, content, solution_text, correct_answer, status, problem_type, subjects(name)'
-    )
+    .select('id, title, content, solution_text, parts, status, subjects(name)')
     .eq('id', input.problem_id)
     .eq('user_id', ctx.userId)
     .maybeSingle();
@@ -543,9 +559,18 @@ export async function getProblemDetail(
       subject_name: (data as any).subjects?.name || '',
       content_text: data.content || '',
       solution_text: data.solution_text || '',
-      correct_answer: data.correct_answer || '',
       status: data.status,
-      problem_type: data.problem_type,
+      // Shell model: expose each part's skeleton so the AI can reference
+      // "第(2)问" and its expected answer.
+      parts: Array.isArray(data.parts)
+        ? (data.parts as any[]).map(part => ({
+            index: part?.index,
+            label: part?.label || '',
+            type: part?.type,
+            full_marks: part?.full_marks ?? null,
+            correct_answer: part?.correct_answer || '',
+          }))
+        : [],
     },
   };
 }

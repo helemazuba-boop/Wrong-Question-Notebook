@@ -1,4 +1,4 @@
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { CreateAttemptDto } from '@/lib/schemas';
 import { withSecurity } from '@/lib/security-middleware';
@@ -10,14 +10,7 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import type { Json } from '@/lib/database.types';
-import {
-  revalidateProblemAndSubject,
-  revalidateUserReviewSchedule,
-} from '@/lib/cache-invalidation';
-import { updateReviewSchedule } from '@/lib/spaced-repetition';
-import { createServiceClient } from '@/lib/supabase-utils';
-import { getUserTimezone } from '@/lib/timezone-utils';
-import { performErrorCategorisation } from '@/lib/categorise-error';
+import { revalidateProblemAndSubject } from '@/lib/cache-invalidation';
 
 async function getAttempts(req: Request) {
   const { user, supabase } = await requireUser();
@@ -139,72 +132,12 @@ async function createAttempt(req: Request) {
       );
     }
 
-    // Sync problem status when selected_status is provided
-    if (parsed.data.selected_status) {
-      const { error: statusError } = await supabase
-        .from('problems')
-        .update({
-          status: parsed.data.selected_status,
-          last_reviewed_date: new Date().toISOString(),
-        })
-        .eq('id', parsed.data.problem_id)
-        .eq('user_id', user.id);
-
-      if (statusError) {
-        console.error('Failed to sync problem status:', statusError.message);
-      }
-    }
-
-    // Invalidate cache after successful attempt creation
+    // Attempt persistence is evidence only. A separate human Rating request
+    // creates the immutable Review fact and advances the scheduler.
     await revalidateProblemAndSubject(
       parsed.data.problem_id,
       problem.subject_id
     );
-
-    // Update spaced repetition schedule
-    try {
-      const srStatus =
-        parsed.data.selected_status ??
-        (data.is_correct !== null
-          ? data.is_correct
-            ? 'mastered'
-            : 'wrong'
-          : null);
-
-      if (srStatus) {
-        const serviceClient = createServiceClient();
-        const userTimezone = await getUserTimezone(user.id);
-        await updateReviewSchedule(
-          serviceClient,
-          user.id,
-          parsed.data.problem_id,
-          srStatus,
-          userTimezone
-        );
-        await revalidateUserReviewSchedule(user.id);
-      }
-    } catch (e) {
-      console.error('Failed to update review schedule:', e);
-    }
-
-    // Trigger AI error categorisation after the response is sent
-    const triggerStatus =
-      parsed.data.selected_status ??
-      (data.is_correct === false ? 'wrong' : null);
-    if (triggerStatus === 'wrong' || triggerStatus === 'needs_review') {
-      after(async () => {
-        try {
-          await performErrorCategorisation({
-            attempt_id: data.id,
-            problem_id: parsed.data.problem_id,
-            subject_id: problem.subject_id,
-            user_id: user.id,
-          });
-        } catch (err) {
-          console.error('[categorise-trigger] failed:', err);
-        }
-      });
-    }
 
     return NextResponse.json(createApiSuccessResponse(data), { status: 201 });
   } catch (error) {

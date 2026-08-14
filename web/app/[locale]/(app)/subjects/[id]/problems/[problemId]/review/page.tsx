@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import ProblemReview from './problem-review';
 import { unstable_cache } from 'next/cache';
+import { readProblemInitialIdea } from '@/lib/problem-initial-idea';
 import {
   CACHE_DURATIONS,
   CACHE_TAGS,
@@ -35,13 +36,12 @@ async function loadData(subjectId: string, problemId: string) {
     return { problem: null, subject: null, allProblems: [] };
   }
 
+  // Client captured by closure, NOT passed as an argument: unstable_cache
+  // JSON.stringify-s its arguments for the cache key and newer supabase-js
+  // auth clients are circular (mfa.webauthn.client).
+  const supabaseClient = supabase;
   const cachedLoadData = unstable_cache(
-    async (
-      subjectId: string,
-      problemId: string,
-      userId: string,
-      supabaseClient: any
-    ) => {
+    async (subjectId: string, problemId: string, _userId: string) => {
       // Get the problem with all details
       const { data: problem, error } = await supabaseClient
         .from('problems')
@@ -64,7 +64,7 @@ async function loadData(subjectId: string, problemId: string) {
       // Get all problems in this subject for navigation
       const { data: allProblems } = await supabaseClient
         .from('problems')
-        .select('id, title, problem_type, status')
+        .select('id, title, status')
         .eq('subject_id', subjectId)
         .order('created_at', { ascending: false });
 
@@ -76,10 +76,21 @@ async function loadData(subjectId: string, problemId: string) {
 
       const tags =
         tagLinks?.map((link: any) => link.tags).filter(Boolean) || [];
+      const initialIdea = await readProblemInitialIdea(
+        supabaseClient,
+        _userId,
+        problemId
+      );
 
       return {
-        problem: { ...problem, tags },
-        subject,
+        problem: {
+          ...problem,
+          tags,
+          initial_idea:
+            initialIdea?.revision_kind === 'set' ? initialIdea.idea : null,
+          initial_idea_revision: initialIdea?.revision ?? null,
+        } as unknown as import('@/lib/types').Problem,
+        subject: subject as import('@/lib/types').Subject,
         allProblems: allProblems || [],
       };
     },
@@ -95,7 +106,7 @@ async function loadData(subjectId: string, problemId: string) {
     }
   );
 
-  return await cachedLoadData(subjectId, problemId, userId, supabase);
+  return await cachedLoadData(subjectId, problemId, userId);
 }
 
 export default async function ProblemReviewPage({

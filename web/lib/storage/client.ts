@@ -9,6 +9,26 @@ export async function getUserId() {
 }
 
 /**
+ * Supabase Storage object keys reject non-ASCII characters ("Invalid key").
+ * Mobile camera/scanner filenames are routinely Chinese (文档扫描_….jpg), so
+ * the key keeps only [a-zA-Z0-9._-]; a stem that sanitizes away entirely
+ * falls back to a timestamp. Display names stay untouched — this is for the
+ * storage path only.
+ */
+function storageSafeName(name: string): string {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot + 1) : '';
+  const asciiStem = stem
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const base = asciiStem || `image_${Date.now()}`;
+  return safeExt ? `${base}.${safeExt}` : base;
+}
+
+/**
  * role: "problem" | "solution"
  * problemId: the problem UUID (for new problems) or existing problem ID (for edits)
  * Upload path:
@@ -51,7 +71,7 @@ export async function uploadFiles(
 
   const paths: string[] = [];
   for (const f of Array.from(files)) {
-    const safeName = f.name.replace(/\s+/g, '_');
+    const safeName = storageSafeName(f.name);
     const path = `${base}/${safeName}`;
     const { error } = await supabase.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
@@ -96,7 +116,7 @@ export async function uploadNoteFiles(
 
   const paths: string[] = [];
   for (const f of Array.from(files)) {
-    const safeName = f.name.replace(/\s+/g, '_');
+    const safeName = storageSafeName(f.name);
     const path = `${base}/${safeName}`;
     const { error } = await supabase.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)

@@ -1,18 +1,12 @@
 /**
  * SM-2 Spaced Repetition Algorithm
  *
- * Pure functions for calculating review schedules based on the SuperMemo 2
- * algorithm, plus a database update helper.
+ * Pure functions retained for legacy compatibility fixtures. Runtime Review
+ * persistence is owned by the immutable Event projector.
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/lib/database.types';
 import { SPACED_REPETITION_CONSTANTS } from './constants';
-import {
-  isSameDayInTimezone,
-  getLocalMidnightAfterDays,
-  DEFAULT_TIMEZONE,
-} from './timezone-utils';
+import { getLocalMidnightAfterDays, DEFAULT_TIMEZONE } from './timezone-utils';
 
 // =====================================================
 // Types
@@ -109,108 +103,4 @@ export function calculateNextReview(
     intervalDays: newInterval,
     nextReviewAt,
   };
-}
-
-// =====================================================
-// Database Update Helper
-// =====================================================
-
-/**
- * Reads the current review schedule for a problem, applies SM-2, and upserts.
- * Uses the three-tier selectedStatus to derive the SM-2 quality score.
- * Uses service client for reliability (bypasses RLS).
- *
- * Same-day guard: if the problem was already reviewed today, only refreshes
- * next_review_at without advancing SM-2 state (repetition_number, ease_factor,
- * interval_days). This prevents double-advancement when a user edits their
- * assessment or reviews the same problem multiple times in one day.
- */
-export async function updateReviewSchedule(
-  supabase: SupabaseClient<Database>,
-  userId: string,
-  problemId: string,
-  selectedStatus: 'wrong' | 'needs_review' | 'mastered',
-  userTimezone: string = DEFAULT_TIMEZONE
-): Promise<void> {
-  const { DEFAULT_EASE_FACTOR, DEFAULT_INTERVAL } = SPACED_REPETITION_CONSTANTS;
-
-  // Read current schedule
-  const { data: existing, error: lookupError } = await supabase
-    .from('review_schedule')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('problem_id', problemId)
-    .maybeSingle();
-
-  if (lookupError) {
-    throw new Error(`Failed to read review schedule: ${lookupError.message}`);
-  }
-
-  const now = new Date();
-  const nowISO = now.toISOString();
-
-  // Check if already reviewed today (in user's timezone) — if so, only refresh
-  // next_review_at without advancing SM-2 state
-  const isReviewedToday =
-    existing?.last_reviewed_at &&
-    isSameDayInTimezone(new Date(existing.last_reviewed_at), now, userTimezone);
-
-  let scheduleUpdate: {
-    next_review_at: string;
-    interval_days: number;
-    ease_factor: number;
-    repetition_number: number;
-  };
-
-  if (isReviewedToday) {
-    // Same-day review: preserve SM-2 state, only refresh next_review_at
-    const nextReviewAt = getLocalMidnightAfterDays(
-      existing.interval_days ?? DEFAULT_INTERVAL,
-      userTimezone
-    );
-    scheduleUpdate = {
-      next_review_at: nextReviewAt.toISOString(),
-      interval_days: existing.interval_days,
-      ease_factor: existing.ease_factor,
-      repetition_number: existing.repetition_number,
-    };
-  } else {
-    // First review of the day: full SM-2 advancement
-    const quality = mapStatusToQuality(selectedStatus);
-    const currentRep = existing?.repetition_number ?? 0;
-    const currentEF = existing?.ease_factor ?? DEFAULT_EASE_FACTOR;
-    const currentInterval = existing?.interval_days ?? DEFAULT_INTERVAL;
-
-    const result = calculateNextReview(
-      {
-        repetitionNumber: currentRep,
-        easeFactor: currentEF,
-        intervalDays: currentInterval,
-        quality,
-      },
-      userTimezone
-    );
-
-    scheduleUpdate = {
-      next_review_at: result.nextReviewAt.toISOString(),
-      interval_days: result.intervalDays,
-      ease_factor: result.easeFactor,
-      repetition_number: result.repetitionNumber,
-    };
-  }
-
-  const { error: upsertError } = await supabase.from('review_schedule').upsert(
-    {
-      user_id: userId,
-      problem_id: problemId,
-      ...scheduleUpdate,
-      last_reviewed_at: nowISO,
-      updated_at: nowISO,
-    },
-    { onConflict: 'user_id,problem_id' }
-  );
-
-  if (upsertError) {
-    throw new Error(`Failed to upsert review schedule: ${upsertError.message}`);
-  }
 }

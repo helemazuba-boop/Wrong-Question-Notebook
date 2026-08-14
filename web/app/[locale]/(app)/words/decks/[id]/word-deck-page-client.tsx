@@ -6,6 +6,14 @@ import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -18,7 +26,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, FileSpreadsheet, FileUp, RefreshCw } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  FileSpreadsheet,
+  FileUp,
+  ListTodo,
+  Pencil,
+  Play,
+  RefreshCw,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
@@ -58,6 +78,17 @@ export interface WordEntryView {
   sort_index: number;
   revision: number;
   updated_at: string;
+  progress?: {
+    status: 'new' | 'learning' | 'review' | 'mastered';
+    due_at: string | null;
+    interval_days: number;
+    correct_streak: number;
+    lapses: number;
+    reviewed_count: number;
+    known_count: number;
+    unknown_count: number;
+    last_reviewed_at: string | null;
+  };
 }
 
 type ImportEntry = {
@@ -90,6 +121,7 @@ type ParseResult = {
 
 const MAX_IMPORT_ENTRIES = 4000;
 const PREVIEW_LIMIT = 10;
+const ENTRY_PAGE_SIZE = 50;
 
 const COLUMN_ALIASES: Record<ImportColumn, string[]> = {
   word: [
@@ -523,9 +555,133 @@ export default function WordDeckPageClient({
   const [addExample, setAddExample] = useState('');
   const [addExampleTranslation, setAddExampleTranslation] = useState('');
   const [addBusy, setAddBusy] = useState(false);
+  const [entries, setEntries] = useState(initialEntries);
+  const [entryCount, setEntryCount] = useState(
+    initialEntryCount ?? initialEntries.length
+  );
+  const [entryQuery, setEntryQuery] = useState('');
+  const [appliedEntryQuery, setAppliedEntryQuery] = useState('');
+  const [entryPage, setEntryPage] = useState(0);
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<WordEntryView | null>(null);
+  const [editWord, setEditWord] = useState('');
+  const [editMeaning, setEditMeaning] = useState('');
+  const [editPhonetic, setEditPhonetic] = useState('');
+  const [editPartOfSpeech, setEditPartOfSpeech] = useState('');
+  const [editExample, setEditExample] = useState('');
+  const [editExampleTranslation, setEditExampleTranslation] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
 
-  const visibleEntries = useMemo(() => initialEntries, [initialEntries]);
+  const visibleEntries = useMemo(() => entries, [entries]);
   const previewEntries = parseResult.entries.slice(0, PREVIEW_LIMIT);
+  const pageCount = Math.max(1, Math.ceil(entryCount / ENTRY_PAGE_SIZE));
+
+  async function loadEntryPage(page: number, query: string) {
+    setEntryLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(ENTRY_PAGE_SIZE),
+        offset: String(page * ENTRY_PAGE_SIZE),
+      });
+      if (query.trim()) params.set('q', query.trim());
+      const response = await fetch(
+        `/api/words/decks/${deck.id}/entries?${params.toString()}`,
+        { cache: 'no-store' }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || '加载词条失败');
+      }
+      setEntries(payload?.data?.entries || []);
+      setEntryCount(Number(payload?.data?.count || 0));
+      setEntryPage(page);
+      setAppliedEntryQuery(query.trim());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载词条失败');
+    } finally {
+      setEntryLoading(false);
+    }
+  }
+
+  function submitEntrySearch(event: FormEvent) {
+    event.preventDefault();
+    void loadEntryPage(0, entryQuery);
+  }
+
+  function openEntryEditor(entry: WordEntryView) {
+    setEditingEntry(entry);
+    setEditWord(entry.word);
+    setEditMeaning(entry.meaning);
+    setEditPhonetic(entry.phonetic || '');
+    setEditPartOfSpeech(entry.part_of_speech || '');
+    setEditExample(entry.example || '');
+    setEditExampleTranslation(entry.example_translation || '');
+  }
+
+  async function saveEntry(event: FormEvent) {
+    event.preventDefault();
+    if (!editingEntry || !editWord.trim() || !editMeaning.trim()) return;
+    setEditBusy(true);
+    try {
+      const response = await fetch(`/api/words/${editingEntry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: editWord.trim(),
+          meaning: editMeaning.trim(),
+          phonetic: editPhonetic.trim() || null,
+          part_of_speech: editPartOfSpeech.trim() || null,
+          example: editExample.trim() || null,
+          example_translation: editExampleTranslation.trim() || null,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || '保存词条失败');
+      }
+      const updated = payload?.data?.word as WordEntryView;
+      setEntries(current =>
+        current.map(entry =>
+          entry.id === updated.id
+            ? { ...updated, progress: entry.progress }
+            : entry
+        )
+      );
+      setEditingEntry(null);
+      toast.success('词条已保存');
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存词条失败');
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function deleteEntry() {
+    if (!editingEntry) return;
+    if (!window.confirm(`确认删除「${editingEntry.word}」？`)) return;
+    setEditBusy(true);
+    try {
+      const response = await fetch(`/api/words/${editingEntry.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || '删除词条失败');
+      }
+      setEditingEntry(null);
+      toast.success('词条已删除');
+      await loadEntryPage(
+        Math.min(entryPage, Math.max(0, pageCount - 2)),
+        appliedEntryQuery
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '删除词条失败');
+    } finally {
+      setEditBusy(false);
+    }
+  }
 
   function previewImport(value: string) {
     setText(value);
@@ -597,6 +753,7 @@ export default function WordDeckPageClient({
       const importedCount = Number(payload?.data?.imported_count || 0);
       setLastImportedCount(importedCount);
       toast.success(`已导入 ${importedCount} 条词条`);
+      await loadEntryPage(0, appliedEntryQuery);
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '导入失败');
@@ -641,11 +798,34 @@ export default function WordDeckPageClient({
       setAddPartOfSpeech('');
       setAddExample('');
       setAddExampleTranslation('');
+      await loadEntryPage(0, appliedEntryQuery);
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '添加失败');
     } finally {
       setAddBusy(false);
+    }
+  }
+
+  async function createEntryTodo(entry: WordEntryView) {
+    try {
+      const response = await fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `复习：${entry.word}`,
+          description: entry.meaning,
+          word_deck_id: deck.id,
+          word_entry_id: entry.id,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || '创建 Todo 失败');
+      }
+      toast.success(`已把「${entry.word}」加入 Todo`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建 Todo 失败');
     }
   }
 
@@ -658,12 +838,20 @@ export default function WordDeckPageClient({
           '管理词库条目，并通过设备词库资源包同步到 WQN Note4。'
         }
         actions={
-          <Button variant="outline" asChild>
-            <Link href="/subjects">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              返回笔记本架
-            </Link>
-          </Button>
+          <>
+            <Button variant="outline" asChild>
+              <Link href="/words">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                返回 Word
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/words/study/new?deck=${deck.id}`}>
+                <Play className="mr-2 h-4 w-4" />
+                开始学习
+              </Link>
+            </Button>
+          </>
         }
       />
 
@@ -714,8 +902,31 @@ export default function WordDeckPageClient({
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
         <Card>
-          <CardHeader>
-            <CardTitle>词条预览</CardTitle>
+          <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>词条管理</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                共 {entryCount} 条
+                {appliedEntryQuery ? `，正在搜索“${appliedEntryQuery}”` : ''}
+              </p>
+            </div>
+            <form
+              onSubmit={submitEntrySearch}
+              className="flex w-full gap-2 sm:max-w-sm"
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={entryQuery}
+                  onChange={event => setEntryQuery(event.target.value)}
+                  placeholder="搜索单词或释义"
+                  className="pl-9"
+                />
+              </div>
+              <Button type="submit" variant="outline" disabled={entryLoading}>
+                搜索
+              </Button>
+            </form>
           </CardHeader>
           <CardContent>
             {visibleEntries.length === 0 ? (
@@ -731,7 +942,8 @@ export default function WordDeckPageClient({
                     <TableHead>释义</TableHead>
                     <TableHead>词性</TableHead>
                     <TableHead>例句</TableHead>
-                    <TableHead>例句翻译</TableHead>
+                    <TableHead>进度</TableHead>
+                    <TableHead className="w-24">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -751,22 +963,73 @@ export default function WordDeckPageClient({
                       >
                         {entry.example || '--'}
                       </TableCell>
-                      <TableCell
-                        className="max-w-md truncate"
-                        title={entry.example_translation || ''}
-                      >
-                        {entry.example_translation || '--'}
+                      <TableCell>
+                        <Badge variant="outline">
+                          {entry.progress?.status === 'learning'
+                            ? '学习中'
+                            : entry.progress?.status === 'review'
+                              ? '复习'
+                              : entry.progress?.status === 'mastered'
+                                ? '已掌握'
+                                : '新词'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => void createEntryTodo(entry)}
+                            aria-label={`为${entry.word}创建 Todo`}
+                          >
+                            <ListTodo className="h-4 w-4" />
+                          </Button>
+                          {!deck.is_system ? (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => openEntryEditor(entry)}
+                              aria-label={`编辑${entry.word}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             )}
-            {initialEntryCount && initialEntryCount > initialEntries.length && (
-              <p className="text-sm text-muted-foreground text-center py-2">
-                显示前 {initialEntries.length} 条 / 共 {initialEntryCount} 条
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                第 {entryPage + 1} / {pageCount} 页
               </p>
-            )}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void loadEntryPage(entryPage - 1, appliedEntryQuery)
+                  }
+                  disabled={entryLoading || entryPage === 0}
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  上一页
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void loadEntryPage(entryPage + 1, appliedEntryQuery)
+                  }
+                  disabled={entryLoading || entryPage + 1 >= pageCount}
+                >
+                  下一页
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -949,6 +1212,105 @@ export default function WordDeckPageClient({
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={Boolean(editingEntry)}
+        onOpenChange={open => !open && setEditingEntry(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <form onSubmit={saveEntry}>
+            <DialogHeader>
+              <DialogTitle>编辑词条</DialogTitle>
+              <DialogDescription>
+                修改会更新词库 revision；已有个人学习进度会保留。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-5 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-word">单词</Label>
+                <Input
+                  id="edit-word"
+                  value={editWord}
+                  onChange={event => setEditWord(event.target.value)}
+                  maxLength={80}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-phonetic">音标</Label>
+                <Input
+                  id="edit-phonetic"
+                  value={editPhonetic}
+                  onChange={event => setEditPhonetic(event.target.value)}
+                  maxLength={120}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="edit-meaning">释义</Label>
+                <Textarea
+                  id="edit-meaning"
+                  value={editMeaning}
+                  onChange={event => setEditMeaning(event.target.value)}
+                  maxLength={1000}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-pos">词性</Label>
+                <Input
+                  id="edit-pos"
+                  value={editPartOfSpeech}
+                  onChange={event => setEditPartOfSpeech(event.target.value)}
+                  maxLength={80}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-example">例句</Label>
+                <Input
+                  id="edit-example"
+                  value={editExample}
+                  onChange={event => setEditExample(event.target.value)}
+                  maxLength={1000}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="edit-example-translation">例句翻译</Label>
+                <Input
+                  id="edit-example-translation"
+                  value={editExampleTranslation}
+                  onChange={event =>
+                    setEditExampleTranslation(event.target.value)
+                  }
+                  maxLength={1000}
+                />
+              </div>
+            </div>
+            <DialogFooter className="sm:justify-between">
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={deleteEntry}
+                disabled={editBusy}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                删除
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingEntry(null)}
+                >
+                  取消
+                </Button>
+                <Button type="submit" disabled={editBusy}>
+                  {editBusy ? '保存中…' : '保存'}
+                </Button>
+              </div>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

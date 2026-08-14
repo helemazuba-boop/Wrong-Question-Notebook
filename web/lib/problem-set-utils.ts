@@ -191,7 +191,7 @@ export async function getProblemSetWithFullData(
         problem_id,
         added_at,
         problems(
-          id, title, content, problem_type, status,
+          id, title, content, parts, status,
           last_reviewed_date, created_at,
           problem_tag(tags:tag_id(id, name))
         )

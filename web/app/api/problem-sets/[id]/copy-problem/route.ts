@@ -21,6 +21,10 @@ import {
 } from '@/lib/cache-invalidation';
 import { checkContentLimit } from '@/lib/content-limits';
 import { CONTENT_LIMIT_CONSTANTS, ERROR_MESSAGES } from '@/lib/constants';
+import {
+  createProblemMarkCopyMapping,
+  inheritProblemMarksBestEffort,
+} from '@/lib/problem-marks/copy';
 import { z } from 'zod';
 
 const CopyProblemBody = z.object({
@@ -171,8 +175,7 @@ async function copyProblem(
       .from('problems')
       .select(
         `
-        id, title, content, problem_type, correct_answer,
-        answer_config, auto_mark, status, created_at,
+        id, title, content, parts, source, is_optional, status, created_at,
         solution_text, assets, solution_assets,
         problem_tag(tags:tag_id(id, name))
       `
@@ -283,18 +286,20 @@ async function copyProblem(
       );
     }
 
-    // Insert the copied problem
+    // Insert the copied problem with an explicit identity so semantic inheritance
+    // never relies on returned row ordering or content matching.
+    const markMapping = createProblemMarkCopyMapping(sourceProblem.id);
     const { data: copiedProblem, error: insertError } = await supabase
       .from('problems')
       .insert({
+        id: markMapping.destination_problem_id,
         user_id: user.id,
         subject_id: target_subject_id,
         title: sourceProblem.title,
         content: sourceProblem.content,
-        problem_type: sourceProblem.problem_type,
-        correct_answer: sourceProblem.correct_answer,
-        answer_config: sourceProblem.answer_config,
-        auto_mark: sourceProblem.auto_mark || false,
+        parts: sourceProblem.parts,
+        source: sourceProblem.source ?? {},
+        is_optional: sourceProblem.is_optional ?? false,
         status: 'needs_review',
         solution_text: sourceProblem.solution_text,
         assets: sourceProblem.assets || [],
@@ -335,6 +340,10 @@ async function copyProblem(
       }
     }
 
+    const markInheritance = await inheritProblemMarksBestEffort(serviceClient, [
+      markMapping,
+    ]);
+
     // Invalidate caches for new problem (and tags if copied)
     await Promise.all([
       revalidateUserSubjects(user.id),
@@ -361,6 +370,7 @@ async function copyProblem(
       createApiSuccessResponse({
         problem_id: copiedProblem.id,
         tag_count: tagCount,
+        marks: markInheritance,
       }),
       { status: 201 }
     );

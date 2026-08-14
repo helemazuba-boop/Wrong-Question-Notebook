@@ -33,10 +33,10 @@ export interface Problem {
   id: string;
   title: string;
   content: string | null;
-  problem_type: ProblemType;
-  correct_answer: string | null;
-  answer_config?: AnswerConfig | null;
-  auto_mark: boolean;
+  // Shell model: 1..10 typed inner parts (contiguous 1-based indexes).
+  parts: ProblemPart[];
+  source?: ProblemSource;
+  is_optional?: boolean;
   status: ProblemStatus;
   subject_id: string;
   created_at: string;
@@ -45,6 +45,9 @@ export interface Problem {
   solution_text?: string | null;
   assets?: Asset[];
   solution_assets?: Asset[];
+  /** Owner-private current personal context; omitted from list/share payloads. */
+  initial_idea?: string | null;
+  initial_idea_revision?: number | null;
   tags?: SimpleTag[];
   isInSet?: boolean;
 }
@@ -231,8 +234,51 @@ export interface ShortAnswerNumericConfig {
   };
 }
 
+export interface MultiMCQAnswerConfig {
+  type: 'multi_mcq';
+  choices: MCQChoice[];
+  correct_choice_ids: string[];
+  // Fraction of full marks for a non-empty strict subset of the correct set
+  // (gaokao partial-credit rule); defaults to
+  // ANSWER_CONFIG_CONSTANTS.MULTI_MCQ.DEFAULT_PARTIAL_CREDIT_RATIO.
+  partial_credit_ratio?: number;
+  randomize_choices?: boolean;
+}
+
 export type AnswerConfig =
-  MCQAnswerConfig | ShortAnswerTextConfig | ShortAnswerNumericConfig;
+  | MCQAnswerConfig
+  | MultiMCQAnswerConfig
+  | ShortAnswerTextConfig
+  | ShortAnswerNumericConfig;
+
+// =====================================================
+// Shell Model Types (gaokao problem shell)
+// =====================================================
+
+export interface ProblemPart {
+  index: number;
+  type: ProblemType;
+  label?: string;
+  full_marks?: number;
+  content?: string;
+  correct_answer?: string;
+  answer_config?: AnswerConfig | null;
+}
+
+export interface ProblemSource {
+  year?: number;
+  paper?: string;
+  exam_type?: 'real' | 'mock' | 'homework' | 'other';
+  question_no?: string;
+}
+
+// Per-part outcome of one attempt; correct=null while a self-assessed part
+// has no verdict yet.
+export interface PartResult {
+  index: number;
+  correct: boolean | null;
+  score?: number;
+}
 
 // =====================================================
 // Extended/Computed Types (for UI)
@@ -309,14 +355,31 @@ export interface AnswerHint {
   answer_confidence: 'high' | 'medium' | 'low';
 }
 
+export interface ExtractedProblemPart {
+  index: number;
+  label?: string | null;
+  type: ProblemType;
+  content: string;
+  full_marks?: number | null;
+  mcq_choices?: { id: string; text: string }[];
+  answer_hint?: AnswerHint | null;
+}
+
+// Shell-model extraction: shared stem in `content`, 1..N typed parts. The
+// legacy single-part fields stay optional so older responses (and cached
+// clients) keep working through the same code path.
 export interface ExtractedProblemData {
-  problem_type: 'mcq' | 'short' | 'extended';
   title: string;
-  content: string; // raw text with $...$ and $$...$$ math delimiters
+  content: string; // shared stem, raw text with $...$ and $$...$$ math delimiters
+  parts?: ExtractedProblemPart[];
+  /** @deprecated legacy single-part shape */
+  problem_type?: ProblemType;
+  /** @deprecated legacy single-part shape */
   mcq_choices?: { id: string; text: string }[];
   suggest_image_asset: boolean;
-  confidence: ExtractionConfidence;
+  confidence?: ExtractionConfidence;
   suggested_tags?: SuggestedTags;
+  /** @deprecated legacy single-part shape */
   answer_hint?: AnswerHint | null;
 }
 
@@ -462,6 +525,7 @@ export interface UncategorisedAttempt {
   problem_id: string;
   subject_id: string;
   submitted_answer: unknown;
+  part_results: PartResult[];
   is_correct: boolean | null;
   cause: string | null;
   reflection_notes: string | null;
@@ -469,8 +533,7 @@ export interface UncategorisedAttempt {
   attempt_created_at: string;
   problem_title: string;
   problem_content: string | null;
-  problem_type: string;
-  correct_answer: string | null;
+  problem_parts: ProblemPart[];
   subject_name: string;
 }
 
@@ -542,11 +605,10 @@ export interface SolutionAsset {
 export interface SolutionRevealProps {
   solutionText?: string;
   solutionAssets: SolutionAsset[];
-  correctAnswer?: any;
-  answerConfig?: AnswerConfig | null;
-  problemType?: string;
+  parts: ProblemPart[];
   isRevealed: boolean;
-  onToggle: () => void;
+  onReveal: () => void;
+  onHide?: () => void;
   wrapperClassName?: string;
 }
 
@@ -555,9 +617,7 @@ export interface AssetPreviewProps {
 }
 
 export interface AnswerInputProps {
-  problemType: ProblemType;
-  correctAnswer?: any;
-  answerConfig?: AnswerConfig | null;
+  part: ProblemPart;
   value: any;
   onChange: (value: any) => void;
   onSubmit?: () => void;

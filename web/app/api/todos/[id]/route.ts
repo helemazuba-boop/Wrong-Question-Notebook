@@ -22,6 +22,8 @@ const UpdateTodoSchema = z.object({
   problem_id: z.string().uuid().optional().nullable(),
   notebook_id: z.string().uuid().optional().nullable(),
   note_id: z.string().uuid().optional().nullable(),
+  word_deck_id: z.string().uuid().optional().nullable(),
+  word_entry_id: z.string().uuid().optional().nullable(),
   metadata: z.unknown().optional(),
 });
 

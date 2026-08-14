@@ -9,6 +9,7 @@ import { getFilteredProblems } from '@/lib/review-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { FilterConfig } from '@/lib/types';
 import { appendFromParam, isSafeInternalHref } from '@/lib/navigation-context';
+import { readProblemInitialIdeas } from '@/lib/problem-initial-idea';
 
 export async function generateMetadata({
   params,
@@ -72,13 +73,28 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
     };
     // For non-owner access (shared or anonymous), use service client to bypass RLS
     const queryClient = isOwner ? supabase : createServiceClient();
-    return getFilteredProblems(
+    const filteredProblems = await getFilteredProblems(
       queryClient,
       ownerUserId,
       problemSet.subject_id,
       filterConfig,
       ownerUserId
     );
+    if (!isOwner) return filteredProblems;
+
+    const initialIdeas = await readProblemInitialIdeas(
+      supabase,
+      userId,
+      filteredProblems.map(problem => problem.id)
+    );
+    return filteredProblems.map(problem => {
+      const head = initialIdeas.get(problem.id);
+      return {
+        ...problem,
+        initial_idea: head?.revision_kind === 'set' ? head.idea : null,
+        initial_idea_revision: head?.revision ?? null,
+      };
+    });
   }
 
   // Manual sets: fetch via junction table
@@ -93,14 +109,13 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
         id,
         title,
         content,
-        problem_type,
+        parts,
+        source,
+        is_optional,
         status,
         last_reviewed_date,
         created_at,
         subject_id,
-        correct_answer,
-        auto_mark,
-        answer_config,
         assets,
         solution_text,
         solution_assets
@@ -140,6 +155,24 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
       solution_assets: problem.solution_assets || [],
     };
   });
+
+  // Owner-private context is enriched only after objective Problem loading. Shared
+  // and anonymous readers must never receive the source owner's personal idea.
+  if (isOwner) {
+    const initialIdeas = await readProblemInitialIdeas(
+      supabase,
+      userId,
+      problems.map(problem => problem.id)
+    );
+    return problems.map(problem => {
+      const head = initialIdeas.get(problem.id);
+      return {
+        ...problem,
+        initial_idea: head?.revision_kind === 'set' ? head.idea : null,
+        initial_idea_revision: head?.revision ?? null,
+      };
+    });
+  }
 
   return problems;
 }
