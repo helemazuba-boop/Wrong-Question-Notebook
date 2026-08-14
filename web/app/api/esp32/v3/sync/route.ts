@@ -66,6 +66,37 @@ async function sync(req: NextRequest) {
   const svc = createServiceClient();
   const now = new Date().toISOString();
   const limit = parsed.data.limit ?? 20;
+  const autoSyncIntervalMinutes =
+    parsed.data.configuration?.auto_sync_interval_minutes ??
+    auth.autoSyncIntervalMinutes;
+  if (
+    parsed.data.configuration &&
+    autoSyncIntervalMinutes !== auth.autoSyncIntervalMinutes
+  ) {
+    const { error: configError } = await svc
+      .from('esp32_devices')
+      .update({ auto_sync_interval_minutes: autoSyncIntervalMinutes })
+      .eq('id', auth.deviceId);
+    if (configError) {
+      logger.error(
+        'Device-control sync configuration update failed',
+        configError,
+        {
+          component: 'DeviceControlV3',
+          action: ENDPOINT,
+          deviceId: auth.deviceId,
+          requestId,
+        }
+      );
+      return createV3Error(
+        requestId,
+        503,
+        'SYNC_CONFIGURATION_UNAVAILABLE',
+        true,
+        5000
+      );
+    }
+  }
   const [
     dueResult,
     todoCountResult,
@@ -181,7 +212,11 @@ async function sync(req: NextRequest) {
   const data = syncDataSchema.parse({
     config_revision: auth.configRevision,
     sync_cursor: syncCursor,
-    configuration: { auto_sync_interval_minutes: 60 },
+    // Echo the device-reported local setting. Older devices omit it and use
+    // the last server-side value seeded by the migration.
+    configuration: {
+      auto_sync_interval_minutes: autoSyncIntervalMinutes,
+    },
     summaries: {
       due_problem_ids: (dueResult.data || []).map(row => row.problem_id),
       todo_count: todoCountResult.count ?? 0,
