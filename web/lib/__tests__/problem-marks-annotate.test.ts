@@ -84,7 +84,10 @@ function context(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeSupabase(contextValue = context()) {
+function makeSupabase(
+  contextValue = context(),
+  opts: { renewStale?: boolean } = {}
+) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
     calls.push({ name, args });
@@ -102,6 +105,19 @@ function makeSupabase(contextValue = context()) {
     }
     if (name === 'prepare_problem_mark_annotation') {
       return { data: contextValue, error: null };
+    }
+    if (name === 'renew_problem_mark_annotation_lease') {
+      if (opts.renewStale) {
+        return { data: null, error: { message: 'PROBLEM_MARK_LEASE_STALE' } };
+      }
+      // Generation-tagged renewal rotates the token.
+      return {
+        data: {
+          lease_token: '44444444-4444-4444-8444-444444444444',
+          lease_until: '2026-08-11T01:04:03.000Z',
+        },
+        error: null,
+      };
     }
     if (name === 'commit_problem_mark_annotation_run') {
       const assignments = args.p_assignments as unknown[];
@@ -180,6 +196,8 @@ describe('Problem Mark annotator', () => {
     expect(db.calls.map(call => call.name)).toEqual([
       'claim_problem_mark_annotation',
       'prepare_problem_mark_annotation',
+      'renew_problem_mark_annotation_lease',
+      'renew_problem_mark_annotation_lease',
       'commit_problem_mark_annotation_run',
     ]);
     const prompt = vi.mocked(ai.generateContent).mock.calls[0][0].contents[0]
@@ -510,6 +528,39 @@ describe('Problem Mark annotator', () => {
     );
   });
 
+  it('stops without committing when the lease is lost to another worker', async () => {
+    const db = makeSupabase(context(), { renewStale: true });
+    const retrieve = fakeRetrieve();
+    const ai = aiResult({
+      assignments: [
+        {
+          mark_key: 'math.skill.parameter_separation',
+          role: 'target',
+          part_index: 1,
+        },
+      ],
+      unresolved: [],
+    });
+
+    await expect(
+      annotateProblemMarks(db.supabase, PROBLEM_ID, {
+        aiClient: ai,
+        lock,
+        skillRetrieve: retrieve,
+      })
+    ).resolves.toEqual({ status: 'skipped', assignments: 0, unresolved: 0 });
+
+    // The stale renewal stops the pipeline right after retrieval: the model is
+    // never called and neither commit nor fail runs against a lease we no
+    // longer hold.
+    expect(db.calls.map(call => call.name)).toEqual([
+      'claim_problem_mark_annotation',
+      'prepare_problem_mark_annotation',
+      'renew_problem_mark_annotation_lease',
+    ]);
+    expect(ai.generateContent).not.toHaveBeenCalled();
+  });
+
   it('records provider failures against the claimed run and lease', async () => {
     const db = makeSupabase();
     const ai: AIClient = {
@@ -534,7 +585,9 @@ describe('Problem Mark annotator', () => {
       name: 'fail_problem_mark_annotation_run',
       args: {
         p_run_id: RUN_ID,
-        p_lease_token: LEASE_TOKEN,
+        // Marking failed after the post-retrieval renewal, so the failure is
+        // reported with the rotated (current) lease token, not the original.
+        p_lease_token: '44444444-4444-4444-8444-444444444444',
         p_error_code: 'PROBLEM_MARK_PROVIDER_ERROR',
       },
     });

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   readProblemInitialIdea: vi.fn(),
   checkContentLimit: vi.fn(),
   revalidateProblemComprehensive: vi.fn(),
+  wakeProblemMarkAnnotation: vi.fn(),
 }));
 
 vi.mock('@/lib/supabase/requireUser', () => ({
@@ -30,6 +31,9 @@ vi.mock('@/lib/problem-image-service', () => ({
 }));
 vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({ from: vi.fn() }),
+}));
+vi.mock('@/lib/problem-marks/wake', () => ({
+  wakeProblemMarkAnnotation: mocks.wakeProblemMarkAnnotation,
 }));
 
 import { POST } from '@/app/api/problems/route';
@@ -121,6 +125,8 @@ describe('Problem POST initial idea', () => {
       initial_idea: '我先画了辅助线。',
       initial_idea_revision: 1,
     });
+    // A fresh Problem always wakes best-effort annotation for its own id.
+    expect(mocks.wakeProblemMarkAnnotation).toHaveBeenCalledWith(PROBLEM_ID);
   });
 
   it('repairs context on an idempotent retry after the Problem already committed', async () => {

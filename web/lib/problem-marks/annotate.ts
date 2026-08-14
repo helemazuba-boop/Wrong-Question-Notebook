@@ -11,6 +11,8 @@ import {
   commitProblemMarkAnnotationRun,
   failProblemMarkAnnotationRun,
   prepareProblemMarkAnnotation,
+  ProblemMarkLeaseStaleError,
+  renewProblemMarkAnnotationLease,
   type ProblemMarkAnnotationClaim,
 } from '@/lib/problem-marks/lifecycle';
 import {
@@ -148,26 +150,62 @@ function defaultSkillRetriever(
   lock: KnowledgeRegistryLock
 ): SkillCandidatesRetriever {
   return (subject, query) => {
-    sharedSkillRuntime ??= loadSkillRetrievalRuntime(lock);
+    // Artifact/manifest/profile/credential load failures are terminal for this
+    // run, not a hot-loop: surface them as a controlled contract failure (which
+    // records backoff) and clear the shared slot so a later call can retry once
+    // the underlying issue is fixed.
+    sharedSkillRuntime ??= loadSkillRetrievalRuntime(lock).catch(error => {
+      sharedSkillRuntime = null;
+      throw error instanceof SkillRetrievalError
+        ? error
+        : new SkillRetrievalError(
+            'SKILL_RETRIEVAL_CONTRACT',
+            'Unable to load the locked Skill retrieval runtime'
+          );
+    });
     return sharedSkillRuntime.then(runtime =>
       retrieveSkillCandidates(runtime, subject, query, sharedSkillQueryCache)
     );
   };
 }
 
+export interface AnnotateProblemMarkOptions {
+  aiClient?: AIClient;
+  lock?: KnowledgeRegistryLock;
+  skillRetrieve?: SkillCandidatesRetriever;
+  leaseSeconds?: number;
+}
+
+// Single-problem entry (the internal HMAC route): claim one Problem, then run
+// the shared per-claim pipeline. Returns 'skipped' when another worker holds
+// or has already finished the annotation.
 export async function annotateProblemMarks(
   supabase: SupabaseClient<Database>,
   problemId: string,
-  options: {
-    aiClient?: AIClient;
-    lock?: KnowledgeRegistryLock;
-    skillRetrieve?: SkillCandidatesRetriever;
-  } = {}
+  options: AnnotateProblemMarkOptions = {}
 ): Promise<ProblemMarkAnnotationResult> {
-  const claim = await claimProblemMarkAnnotation(supabase, problemId);
+  const claim = await claimProblemMarkAnnotation(
+    supabase,
+    problemId,
+    options.leaseSeconds ?? 120
+  );
   if (!claim) {
     return { status: 'skipped', assignments: 0, unresolved: 0 };
   }
+  return annotateClaimedProblemMark(supabase, claim, options);
+}
+
+// Shared per-claim pipeline used by both the single-problem route and the
+// bounded batch worker. The lease token lives in a mutable cell because the
+// generation-tagged renewal RPC rotates it; every commit/fail must present the
+// latest token or the DB rejects it as stale.
+export async function annotateClaimedProblemMark(
+  supabase: SupabaseClient<Database>,
+  claim: ProblemMarkAnnotationClaim,
+  options: AnnotateProblemMarkOptions = {}
+): Promise<ProblemMarkAnnotationResult> {
+  const leaseSeconds = options.leaseSeconds ?? 120;
+  const lease = { token: claim.lease_token };
 
   const rawContext = await prepareProblemMarkAnnotation(supabase, claim);
   const envelope = runEnvelopeSchema.parse(rawContext);
@@ -178,7 +216,7 @@ export async function annotateProblemMarks(
     await failProblemMarkAnnotationRun(
       supabase,
       envelope.run_id,
-      envelope.lease_token,
+      lease.token,
       'INVALID_ANNOTATION_CONTEXT'
     );
     throw error;
@@ -190,8 +228,8 @@ export async function annotateProblemMarks(
   } catch (error) {
     return recordFailure(
       supabase,
-      claim,
       context.run_id,
+      lease.token,
       annotationErrorCode(error)
     );
   }
@@ -202,6 +240,7 @@ export async function annotateProblemMarks(
     return commitResult(
       supabase,
       context,
+      lease,
       [],
       [unresolved('target', 'knowledge', 'subject_unmapped')],
       skippedRetrieval(lock, 'subject_unmapped')
@@ -212,6 +251,7 @@ export async function annotateProblemMarks(
     return commitResult(
       supabase,
       context,
+      lease,
       [],
       [unresolved('target', 'knowledge', 'registry_empty')],
       skippedRetrieval(lock, 'registry_empty')
@@ -220,16 +260,23 @@ export async function annotateProblemMarks(
 
   const retrieval = await resolveSkillRetrieval({
     supabase,
-    claim,
     lock,
     context,
     retrieve,
     subjectKey,
+    lease,
   });
   if ('failure' in retrieval) {
     return retrieval.failure;
   }
   const skill = retrieval.outcome;
+
+  // Renew between the two slow external calls (embedding, then marking). If the
+  // lease was lost — expired and reclaimed, or finished elsewhere — the token
+  // has rotated away, so stop immediately; a commit would be rejected as stale.
+  if (!(await renewLease(supabase, context, lease, leaseSeconds))) {
+    return skippedResult();
+  }
 
   const knowledgeCandidates = context.candidates.filter(
     candidate => candidate.kind === 'knowledge'
@@ -290,10 +337,15 @@ export async function annotateProblemMarks(
   } catch (error) {
     return recordFailure(
       supabase,
-      claim,
       context.run_id,
+      lease.token,
       annotationErrorCode(error)
     );
+  }
+
+  // Renew again after marking so the CAS commit presents a live token.
+  if (!(await renewLease(supabase, context, lease, leaseSeconds))) {
+    return skippedResult();
   }
 
   const allowedKeys = new Set([
@@ -310,6 +362,7 @@ export async function annotateProblemMarks(
     return commitResult(
       supabase,
       context,
+      lease,
       [],
       [unresolved('target', 'knowledge', invalidReason)],
       skill
@@ -334,6 +387,7 @@ export async function annotateProblemMarks(
   return commitResult(
     supabase,
     context,
+    lease,
     parsed.assignments,
     unresolvedItems,
     skill
@@ -342,11 +396,11 @@ export async function annotateProblemMarks(
 
 interface ResolveSkillRetrievalEnv {
   supabase: SupabaseClient<Database>;
-  claim: ProblemMarkAnnotationClaim;
   lock: KnowledgeRegistryLock;
   context: Context;
   retrieve: SkillCandidatesRetriever;
   subjectKey: string;
+  lease: { token: string };
 }
 
 async function resolveSkillRetrieval(
@@ -354,7 +408,7 @@ async function resolveSkillRetrieval(
 ): Promise<
   { outcome: SkillRetrievalOutcome } | { failure: ProblemMarkAnnotationResult }
 > {
-  const { supabase, claim, lock, context, retrieve, subjectKey } = env;
+  const { supabase, lock, context, retrieve, subjectKey, lease } = env;
   let query: SkillRetrievalQueryText;
   try {
     query = buildSkillRetrievalQuery({
@@ -366,8 +420,8 @@ async function resolveSkillRetrieval(
     return {
       failure: await recordFailure(
         supabase,
-        claim,
         context.run_id,
+        lease.token,
         'SKILL_QUERY_INVALID'
       ),
     };
@@ -403,8 +457,8 @@ async function resolveSkillRetrieval(
     return {
       failure: await recordFailure(
         supabase,
-        claim,
         context.run_id,
+        lease.token,
         mapping === 'transient'
           ? 'SKILL_RETRIEVAL_TRANSIENT'
           : 'SKILL_RETRIEVAL_CONTRACT'
@@ -572,6 +626,7 @@ function validPartIndex(
 async function commitResult(
   supabase: SupabaseClient<Database>,
   context: Context,
+  lease: { token: string },
   assignments: Assignment[],
   unresolvedItems: Unresolved[],
   skill: SkillRetrievalOutcome
@@ -593,7 +648,7 @@ async function commitResult(
 
   const data = await commitProblemMarkAnnotationRun(supabase, {
     runId: context.run_id,
-    leaseToken: context.lease_token,
+    leaseToken: lease.token,
     objectiveSnapshotHash: hashJson(objectiveSnapshot),
     queryHash: skill.queryHash,
     embeddingProfileId: skill.embeddingProfileId,
@@ -659,17 +714,45 @@ function annotationPrompt(context: Context, candidates: Candidate[]): string {
 
 async function recordFailure(
   supabase: SupabaseClient<Database>,
-  claim: ProblemMarkAnnotationClaim,
   runId: string,
+  leaseToken: string,
   code: string
 ): Promise<ProblemMarkAnnotationResult> {
-  await failProblemMarkAnnotationRun(supabase, runId, claim.lease_token, code);
+  await failProblemMarkAnnotationRun(supabase, runId, leaseToken, code);
   return {
     status: 'failed',
     assignments: 0,
     unresolved: 0,
     error_code: code,
   };
+}
+
+function skippedResult(): ProblemMarkAnnotationResult {
+  return { status: 'skipped', assignments: 0, unresolved: 0 };
+}
+
+// Renew the lease between long external steps. Returns false when the lease was
+// lost (expired and reclaimed, or finished elsewhere) — the generation-tagged
+// RPC has rotated the token, so this worker must stop without committing.
+async function renewLease(
+  supabase: SupabaseClient<Database>,
+  context: Context,
+  lease: { token: string },
+  leaseSeconds: number
+): Promise<boolean> {
+  try {
+    const renewed = await renewProblemMarkAnnotationLease(
+      supabase,
+      context.problem_id,
+      lease.token,
+      leaseSeconds
+    );
+    lease.token = renewed.leaseToken;
+    return true;
+  } catch (error) {
+    if (error instanceof ProblemMarkLeaseStaleError) return false;
+    throw error;
+  }
 }
 
 function annotationErrorCode(error: unknown): string {

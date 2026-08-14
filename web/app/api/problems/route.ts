@@ -19,6 +19,7 @@ import { checkContentLimit } from '@/lib/content-limits';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
+import { wakeProblemMarkAnnotation } from '@/lib/problem-marks/wake';
 import {
   readProblemInitialIdea,
   setProblemInitialIdea,
@@ -533,6 +534,10 @@ async function createProblem(req: Request) {
       parsed.data.subject_id,
       user.id
     );
+
+    // Best-effort prompt annotation of the new Problem; the cron drain is the
+    // durable backstop if this wake fails or creds are unavailable.
+    wakeProblemMarkAnnotation(created.id);
 
     return NextResponse.json(
       createApiSuccessResponse({

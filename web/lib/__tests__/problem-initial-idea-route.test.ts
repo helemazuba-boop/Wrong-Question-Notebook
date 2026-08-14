@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   setProblemInitialIdea: vi.fn(),
   readProblemInitialIdea: vi.fn(),
   revalidateProblemComprehensive: vi.fn(),
+  wakeProblemMarkAnnotation: vi.fn(),
 }));
 
 vi.mock('@/lib/supabase/requireUser', () => ({
@@ -26,6 +27,9 @@ vi.mock('@/lib/storage/delete', () => ({
 }));
 vi.mock('@/lib/problem-marks/read', () => ({
   readProblemSemantics: vi.fn(),
+}));
+vi.mock('@/lib/problem-marks/wake', () => ({
+  wakeProblemMarkAnnotation: mocks.wakeProblemMarkAnnotation,
 }));
 
 import { PATCH } from '@/app/api/problems/[id]/route';

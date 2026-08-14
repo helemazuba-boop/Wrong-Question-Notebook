@@ -142,3 +142,44 @@ export async function failProblemMarkAnnotationRun(
     throw new Error(`Unable to fail Problem Mark annotation: ${error.message}`);
   }
 }
+
+// Thrown when a lease renewal finds the annotation head no longer held by this
+// token (expired, reclaimed by another worker, or already finished). The caller
+// must stop immediately: with the token rotated away, a commit can never pass.
+export class ProblemMarkLeaseStaleError extends Error {
+  constructor(message = 'PROBLEM_MARK_LEASE_STALE') {
+    super(message);
+    this.name = 'ProblemMarkLeaseStaleError';
+  }
+}
+
+const leaseRenewalSchema = z
+  .object({
+    lease_token: z.uuid(),
+    lease_until: isoTimestampSchema,
+  })
+  .strict();
+
+export async function renewProblemMarkAnnotationLease(
+  supabase: SupabaseClient<Database>,
+  problemId: string,
+  leaseToken: string,
+  leaseSeconds = 120
+): Promise<{ leaseToken: string; leaseUntil: string }> {
+  const { data, error } = await supabase.rpc(
+    'renew_problem_mark_annotation_lease',
+    {
+      p_problem_id: problemId,
+      p_lease_token: leaseToken,
+      p_lease_seconds: leaseSeconds,
+    }
+  );
+  if (error) {
+    if (error.message.includes('PROBLEM_MARK_LEASE_STALE')) {
+      throw new ProblemMarkLeaseStaleError();
+    }
+    throw new Error(`Unable to renew Problem Mark lease: ${error.message}`);
+  }
+  const parsed = leaseRenewalSchema.parse(data);
+  return { leaseToken: parsed.lease_token, leaseUntil: parsed.lease_until };
+}

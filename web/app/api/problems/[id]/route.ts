@@ -11,6 +11,7 @@ import { ERROR_MESSAGES } from '@/lib/constants';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 import { readProblemSemantics } from '@/lib/problem-marks/read';
+import { wakeProblemMarkAnnotation } from '@/lib/problem-marks/wake';
 import {
   readProblemInitialIdea,
   setProblemInitialIdea,
@@ -234,6 +235,12 @@ export async function PATCH(
 
   // Invalidate cache after successful update
   await revalidateProblemComprehensive(id, updatedProblem.subject_id, user.id);
+
+  // Only an objective change (Problem fields or assets) re-enqueues annotation;
+  // a personal initial-idea-only edit does not touch the objective record.
+  if (Object.keys(problem).length > 0 || assets || solution_assets) {
+    wakeProblemMarkAnnotation(id);
+  }
 
   return NextResponse.json(
     createApiSuccessResponse({
