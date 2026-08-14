@@ -34,6 +34,7 @@ vi.mock('@/lib/supabase-utils', () => ({
 const DEVICE_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const DUE_PROBLEM_ID = '33333333-3333-4333-8333-333333333333';
+let deviceUpdateValue: unknown;
 
 function request(path: string, body: Record<string, unknown>) {
   return new NextRequest(`http://localhost${path}`, {
@@ -94,6 +95,7 @@ function queryBuilder(table: string) {
   chain.limit = fluent;
   chain.update = vi.fn(value => {
     updateValue = value;
+    if (table === 'esp32_devices') deviceUpdateValue = value;
     return chain;
   });
   chain.maybeSingle = vi.fn(async () => {
@@ -143,7 +145,9 @@ beforeEach(() => {
     hardwareId: 'AA:BB:CC:DD:EE:FF',
     configRevision: 4,
     syncCursor: 3,
+    autoSyncIntervalMinutes: 60,
   });
+  deviceUpdateValue = undefined;
   mockLoadReplay.mockResolvedValue({ kind: 'miss' });
   mockStoreResponse.mockResolvedValue({ kind: 'stored' });
   mockRpc.mockResolvedValue({ data: null, error: null });
@@ -213,12 +217,17 @@ describe('device-control v3 authenticated routes', () => {
       request('/api/esp32/v3/sync', {
         ...metadata('req_sync_000000001'),
         limit: 20,
+        configuration: { auto_sync_interval_minutes: 15 },
       })
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.data.sync_cursor).toBe(9);
+    expect(body.data.configuration).toEqual({
+      auto_sync_interval_minutes: 15,
+    });
+    expect(deviceUpdateValue).toEqual({ auto_sync_interval_minutes: 15 });
     expect(body.data.summaries).toEqual({
       due_problem_ids: [DUE_PROBLEM_ID],
       todo_count: 2,
@@ -233,6 +242,22 @@ describe('device-control v3 authenticated routes', () => {
         acknowledgedSyncCursor: 3,
       })
     );
+  });
+
+  it('echoes the stored cadence for older firmware that omits configuration', async () => {
+    const response = await sync(
+      request('/api/esp32/v3/sync', {
+        ...metadata('req_sync_legacy_0001'),
+        limit: 20,
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.configuration).toEqual({
+      auto_sync_interval_minutes: 60,
+    });
+    expect(deviceUpdateValue).toBeUndefined();
   });
 
   it('does not touch control state when authentication returns 401', async () => {

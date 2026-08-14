@@ -431,6 +431,7 @@ export type Database = {
       esp32_devices: {
         Row: {
           access_token_hash: string;
+          auto_sync_interval_minutes: number;
           config_revision: number;
           created_at: string | null;
           device_name: string | null;
@@ -451,6 +452,7 @@ export type Database = {
         };
         Insert: {
           access_token_hash: string;
+          auto_sync_interval_minutes?: number;
           config_revision?: number;
           created_at?: string | null;
           device_name?: string | null;
@@ -471,6 +473,7 @@ export type Database = {
         };
         Update: {
           access_token_hash?: string;
+          auto_sync_interval_minutes?: number;
           config_revision?: number;
           created_at?: string | null;
           device_name?: string | null;
@@ -4726,6 +4729,14 @@ export type Database = {
         Returns: Json;
       };
       refresh_ranking_scores: { Args: never; Returns: undefined };
+      renew_problem_mark_annotation_lease: {
+        Args: {
+          p_lease_seconds?: number;
+          p_lease_token: string;
+          p_problem_id: string;
+        };
+        Returns: Json;
+      };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
         Returns: Json;

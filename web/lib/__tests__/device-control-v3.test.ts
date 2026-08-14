@@ -8,6 +8,7 @@ import {
   bootstrapSuccessSchema,
   claimPollSuccessSchema,
   claimStartSuccessSchema,
+  syncRequestSchema,
   syncSuccessSchema,
   v3ErrorEnvelopeSchema,
 } from '../device-control-v3';
@@ -79,6 +80,36 @@ describe('device control v3 contract', () => {
     };
     response.data.config_revision = MAX_SAFE_PROTOCOL_COUNTER + 1;
     expect(bootstrapSuccessSchema.safeParse(response).success).toBe(false);
+  });
+
+  it('keeps legacy sync requests valid and constrains reported local cadence', () => {
+    const request = {
+      request_id: 'req_sync_contract_0001',
+      boot_id: 'boot_sync_contract_01',
+      firmware_version: '0.1.0',
+      capabilities: [],
+      config_revision: 0,
+      sync_cursor: 0,
+    };
+    expect(syncRequestSchema.safeParse(request).success).toBe(true);
+    expect(
+      syncRequestSchema.safeParse({
+        ...request,
+        configuration: { auto_sync_interval_minutes: 15 },
+      }).success
+    ).toBe(true);
+    expect(
+      syncRequestSchema.safeParse({
+        ...request,
+        configuration: { auto_sync_interval_minutes: 10 },
+      }).success
+    ).toBe(false);
+
+    const response = fixture('fixtures/valid/sync-response.json') as {
+      data: { configuration: { auto_sync_interval_minutes: number } };
+    };
+    response.data.configuration.auto_sync_interval_minutes = 10;
+    expect(syncSuccessSchema.safeParse(response).success).toBe(false);
   });
 
   it('fingerprints equivalent JSON independently of object key order', () => {

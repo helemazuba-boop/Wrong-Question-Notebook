@@ -10,7 +10,7 @@ import { getSecurityHeaders } from './request-validation';
 export const DEVICE_CONTROL_PROTOCOL = '3' as const;
 export const DEVICE_CONTROL_HEADER = 'X-WQN-Protocol' as const;
 export const DEVICE_CONTROL_SCHEMA_SHA256 =
-  '82cd68ce7b75f72b9fd089fb0daf10fc858a2c1bf9b15f0568434f98d5e0792e' as const;
+  '41f2971c666c236f833e5af15420102dee36b3116b118cf43e3360c7b297905e' as const;
 export const MAX_SAFE_PROTOCOL_COUNTER = Number.MAX_SAFE_INTEGER;
 
 const requestIdSchema = z
@@ -68,6 +68,19 @@ export const bootstrapRequestSchema = requestMetadataSchema.extend({
 
 export const syncRequestSchema = bootstrapRequestSchema.extend({
   limit: z.number().int().min(1).max(100).optional(),
+  // New firmware reports its locally-authoritative schedule. Optional keeps
+  // protocol-v3 compatibility with already deployed devices.
+  configuration: z
+    .strictObject({
+      auto_sync_interval_minutes: z.union([
+        z.literal(0),
+        z.literal(15),
+        z.literal(30),
+        z.literal(60),
+        z.literal(240),
+      ]),
+    })
+    .optional(),
 });
 
 export const v3ErrorSchema = z.strictObject({
@@ -126,7 +139,13 @@ export const syncDataSchema = z.strictObject({
   config_revision: protocolCounterSchema,
   sync_cursor: protocolCounterSchema,
   configuration: z.strictObject({
-    auto_sync_interval_minutes: z.number().int().min(0).max(1440),
+    auto_sync_interval_minutes: z.union([
+      z.literal(0),
+      z.literal(15),
+      z.literal(30),
+      z.literal(60),
+      z.literal(240),
+    ]),
   }),
   summaries: z.strictObject({
     due_problem_ids: z.array(z.uuid()).max(100),

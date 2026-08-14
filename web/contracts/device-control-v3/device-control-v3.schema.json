@@ -297,6 +297,16 @@
               "minimum": 0,
               "maximum": 9007199254740991
             },
+            "configuration": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["auto_sync_interval_minutes"],
+              "properties": {
+                "auto_sync_interval_minutes": {
+                  "enum": [0, 15, 30, 60, 240]
+                }
+              }
+            },
             "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
           }
         }
@@ -329,9 +339,7 @@
           "required": ["auto_sync_interval_minutes"],
           "properties": {
             "auto_sync_interval_minutes": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1440
+              "enum": [0, 15, 30, 60, 240]
             }
           }
         },
