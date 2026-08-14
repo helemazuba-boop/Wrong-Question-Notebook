@@ -120,4 +120,36 @@ describe('hasOnlyOwnedAssetPaths', () => {
       )
     ).toBe(false);
   });
+
+  it('accepts owned gray4 derivation paths alongside the original', () => {
+    expect(
+      hasOnlyOwnedAssetPaths(
+        USER_A,
+        [
+          {
+            path: `user/${USER_A}/problems/abc/problem/img.png`,
+            gray4_display_path: `user/${USER_A}/problems/abc/problem/derived/deadbeef.gray4.wqni`,
+          },
+        ],
+        []
+      )
+    ).toBe(true);
+  });
+
+  it('rejects a foreign gray4 path even when every other path is owned', () => {
+    expect(
+      hasOnlyOwnedAssetPaths(
+        USER_A,
+        [
+          {
+            path: `user/${USER_A}/problems/abc/problem/img.png`,
+            display_path: `user/${USER_A}/problems/abc/problem/derived/deadbeef.wqni`,
+            preview_path: `user/${USER_A}/problems/abc/problem/derived/deadbeef.png`,
+            gray4_display_path: `user/${USER_B}/problems/xyz/problem/derived/foreign.gray4.wqni`,
+          },
+        ],
+        []
+      )
+    ).toBe(false);
+  });
 });
