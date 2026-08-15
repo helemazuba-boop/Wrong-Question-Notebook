@@ -3,8 +3,8 @@
  * from the StepFun Realtime upstream, executes the named tool against
  * authoritative state via HTTP, then feeds the result back as an
  * assistant-injected `conversation.item.create + response.create`. The
- * ESP32 device itself never learns that tools exist — it only sees the
- * final TTS audio of the assistant's reply.
+ * Tool definitions and execution stay server-side. The ESP32 only receives
+ * bounded tool.start/tool.done status events plus the final TTS response.
  *
  * Why HTTP, not in-process: see
  *   web/app/api/esp32/ai/execute-tool/route.ts (header comment).
@@ -24,6 +24,7 @@ export interface ToolCallArgs {
 export interface ToolExecResult {
   ok: boolean;
   display: string;
+  data?: unknown;
   action: unknown;
 }
 
@@ -116,6 +117,7 @@ export function injectToolResult(
       output: JSON.stringify({
         ok: result.ok,
         display: result.display,
+        data: result.data ?? null,
         action: result.action ?? null,
       }),
     },

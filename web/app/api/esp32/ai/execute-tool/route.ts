@@ -180,6 +180,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       result: {
         ok: result.ok,
         display: result.display,
+        data: result.data ?? null,
         action: result.action ?? null,
       },
     },

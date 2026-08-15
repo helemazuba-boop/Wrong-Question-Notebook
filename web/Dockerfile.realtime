@@ -30,8 +30,10 @@ COPY --from=deps --chown=wqn:wqn /app/package.json ./package.json
 # It's a devDep so --omit=dev excluded it; install explicitly.
 RUN npm install tsx --no-save
 
-# Only the relay server source is needed.
-COPY --chown=wqn:wqn server/realtime-proxy/src ./src
+# Preserve the source layout because the relay imports the dependency-free
+# ESP32 tool schema shared with the Next.js streaming path.
+COPY --chown=wqn:wqn server/realtime-proxy/src ./server/realtime-proxy/src
+COPY --chown=wqn:wqn lib/esp32-ai-tool-definitions.ts ./lib/esp32-ai-tool-definitions.ts
 
 USER wqn
 
@@ -45,4 +47,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 
 WORKDIR /app
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["npx", "tsx", "server/realtime-proxy/src/index.ts"]

@@ -384,7 +384,7 @@ const NOTEBOOK_TOOLS = [
   },
 ] as const;
 
-const AI_TOOL_PROMPT = [
+export const AI_TOOL_PROMPT = [
   '你可以在需要时调用工具读取当前用户的错题、写入用户明确授权给 AI 的空白笔记本，或管理用户的 Todo。',
   '不要声称已经写入笔记或 Todo，除非 create_notebook_note、create_todo 或 update_todo_status 工具返回成功。',
   '错题本只用于读取错题名称和详情；空白笔记本才允许创建笔记。',
@@ -544,7 +544,11 @@ const WORD_TOOLS = [
   },
 ] as const;
 
-const AI_TOOLS = [...NOTEBOOK_TOOLS, ...TODO_TOOLS, ...WORD_TOOLS] as const;
+export const AI_TOOLS = [
+  ...NOTEBOOK_TOOLS,
+  ...TODO_TOOLS,
+  ...WORD_TOOLS,
+] as const;
 
 function isDashScopeProviderConfigured(): boolean {
   // Chat always goes through DashScope (qwen). ASR may be DashScope

@@ -19,6 +19,7 @@ import {
   type PipelinePusher,
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
+import { AI_TOOLS } from './esp32-ai-tool-definitions';
 
 export interface ChatStreamConfig {
   apiKey: string;
@@ -57,6 +58,7 @@ export interface ToolExecutor {
   ): Promise<{
     ok: boolean;
     display: string;
+    data?: unknown;
     action?: unknown;
   }>;
 }
@@ -145,7 +147,12 @@ export async function runPipelineChat(
         response.toolCalls.indexOf(call)
       );
       const t0 = Date.now();
-      let result: { ok: boolean; display: string; action?: unknown };
+      let result: {
+        ok: boolean;
+        display: string;
+        data?: unknown;
+        action?: unknown;
+      };
       try {
         result = toolExecutor
           ? await toolExecutor(call.function.name, call.function.arguments)
@@ -207,6 +214,8 @@ async function fetchStreamingCompletion(
       messages,
       stream: true,
       temperature: 0.3,
+      tools: hasTools ? AI_TOOLS : undefined,
+      tool_choice: hasTools ? 'auto' : undefined,
     };
     if (typeof config.enableThinking === 'boolean') {
       body.enable_thinking = config.enableThinking;
