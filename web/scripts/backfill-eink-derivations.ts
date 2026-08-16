@@ -1,6 +1,6 @@
-// One-off backfill: renders WQNI/.png derivations for every existing problem
-// image asset that predates the e-ink pipeline hookup. Idempotent -- assets
-// that already carry image_id are skipped, derived uploads use upsert, and
+// One-off backfill: renders BW1 and GRAY4 WQNI/.png derivations for every
+// existing problem image asset that predates either e-ink pipeline hookup.
+// Idempotent -- complete assets are skipped, derived uploads use upsert, and
 // per-asset failures are logged without aborting the run.
 //
 // Run from web/ with Node >= 24 (native type stripping):
@@ -22,6 +22,9 @@ interface AssetRecord {
   image_id?: unknown;
   display_path?: unknown;
   preview_path?: unknown;
+  gray4_image_id?: unknown;
+  gray4_display_path?: unknown;
+  gray4_preview_path?: unknown;
   [key: string]: unknown;
 }
 
@@ -50,7 +53,10 @@ function needsDerivation(asset: AssetRecord): boolean {
   return !(
     typeof asset.image_id === 'string' &&
     typeof asset.display_path === 'string' &&
-    typeof asset.preview_path === 'string'
+    typeof asset.preview_path === 'string' &&
+    typeof asset.gray4_image_id === 'string' &&
+    typeof asset.gray4_display_path === 'string' &&
+    typeof asset.gray4_preview_path === 'string'
   );
 }
 
@@ -73,6 +79,9 @@ async function deriveOne(asset: AssetRecord): Promise<AssetRecord | null> {
   const base = `${derivedDirOf(originalPath)}/${rendered.imageId}`;
   const displayPath = `${base}.wqni`;
   const previewPath = `${base}.png`;
+  const gray4Base = `${derivedDirOf(originalPath)}/${rendered.gray4ImageId}.gray4`;
+  const gray4DisplayPath = `${gray4Base}.wqni`;
+  const gray4PreviewPath = `${gray4Base}.png`;
 
   const { error: wqniError } = await supabase.storage
     .from(BUCKET)
@@ -93,12 +102,37 @@ async function deriveOne(asset: AssetRecord): Promise<AssetRecord | null> {
   if (previewError) {
     throw new Error(`preview upload failed: ${previewError.message}`);
   }
+  const { error: gray4Error } = await supabase.storage
+    .from(BUCKET)
+    .upload(gray4DisplayPath, rendered.gray4Wqni, {
+      contentType: 'application/octet-stream',
+      cacheControl: '3600',
+      upsert: true,
+    });
+  if (gray4Error) {
+    throw new Error(`gray4 WQNI upload failed: ${gray4Error.message}`);
+  }
+  const { error: gray4PreviewError } = await supabase.storage
+    .from(BUCKET)
+    .upload(gray4PreviewPath, rendered.gray4Preview, {
+      contentType: 'image/png',
+      cacheControl: '3600',
+      upsert: true,
+    });
+  if (gray4PreviewError) {
+    throw new Error(
+      `gray4 preview upload failed: ${gray4PreviewError.message}`
+    );
+  }
 
   return {
     ...asset,
     image_id: rendered.imageId,
     display_path: displayPath,
     preview_path: previewPath,
+    gray4_image_id: rendered.gray4ImageId,
+    gray4_display_path: gray4DisplayPath,
+    gray4_preview_path: gray4PreviewPath,
   };
 }
 

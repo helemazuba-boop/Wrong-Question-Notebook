@@ -3,6 +3,7 @@ import {
   DeviceContentArtifactError,
   registerDeviceImageArtifacts,
 } from '@/lib/device-content-artifacts';
+import { registerBackfilledDeviceImageArtifacts } from '@/scripts/backfill-eink-gray4';
 
 function makeClient(input?: {
   existing?: Array<{ image_id: string; storage_path: string }>;
@@ -68,6 +69,51 @@ describe('device image artifacts', () => {
         expect.objectContaining({
           image_id: grayId,
           storage_path: `user/user-1/device-images/gray4/${grayId}.wqni`,
+        }),
+      ]),
+      { onConflict: 'user_id,image_id' }
+    );
+  });
+
+  it('uses the same immutable copy and route rows in the GRAY4 backfill', async () => {
+    const { client, copy, upsert } = makeClient();
+    const bwId = 'e'.repeat(64);
+    const grayId = 'f'.repeat(64);
+
+    await registerBackfilledDeviceImageArtifacts(client, 'user-2', [
+      [
+        {
+          image_id: bwId,
+          display_path: 'user/user-2/notes/n2/derived/source.wqni',
+          gray4_image_id: grayId,
+          gray4_display_path: 'user/user-2/notes/n2/derived/source.gray4.wqni',
+        },
+      ],
+    ]);
+
+    expect(copy).toHaveBeenCalledWith(
+      'user/user-2/notes/n2/derived/source.wqni',
+      `user/user-2/device-images/bw1/${bwId}.wqni`
+    );
+    expect(copy).toHaveBeenCalledWith(
+      'user/user-2/notes/n2/derived/source.gray4.wqni',
+      `user/user-2/device-images/gray4/${grayId}.wqni`
+    );
+    expect(upsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          user_id: 'user-2',
+          image_id: bwId,
+          pixel_format: 'bw1',
+          storage_path: `user/user-2/device-images/bw1/${bwId}.wqni`,
+          last_seen_at: expect.any(String),
+        }),
+        expect.objectContaining({
+          user_id: 'user-2',
+          image_id: grayId,
+          pixel_format: 'gray4',
+          storage_path: `user/user-2/device-images/gray4/${grayId}.wqni`,
+          last_seen_at: expect.any(String),
         }),
       ]),
       { onConflict: 'user_id,image_id' }
