@@ -152,4 +152,19 @@ describe('hasOnlyOwnedAssetPaths', () => {
       )
     ).toBe(false);
   });
+
+  it('rejects a foreign gray4 preview path', () => {
+    expect(
+      hasOnlyOwnedAssetPaths(
+        USER_A,
+        [
+          {
+            path: `user/${USER_A}/problems/abc/problem/img.png`,
+            gray4_preview_path: `user/${USER_B}/problems/xyz/problem/derived/foreign.gray4.png`,
+          },
+        ],
+        []
+      )
+    ).toBe(false);
+  });
 });

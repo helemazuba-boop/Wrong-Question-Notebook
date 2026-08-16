@@ -79,6 +79,7 @@ export async function deleteNoteImageObjects(
         asset.display_path,
         asset.preview_path,
         asset.gray4_display_path,
+        asset.gray4_preview_path,
       ].filter((path): path is string => typeof path === 'string')
     );
 }
@@ -95,8 +96,11 @@ export async function deleteNoteImageDerivedObjects(
   await service.storage
     .from(BUCKET)
     .remove(
-      [asset.display_path, asset.preview_path, asset.gray4_display_path].filter(
-        (path): path is string => typeof path === 'string'
-      )
+      [
+        asset.display_path,
+        asset.preview_path,
+        asset.gray4_display_path,
+        asset.gray4_preview_path,
+      ].filter((path): path is string => typeof path === 'string')
     );
 }

@@ -12,7 +12,9 @@ import {
   buildWqniFile,
   packGrayscaleTo1Bpp,
   packGrayscaleTo4Bpp,
+  prepareGrayscaleForGray4,
   renderEinkImage,
+  unpack4BppToGrayscale,
 } from '@/lib/eink-image';
 
 function solidPng(
@@ -78,6 +80,38 @@ describe('eink-image', () => {
     expect(wqni.readUInt8(5)).toBe(WQNI_PIXEL_FORMAT_GRAY4);
     expect(wqni.readUInt32LE(12)).toBe(EINK_IMAGE_GRAY4_PAYLOAD_BYTES);
     expect(wqni.readUInt32LE(16)).toBe(crc32(payload) >>> 0);
+  });
+
+  it('expands GRAY4 nibbles to exact 17-step preview levels', () => {
+    const payload = Buffer.alloc(EINK_IMAGE_GRAY4_PAYLOAD_BYTES);
+    payload[0] = 0x01;
+    payload[1] = 0x2f;
+    const gray = unpack4BppToGrayscale(payload);
+    expect([...gray.subarray(0, 4)]).toEqual([0, 17, 34, 255]);
+  });
+
+  it('excludes contain-fit white padding from GRAY4 tone statistics', () => {
+    const gray = Buffer.alloc(400 * 300, 255);
+    for (let y = 100; y < 200; y++) {
+      gray.fill(130, y * 400 + 150, y * 400 + 250);
+    }
+
+    const prepared = prepareGrayscaleForGray4(gray);
+    expect(prepared[10 * 400 + 10]).toBe(255);
+    expect(prepared[150 * 400 + 200]).toBe(130);
+  });
+
+  it('preserves all-white and all-black GRAY4 boundary frames', () => {
+    expect(
+      prepareGrayscaleForGray4(Buffer.alloc(400 * 300, 255)).every(
+        value => value === 255
+      )
+    ).toBe(true);
+    expect(
+      prepareGrayscaleForGray4(Buffer.alloc(400 * 300, 0)).every(
+        value => value === 0
+      )
+    ).toBe(true);
   });
 
   it('renders a black image as an all-black canvas with a stable image id', async () => {
@@ -253,14 +287,21 @@ describe('eink-image', () => {
     ).rejects.toMatchObject({ code: 'input_too_large' });
   });
 
-  it('produces a preview PNG that matches the binarized geometry', async () => {
+  it('produces BW1 and GRAY4 preview PNGs matching their payloads', async () => {
     const input = await solidPng(400, 300, { r: 0, g: 0, b: 0 });
-    const { preview } = await renderEinkImage(input);
+    const { preview, gray4Preview } = await renderEinkImage(input);
     const meta = await sharp(preview).metadata();
     expect(meta.format).toBe('png');
     expect(meta.width).toBe(400);
     expect(meta.height).toBe(300);
     const stats = await sharp(preview).stats();
     expect(stats.channels[0].max).toBe(0); // pure black preview
+
+    const gray4Meta = await sharp(gray4Preview).metadata();
+    expect(gray4Meta.format).toBe('png');
+    expect(gray4Meta.width).toBe(400);
+    expect(gray4Meta.height).toBe(300);
+    const gray4Stats = await sharp(gray4Preview).stats();
+    expect(gray4Stats.channels[0].max).toBe(0);
   });
 });
