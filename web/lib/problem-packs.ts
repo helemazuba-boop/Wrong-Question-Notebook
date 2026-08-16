@@ -58,35 +58,37 @@ export interface ProblemPackResult {
 const PROBLEM_ROW_COLUMNS =
   'id, title, content, parts, source, status, is_optional, assets, solution_assets, updated_at';
 
-/** Extracts the WQNI image ids of an assets column, display order, capped. */
-function imageIdsOf(assets: unknown): string[] {
-  if (!Array.isArray(assets)) return [];
-  return assets
-    .map(asset =>
-      asset && typeof asset === 'object' && !Array.isArray(asset)
-        ? (asset as { image_id?: unknown }).image_id
-        : null
-    )
-    .filter((id): id is string => typeof id === 'string')
-    .slice(0, 8);
-}
-
-/** GRAY4 ids aligned one-for-one with imageIdsOf; null preserves legacy slots. */
-function gray4ImageIdsOf(assets: unknown): Array<string | null> {
-  if (!Array.isArray(assets)) return [];
-  return assets
-    .filter(
-      asset =>
-        asset &&
-        typeof asset === 'object' &&
-        !Array.isArray(asset) &&
-        typeof (asset as { image_id?: unknown }).image_id === 'string'
-    )
-    .map(asset => {
-      const id = (asset as { gray4_image_id?: unknown }).gray4_image_id;
-      return typeof id === 'string' ? id : null;
-    })
-    .slice(0, 8);
+function imagePairsOf(
+  assets: unknown,
+  availableImageIds: Set<string> | null
+): { imageIds: string[]; gray4ImageIds: Array<string | null> } {
+  const imageIds: string[] = [];
+  const gray4ImageIds: Array<string | null> = [];
+  if (!Array.isArray(assets)) return { imageIds, gray4ImageIds };
+  for (const value of assets) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const asset = value as {
+      image_id?: unknown;
+      gray4_image_id?: unknown;
+    };
+    const bw1 =
+      typeof asset.image_id === 'string' &&
+      (availableImageIds === null || availableImageIds.has(asset.image_id))
+        ? asset.image_id
+        : null;
+    const gray4 =
+      typeof asset.gray4_image_id === 'string' &&
+      (availableImageIds === null ||
+        availableImageIds.has(asset.gray4_image_id))
+        ? asset.gray4_image_id
+        : null;
+    const primary = bw1 ?? gray4;
+    if (primary === null) continue;
+    imageIds.push(primary);
+    gray4ImageIds.push(gray4);
+    if (imageIds.length >= 8) break;
+  }
+  return { imageIds, gray4ImageIds };
 }
 
 /**
@@ -141,7 +143,10 @@ function partAnswerText(
  * Every key is emitted even when empty so the row layout stays uniform for
  * the device parser.
  */
-function packRowOf(row: ProblemRowSource): string | null {
+function packRowOf(
+  row: ProblemRowSource,
+  availableImageIds: Set<string> | null = null
+): string | null {
   const parsedParts = StoredProblemPartsSchema.safeParse(row.parts);
   if (!parsedParts.success) {
     console.warn(`[problem-pack] skipping problem ${row.id}: bad parts`);
@@ -155,6 +160,8 @@ function packRowOf(row: ProblemRowSource): string | null {
     content_text: htmlToEsp32Content(part.content).text,
     answer_text: partAnswerText(part.answer_config, part.correct_answer),
   }));
+  const problemImages = imagePairsOf(row.assets, availableImageIds);
+  const solutionImages = imagePairsOf(row.solution_assets, availableImageIds);
   return JSON.stringify({
     problem_id: row.id,
     title: row.title,
@@ -166,10 +173,10 @@ function packRowOf(row: ProblemRowSource): string | null {
         : {},
     status: row.status,
     is_optional: row.is_optional === true,
-    image_ids: imageIdsOf(row.assets),
-    gray4_image_ids: gray4ImageIdsOf(row.assets),
-    solution_image_ids: imageIdsOf(row.solution_assets),
-    solution_gray4_image_ids: gray4ImageIdsOf(row.solution_assets),
+    image_ids: problemImages.imageIds,
+    gray4_image_ids: problemImages.gray4ImageIds,
+    solution_image_ids: solutionImages.imageIds,
+    solution_gray4_image_ids: solutionImages.gray4ImageIds,
   });
 }
 
@@ -288,8 +295,20 @@ export async function buildProblemPack(
     PROBLEM_PACK_MAX_ENTRIES
   );
 
+  let availableImageIds: Set<string> | null = null;
+  if (options.materialize) {
+    const registration = await registerDeviceImageArtifacts(
+      supabase,
+      userId,
+      members.flatMap(row => [row.assets, row.solution_assets])
+    );
+    availableImageIds = new Set(
+      registration.registered.map(artifact => artifact.image_id)
+    );
+  }
+
   const rowLines = members
-    .map(row => packRowOf(row))
+    .map(row => packRowOf(row, availableImageIds))
     .filter((line): line is string => line !== null);
 
   // pack_revision advances whenever the set or any member problem changes;
@@ -315,11 +334,6 @@ export async function buildProblemPack(
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
 
   if (options.materialize) {
-    await registerDeviceImageArtifacts(
-      supabase,
-      userId,
-      members.flatMap(row => [row.assets, row.solution_assets])
-    );
     await materializeDevicePackArtifact({
       supabase,
       userId,

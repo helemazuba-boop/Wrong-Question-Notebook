@@ -83,10 +83,44 @@ export async function buildNotePack(
     throw new NotebookToolError('database_error', error.message, 500);
   }
 
+  let availableImageIds: Set<string> | null = null;
+  if (options.materialize) {
+    const registration = await registerDeviceImageArtifacts(
+      supabase,
+      userId,
+      (data || []).map((row: any) => row.assets)
+    );
+    availableImageIds = new Set(
+      registration.registered.map(artifact => artifact.image_id)
+    );
+  }
+
   const notes: NotePackNote[] = (data || []).map((row: any) => {
     const imageAssets = Array.isArray(row.assets)
       ? row.assets.filter((asset: any) => typeof asset?.image_id === 'string')
       : [];
+    const imageIds: string[] = [];
+    const gray4ImageIds: Array<string | null> = [];
+    for (const asset of imageAssets) {
+      const bw1 =
+        typeof asset.image_id === 'string' &&
+        (availableImageIds === null || availableImageIds.has(asset.image_id))
+          ? asset.image_id
+          : null;
+      const gray4 =
+        typeof asset.gray4_image_id === 'string' &&
+        (availableImageIds === null ||
+          availableImageIds.has(asset.gray4_image_id))
+          ? asset.gray4_image_id
+          : null;
+      const primary = bw1 ?? gray4;
+      if (primary === null) continue;
+      // image_ids is the mandatory/fallback slot. If only the GRAY4 object
+      // survived, it is still a valid WQNI route and keeps the text record
+      // usable without publishing a guaranteed 404 attachment.
+      imageIds.push(primary);
+      gray4ImageIds.push(gray4);
+    }
     return {
       note_id: row.id,
       notebook_id: row.notebook_id,
@@ -94,10 +128,8 @@ export async function buildNotePack(
       revision: Number(row.revision ?? 1),
       title: row.title,
       content: row.content,
-      image_ids: imageAssets.map((asset: any) => asset.image_id),
-      gray4_image_ids: imageAssets.map((asset: any) =>
-        typeof asset.gray4_image_id === 'string' ? asset.gray4_image_id : null
-      ),
+      image_ids: imageIds,
+      gray4_image_ids: gray4ImageIds,
     };
   });
 
@@ -129,11 +161,6 @@ export async function buildNotePack(
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
 
   if (options.materialize) {
-    await registerDeviceImageArtifacts(
-      supabase,
-      userId,
-      (data || []).map((row: any) => row.assets)
-    );
     await materializeDevicePackArtifact({
       supabase,
       userId,

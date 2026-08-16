@@ -7,7 +7,7 @@ import { registerBackfilledDeviceImageArtifacts } from '@/scripts/backfill-eink-
 
 function makeClient(input?: {
   existing?: Array<{ image_id: string; storage_path: string }>;
-  copyError?: { message: string } | null;
+  copyError?: { message: string; statusCode?: number | string } | null;
 }) {
   const copy = vi.fn().mockResolvedValue({
     data: input?.copyError ? null : { path: 'copied' },
@@ -139,10 +139,31 @@ describe('device image artifacts', () => {
     expect(copy).not.toHaveBeenCalled();
   });
 
-  it('does not publish a lookup row when the immutable copy fails', async () => {
+  it('keeps the pack usable but omits a missing source image lookup row', async () => {
     const imageId = 'd'.repeat(64);
     const { client, upsert } = makeClient({
-      copyError: { message: 'source object missing' },
+      copyError: { message: 'copy failed', statusCode: '404' },
+    });
+
+    const result = await registerDeviceImageArtifacts(client, 'user-1', [
+      [
+        {
+          image_id: imageId,
+          display_path: 'user/user-1/notes/n1/derived/missing.wqni',
+        },
+      ],
+    ]);
+    expect(result.registered).toEqual([]);
+    expect(result.missing).toEqual([
+      expect.objectContaining({ image_id: imageId, pixel_format: 'bw1' }),
+    ]);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('still fails materialization for non-not-found storage errors', async () => {
+    const imageId = '1'.repeat(64);
+    const { client, upsert } = makeClient({
+      copyError: { message: 'storage permission denied' },
     });
 
     await expect(
@@ -150,7 +171,7 @@ describe('device image artifacts', () => {
         [
           {
             image_id: imageId,
-            display_path: 'user/user-1/notes/n1/derived/missing.wqni',
+            display_path: 'user/user-1/notes/n1/derived/forbidden.wqni',
           },
         ],
       ])
