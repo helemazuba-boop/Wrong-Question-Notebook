@@ -15,8 +15,11 @@
     },
     "content_manifest": [
       { "kind": "problems", "revision": 12, "cursor": "problems:12" },
-      { "kind": "todos", "revision": 9, "cursor": "todos:9" },
-      { "kind": "words", "revision": 17, "cursor": "words:17" }
+      { "kind": "todos", "revision": 0, "cursor": "todos:0" },
+      { "kind": "words", "revision": 17 },
+      { "kind": "word_packs", "revision": 9, "cursor": "word_packs:9" },
+      { "kind": "note_packs", "revision": 0, "cursor": "note_packs:0" },
+      { "kind": "problem_packs", "revision": 0, "cursor": "problem_packs:0" }
     ]
   }
 }
