@@ -25,6 +25,7 @@ import {
   type WordCandidatePageRequest,
   type CreateWordStudySessionRequest,
   type WordObservationRequest,
+  type WordSkipObservationRequest,
   type WordStudySessionData,
 } from './word-study-v1';
 
@@ -578,6 +579,13 @@ export async function recordWordStudyObservation(
         403
       );
     }
+    if (message.includes('INVALID_STUDY_OBSERVATION')) {
+      throw new WordStudyServiceError(
+        'INVALID_REQUEST',
+        'Word study observation failed input validation',
+        400
+      );
+    }
     databaseError('recordWordStudyObservation', error);
   }
 
@@ -601,7 +609,7 @@ export async function skipWordStudyObservation(
   supabase: SupabaseClient<Database>,
   userId: string,
   deviceId: string | null,
-  input: WordObservationRequest
+  input: WordSkipObservationRequest
 ) {
   const { data, error } = await supabase.rpc('skip_study_observation_v1', {
     p_user_id: userId,
@@ -610,9 +618,13 @@ export async function skipWordStudyObservation(
     p_session_id: input.session_id,
     p_sequence: input.sequence,
     p_item_id: input.item_id,
-    p_action: input.action,
-    p_mode: input.mode,
-    p_occurred_at: input.occurred_at,
+    // Minimal Tombstone Contract: placeholders are legal; the SQL function
+    // ignores action, derives mode from the locked session, and defaults
+    // occurred_at to server time. The generated RPC types still describe the
+    // unchanged text/timestamptz signature, hence the targeted null casts.
+    p_action: (input.action ?? null) as unknown as string,
+    p_mode: (input.mode ?? null) as unknown as string,
+    p_occurred_at: (input.occurred_at ?? null) as unknown as string,
   });
   if (error) {
     const message = String(error.message || '');
@@ -645,11 +657,35 @@ export async function skipWordStudyObservation(
         409
       );
     }
+    // Defensive parity with the record path: the tombstone itself never
+    // raises these, but a future SQL drift must not degrade into a 503
+    // "server unavailable" and get misclassified as transient.
+    if (message.includes('STUDY_ITEM_NOT_VISIBLE')) {
+      throw new WordStudyServiceError(
+        'ITEM_NOT_VISIBLE',
+        'Study item is not visible',
+        404
+      );
+    }
+    if (message.includes('STUDY_ITEM_NOT_IN_SESSION')) {
+      throw new WordStudyServiceError(
+        'ITEM_NOT_IN_SESSION',
+        'Study item does not belong to this session snapshot',
+        409
+      );
+    }
     if (message.includes('STUDY_SESSION_ACTOR_MISMATCH')) {
       throw new WordStudyServiceError(
         'SESSION_ACTOR_MISMATCH',
         'Study session belongs to another actor',
         403
+      );
+    }
+    if (message.includes('INVALID_STUDY_OBSERVATION')) {
+      throw new WordStudyServiceError(
+        'INVALID_REQUEST',
+        'Word study skip failed input validation',
+        400
       );
     }
     databaseError('skipWordStudyObservation', error);
