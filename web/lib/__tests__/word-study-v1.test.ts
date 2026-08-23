@@ -14,6 +14,7 @@ import {
   wordManifestRequestSchema,
   wordObservationRequestSchema,
   wordObservationSuccessSchema,
+  wordSkipObservationRequestSchema,
 } from '../word-study-v1';
 
 const contractRoot = resolve(process.cwd(), 'contracts/word-study-v1');
@@ -41,6 +42,9 @@ describe('word study v1 contract', () => {
     ['candidate-page-response.json', wordCandidatePageSuccessSchema],
     ['observation-request.json', wordObservationRequestSchema],
     ['observation-response.json', wordObservationSuccessSchema],
+    // The skip tombstone response shares the observation data envelope.
+    ['skip-request.json', wordSkipObservationRequestSchema],
+    ['skip-response.json', wordObservationSuccessSchema],
     ['manifest-request.json', wordManifestRequestSchema],
     ['manifest-response.json', wordManifestSuccessSchema],
   ])('accepts valid fixture %s', (name, schema) => {

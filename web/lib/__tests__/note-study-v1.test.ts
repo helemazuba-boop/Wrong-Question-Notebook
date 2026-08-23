@@ -13,6 +13,7 @@ import {
   noteManifestSuccessSchema,
   noteObservationRequestSchema,
   noteObservationSuccessSchema,
+  noteSkipObservationRequestSchema,
   observationMutatesProgress,
   semanticsForNoteMode,
 } from '@/lib/note-study-v1';
@@ -44,6 +45,7 @@ describe('note-study-v1 contract', () => {
     ['candidate-page-response', noteCandidatePageSuccessSchema],
     ['observation-request', noteObservationRequestSchema],
     ['observation-response', noteObservationSuccessSchema],
+    ['skip-request', noteSkipObservationRequestSchema],
     ['manifest-request', noteManifestRequestSchema],
     ['manifest-response', noteManifestSuccessSchema],
   ];

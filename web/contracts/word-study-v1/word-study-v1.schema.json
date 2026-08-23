@@ -9,6 +9,8 @@
     { "$ref": "#/$defs/candidatePageResponse" },
     { "$ref": "#/$defs/observationRequest" },
     { "$ref": "#/$defs/observationResponse" },
+    { "$ref": "#/$defs/skipObservationRequest" },
+    { "$ref": "#/$defs/skipObservationResponse" },
     { "$ref": "#/$defs/manifestRequest" },
     { "$ref": "#/$defs/manifestResponse" }
   ],
@@ -365,6 +367,37 @@
           }
         }
       ]
+    },
+    "skipObservationRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/requestMetadata"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session_id", "sequence", "item_id"],
+          "properties": {
+            "session_id": { "$ref": "#/$defs/uuid" },
+            "sequence": { "$ref": "#/$defs/safeCounter" },
+            "item_id": { "$ref": "#/$defs/uuid" },
+            "action": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "mode": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "occurred_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "skipObservationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "request_id", "server_time_ms", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "server_time_ms": { "$ref": "#/$defs/safeCounter" },
+        "data": { "$ref": "#/$defs/observationData" }
+      }
     },
     "progressProjection": {
       "type": ["object", "null"],

@@ -260,6 +260,63 @@ describe('skipNoteStudyObservation', () => {
     expect(result.action).toBe('skipped');
     expect(result.progress).toBeNull();
   });
+
+  it('accepts a minimal tombstone and forwards null placeholders', async () => {
+    const { supabase, rpc } = makeClient({
+      rpc: {
+        skip_note_study_observation_v1: {
+          data: {
+            observation_id: OBS_ID,
+            session_id: SESSION_ID,
+            sequence: 0,
+            item_id: NOTE_ID,
+            action: 'skipped',
+            progress: null,
+            projection_applied: false,
+            replayed: false,
+          },
+          error: null,
+        },
+      },
+    });
+    const result = await skipNoteStudyObservation(supabase, USER_ID, DEVICE_ID, {
+      request_id: 'req_note_skip_000001',
+      boot_id: 'boot_note_00000001',
+      firmware_version: '0.1.0',
+      capabilities: ['note.study.v1'],
+      session_id: SESSION_ID,
+      sequence: 0,
+      item_id: NOTE_ID,
+    } as any);
+    expect(result.action).toBe('skipped');
+    expect(rpc).toHaveBeenCalledWith(
+      'skip_note_study_observation_v1',
+      expect.objectContaining({
+        p_action: null,
+        p_mode: null,
+        p_occurred_at: null,
+      })
+    );
+  });
+
+  it('maps INVALID_STUDY_OBSERVATION to a non-retryable 400', async () => {
+    const { supabase } = makeClient({
+      rpc: {
+        skip_note_study_observation_v1: {
+          data: null,
+          error: { message: 'INVALID_STUDY_OBSERVATION' },
+        },
+      },
+    });
+    await expect(
+      skipNoteStudyObservation(
+        supabase,
+        USER_ID,
+        DEVICE_ID,
+        observationInput('skipped')
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
+  });
 });
 
 describe('loadNoteStudyCandidatePage', () => {
