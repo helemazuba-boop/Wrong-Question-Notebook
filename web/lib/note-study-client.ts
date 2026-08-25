@@ -16,6 +16,11 @@ export interface PendingWebNoteObservation {
 export type PendingNoteObservationDisposition =
   'retry' | 'already_applied' | 'invalid_gap';
 
+export function noteStudyRetryDelayMs(failureCount: number): number {
+  const boundedFailureCount = Math.max(1, Math.floor(failureCount));
+  return Math.min(60_000, 5_000 * 2 ** Math.min(boundedFailureCount - 1, 4));
+}
+
 export function createWebNoteRequestId(prefix = 'webnote'): string {
   const id =
     typeof globalThis.crypto?.randomUUID === 'function'

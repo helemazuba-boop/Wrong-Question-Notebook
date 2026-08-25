@@ -14,10 +14,12 @@ import {
   pendingNoteSessionStorageKey,
   readNoteStudyStorage,
   removeNoteStudyStorage,
+  noteStudyRetryDelayMs,
   writeNoteStudyStorage,
   type PendingWebNoteObservation,
 } from '@/lib/note-study-client';
 import type {
+  WebNoteObservationAdvance,
   WebNoteStudyItem,
   WebNoteStudySessionView,
 } from '@/lib/note-study-web';
@@ -78,6 +80,10 @@ export default function NoteReadingSessionClient({
   const pendingRef = useRef(pending);
   const requestInFlightRef = useRef(false);
   const recoveredRef = useRef(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryFailuresRef = useRef(0);
+  const nextAutomaticRetryAtRef = useRef(0);
+  const scheduleAutomaticRetryRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -194,6 +200,10 @@ export default function NoteReadingSessionClient({
     async (observation: PendingWebNoteObservation) => {
       if (requestInFlightRef.current) return;
       requestInFlightRef.current = true;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       pendingRef.current = observation;
       setPending(observation);
       setBusy(true);
@@ -217,14 +227,16 @@ export default function NoteReadingSessionClient({
           });
           const result = (await response
             .json()
-            .catch(() => null)) as ApiEnvelope<unknown> | null;
+            .catch(
+              () => null
+            )) as ApiEnvelope<WebNoteObservationAdvance> | null;
           return { response, result };
         };
 
         let effectiveObservation = observation;
         let { response, result } = await postObservation(effectiveObservation);
         const initialError =
-          !response.ok || !result?.ok
+          !response.ok || !result?.ok || !result.data?.session
             ? apiError(result, '提交阅读记录失败')
             : null;
         if (
@@ -244,7 +256,7 @@ export default function NoteReadingSessionClient({
           ({ response, result } = await postObservation(effectiveObservation));
           toast.warning('笔记已发生变化，本次已安全跳过。');
         }
-        if (!response.ok || !result?.ok) {
+        if (!response.ok || !result?.ok || !result.data?.session) {
           const error = apiError(result, '提交阅读记录失败');
           if (
             error.code === 'SEQUENCE_ALREADY_APPLIED' ||
@@ -257,18 +269,34 @@ export default function NoteReadingSessionClient({
         removeNoteStudyStorage(localStorage, key);
         pendingRef.current = null;
         setPending(null);
-        const latest = await refreshSession();
-        await completeIfNeeded(latest);
+        retryFailuresRef.current = 0;
+        nextAutomaticRetryAtRef.current = 0;
+        const latest = result.data.session;
+        sessionRef.current = latest;
+        setSession(latest);
+        if (latest.status === 'completed') {
+          removeNoteStudyStorage(localStorage, pendingNoteSessionStorageKey());
+        }
       } catch (error) {
-        setMessage(
-          `${error instanceof Error ? error.message : '提交失败'}。记录仍保留在本机，可安全重试。`
-        );
+        if (pendingRef.current) {
+          retryFailuresRef.current += 1;
+          const delay = noteStudyRetryDelayMs(retryFailuresRef.current);
+          nextAutomaticRetryAtRef.current = Date.now() + delay;
+          setMessage(
+            `${error instanceof Error ? error.message : '提交失败'}。记录仍保留在本机；连续失败 ${retryFailuresRef.current} 次，将在网络可用时退避重试。`
+          );
+          scheduleAutomaticRetryRef.current?.();
+        } else {
+          setMessage(
+            error instanceof Error ? error.message : '云端状态同步失败'
+          );
+        }
       } finally {
         requestInFlightRef.current = false;
         setBusy(false);
       }
     },
-    [completeIfNeeded, reconcile, refreshSession]
+    [reconcile]
   );
 
   const submit = useCallback(
@@ -340,12 +368,36 @@ export default function NoteReadingSessionClient({
 
   useEffect(() => {
     const retry = () => {
-      if (document.visibilityState !== 'visible' || !pendingRef.current) return;
-      void sendObservation(pendingRef.current);
+      if (
+        document.visibilityState !== 'visible' ||
+        !navigator.onLine ||
+        !pendingRef.current
+      ) {
+        return;
+      }
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      const delay = Math.max(0, nextAutomaticRetryAtRef.current - Date.now());
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        if (
+          document.visibilityState === 'visible' &&
+          navigator.onLine &&
+          pendingRef.current &&
+          !requestInFlightRef.current
+        ) {
+          void sendObservation(pendingRef.current);
+        }
+      }, delay);
     };
+    scheduleAutomaticRetryRef.current = retry;
     window.addEventListener('online', retry);
     document.addEventListener('visibilitychange', retry);
     return () => {
+      scheduleAutomaticRetryRef.current = null;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       window.removeEventListener('online', retry);
       document.removeEventListener('visibilitychange', retry);
     };

@@ -65,20 +65,17 @@ export async function buildNotePack(
   notebookId: string,
   options: { materialize?: boolean } = {}
 ): Promise<NotePackResult> {
-  const contentRevision = await computeNotebookContentRevision(
-    supabase,
-    userId,
-    notebookId
-  );
-
-  const { data, error } = await supabase
-    .from('notebook_notes')
-    .select('id, notebook_id, sort_index, revision, title, content, assets')
-    .eq('notebook_id', notebookId)
-    .eq('user_id', userId)
-    .is('archived_at', null)
-    .order('sort_index', { ascending: true })
-    .order('id', { ascending: true });
+  const [contentRevision, { data, error }] = await Promise.all([
+    computeNotebookContentRevision(supabase, userId, notebookId),
+    supabase
+      .from('notebook_notes')
+      .select('id, notebook_id, sort_index, revision, title, content, assets')
+      .eq('notebook_id', notebookId)
+      .eq('user_id', userId)
+      .is('archived_at', null)
+      .order('sort_index', { ascending: true })
+      .order('id', { ascending: true }),
+  ]);
   if (error) {
     throw new NotebookToolError('database_error', error.message, 500);
   }

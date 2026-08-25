@@ -255,30 +255,25 @@ export async function createNoteStudySession(
   };
   const outputLimit = input.optional_count ?? MAX_SESSION_CANDIDATES;
 
-  const snapshot: Array<{
-    notebook_id: string;
-    content_revision: number;
-    pack_revision: number;
-    sha256: string;
-  }> = [];
-  for (const notebook of notebooks) {
-    const pack = await buildNotePack(supabase, userId, notebook.id);
-    snapshot.push({
-      notebook_id: notebook.id,
-      content_revision: pack.content_revision,
-      pack_revision: pack.pack_revision,
-      sha256: pack.sha256,
-    });
-  }
-
-  const progressRevision = await progressRevisionForUser(supabase, userId);
-  const candidates = await collectCandidates(
-    supabase,
-    userId,
-    notebooks,
-    semantics.ordering,
-    outputLimit
-  );
+  const [packs, progressRevision, candidates] = await Promise.all([
+    Promise.all(
+      notebooks.map(notebook => buildNotePack(supabase, userId, notebook.id))
+    ),
+    progressRevisionForUser(supabase, userId),
+    collectCandidates(
+      supabase,
+      userId,
+      notebooks,
+      semantics.ordering,
+      outputLimit
+    ),
+  ]);
+  const snapshot = packs.map(pack => ({
+    notebook_id: pack.notebook_id,
+    content_revision: pack.content_revision,
+    pack_revision: pack.pack_revision,
+    sha256: pack.sha256,
+  }));
   const allCandidateItems = candidates.map((candidate, ordinal) => ({
     item_id: candidate.item_id,
     notebook_id: candidate.notebook_id,
@@ -437,7 +432,7 @@ export async function loadNoteStudyCandidatePage(
   });
 }
 
-function mapObservationRpcError(
+export function mapObservationRpcError(
   action: string,
   error: { message?: string }
 ): never {
@@ -512,10 +507,10 @@ async function loadEquivalentAppliedObservation(
   input:
     | NoteObservationRequest
     | NoteSkipObservationRequest
-    | Pick<
-        NoteObservationRequest,
-        'session_id' | 'sequence' | 'item_id'
-      > & { action?: string; mode?: string }
+    | (Pick<NoteObservationRequest, 'session_id' | 'sequence' | 'item_id'> & {
+        action?: string;
+        mode?: string;
+      })
 ) {
   let query = supabase
     .from('study_observations')

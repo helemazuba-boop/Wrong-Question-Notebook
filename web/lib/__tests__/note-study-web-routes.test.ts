@@ -19,6 +19,31 @@ const USER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SESSION_ID = '88888888-8888-4888-8888-888888888888';
 const ITEM_ID = '33333333-3333-4333-8333-333333333333';
 const OBSERVATION_ID = '44444444-4444-4444-8444-444444444444';
+const NOTEBOOK_ID = '55555555-5555-4555-8555-555555555555';
+
+function completedSession() {
+  return {
+    session_id: SESSION_ID,
+    mode: 'sequential',
+    status: 'completed',
+    notebook_ids: [NOTEBOOK_ID],
+    notebook_titles: ['测试笔记本'],
+    candidate_count: 1,
+    next_sequence: 1,
+    started_at: '2026-08-02T03:00:00.000Z',
+    last_activity_at: '2026-08-02T04:00:00.000Z',
+    expires_at: '2026-08-03T04:00:00.000Z',
+    device_id: null,
+    current_note_id: null,
+    current_note_title: null,
+    current_item: null,
+    result: {
+      opened_count: 0,
+      completed_count: 1,
+      skipped_count: 0,
+    },
+  };
+}
 
 function request(action: 'opened' | 'read_completed' | 'skipped') {
   return new Request('http://localhost/api/notes/study/observations', {
@@ -49,18 +74,21 @@ describe('Web Note reading route adapter', () => {
   it('records read_completed through the canonical RPC as the Web actor', async () => {
     mockRpc.mockResolvedValue({
       data: {
-        observation_id: OBSERVATION_ID,
-        session_id: SESSION_ID,
-        sequence: 0,
-        item_id: ITEM_ID,
-        action: 'read_completed',
-        progress: {
-          last_opened_at: '2026-08-02T04:00:00.000+00:00',
-          last_completed_at: '2026-08-02T04:00:00.000+00:00',
-          completed_count: 1,
+        observation: {
+          observation_id: OBSERVATION_ID,
+          session_id: SESSION_ID,
+          sequence: 0,
+          item_id: ITEM_ID,
+          action: 'read_completed',
+          progress: {
+            last_opened_at: '2026-08-02T04:00:00.000+00:00',
+            last_completed_at: '2026-08-02T04:00:00.000+00:00',
+            completed_count: 1,
+          },
+          projection_applied: true,
+          replayed: false,
         },
-        projection_applied: true,
-        replayed: false,
+        session: completedSession(),
       },
       error: null,
     });
@@ -68,17 +96,17 @@ describe('Web Note reading route adapter', () => {
     const response = await recordObservation(request('read_completed'));
     const body = await response.json();
     expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
+    expect(body.data.observation).toMatchObject({
       action: 'read_completed',
       projection_applied: true,
     });
     expect(mockRpc).toHaveBeenCalledWith(
-      'record_note_study_observation_v1',
+      'record_web_note_study_observation_v2',
       expect.objectContaining({
         p_user_id: USER_ID,
-        p_device_id: null,
         p_action: 'read_completed',
         p_sequence: 0,
+        p_skip: false,
       })
     );
   });
@@ -86,14 +114,24 @@ describe('Web Note reading route adapter', () => {
   it('keeps skipped items non-projecting', async () => {
     mockRpc.mockResolvedValue({
       data: {
-        observation_id: OBSERVATION_ID,
-        session_id: SESSION_ID,
-        sequence: 0,
-        item_id: ITEM_ID,
-        action: 'skipped',
-        progress: null,
-        projection_applied: false,
-        replayed: false,
+        observation: {
+          observation_id: OBSERVATION_ID,
+          session_id: SESSION_ID,
+          sequence: 0,
+          item_id: ITEM_ID,
+          action: 'skipped',
+          progress: null,
+          projection_applied: false,
+          replayed: false,
+        },
+        session: {
+          ...completedSession(),
+          result: {
+            opened_count: 0,
+            completed_count: 0,
+            skipped_count: 1,
+          },
+        },
       },
       error: null,
     });
@@ -101,13 +139,13 @@ describe('Web Note reading route adapter', () => {
     const response = await skipObservation(request('skipped'));
     const body = await response.json();
     expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
+    expect(body.data.observation).toMatchObject({
       action: 'skipped',
       projection_applied: false,
     });
     expect(mockRpc).toHaveBeenCalledWith(
-      'skip_note_study_observation_v1',
-      expect.objectContaining({ p_device_id: null, p_sequence: 0 })
+      'record_web_note_study_observation_v2',
+      expect.objectContaining({ p_skip: true, p_sequence: 0 })
     );
   });
 
