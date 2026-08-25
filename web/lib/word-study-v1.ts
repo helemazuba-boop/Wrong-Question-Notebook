@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  '2b9c0a60c519e67f2b7524edfbfee8bfe709b8ec776d5df0d9c8a0a54b339d1d' as const;
+  'b33bfed189b510720571a911f62bdffc260d1e3a14e0ab0dfa57f93035c4504e' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
@@ -145,8 +145,8 @@ export const wordSkipObservationRequestSchema = requestMetadataSchema.extend({
   session_id: uuidSchema,
   sequence: safeCounterSchema,
   item_id: uuidSchema,
-  action: z.string().max(32).optional(),
-  mode: z.string().max(32).optional(),
+  action: z.string().min(1).max(32).optional(),
+  mode: z.string().min(1).max(32).optional(),
   occurred_at: z.string().datetime().optional(),
 });
 

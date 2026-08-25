@@ -141,8 +141,8 @@ export const noteSkipObservationRequestSchema = requestMetadataSchema.extend({
   session_id: uuidSchema,
   sequence: safeCounterSchema,
   item_id: uuidSchema,
-  action: z.string().max(32).optional(),
-  mode: z.string().max(32).optional(),
+  action: z.string().min(1).max(32).optional(),
+  mode: z.string().min(1).max(32).optional(),
   occurred_at: z.string().datetime().optional(),
 });
 
