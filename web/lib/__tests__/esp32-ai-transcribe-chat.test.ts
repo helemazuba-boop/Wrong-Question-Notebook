@@ -908,4 +908,54 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(body.error.code).toBe('disabled');
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it('accepts trusted internal proxy header from wqn-realtime', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.WQN_REALTIME_PROXY_SECRET =
+      '1234567890123456789012345678901234567890';
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            task_id: 'task-internal-1',
+            task_status: 'PENDING',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            task_id: 'task-internal-1',
+            task_status: 'SUCCEEDED',
+            results: [{ text: 'internal proxy test' }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            text: 'internal proxy reply',
+          },
+        }),
+      });
+
+    const headers = {
+      ...createValidHeaders(),
+      'x-wqn-internal-proxy-authorization':
+        'Bearer 1234567890123456789012345678901234567890',
+    };
+    const response = await POST(createAudioRequest(headers));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.transcript).toBe('internal proxy test');
+  });
 });

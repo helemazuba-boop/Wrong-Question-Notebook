@@ -136,6 +136,23 @@ npm run migrate:supabase-storage
 并为每个 bucket 输出对象数、总字节数和路径/大小/内容散列组成的 manifest SHA-256。
 `VERIFY_STORAGE_BYTES=0` 只可用于预演，输出不能作为正式切换验收证据。
 
+### 5.1 `problem-uploads` 桶的 MIME 白名单是设备管线的硬依赖
+
+设备内容同步会把 pack 物化为 Storage 对象（`web/lib/device-content-artifacts.ts`
+的 `materializeDevicePackArtifact`），上传路径
+`user/<uid>/device-packs/<domain>/<logicalId>/<sha256>.jsonl`，
+**Content-Type 固定为 `application/x-ndjson`**。若桶开启 "Restrict MIME types"
+且白名单未包含该类型，Storage 返回 400，清单接口以
+`ARTIFACT_STORAGE_ERROR`(500, retryable) 失败——设备端表现为笔记/错题包
+永远"部分完成待重试"、按需下载走不通。
+
+要求：
+* `problem-uploads` 的 MIME 白名单必须包含 `application/x-ndjson`；
+  未来任何新增的服务端上传 Content-Type 都必须同步进入白名单。
+* 变更桶配置后无需重刷设备固件：错误分类为可重试瞬态，下一轮同步自动恢复。
+* 排查入口：Supabase Storage 访问日志中的 `POST /storage/v1/object/... 400`
+  加上固件侧 `note-study/problem-study manifest failed: ARTIFACT_STORAGE_ERROR`。
+
 ## 6. Auth
 
 生产推荐 `ENABLE_EMAIL_AUTOCONFIRM=false`。邮件模板可使用服务端 token hash：

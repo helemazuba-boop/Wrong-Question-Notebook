@@ -236,15 +236,30 @@ function isVoiceAiConfigured(): boolean {
   return isEsp32AiProviderConfigured();
 }
 
+function isAuthorizedInternalProxy(req: NextRequest): boolean {
+  const internalProxyAuth = req.headers.get(
+    'x-wqn-internal-proxy-authorization'
+  );
+  const expectedSecret = process.env.WQN_REALTIME_PROXY_SECRET;
+  return Boolean(
+    expectedSecret &&
+    expectedSecret.length >= 32 &&
+    internalProxyAuth === `Bearer ${expectedSecret}`
+  );
+}
+
 async function transcribeChat(req: NextRequest): Promise<NextResponse> {
-  const authRateLimitResponse = AUTH_RATE_LIMIT(req);
-  if (authRateLimitResponse) {
-    return createEsp32AiErrorResponse(
-      'rate_limited',
-      'Rate limit exceeded',
-      429,
-      { headers: authRateLimitResponse.headers }
-    );
+  const isInternal = isAuthorizedInternalProxy(req);
+  if (!isInternal) {
+    const authRateLimitResponse = AUTH_RATE_LIMIT(req);
+    if (authRateLimitResponse) {
+      return createEsp32AiErrorResponse(
+        'rate_limited',
+        'Rate limit exceeded',
+        429,
+        { headers: authRateLimitResponse.headers }
+      );
+    }
   }
 
   const authResult = await authenticateEsp32Device(req);
@@ -359,14 +374,17 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
 }
 
 async function transcribeChatV2(req: NextRequest): Promise<NextResponse> {
-  const authRateLimitResponse = AUTH_RATE_LIMIT(req);
-  if (authRateLimitResponse) {
-    return createEsp32AiErrorResponse(
-      'rate_limited',
-      'Rate limit exceeded',
-      429,
-      { headers: authRateLimitResponse.headers }
-    );
+  const isInternal = isAuthorizedInternalProxy(req);
+  if (!isInternal) {
+    const authRateLimitResponse = AUTH_RATE_LIMIT(req);
+    if (authRateLimitResponse) {
+      return createEsp32AiErrorResponse(
+        'rate_limited',
+        'Rate limit exceeded',
+        429,
+        { headers: authRateLimitResponse.headers }
+      );
+    }
   }
 
   const authResult = await authenticateEsp32Device(req);

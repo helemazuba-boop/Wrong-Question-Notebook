@@ -30,6 +30,7 @@ import {
   DOWLINK_DEFAULT_SAMPLE_RATE_HZ,
   UPLINK_CHANNELS,
   UPLINK_SAMPLE_RATE_HZ,
+  STD_PRO_SAMPLE_RATE_HZ,
   WFLV_AUDIO_MAGIC,
   WFLV_FLAG_FINAL,
   WFLV_FLAG_STREAM,
@@ -100,6 +101,64 @@ export function encodeWflvAudio(params: {
 
   const buf = Buffer.alloc(WFLV_HEADER_BYTES + params.pcm.length);
   buf.writeUInt32LE(WFLV_AUDIO_MAGIC, 0);
+  buf.writeUInt16LE(WFLV_FRAME_VERSION, 4);
+  buf.writeUInt16LE(flags, 6);
+  buf.writeUInt32LE(params.seq >>> 0, 8);
+  buf.writeUInt32LE(sampleRate, 12);
+  buf.writeUInt32LE(channels, 16);
+  buf.writeUInt32LE(0, 20); // reserved
+  params.pcm.copy(buf, WFLV_HEADER_BYTES);
+  return buf;
+}
+
+/**
+ * Dedicated canonical WFLV codec for STD/PRO WebSocket Voice Transport (wqn-voice-v2).
+ * Strictly requires literal ASCII bytes 'W', 'F', 'L', 'V' on the wire.
+ */
+export function decodeVoiceV2Audio(buf: Buffer): DecodedUplink | null {
+  if (buf.length < WFLV_HEADER_BYTES) return null;
+  if (
+    buf[0] !== 0x57 || // 'W'
+    buf[1] !== 0x46 || // 'F'
+    buf[2] !== 0x4c || // 'L'
+    buf[3] !== 0x56 // 'V'
+  ) {
+    return null;
+  }
+  const version = buf.readUInt16LE(4);
+  if (version !== WFLV_FRAME_VERSION) return null;
+  const flags = buf.readUInt16LE(6);
+  const seq = buf.readUInt32LE(8);
+  const sampleRate = buf.readUInt32LE(12);
+  const channels = buf.readUInt32LE(16);
+  return {
+    flags,
+    seq,
+    sampleRate,
+    channels,
+    pcm: buf.subarray(WFLV_HEADER_BYTES),
+  };
+}
+
+export function encodeVoiceV2Audio(params: {
+  pcm: Buffer;
+  seq: number;
+  sampleRate?: number;
+  channels?: number;
+  final?: boolean;
+  streaming?: boolean;
+}): Buffer {
+  const sampleRate = params.sampleRate ?? STD_PRO_SAMPLE_RATE_HZ;
+  const channels = params.channels ?? 1;
+  let flags = 0;
+  if (params.streaming !== false) flags |= WFLV_FLAG_STREAM;
+  if (params.final) flags |= WFLV_FLAG_FINAL;
+
+  const buf = Buffer.alloc(WFLV_HEADER_BYTES + params.pcm.length);
+  buf[0] = 0x57; // 'W'
+  buf[1] = 0x46; // 'F'
+  buf[2] = 0x4c; // 'L'
+  buf[3] = 0x56; // 'V'
   buf.writeUInt16LE(WFLV_FRAME_VERSION, 4);
   buf.writeUInt16LE(flags, 6);
   buf.writeUInt32LE(params.seq >>> 0, 8);

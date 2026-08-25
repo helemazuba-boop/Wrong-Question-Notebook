@@ -24,15 +24,22 @@ import {
   type RelayConfig,
   type DeviceWs,
 } from './voiceRelay.ts';
-import { PROXY_SUBPROTOCOL } from './types.ts';
+import { handleBatchVoiceConnection } from './batchVoiceRelay.ts';
+import { PROXY_SUBPROTOCOL, VOICE_SUBPROTOCOL } from './types.ts';
 
 function readConfig(): RelayConfig {
   const realtimeEnabled =
     (process.env.WQN_AI_REALTIME_ENABLED ?? 'true').toLowerCase() !== 'false';
   const secret = process.env.WQN_REALTIME_PROXY_SECRET ?? '';
-  const internalBase = process.env.WQN_INTERNAL_API_BASE ?? '';
+  const internalBase = (process.env.WQN_INTERNAL_API_BASE ?? '').replace(
+    /\/$/,
+    ''
+  );
   const endpoint = internalBase
-    ? `${internalBase.replace(/\/$/, '')}/api/esp32/ai/execute-tool`
+    ? `${internalBase}/api/esp32/ai/execute-tool`
+    : '';
+  const transcribeChatUrl = internalBase
+    ? `${internalBase}/api/esp32/ai/transcribe-chat?protocol=v2-streaming`
     : '';
   if (!endpoint) {
     log.warn('WQN_INTERNAL_API_BASE not set — tool calls will be skipped', {});
@@ -48,6 +55,7 @@ function readConfig(): RelayConfig {
       model: process.env.STEP_TTS_MODEL ?? 'stepaudio-2.5-realtime',
     },
     executeToolUrl: endpoint,
+    transcribeChatUrl,
     proxySecret: secret,
     realtimeEnabled,
   };
@@ -77,7 +85,15 @@ const httpServer = http.createServer((req, res) => {
   res.end('not found');
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  handleProtocols: (protocols: Set<string> | string[]) => {
+    const protoSet = protocols instanceof Set ? protocols : new Set(protocols);
+    if (protoSet.has(PROXY_SUBPROTOCOL)) return PROXY_SUBPROTOCOL;
+    if (protoSet.has(VOICE_SUBPROTOCOL)) return VOICE_SUBPROTOCOL;
+    return false;
+  },
+});
 
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -87,15 +103,24 @@ httpServer.on('upgrade', (req, socket, head) => {
     return;
   }
 
-  // Subprotocol gate.
-  const proto = req.headers['sec-websocket-protocol'] ?? '';
-  const protos = String(proto)
+  // Subprotocol negotiation
+  const protoHeader = req.headers['sec-websocket-protocol'] ?? '';
+  const requestedProtos = String(protoHeader)
     .split(',')
-    .map(s => s.trim());
-  if (!protos.includes(PROXY_SUBPROTOCOL)) {
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  let selectedSubprotocol: string | null = null;
+  if (requestedProtos.includes(PROXY_SUBPROTOCOL)) {
+    selectedSubprotocol = PROXY_SUBPROTOCOL;
+  } else if (requestedProtos.includes(VOICE_SUBPROTOCOL)) {
+    selectedSubprotocol = VOICE_SUBPROTOCOL;
+  }
+
+  if (!selectedSubprotocol) {
     socket.write(
       'HTTP/1.1 426 Upgrade Required\r\n' +
-        `x-wqn-error: subprotocol required: ${PROXY_SUBPROTOCOL}\r\n` +
+        `x-wqn-error: subprotocol required: ${PROXY_SUBPROTOCOL} or ${VOICE_SUBPROTOCOL}\r\n` +
         '\r\n'
     );
     socket.destroy();
@@ -103,18 +128,17 @@ httpServer.on('upgrade', (req, socket, head) => {
   }
 
   wss.handleUpgrade(req, socket, head, ws => {
-    // Auth happens after upgrade so we can send our domain error payload
-    // as a text frame before closing, instead of a raw close frame.
     authenticateDevice(req)
       .then(device => {
-        // Stash on the socket so any later listeners (close) can log it.
         (ws as any).device = device;
-        // Kick off the long-lived relay. handleConnection wires its own
-        // message/close listeners on `ws`, which take precedence over
-        // these defaults for that event.
-        handleConnection(ws as unknown as DeviceWs, device, req, config).catch(
-          err => {
-            log.error('relay threw', {
+        if (selectedSubprotocol === PROXY_SUBPROTOCOL) {
+          handleConnection(
+            ws as unknown as DeviceWs,
+            device,
+            req,
+            config
+          ).catch(err => {
+            log.error('flash relay threw', {
               err: String(err),
               deviceId: device.deviceId,
             });
@@ -123,8 +147,25 @@ httpServer.on('upgrade', (req, socket, head) => {
             } catch {
               /* drop */
             }
-          }
-        );
+          });
+        } else {
+          handleBatchVoiceConnection(
+            ws as unknown as DeviceWs,
+            device,
+            req,
+            config
+          ).catch(err => {
+            log.error('batch voice relay threw', {
+              err: String(err),
+              deviceId: device.deviceId,
+            });
+            try {
+              ws.close(1011, 'relay_error');
+            } catch {
+              /* drop */
+            }
+          });
+        }
       })
       .catch(e => {
         const err =

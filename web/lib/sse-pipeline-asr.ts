@@ -48,6 +48,11 @@ export async function runPipelineAsr(
   channels: number,
   pusher: PipelinePusher
 ): Promise<AsrResult> {
+  pusher.emitStage('batch_asr_start', {
+    provider: config.asrProvider,
+    sampleRate,
+    byteLength: audio.byteLength,
+  });
   pusher.emitStage('asr_provider_selected', {
     provider: config.asrProvider,
     role: 'primary',

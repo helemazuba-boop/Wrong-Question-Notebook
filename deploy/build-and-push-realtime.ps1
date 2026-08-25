@@ -39,7 +39,6 @@ $EnvFile = Join-Path $WebDir ".env.production"
 $BuildkitConfig = Join-Path $ScriptRoot "buildkit-config.toml"
 $BuildkitConfigHashFile = Join-Path $ScriptRoot ".wqn-realtime-builder-config.hash"
 $BuilderName = "wqn-realtime-builder"
-$DefaultBuildProxy = "http://127.0.0.1:7890"
 
 # ============================================================
 # Helper functions (subset of build-and-push.ps1)
@@ -53,7 +52,7 @@ function Write-Step {
         [System.ConsoleColor]$Color = "Yellow"
     )
 
-    Write-Host "  [$((Get-Date).ToString('HH:mm:ss'))] $Msg" -ForegroundColor $Color
+    Write-Host "  [$((Get-Date).ToString('HH\:mm\:ss'))] $Msg" -ForegroundColor $Color
 }
 
 function Read-DotEnvFile {
@@ -168,7 +167,7 @@ function Join-ProcessArguments {
     $quoted = @()
     foreach ($arg in $Arguments) {
         if ($arg -match '[\s"]') {
-            $quoted += '"' + ($arg -replace '"', '\"') + '"'
+            $quoted += '"' + ($arg -replace '"', '\\"') + '"'
         } else {
             $quoted += $arg
         }
@@ -426,9 +425,6 @@ if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
 }
 if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
     $script:BuildProxy = Get-EnvValue "HTTP_PROXY"
-}
-if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
-    $script:BuildProxy = $DefaultBuildProxy
 }
 $script:BuildNoProxy = Get-EnvValue "NO_PROXY"
 if ([string]::IsNullOrWhiteSpace($script:BuildNoProxy)) {
