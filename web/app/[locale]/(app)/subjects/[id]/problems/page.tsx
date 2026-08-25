@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import ProblemsPageClient from './problems-page-client';
 import { ROUTES } from '@/lib/constants';
 import { BackLink } from '@/components/back-link';
@@ -29,8 +30,8 @@ async function loadData(subjectId: string) {
   const supabase = await createClient();
 
   // Get user for cache key
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  const userId = user?.id;
 
   if (!userId) {
     return {

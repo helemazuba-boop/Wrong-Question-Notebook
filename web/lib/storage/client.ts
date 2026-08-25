@@ -3,9 +3,9 @@ import { FILE_CONSTANTS } from '../constants';
 
 export async function getUserId() {
   const supabase = createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw new Error('Not signed in');
-  return data.user.id;
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data?.claims?.sub) throw new Error('Not signed in');
+  return data.claims.sub;
 }
 
 /**

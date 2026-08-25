@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import {
   UserProfileType,
   UserRoleType,
@@ -65,8 +66,8 @@ export async function getExtendedUser(
   const supabase = await createClient();
 
   // Get auth user data
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user || authData.user.id !== userId) {
+  const { user, error: authError } = await getAuthenticatedPrincipal(supabase);
+  if (authError || !user || user.id !== userId) {
     return null;
   }
 
@@ -74,8 +75,8 @@ export async function getExtendedUser(
   const profile = await getUserProfile(userId);
 
   return {
-    id: authData.user.id,
-    email: authData.user.email!,
+    id: user.id,
+    email: user.email || '',
     profile,
     isAdmin:
       profile?.user_role === 'admin' || profile?.user_role === 'super_admin',
@@ -89,8 +90,8 @@ export async function getExtendedUser(
 export async function isCurrentUserAdmin(): Promise<boolean> {
   const supabase = await createClient();
 
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  if (!user) {
     return false;
   }
 
@@ -99,7 +100,7 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
   const { data: profile } = await serviceSupabase
     .from('user_profiles')
     .select('user_role')
-    .eq('id', authData.user.id)
+    .eq('id', user.id)
     .single();
 
   return (
@@ -115,8 +116,8 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
 export async function isCurrentUserSuperAdmin(): Promise<boolean> {
   const supabase = await createClient();
 
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) {
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  if (!user) {
     return false;
   }
 
@@ -125,7 +126,7 @@ export async function isCurrentUserSuperAdmin(): Promise<boolean> {
   const { data: profile } = await serviceSupabase
     .from('user_profiles')
     .select('user_role')
-    .eq('id', authData.user.id)
+    .eq('id', user.id)
     .single();
 
   return profile?.user_role === 'super_admin' || false;
@@ -387,9 +388,7 @@ export async function updateAdminSetting(
   value: Record<string, unknown>
 ): Promise<AdminSettingsType | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await getAuthenticatedPrincipal(supabase);
   if (!user) {
     return null;
   }

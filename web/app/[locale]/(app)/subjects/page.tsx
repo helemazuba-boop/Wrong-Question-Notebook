@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import SubjectsPageClient from './subjects-page-client';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import { SubjectWithMetadata } from '@/lib/types';
 import { loadNotebookShelf, type NotebookShelfItem } from '@/lib/notebooks';
 import {
@@ -17,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
 async function loadShelfData() {
   const supabase = await createClient();
 
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  const userId = user?.id;
 
   if (!userId) {
     return {

@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { hasEnvVars } from '../server-utils';
-import { updateLastLoginEdge } from '../edge-utils';
 import { ENV_VARS, USER_ROLES, ROUTES } from '../constants';
 import type { Database } from '@/lib/database.types';
 
@@ -49,27 +48,6 @@ export async function updateSession(request: NextRequest) {
   // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
-
-  // Update last login timestamp for authenticated users
-  if (user && user.sub) {
-    try {
-      // Get the user's JWT token from the session
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const userToken = session?.access_token;
-
-      // Use Edge Runtime compatible approach to update last login
-      updateLastLoginEdge(
-        user.sub,
-        process.env[ENV_VARS.SUPABASE_URL]!,
-        process.env[ENV_VARS.SUPABASE_ANON_KEY]!,
-        userToken
-      ).catch(console.warn);
-    } catch {
-      // Ignore errors in login tracking
-    }
-  }
 
   // Check if user is trying to access admin routes
   if (request.nextUrl.pathname.startsWith('/admin')) {

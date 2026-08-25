@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import ProblemReview from './problem-review';
@@ -29,8 +30,8 @@ async function loadData(subjectId: string, problemId: string) {
   const supabase = await createClient();
 
   // Get user for cache key
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  const userId = user?.id;
 
   if (!userId) {
     return { problem: null, subject: null, allProblems: [] };

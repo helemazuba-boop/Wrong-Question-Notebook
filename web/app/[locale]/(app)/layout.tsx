@@ -3,7 +3,7 @@ import { Navigation } from '@/components/navigation';
 import { AnnouncementBanner } from '@/components/announcement-banner';
 import { OnboardingProvider } from '@/components/onboarding/onboarding-provider';
 import { TimezoneSync } from '@/components/timezone-sync';
-import { createClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/supabase/requireUser';
 import '@/app/globals.css';
 
 interface LocaleAppLayoutProps {
@@ -17,10 +17,7 @@ export default async function LocaleAppLayout({
   let currentTimezone: string | null = null;
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { supabase, user } = await requireUser();
 
     if (user) {
       const { data: profile } = await supabase
