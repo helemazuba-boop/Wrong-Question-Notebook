@@ -279,15 +279,20 @@ describe('skipNoteStudyObservation', () => {
         },
       },
     });
-    const result = await skipNoteStudyObservation(supabase, USER_ID, DEVICE_ID, {
-      request_id: 'req_note_skip_000001',
-      boot_id: 'boot_note_00000001',
-      firmware_version: '0.1.0',
-      capabilities: ['note.study.v1'],
-      session_id: SESSION_ID,
-      sequence: 0,
-      item_id: NOTE_ID,
-    } as any);
+    const result = await skipNoteStudyObservation(
+      supabase,
+      USER_ID,
+      DEVICE_ID,
+      {
+        request_id: 'req_note_skip_000001',
+        boot_id: 'boot_note_00000001',
+        firmware_version: '0.1.0',
+        capabilities: ['note.study.v1'],
+        session_id: SESSION_ID,
+        sequence: 0,
+        item_id: NOTE_ID,
+      } as any
+    );
     expect(result.action).toBe('skipped');
     expect(rpc).toHaveBeenCalledWith(
       'skip_note_study_observation_v1',

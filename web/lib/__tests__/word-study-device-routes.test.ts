@@ -30,18 +30,21 @@ const WORD_ID = '33333333-3333-4333-8333-333333333333';
 const OBS_ID = '44444444-4444-4444-8444-444444444444';
 
 function wordRequest(body: Record<string, unknown>) {
-  return new NextRequest('http://localhost/api/esp32/v3/words/observations/skip', {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${'a'.repeat(64)}`,
-      'content-type': 'application/json',
-      'user-agent': 'vitest-word-study',
-      'x-forwarded-for': '127.0.0.1',
-      'x-wqn-request-id': String(body.request_id ?? 'req_missing'),
-      'x-wqn-protocol': '3',
-    },
-    body: JSON.stringify(body),
-  });
+  return new NextRequest(
+    'http://localhost/api/esp32/v3/words/observations/skip',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${'a'.repeat(64)}`,
+        'content-type': 'application/json',
+        'user-agent': 'vitest-word-study',
+        'x-forwarded-for': '127.0.0.1',
+        'x-wqn-request-id': String(body.request_id ?? 'req_missing'),
+        'x-wqn-protocol': '3',
+      },
+      body: JSON.stringify(body),
+    }
+  );
 }
 
 function meta(requestId: string) {
