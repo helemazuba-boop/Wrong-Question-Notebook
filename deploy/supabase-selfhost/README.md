@@ -267,6 +267,22 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 本阶段禁止切换 DNS、生产反向代理或生产应用 env。staging smoke 会在腾讯 Target 创建一条
 自动过期的 pending claim；因此必须在数据库与 Storage clone 完成后执行。
 
+先从阿里云 Web 主机执行不创建业务数据的 Target infrastructure smoke：
+
+```bash
+cd /path/to/WQN/web
+export SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+export CONFIRM_SUPABASE_PUBLIC_ORIGIN=http://10.77.0.2:8000
+read -rsp 'Target Supabase publishable key: ' SUPABASE_PUBLISHABLE_KEY; echo
+export SUPABASE_PUBLISHABLE_KEY
+npm run smoke:target-infra
+unset SUPABASE_PUBLIC_URL CONFIRM_SUPABASE_PUBLIC_ORIGIN SUPABASE_PUBLISHABLE_KEY
+```
+
+该 smoke 验证 Auth、REST、Storage、隐藏的 Kong root 以及 Realtime WebSocket 握手；不输出
+响应 payload 或 key，也不创建业务数据。它不能替代下方要求 staging WQN 实例明确指向
+Tencent Target 的应用级 smoke。
+
 自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：
 
 ```bash
