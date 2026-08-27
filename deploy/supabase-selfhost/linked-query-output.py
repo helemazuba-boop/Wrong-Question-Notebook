@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 MIGRATION_VERSION = re.compile(r"[0-9]{14}")
+STORAGE_MIGRATION_HASH = re.compile(r"[0-9a-f]{40}")
 
 
 def load_rows(input_path: str) -> list[dict[str, object]]:
@@ -75,6 +76,45 @@ def write_auth_migration_versions(rows: list[dict[str, object]], output: io.Text
         output.write(f"{version}\n")
 
 
+def storage_migration_rows(rows: list[dict[str, object]]) -> list[tuple[str, str, str]]:
+    parsed = []
+    migration_ids = []
+    for row in rows:
+        if set(row) != {"id", "name", "hash"}:
+            raise ValueError("Storage migration query returned unexpected columns")
+        migration_id = row["id"]
+        name = row["name"]
+        migration_hash = row["hash"]
+        if (
+            not isinstance(migration_id, str)
+            or not migration_id.isascii()
+            or not migration_id.isdigit()
+            or str(int(migration_id)) != migration_id
+        ):
+            raise ValueError("Storage migration id must be a canonical non-negative integer")
+        if not isinstance(name, str) or not name:
+            raise ValueError("Storage migration name must be non-empty text")
+        if (
+            not isinstance(migration_hash, str)
+            or STORAGE_MIGRATION_HASH.fullmatch(migration_hash) is None
+        ):
+            raise ValueError("Storage migration hash must be 40 lowercase hex characters")
+        migration_ids.append(int(migration_id))
+        parsed.append((migration_id, name, migration_hash))
+    if not parsed:
+        raise ValueError("Storage migration history must not be empty")
+    if migration_ids != sorted(set(migration_ids)):
+        raise ValueError("Storage migration ids must be unique and numerically sorted")
+    return parsed
+
+
+def write_storage_migration_history_csv(
+    rows: list[dict[str, object]], output: io.TextIOBase
+) -> None:
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerows(storage_migration_rows(rows))
+
+
 def write_row_counts_tsv(rows: list[dict[str, object]], output: io.TextIOBase) -> None:
     parsed = []
     for row in rows:
@@ -134,6 +174,39 @@ def self_test() -> None:
         else:
             raise AssertionError("invalid Auth migration rows were accepted")
 
+    storage_history = io.StringIO()
+    write_storage_migration_history_csv(
+        [
+            {"id": "61", "name": "mark-filename-immutable", "hash": "a" * 40},
+            {
+                "id": "62",
+                "name": "object-versioning-core, quoted \"name\"",
+                "hash": "b" * 40,
+            },
+        ],
+        storage_history,
+    )
+    assert list(csv.reader(io.StringIO(storage_history.getvalue()))) == [
+        ["61", "mark-filename-immutable", "a" * 40],
+        ["62", "object-versioning-core, quoted \"name\"", "b" * 40],
+    ]
+    for invalid_storage_rows in (
+        [],
+        [
+            {"id": "2", "name": "later", "hash": "a" * 40},
+            {"id": "1", "name": "earlier", "hash": "b" * 40},
+        ],
+        [{"id": "01", "name": "leading-zero", "hash": "a" * 40}],
+        [{"id": "1", "name": "bad-hash", "hash": "not-a-hash"}],
+        [{"id": "1", "name": "extra", "hash": "a" * 40, "unexpected": True}],
+    ):
+        try:
+            write_storage_migration_history_csv(invalid_storage_rows, io.StringIO())
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid Storage migration rows were accepted")
+
     counts = io.StringIO()
     write_row_counts_tsv(
         [
@@ -153,7 +226,7 @@ def main() -> None:
         raise SystemExit(
             "usage: linked-query-output.py "
             "{migration-versions|migration-history-csv|auth-migration-versions|"
-            "row-counts-tsv} INPUT_JSON"
+            "storage-migration-history-csv|row-counts-tsv} INPUT_JSON"
         )
     mode, input_path = sys.argv[1:]
     rows = load_rows(input_path)
@@ -161,6 +234,7 @@ def main() -> None:
         "migration-versions": write_migration_versions,
         "migration-history-csv": write_migration_history_csv,
         "auth-migration-versions": write_auth_migration_versions,
+        "storage-migration-history-csv": write_storage_migration_history_csv,
         "row-counts-tsv": write_row_counts_tsv,
     }
     try:

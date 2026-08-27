@@ -78,6 +78,14 @@ linked_query '
 python3 "$script_dir/linked-query-output.py" auth-migration-versions \
   "$artifact_root/source-auth-migrations.json" \
   > "$artifact_root/source-auth-migrations.txt"
+linked_query '
+  select id::text as id, name, hash
+  from storage.migrations
+  order by storage.migrations.id
+' > "$artifact_root/source-storage-migrations.json"
+python3 "$script_dir/linked-query-output.py" storage-migration-history-csv \
+  "$artifact_root/source-storage-migrations.json" \
+  > "$artifact_root/source-storage-migrations.csv"
 
 printf '%s\n' '[migration] Running source preflight...'
 linked_query_file "$script_dir/source-preflight.sql" \
@@ -117,6 +125,18 @@ if ! diff -u \
   > "$artifact_root/auth-migrations-before-restore.diff"; then
   printf '%s\n' '[migration] Source/target Auth migration history differs; refusing restore.' >&2
   printf '%s\n' '[migration] Align the self-hosted Auth image/schema with Cloud before retrying.' >&2
+  exit 1
+fi
+psql "$TARGET_DATABASE_URL" --csv --tuples-only \
+  --set ON_ERROR_STOP=1 \
+  --command 'select id, name, hash from storage.migrations order by storage.migrations.id' \
+  > "$artifact_root/target-storage-migrations-before-restore.csv"
+if ! diff -u \
+  "$artifact_root/source-storage-migrations.csv" \
+  "$artifact_root/target-storage-migrations-before-restore.csv" \
+  > "$artifact_root/storage-migrations-before-restore.diff"; then
+  printf '%s\n' '[migration] Source/target Storage migration history differs; refusing restore.' >&2
+  printf '%s\n' '[migration] Align the self-hosted Storage image/schema with Cloud before retrying.' >&2
   exit 1
 fi
 
