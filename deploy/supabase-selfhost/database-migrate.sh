@@ -8,19 +8,39 @@ export SUPABASE_TELEMETRY_DISABLED=1
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 web_dir="$script_dir/../../web"
 migration_dir="$web_dir/supabase/migrations"
-: "${SOURCE_DATABASE_URL:?Set SOURCE_DATABASE_URL to the Supabase Platform database URL}"
 : "${TARGET_DATABASE_URL:?Set TARGET_DATABASE_URL to the self-hosted database URL}"
 
-if [[ "$SOURCE_DATABASE_URL" == "$TARGET_DATABASE_URL" ]]; then
-  printf '%s\n' '[migration] Source and target database URLs must differ.' >&2
-  exit 1
-fi
-for command_name in diff find psql sed sha256sum sort supabase; do
+for command_name in diff find psql python3 sed sha256sum sort supabase; do
   command -v "$command_name" >/dev/null || {
     printf '[migration] Missing required command: %s\n' "$command_name" >&2
     exit 1
   }
 done
+
+linked_query() {
+  local sql="$1"
+  (
+    cd "$web_dir"
+    supabase db query --linked --agent yes --output-format json "$sql"
+  )
+}
+
+linked_query_file() {
+  local sql
+  # db query accepts SQL, not psql backslash commands. Only discard complete
+  # psql meta-command lines; preserve every SQL line verbatim.
+  sql="$(sed -E '/^[[:space:]]*\\[[:alpha:]][[:alnum:]_]*([[:space:]].*)?$/d' "$1")"
+  linked_query "$sql"
+}
+
+linked_dump() {
+  local output_file="$1"
+  shift
+  (
+    cd "$web_dir"
+    supabase db dump --linked --file "$output_file" "$@"
+  )
+}
 
 artifact_root="${MIGRATION_ARTIFACT_DIR:-$script_dir/artifacts/$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$artifact_root"
@@ -31,9 +51,13 @@ find "$migration_dir" -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
   | sed -nE 's/^([0-9]{14})_.*/\1/p' \
   | sort -u \
   > "$artifact_root/expected-migrations.txt"
-psql "$SOURCE_DATABASE_URL" --no-align --tuples-only \
-  --set ON_ERROR_STOP=1 \
-  --command 'select version from supabase_migrations.schema_migrations order by version' \
+linked_query '
+  select version, statements::text as statements, name
+  from supabase_migrations.schema_migrations
+  order by version
+' > "$artifact_root/source-migration-history.json"
+python3 "$script_dir/linked-query-output.py" migration-versions \
+  "$artifact_root/source-migration-history.json" \
   > "$artifact_root/source-migrations.txt"
 if ! diff -u \
   "$artifact_root/expected-migrations.txt" \
@@ -43,18 +67,17 @@ if ! diff -u \
   printf '%s\n' '[migration] Apply/reconcile pending migrations before retrying.' >&2
   exit 1
 fi
-psql "$SOURCE_DATABASE_URL" --csv --tuples-only \
-  --set ON_ERROR_STOP=1 \
-  --command 'select version, statements, name from supabase_migrations.schema_migrations order by version' \
+python3 "$script_dir/linked-query-output.py" migration-history-csv \
+  "$artifact_root/source-migration-history.json" \
   > "$artifact_root/source-migration-history.csv"
 
 printf '%s\n' '[migration] Running source preflight...'
-psql "$SOURCE_DATABASE_URL" \
-  --set ON_ERROR_STOP=1 \
-  --file "$script_dir/source-preflight.sql" \
+linked_query_file "$script_dir/source-preflight.sql" \
   > "$artifact_root/source-preflight.txt"
-psql "$SOURCE_DATABASE_URL" --no-align --tuples-only --field-separator $'\t' \
-  --set ON_ERROR_STOP=1 --file "$script_dir/row-counts.sql" \
+linked_query_file "$script_dir/row-counts.sql" \
+  > "$artifact_root/source-row-counts.json"
+python3 "$script_dir/linked-query-output.py" row-counts-tsv \
+  "$artifact_root/source-row-counts.json" \
   > "$artifact_root/source-row-counts.tsv"
 
 target_has_app_schema="$(psql "$TARGET_DATABASE_URL" -Atqc \
@@ -78,12 +101,9 @@ if [[ "$target_is_superuser" != 'true' && "$target_is_superuser" != 't' ]]; then
 fi
 
 printf '%s\n' '[migration] Creating Supabase-compatible role/schema/data dumps...'
-supabase db dump --db-url "$SOURCE_DATABASE_URL" \
-  --file "$artifact_root/roles.sql" --role-only
-supabase db dump --db-url "$SOURCE_DATABASE_URL" \
-  --file "$artifact_root/schema.sql"
-supabase db dump --db-url "$SOURCE_DATABASE_URL" \
-  --file "$artifact_root/data.sql" --use-copy --data-only
+linked_dump "$artifact_root/roles.sql" --role-only
+linked_dump "$artifact_root/schema.sql"
+linked_dump "$artifact_root/data.sql" --use-copy --data-only
 sha256sum "$artifact_root/roles.sql" "$artifact_root/schema.sql" \
   "$artifact_root/data.sql" "$artifact_root/source-migration-history.csv" \
   > "$artifact_root/SHA256SUMS"
