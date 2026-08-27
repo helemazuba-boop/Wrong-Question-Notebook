@@ -359,11 +359,14 @@ append_proxy_build_args() {
 }
 
 build_app() {
+  local server_actions_key
+  server_actions_key="$(getv NEXT_SERVER_ACTIONS_ENCRYPTION_KEY)"
   local args=(
     docker buildx build
     --builder "$APP_BUILDER"
     --platform linux/amd64
     --provenance=false
+    --secret id=next_server_actions_encryption_key,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
     --push
     -t "$APP_IMAGE"
     -f "$WEB_DIR/Dockerfile"
@@ -377,9 +380,6 @@ build_app() {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY \
     WQN_SUPABASE_EXPECTED_HOST \
     WQN_ALLOW_HTTP_SUPABASE_ORIGIN \
-    SUPABASE_SERVICE_ROLE_KEY \
-    NEXT_SERVER_ACTIONS_ENCRYPTION_KEY \
-    GEMINI_API_KEY \
     SITE_URL
   do
     append_build_arg_if_set args "$key"
@@ -388,7 +388,7 @@ build_app() {
   args+=(.)
 
   cd "$WEB_DIR"
-  "${args[@]}"
+  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$server_actions_key" "${args[@]}"
 }
 
 build_realtime() {
@@ -416,7 +416,6 @@ RUNTIME_KEYS=(
   WQN_ALLOW_HTTP_SUPABASE_ORIGIN
   SUPABASE_SECRET_KEY
   SUPABASE_SERVICE_ROLE_KEY
-  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
   NEXT_PUBLIC_APP_URL
   SITE_URL
   CRON_SECRET
