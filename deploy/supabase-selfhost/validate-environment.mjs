@@ -40,6 +40,10 @@ function required(env, key) {
   return value;
 }
 
+function optional(env, key) {
+  return env.get(key) || "";
+}
+
 const appPath = resolve(process.argv[2] || "web/.env.production");
 const selfhostPath = resolve(
   process.argv[3] || "deploy/supabase-selfhost/.env",
@@ -47,16 +51,28 @@ const selfhostPath = resolve(
 const app = parseEnv(appPath);
 const selfhost = parseEnv(selfhostPath);
 
-const publicUrl = new URL(required(app, "NEXT_PUBLIC_SUPABASE_URL"));
-if (publicUrl.href !== "https://data.helema.cn/") {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL must be https://data.helema.cn");
+const configuredPublicUrl = required(app, "NEXT_PUBLIC_SUPABASE_URL");
+const publicUrl = new URL(configuredPublicUrl);
+const publicOrigin = publicUrl.origin;
+if (configuredPublicUrl.replace(/\/+$/, "") !== publicOrigin) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL must be an origin without a path");
 }
-if (required(app, "WQN_SUPABASE_EXPECTED_HOST") !== "data.helema.cn") {
-  throw new Error("WQN_SUPABASE_EXPECTED_HOST must be data.helema.cn");
+if (required(app, "WQN_SUPABASE_EXPECTED_HOST") !== publicUrl.hostname) {
+  throw new Error("WQN_SUPABASE_EXPECTED_HOST must match the Supabase URL");
 }
-if (new URL(required(app, "SITE_URL")).origin !== "https://wqn.helema.cn") {
-  throw new Error("SITE_URL must use https://wqn.helema.cn");
+const allowedHttpOrigin = optional(app, "WQN_ALLOW_HTTP_SUPABASE_ORIGIN");
+if (publicUrl.protocol === "http:" && allowedHttpOrigin !== publicOrigin) {
+  throw new Error(
+    "WQN_ALLOW_HTTP_SUPABASE_ORIGIN must exactly match the private HTTP Supabase origin",
+  );
 }
+if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL must use HTTP or HTTPS");
+}
+if (publicUrl.protocol === "https:" && allowedHttpOrigin) {
+  throw new Error("WQN_ALLOW_HTTP_SUPABASE_ORIGIN must be empty for HTTPS");
+}
+const siteOrigin = new URL(required(app, "SITE_URL")).origin;
 const publishable = required(
   app,
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
@@ -94,21 +110,25 @@ if (required(app, "WQN_INTERNAL_API_ALLOWED_HOST") !== "wqn:3000") {
   throw new Error("WQN_INTERNAL_API_ALLOWED_HOST must be wqn:3000");
 }
 
-if (required(selfhost, "SUPABASE_PUBLIC_URL") !== "https://data.helema.cn") {
-  throw new Error("Self-hosted SUPABASE_PUBLIC_URL is incorrect");
-}
 if (
-  required(selfhost, "API_EXTERNAL_URL") !== "https://data.helema.cn/auth/v1"
+  new URL(required(selfhost, "SUPABASE_PUBLIC_URL")).origin !== publicOrigin
 ) {
-  throw new Error("Self-hosted API_EXTERNAL_URL is incorrect");
+  throw new Error("Application and self-hosted Supabase origins differ");
 }
-if (required(selfhost, "SITE_URL") !== "https://wqn.helema.cn") {
-  throw new Error("Self-hosted SITE_URL is incorrect");
+const apiExternalUrl = new URL(required(selfhost, "API_EXTERNAL_URL"));
+if (
+  apiExternalUrl.origin !== publicOrigin ||
+  apiExternalUrl.pathname.replace(/\/+$/, "") !== "/auth/v1"
+) {
+  throw new Error("API_EXTERNAL_URL must use the Supabase /auth/v1 endpoint");
+}
+if (new URL(required(selfhost, "SITE_URL")).origin !== siteOrigin) {
+  throw new Error("Application and self-hosted site origins differ");
 }
 if (
   !required(selfhost, "ADDITIONAL_REDIRECT_URLS")
     .split(",")
-    .includes("https://wqn.helema.cn/auth/callback")
+    .includes(`${siteOrigin}/auth/callback`)
 ) {
   throw new Error("Auth callback is absent from ADDITIONAL_REDIRECT_URLS");
 }
@@ -151,6 +171,4 @@ if (serverKey !== required(selfhost, "SUPABASE_SECRET_KEY")) {
   throw new Error("Application server key differs from self-hosted key");
 }
 
-console.log(
-  "[config] data.helema.cn application and self-hosted env validated",
-);
+console.log("[config] application and self-hosted Supabase env validated");

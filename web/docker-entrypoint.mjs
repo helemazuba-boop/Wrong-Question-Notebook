@@ -5,8 +5,13 @@ function required(name) {
 }
 
 const publicUrl = new URL(required('NEXT_PUBLIC_SUPABASE_URL'));
-if (publicUrl.protocol !== 'https:') {
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL must use HTTPS');
+const allowedHttpOrigin = process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN?.trim();
+const httpIsExplicitlyAllowed =
+  publicUrl.protocol === 'http:' && allowedHttpOrigin === publicUrl.origin;
+if (publicUrl.protocol !== 'https:' && !httpIsExplicitlyAllowed) {
+  throw new Error(
+    'NEXT_PUBLIC_SUPABASE_URL must use HTTPS unless WQN_ALLOW_HTTP_SUPABASE_ORIGIN exactly matches its HTTP origin'
+  );
 }
 const expectedHost = process.env.WQN_SUPABASE_EXPECTED_HOST?.trim();
 if (expectedHost && publicUrl.hostname !== expectedHost) {

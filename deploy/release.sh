@@ -376,6 +376,7 @@ build_app() {
     NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY \
     WQN_SUPABASE_EXPECTED_HOST \
+    WQN_ALLOW_HTTP_SUPABASE_ORIGIN \
     SUPABASE_SERVICE_ROLE_KEY \
     NEXT_SERVER_ACTIONS_ENCRYPTION_KEY \
     GEMINI_API_KEY \
@@ -412,6 +413,7 @@ RUNTIME_KEYS=(
   NEXT_PUBLIC_SUPABASE_URL
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
   WQN_SUPABASE_EXPECTED_HOST
+  WQN_ALLOW_HTTP_SUPABASE_ORIGIN
   SUPABASE_SECRET_KEY
   SUPABASE_SERVICE_ROLE_KEY
   NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
@@ -468,7 +470,7 @@ RUNTIME_KEYS=(
 )
 
 make_runtime_env() {
-  local out="$1" key value
+  local out="$1" key value supabase_url
   : > "$out"
   chmod 600 "$out"
   for key in "${RUNTIME_KEYS[@]}"; do
@@ -478,6 +480,11 @@ make_runtime_env() {
     value="${value//$'\n'/}"
     printf '%s=%s\n' "$key" "$value" >> "$out"
   done
+  supabase_url="$(getv SUPABASE_URL)"
+  [[ -n "$supabase_url" ]] || supabase_url="$(getv NEXT_PUBLIC_SUPABASE_URL)"
+  if [[ -n "$supabase_url" ]]; then
+    printf 'SUPABASE_URL=%s\n' "$supabase_url" >> "$out"
+  fi
 }
 
 deploy_all() {
@@ -582,7 +589,7 @@ if (( ! SKIP_REALTIME )); then
   printf '%s\n' '[deploy] Checking realtime health...'
   ok=0
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS --max-time 3 http://127.0.0.1:8080/health >/dev/null 2>&1; then
+    if docker exec "$RT_CONTAINER" wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1; then
       ok=1
       break
     fi

@@ -20,7 +20,21 @@ const sizeMap = {
 function safeSrc(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'blob:')
+    let configuredSupabaseOrigin: string | null = null;
+    try {
+      configuredSupabaseOrigin = new URL(
+        process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+      ).origin;
+    } catch {
+      // The production environment validator reports the configuration error.
+    }
+    const isConfiguredSupabaseHttpUrl =
+      parsed.protocol === 'http:' && parsed.origin === configuredSupabaseOrigin;
+    if (
+      parsed.protocol !== 'https:' &&
+      parsed.protocol !== 'blob:' &&
+      !isConfiguredSupabaseHttpUrl
+    )
       return null;
     // Return the URL parser's normalized serialization rather than the original
     // string. The URL constructor percent-encodes HTML metacharacters such as

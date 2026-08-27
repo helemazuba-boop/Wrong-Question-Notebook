@@ -34,6 +34,18 @@
 地址。Kong 的 `8000/8443` 应通过端口绑定、云防火墙或主机防火墙收敛到 WireGuard，Studio
 不得暴露，PostgreSQL/Supavisor 只允许运维网络访问。
 
+WQN 应用和 realtime 默认拒绝 production HTTP Supabase。开源部署若确实通过 WireGuard、
+VPC 或同等受信私网使用 HTTP，必须显式配置完整 origin：
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=http://10.77.0.2:8000
+WQN_SUPABASE_EXPECTED_HOST=10.77.0.2
+WQN_ALLOW_HTTP_SUPABASE_ORIGIN=http://10.77.0.2:8000
+```
+
+`WQN_ALLOW_HTTP_SUPABASE_ORIGIN` 必须与 URL 的规范化 origin 精确相等（不带尾斜杠），
+不是布尔型“关闭 TLS”开关。HTTPS 部署应将其留空。
+
 ## 2. 准备自托管栈
 
 1. 在目标机按官方 Docker 指南部署 Supabase，并记录所用上游 commit、Postgres/Auth/Storage/Kong 版本。

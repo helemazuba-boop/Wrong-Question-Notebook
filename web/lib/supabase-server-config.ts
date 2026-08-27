@@ -15,6 +15,7 @@ export function getSupabaseServerEnvironment(): SupabaseServerEnvironment {
     url: process.env[ENV_VARS.SUPABASE_URL],
     publishableKey: process.env[ENV_VARS.SUPABASE_ANON_KEY],
     expectedHost: process.env[ENV_VARS.SUPABASE_EXPECTED_HOST],
+    allowedHttpOrigin: process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN,
     nodeEnv: process.env.NODE_ENV,
   });
   const secretKey =

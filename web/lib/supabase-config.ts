@@ -7,6 +7,7 @@ export interface SupabaseEnvironmentInput {
   url?: string;
   publishableKey?: string;
   expectedHost?: string;
+  allowedHttpOrigin?: string;
   nodeEnv?: string;
 }
 
@@ -26,8 +27,12 @@ export function validateSupabasePublicEnvironment(
   }
 
   if (input.nodeEnv === 'production') {
-    if (url.protocol !== 'https:') {
-      throw new Error('Production Supabase URL must use HTTPS');
+    const httpIsExplicitlyAllowed =
+      url.protocol === 'http:' && input.allowedHttpOrigin === url.origin;
+    if (url.protocol !== 'https:' && !httpIsExplicitlyAllowed) {
+      throw new Error(
+        'Production Supabase URL must use HTTPS unless WQN_ALLOW_HTTP_SUPABASE_ORIGIN exactly matches its HTTP origin'
+      );
     }
     if (
       url.hostname === 'localhost' ||

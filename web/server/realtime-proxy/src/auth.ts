@@ -31,8 +31,17 @@ function getSupabase(): SupabaseClient {
   }
   const url = new URL(rawUrl);
   const expectedHost = process.env.WQN_SUPABASE_EXPECTED_HOST;
-  if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
-    throw new Error('Production SUPABASE_URL must use HTTPS');
+  const allowedHttpOrigin = process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN;
+  const httpIsExplicitlyAllowed =
+    url.protocol === 'http:' && allowedHttpOrigin === url.origin;
+  if (
+    process.env.NODE_ENV === 'production' &&
+    url.protocol !== 'https:' &&
+    !httpIsExplicitlyAllowed
+  ) {
+    throw new Error(
+      'Production SUPABASE_URL must use HTTPS unless WQN_ALLOW_HTTP_SUPABASE_ORIGIN exactly matches its HTTP origin'
+    );
   }
   if (expectedHost && url.hostname !== expectedHost) {
     throw new Error(`SUPABASE_URL must use ${expectedHost}`);

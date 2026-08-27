@@ -78,6 +78,8 @@ If you wish to just develop locally and not deploy to Vercel, [follow the steps 
    ```
    NEXT_PUBLIC_SUPABASE_URL=https://data.helema.cn
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=[INSERT SELF-HOSTED PUBLISHABLE KEY]
+   # Leave empty for HTTPS. For private HTTP, set the exact Supabase origin.
+   WQN_ALLOW_HTTP_SUPABASE_ORIGIN=
    ```
 
    Production migration and key setup are documented in `../deploy/supabase-selfhost/README.md`.
