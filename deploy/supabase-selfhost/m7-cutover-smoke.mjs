@@ -1,16 +1,36 @@
 import { randomBytes, randomUUID, webcrypto } from "node:crypto";
 
-const dataBase = (
-  process.env.SUPABASE_PUBLIC_URL ?? "https://data.helema.cn"
-).replace(/\/$/, "");
-const wqnBase = (process.env.WQN_BASE_URL ?? "https://wqn.helema.cn").replace(
-  /\/$/,
-  "",
-);
+function requiredOrigin(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  const endpoint = new URL(value);
+  const origin = endpoint.origin;
+  if (value.replace(/\/+$/, "") !== origin) {
+    throw new Error(`${name} must be an origin without a path`);
+  }
+  if (!new Set(["http:", "https:"]).has(endpoint.protocol)) {
+    throw new Error(`${name} must use HTTP or HTTPS`);
+  }
+  return origin;
+}
+
+const dataBase = requiredOrigin("SUPABASE_PUBLIC_URL");
+const wqnBase = requiredOrigin("WQN_BASE_URL");
+const confirmedDataBase = process.env.CONFIRM_SUPABASE_PUBLIC_ORIGIN;
 const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
 
+if (confirmedDataBase !== dataBase) {
+  throw new Error(
+    `CONFIRM_SUPABASE_PUBLIC_ORIGIN must exactly equal ${dataBase}`,
+  );
+}
 if (!publishableKey) {
   throw new Error("SUPABASE_PUBLISHABLE_KEY is required");
+}
+if (new URL(dataBase).protocol === "http:") {
+  console.warn(
+    "[m7-smoke] Supabase uses HTTP; continue only over an encrypted private network such as WireGuard",
+  );
 }
 
 async function request(url, init = {}) {
@@ -48,13 +68,20 @@ async function postV3(path, body, authorization) {
   });
 }
 
-const health = await request(`${dataBase}/auth/v1/health`);
+const health = await request(`${dataBase}/auth/v1/health`, {
+  headers: { apikey: publishableKey },
+});
 assert(health.ok, `Auth health failed with HTTP ${health.status}`);
 
 const rest = await request(`${dataBase}/rest/v1/`, {
   headers: { apikey: publishableKey },
 });
 assert(rest.ok, `REST health failed with HTTP ${rest.status}`);
+
+const storage = await request(`${dataBase}/storage/v1/status`, {
+  headers: { apikey: publishableKey },
+});
+assert(storage.ok, `Storage health failed with HTTP ${storage.status}`);
 
 const kongRoot = await request(`${dataBase}/`);
 assert(
@@ -163,5 +190,5 @@ assert(
 );
 
 console.log(
-  "[m7-smoke] PASS Auth/REST/Kong, legacy 426, v3 claim start/poll, and bootstrap authentication",
+  "[m7-smoke] PASS Auth/REST/Storage/Kong, legacy 426, v3 claim start/poll, and bootstrap authentication",
 );

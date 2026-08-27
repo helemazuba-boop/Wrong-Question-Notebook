@@ -1,6 +1,6 @@
-# data.helema.cn 自托管 Supabase 迁移
+# WQN 自托管 Supabase 迁移
 
-本目录是 WQN 切换到 `data.helema.cn` 自托管 Supabase 的可审计基建。数据库、Storage 和应用切换是独立门禁；任一步失败都不得切换生产流量。
+本目录是 WQN 自托管 Supabase 的可审计迁移基建。数据库、Storage 和应用切换是独立门禁；任一步失败都不得切换生产流量。
 
 > 2026-08-27 的当前决策：Supabase Cloud 仍是 primary，腾讯云 self-hosted
 > Supabase 仅作为 staging / clone target。本阶段从已 linked 的 Cloud 制作数据库与
@@ -17,36 +17,39 @@
 ## 1. 固定拓扑
 
 ```text
-Browser / Next.js / realtime proxy
-               │ HTTPS / WSS
-               ▼
-       data.helema.cn:443
-               │ OpenResty
-               ▼
-       127.0.0.1:8000 Kong
+阿里云 WQN Web（WireGuard 10.77.0.1）
                │
-       Auth / REST / Storage / Realtime
-               │
-          self-hosted PostgreSQL
+               │ WireGuard 10.77.0.0/24
+               ▼
+腾讯云 10.77.0.2:8000 Kong / API Gateway
+               ├── Auth
+               ├── REST
+               ├── Storage
+               ├── Realtime
+               └── self-hosted PostgreSQL
 ```
 
-Kong 的 `8000/8443` 不得监听公网地址；Studio 不经 `data.helema.cn` 暴露。PostgreSQL/Supavisor 端口只允许运维网络访问。
+当前 clone/staging 的 Supabase API origin 是 `http://10.77.0.2:8000`，只能由阿里云 Web
+主机经 WireGuard 使用。HTTP 明文位于 WireGuard 加密隧道内部；不得绕过 VPN 改用腾讯公网
+地址。Kong 的 `8000/8443` 应通过端口绑定、云防火墙或主机防火墙收敛到 WireGuard，Studio
+不得暴露，PostgreSQL/Supavisor 只允许运维网络访问。
 
 ## 2. 准备自托管栈
 
 1. 在目标机按官方 Docker 指南部署 Supabase，并记录所用上游 commit、Postgres/Auth/Storage/Kong 版本。
 2. 复制 `selfhost.env.example` 为目标机的私密 `.env`，逐项生成随机值。
-3. 确保以下值固定：
+3. 当前无 Supabase 公网域名或私有 DNS；clone/staging 内部 origin 固定为：
 
    ```dotenv
-   SUPABASE_PUBLIC_URL=https://data.helema.cn
-   API_EXTERNAL_URL=https://data.helema.cn/auth/v1
+   SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+   API_EXTERNAL_URL=http://10.77.0.2:8000/auth/v1
    SITE_URL=https://wqn.helema.cn
    ADDITIONAL_REDIRECT_URLS=https://wqn.helema.cn/auth/callback
    ```
 
-4. 将 Kong 的端口映射限制为 `127.0.0.1:8000:8000`。安装 `openresty-data.helema.cn.conf`，替换证书路径后执行 `openresty -t` 再平滑 reload。
-5. DNS 切换前先通过 `/etc/hosts` 在运维机验证 TLS、Auth、REST、Storage 和 Realtime。
+4. 腾讯 `wg0=10.77.0.2/24`，阿里 `wg0=10.77.0.1/24`；从阿里验证 Kong、Auth、REST、
+   Storage 和 Realtime，不创建 `data.helema.cn` DNS 或 `/etc/hosts` 映射。
+5. 浏览器可达入口、TLS 与正式 cutover 是独立设计门禁；本阶段不得为迁移临时开放公网 Kong。
 
 ## 3. 全新目标初始化（当前不执行）
 
@@ -252,7 +255,8 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 1. 在隔离主机部署全新自托管栈并记录所有镜像版本。
 2. 进入 clone 窗口，冻结 Cloud 的数据库与 Storage 写入口。
 3. 按第 4 节克隆数据库；成功后按第 5 节复制并校验 Storage 对象字节。
-4. 用 `/etc/hosts` 验证 `data.helema.cn`，部署仅供 staging 验收、指向腾讯目标的 WQN/realtime 镜像。
+4. 在阿里云部署仅供 staging 验收、明确指向腾讯 Target 的 WQN/realtime 实例；不得修改仍以
+   Cloud 为 primary 的生产实例配置。
 5. 执行环境校验和自动 smoke；旧控制面必须返回 `UPGRADE_REQUIRED`，v3 claim 必须可创建和轮询。
 6. 完成 Auth、REST、Storage、Realtime、行数与关键业务流程的人工验收。
 7. 恢复 Cloud primary 写入口；腾讯 staging 保持隔离，不接收生产流量。
@@ -266,20 +270,24 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：
 
 ```bash
-cd /home/unknow/projects/WQN/web
-export SUPABASE_PUBLIC_URL=https://data.helema.cn
+cd /path/to/WQN/web
+export SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+export CONFIRM_SUPABASE_PUBLIC_ORIGIN=http://10.77.0.2:8000
 export SUPABASE_PUBLISHABLE_KEY='...'
-export WQN_BASE_URL=https://wqn.helema.cn
+export WQN_BASE_URL='<阿里云上指向 Tencent Target 的 staging WQN origin>'
 npm run smoke:m7-cutover
+unset SUPABASE_PUBLIC_URL CONFIRM_SUPABASE_PUBLIC_ORIGIN
+unset SUPABASE_PUBLISHABLE_KEY WQN_BASE_URL
 ```
 
 最低人工 smoke：
 
 ```bash
-curl -fsS https://data.helema.cn/auth/v1/health
-curl -i https://data.helema.cn/rest/v1/ \
+curl -i http://10.77.0.2:8000/auth/v1/health \
   -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
-curl -i https://data.helema.cn/
+curl -i http://10.77.0.2:8000/rest/v1/ \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
+curl -i http://10.77.0.2:8000/
 ```
 
 最后一个请求必须返回 `404`，证明 Studio/Kong root 未暴露。随后在浏览器完成注册确认、登录、刷新 session、头像访问；设备完成 bootstrap/sync；Realtime 完成一次 WebSocket 会话。
