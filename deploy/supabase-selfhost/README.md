@@ -281,7 +281,9 @@ unset SUPABASE_PUBLIC_URL CONFIRM_SUPABASE_PUBLIC_ORIGIN SUPABASE_PUBLISHABLE_KE
 
 该 smoke 验证 Auth、REST、Storage、隐藏的 Kong root 以及 Realtime WebSocket 握手；不输出
 响应 payload 或 key，也不创建业务数据。它不能替代下方要求 staging WQN 实例明确指向
-Tencent Target 的应用级 smoke。
+Tencent Target 的应用级 smoke。阿里一次性 runner 可直接执行
+`run-target-infra-smoke.sh` 并在隐藏提示中输入 publishable key；通过管道调用时则从 stdin
+读取 key。两种模式都会在退出时清理环境变量，并以 90 秒为总超时。
 
 自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：
 
