@@ -83,10 +83,17 @@ const storage = await request(`${dataBase}/storage/v1/status`, {
 });
 assert(storage.ok, `Storage health failed with HTTP ${storage.status}`);
 
-const kongRoot = await request(`${dataBase}/`);
+const anonymousKongRoot = await request(`${dataBase}/`);
 assert(
-  kongRoot.status === 404,
-  `Kong root must be hidden (got HTTP ${kongRoot.status})`,
+  new Set([401, 404]).has(anonymousKongRoot.status),
+  `Anonymous Kong root must be hidden (got HTTP ${anonymousKongRoot.status})`,
+);
+const authenticatedKongRoot = await request(`${dataBase}/`, {
+  headers: { apikey: publishableKey },
+});
+assert(
+  authenticatedKongRoot.status === 404,
+  `Authenticated Kong root must return HTTP 404 (got HTTP ${authenticatedKongRoot.status})`,
 );
 
 const legacyRequestId = `m7_legacy_${randomUUID().replaceAll("-", "").slice(0, 24)}`;

@@ -54,10 +54,15 @@ assert(rest.ok, `REST health failed with HTTP ${rest.status}`);
 const storage = await request("/storage/v1/status");
 assert(storage.ok, `Storage health failed with HTTP ${storage.status}`);
 
-const kongRoot = await request("/", false);
+const anonymousKongRoot = await request("/", false);
 assert(
-  kongRoot.status === 404,
-  `Kong root must be hidden (got HTTP ${kongRoot.status})`,
+  new Set([401, 404]).has(anonymousKongRoot.status),
+  `Anonymous Kong root must be hidden (got HTTP ${anonymousKongRoot.status})`,
+);
+const authenticatedKongRoot = await request("/");
+assert(
+  authenticatedKongRoot.status === 404,
+  `Authenticated Kong root must return HTTP 404 (got HTTP ${authenticatedKongRoot.status})`,
 );
 
 if (typeof WebSocket !== "function") {

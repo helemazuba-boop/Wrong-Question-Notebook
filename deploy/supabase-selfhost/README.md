@@ -304,9 +304,13 @@ curl -i http://10.77.0.2:8000/auth/v1/health \
 curl -i http://10.77.0.2:8000/rest/v1/ \
   -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
 curl -i http://10.77.0.2:8000/
+curl -i http://10.77.0.2:8000/ \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
 ```
 
-最后一个请求必须返回 `404`，证明 Studio/Kong root 未暴露。随后在浏览器完成注册确认、登录、刷新 session、头像访问；设备完成 bootstrap/sync；Realtime 完成一次 WebSocket 会话。
+匿名 root 必须返回 `401` 或 `404`，带 publishable key 的 root 必须返回 `404`，证明
+Studio/Kong root 未暴露。随后在浏览器完成注册确认、登录、刷新 session、头像访问；设备完成
+bootstrap/sync；Realtime 完成一次 WebSocket 会话。
 
 ## 9. Staging clone 失败处理
 
