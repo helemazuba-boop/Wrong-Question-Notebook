@@ -166,19 +166,25 @@ SHA-256 校验。若先做在线预复制，必须注意脚本不会删除 Sourc
 `storage.buckets` / `storage.objects` 的 metadata 则由第 4 节 DB restore 带入，不应手工清空。
 
 ```bash
+# 在阿里云 WQN Web 主机执行；Target 请求必须经 WireGuard 到腾讯云 Kong。
 cd /home/unknow/projects/WQN/web
 set +x
 read -rp 'Source Supabase origin: ' SOURCE_SUPABASE_URL
 read -rsp 'Source Supabase secret key: ' SOURCE_SUPABASE_SECRET_KEY; echo
-TARGET_SUPABASE_URL=https://data.helema.cn
+read -rp 'Target Supabase WireGuard origin: ' TARGET_SUPABASE_URL
+read -rp 'Confirm exact target origin: ' CONFIRM_TARGET_SUPABASE_ORIGIN
 read -rsp 'Target Supabase secret key: ' TARGET_SUPABASE_SECRET_KEY; echo
 export SOURCE_SUPABASE_URL SOURCE_SUPABASE_SECRET_KEY
-export TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY
+export TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY CONFIRM_TARGET_SUPABASE_ORIGIN
 npm run migrate:supabase-storage
-unset SOURCE_SUPABASE_SECRET_KEY TARGET_SUPABASE_SECRET_KEY
+unset SOURCE_SUPABASE_URL SOURCE_SUPABASE_SECRET_KEY
+unset TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY CONFIRM_TARGET_SUPABASE_ORIGIN
 ```
 
-默认迁移 `avatars,problem-uploads`；通过 `STORAGE_BUCKETS` 显式扩展。任何 checksum mismatch 都是切换阻断项。
+当前阿里云 Web → WireGuard → 腾讯云 Kong 的 Target origin 是
+`http://10.77.0.2:8000`。该 HTTP 连接只能在 WireGuard 加密私网内使用；不得改用公网路径。
+脚本要求 `CONFIRM_TARGET_SUPABASE_ORIGIN` 与解析后的 Target origin 精确一致，并默认迁移
+`avatars,problem-uploads,word-packs`；通过 `STORAGE_BUCKETS` 显式覆盖。任何 checksum mismatch 都是切换阻断项。
 脚本也会比较源/目标 bucket 的 public、文件大小上限和 MIME 白名单；不一致时拒绝继续，
 并为每个 bucket 输出对象数、总字节数和路径/大小/内容散列组成的 manifest SHA-256。
 `VERIFY_STORAGE_BYTES=0` 只可用于预演，输出不能作为正式切换验收证据。
