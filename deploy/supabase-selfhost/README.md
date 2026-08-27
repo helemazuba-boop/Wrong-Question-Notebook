@@ -141,6 +141,7 @@ history 和 row counts 使用 `supabase db query --linked`，Target 的检查、
 
 - 拒绝重复设备 MAC、非法 token hash 或未应用 v3 的源库；
 - 拒绝覆盖已有 WQN 表的目标库；
+- 在 dump 前精确比较 Source/Target `auth.schema_migrations`，拒绝不兼容的 Auth schema；
 - 生成权限为 `0700/0600` 的 dump、SHA-256 和审计输出；
 - 在单事务中恢复数据；
 - 原样复制并校验源库 `supabase_migrations.schema_migrations`（包括 name/statements），避免后续 `db push` 重放历史；
@@ -151,7 +152,8 @@ history 和 row counts 使用 `supabase db query --linked`，Target 的检查、
 restore 本身是单事务，但 migration history 重建和最终验证发生在后续事务中。如果脚本在
 restore 成功后失败，Target 可能已经非空；不得为了重跑而设置
 `ALLOW_NONEMPTY_TARGET=1`。保留失败 artifacts 和目标用于诊断，然后重新创建干净 staging
-数据库再执行完整流程。
+数据库再执行完整流程。restore 的标准输出和错误输出分别保存在 `restore.txt` 与
+`restore-error.txt`，失败时先保留并审查这两个文件，不要直接覆盖重跑。
 
 `artifacts/` 含数据库业务数据，不得提交、上传公共制品库或长期留在构建机。验收后转移到加密备份介质。
 

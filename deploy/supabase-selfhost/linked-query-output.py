@@ -53,6 +53,28 @@ def write_migration_history_csv(rows: list[dict[str, object]], output: io.TextIO
     writer.writerows(migration_rows(rows))
 
 
+def write_auth_migration_versions(rows: list[dict[str, object]], output: io.TextIOBase) -> None:
+    versions = []
+    for row in rows:
+        if set(row) != {"version"}:
+            raise ValueError("Auth migration query returned unexpected columns")
+        version = row["version"]
+        if (
+            not isinstance(version, str)
+            or not version
+            or not version.isascii()
+            or not version.isdigit()
+        ):
+            raise ValueError("Auth migration version must be non-empty ASCII digits")
+        versions.append(version)
+    if not versions:
+        raise ValueError("Auth migration history must not be empty")
+    if versions != sorted(set(versions)):
+        raise ValueError("Auth migration versions must be unique and sorted")
+    for version in versions:
+        output.write(f"{version}\n")
+
+
 def write_row_counts_tsv(rows: list[dict[str, object]], output: io.TextIOBase) -> None:
     parsed = []
     for row in rows:
@@ -93,6 +115,25 @@ def self_test() -> None:
     ]
     assert history.getvalue().count("\n") > 1
 
+    auth_versions = io.StringIO()
+    write_auth_migration_versions(
+        [{"version": "20260302000000"}, {"version": "20260625000000"}],
+        auth_versions,
+    )
+    assert auth_versions.getvalue() == "20260302000000\n20260625000000\n"
+    for invalid_auth_rows in (
+        [],
+        [{"version": "20260625000000"}, {"version": "20260302000000"}],
+        [{"version": "not-a-version"}],
+        [{"version": "20260625000000", "unexpected": True}],
+    ):
+        try:
+            write_auth_migration_versions(invalid_auth_rows, io.StringIO())
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid Auth migration rows were accepted")
+
     counts = io.StringIO()
     write_row_counts_tsv(
         [
@@ -111,13 +152,15 @@ def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit(
             "usage: linked-query-output.py "
-            "{migration-versions|migration-history-csv|row-counts-tsv} INPUT_JSON"
+            "{migration-versions|migration-history-csv|auth-migration-versions|"
+            "row-counts-tsv} INPUT_JSON"
         )
     mode, input_path = sys.argv[1:]
     rows = load_rows(input_path)
     writers = {
         "migration-versions": write_migration_versions,
         "migration-history-csv": write_migration_history_csv,
+        "auth-migration-versions": write_auth_migration_versions,
         "row-counts-tsv": write_row_counts_tsv,
     }
     try:

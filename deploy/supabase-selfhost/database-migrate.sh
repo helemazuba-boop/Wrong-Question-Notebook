@@ -70,6 +70,14 @@ fi
 python3 "$script_dir/linked-query-output.py" migration-history-csv \
   "$artifact_root/source-migration-history.json" \
   > "$artifact_root/source-migration-history.csv"
+linked_query '
+  select version::text as version
+  from auth.schema_migrations
+  order by version
+' > "$artifact_root/source-auth-migrations.json"
+python3 "$script_dir/linked-query-output.py" auth-migration-versions \
+  "$artifact_root/source-auth-migrations.json" \
+  > "$artifact_root/source-auth-migrations.txt"
 
 printf '%s\n' '[migration] Running source preflight...'
 linked_query_file "$script_dir/source-preflight.sql" \
@@ -99,6 +107,18 @@ if [[ "$target_is_superuser" != 'true' && "$target_is_superuser" != 't' ]]; then
   printf '%s\n' '[migration] Use the self-hosted supabase_admin maintenance credential, never the app runtime key.' >&2
   exit 1
 fi
+psql "$TARGET_DATABASE_URL" --no-align --tuples-only \
+  --set ON_ERROR_STOP=1 \
+  --command 'select version::text from auth.schema_migrations order by version' \
+  > "$artifact_root/target-auth-migrations-before-restore.txt"
+if ! diff -u \
+  "$artifact_root/source-auth-migrations.txt" \
+  "$artifact_root/target-auth-migrations-before-restore.txt" \
+  > "$artifact_root/auth-migrations-before-restore.diff"; then
+  printf '%s\n' '[migration] Source/target Auth migration history differs; refusing restore.' >&2
+  printf '%s\n' '[migration] Align the self-hosted Auth image/schema with Cloud before retrying.' >&2
+  exit 1
+fi
 
 printf '%s\n' '[migration] Creating Supabase-compatible role/schema/data dumps...'
 linked_dump "$artifact_root/roles.sql" --role-only
@@ -117,7 +137,8 @@ psql \
   --command 'set session_replication_role = replica' \
   --file "$artifact_root/data.sql" \
   --dbname "$TARGET_DATABASE_URL" \
-  > "$artifact_root/restore.txt"
+  > "$artifact_root/restore.txt" \
+  2> "$artifact_root/restore-error.txt"
 
 printf '%s\n' '[migration] Reconstructing Supabase migration history...'
 psql "$TARGET_DATABASE_URL" --single-transaction --set ON_ERROR_STOP=1 --command '
