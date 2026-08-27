@@ -20,6 +20,7 @@ import {
   type NoteCandidatePageRequest,
   type CreateNoteStudySessionRequest,
   type NoteObservationRequest,
+  type NoteSkipObservationRequest,
   type NoteStudySessionData,
 } from './note-study-v1';
 
@@ -254,30 +255,25 @@ export async function createNoteStudySession(
   };
   const outputLimit = input.optional_count ?? MAX_SESSION_CANDIDATES;
 
-  const snapshot: Array<{
-    notebook_id: string;
-    content_revision: number;
-    pack_revision: number;
-    sha256: string;
-  }> = [];
-  for (const notebook of notebooks) {
-    const pack = await buildNotePack(supabase, userId, notebook.id);
-    snapshot.push({
-      notebook_id: notebook.id,
-      content_revision: pack.content_revision,
-      pack_revision: pack.pack_revision,
-      sha256: pack.sha256,
-    });
-  }
-
-  const progressRevision = await progressRevisionForUser(supabase, userId);
-  const candidates = await collectCandidates(
-    supabase,
-    userId,
-    notebooks,
-    semantics.ordering,
-    outputLimit
-  );
+  const [packs, progressRevision, candidates] = await Promise.all([
+    Promise.all(
+      notebooks.map(notebook => buildNotePack(supabase, userId, notebook.id))
+    ),
+    progressRevisionForUser(supabase, userId),
+    collectCandidates(
+      supabase,
+      userId,
+      notebooks,
+      semantics.ordering,
+      outputLimit
+    ),
+  ]);
+  const snapshot = packs.map(pack => ({
+    notebook_id: pack.notebook_id,
+    content_revision: pack.content_revision,
+    pack_revision: pack.pack_revision,
+    sha256: pack.sha256,
+  }));
   const allCandidateItems = candidates.map((candidate, ordinal) => ({
     item_id: candidate.item_id,
     notebook_id: candidate.notebook_id,
@@ -436,7 +432,7 @@ export async function loadNoteStudyCandidatePage(
   });
 }
 
-function mapObservationRpcError(
+export function mapObservationRpcError(
   action: string,
   error: { message?: string }
 ): never {
@@ -491,6 +487,13 @@ function mapObservationRpcError(
       403
     );
   }
+  if (message.includes('INVALID_STUDY_OBSERVATION')) {
+    throw new NoteStudyServiceError(
+      'INVALID_REQUEST',
+      'Note study observation failed input validation',
+      400
+    );
+  }
   databaseError(action, error);
 }
 
@@ -498,7 +501,16 @@ async function loadEquivalentAppliedObservation(
   supabase: SupabaseClient<any>,
   userId: string,
   deviceId: string | null,
-  input: NoteObservationRequest
+  // Accepts both strict observation requests and relaxed skip tombstones;
+  // placeholder (undefined or free-form) action/mode simply never matches a
+  // stored row.
+  input:
+    | NoteObservationRequest
+    | NoteSkipObservationRequest
+    | (Pick<NoteObservationRequest, 'session_id' | 'sequence' | 'item_id'> & {
+        action?: string;
+        mode?: string;
+      })
 ) {
   let query = supabase
     .from('study_observations')
@@ -599,7 +611,7 @@ export async function skipNoteStudyObservation(
   supabase: SupabaseClient<any>,
   userId: string,
   deviceId: string | null,
-  input: NoteObservationRequest
+  input: NoteSkipObservationRequest
 ) {
   const { data, error } = await supabase.rpc('skip_note_study_observation_v1', {
     p_user_id: userId,
@@ -608,9 +620,12 @@ export async function skipNoteStudyObservation(
     p_session_id: input.session_id,
     p_sequence: input.sequence,
     p_item_id: input.item_id,
-    p_action: input.action,
-    p_mode: input.mode,
-    p_occurred_at: input.occurred_at,
+    // Minimal Tombstone Contract: placeholders are legal; the SQL function
+    // ignores action, derives mode from the locked session, and defaults
+    // occurred_at to server time.
+    p_action: input.action ?? null,
+    p_mode: input.mode ?? null,
+    p_occurred_at: input.occurred_at ?? null,
   });
   if (error) {
     if (

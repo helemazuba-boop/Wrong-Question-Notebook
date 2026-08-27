@@ -13,7 +13,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { noteStudyErrorResponse } from '@/lib/note-study-route';
 import { skipNoteStudyObservation } from '@/lib/note-study-service';
 import {
-  noteObservationRequestSchema,
+  noteSkipObservationRequestSchema,
   noteObservationSuccessSchema,
 } from '@/lib/note-study-v1';
 
@@ -41,7 +41,7 @@ async function skipObservation(req: NextRequest) {
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const parsed = noteObservationRequestSchema.safeParse(body);
+  const parsed = noteSkipObservationRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }

@@ -24,6 +24,7 @@ export interface EinkDerivedAsset {
   preview_path: string;
   gray4_image_id: string;
   gray4_display_path: string;
+  gray4_preview_path: string;
 }
 
 export class EinkDerivationError extends Error {
@@ -71,6 +72,7 @@ export async function renderEinkDerivations(
   const displayPath = `${base}.wqni`;
   const previewPath = `${base}.png`;
   const gray4DisplayPath = `${derivedDir}/${rendered.gray4ImageId}.gray4.wqni`;
+  const gray4PreviewPath = `${derivedDir}/${rendered.gray4ImageId}.gray4.png`;
 
   const { error: wqniError } = await service.storage
     .from(BUCKET)
@@ -102,6 +104,16 @@ export async function renderEinkDerivations(
   if (previewError) {
     throw new EinkDerivationError('storage_error', previewError.message);
   }
+  const { error: gray4PreviewError } = await service.storage
+    .from(BUCKET)
+    .upload(gray4PreviewPath, rendered.gray4Preview, {
+      contentType: 'image/png',
+      cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
+      upsert: true,
+    });
+  if (gray4PreviewError) {
+    throw new EinkDerivationError('storage_error', gray4PreviewError.message);
+  }
 
   return {
     path: originalPath,
@@ -110,5 +122,6 @@ export async function renderEinkDerivations(
     preview_path: previewPath,
     gray4_image_id: rendered.gray4ImageId,
     gray4_display_path: gray4DisplayPath,
+    gray4_preview_path: gray4PreviewPath,
   };
 }

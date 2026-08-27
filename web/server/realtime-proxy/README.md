@@ -8,8 +8,8 @@ to StepFun's Realtime API for Flash-tier (real-time voice) AI sessions.
    │  ESP32   │  ─────────▶  │  Bun relay       │  ────────▶ │  StepFun        │
    │ firmware │  ◀─────────  │  (this service)  │  ◀──────── │  Realtime       │
    └──────────┘              │  – WFLV ↔ Re-   │             │  – PCM/Opus     │
-                             │    altime frames  │             │  – 12 tools     │
-                             │  – tool routing  │             │    in firmware  │
+                             │    altime frames  │             │  – 11 tools     │
+                             │  – tool routing  │             │    via relay    │
                              │    via Next.js   │             └────────────────┘
                              └──────────────────┘
                                     │ http://localhost:3000/api/esp32/ai/execute-tool

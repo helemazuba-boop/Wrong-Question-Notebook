@@ -4616,6 +4616,28 @@ export type Database = {
           }
         | { Args: { p_user_id: string }; Returns: Json };
       get_user_storage_bytes: { Args: { p_user_id: string }; Returns: number };
+      get_recent_note_reads_v2: {
+        Args: {
+          p_limit?: number;
+          p_notebook_id?: string | null;
+          p_user_id: string;
+        };
+        Returns: {
+          actor: string;
+          completed_count: number;
+          last_completed_at: string | null;
+          last_opened_at: string;
+          note_id: string;
+          note_title: string;
+          notebook_id: string;
+          notebook_title: string;
+          state: string;
+        }[];
+      };
+      get_web_note_study_session_v2: {
+        Args: { p_session_id: string; p_user_id: string };
+        Returns: Json;
+      };
       get_weekly_progress: {
         Args: { p_user_id: string; p_user_tz?: string };
         Returns: Json;
@@ -4668,6 +4690,20 @@ export type Database = {
           p_request_id: string;
           p_sequence: number;
           p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      record_web_note_study_observation_v2: {
+        Args: {
+          p_action: string;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_skip?: boolean;
           p_user_id: string;
         };
         Returns: Json;

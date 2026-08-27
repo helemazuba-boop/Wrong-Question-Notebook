@@ -93,8 +93,8 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
     try {
       switch (name) {
         case 'list_authorized_notebooks': {
-          await listAuthorizedNotebooks(toolCtx);
-          return { ok: true, display: safeDisplay(name), action: undefined };
+          const data = await listAuthorizedNotebooks(toolCtx);
+          return { ok: true, display: safeDisplay(name), data };
         }
         case 'create_notebook_note': {
           const r = await createNotebookNoteFromAi(toolCtx, {
@@ -103,30 +103,35 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
             content: String(args.content || ''),
             linked_problem_id: (args.linked_problem_id as string) || null,
           });
-          return { ok: true, display: 'Note saved', action: r.action };
+          return {
+            ok: true,
+            display: 'Note saved',
+            data: r.note,
+            action: r.action,
+          };
         }
         case 'search_user_problems': {
-          await searchUserProblems(toolCtx, {
+          const data = await searchUserProblems(toolCtx, {
             query: String(args.query || ''),
             subject_id: (args.subject_id as string) || undefined,
             limit: typeof args.limit === 'number' ? args.limit : undefined,
           });
-          return { ok: true, display: safeDisplay(name) };
+          return { ok: true, display: safeDisplay(name), data };
         }
         case 'get_problem_detail': {
-          await getProblemDetail(toolCtx, {
+          const data = await getProblemDetail(toolCtx, {
             problem_id: String(args.problem_id || ''),
           });
-          return { ok: true, display: safeDisplay(name) };
+          return { ok: true, display: safeDisplay(name), data };
         }
         case 'list_todos': {
-          await listTodosForAi(toolCtx, {
+          const data = await listTodosForAi(toolCtx, {
             status:
               (args.status as 'pending' | 'completed' | 'cancelled' | 'all') ||
               'pending',
             limit: typeof args.limit === 'number' ? args.limit : undefined,
           });
-          return { ok: true, display: safeDisplay(name) };
+          return { ok: true, display: safeDisplay(name), data };
         }
         case 'create_todo': {
           const r = await createTodoFromAi(toolCtx, {
@@ -139,7 +144,12 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
             problem_id: (args.problem_id as string) || undefined,
             notebook_id: (args.notebook_id as string) || undefined,
           });
-          return { ok: true, display: 'Todo created', action: r.action };
+          return {
+            ok: true,
+            display: 'Todo created',
+            data: r.todo,
+            action: r.action,
+          };
         }
         case 'update_todo_status': {
           const r = await updateTodoStatusFromAi(toolCtx, {
@@ -148,11 +158,16 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
               (args.status as 'pending' | 'completed' | 'cancelled') ||
               'pending',
           });
-          return { ok: true, display: 'Todo updated', action: r.action };
+          return {
+            ok: true,
+            display: 'Todo updated',
+            data: r.todo,
+            action: r.action,
+          };
         }
         case 'list_word_decks': {
-          await listAuthorizedWordDecks(toolCtx);
-          return { ok: true, display: safeDisplay(name) };
+          const data = await listAuthorizedWordDecks(toolCtx);
+          return { ok: true, display: safeDisplay(name), data };
         }
         case 'create_word_deck': {
           const r = await createWordDeck(supabase, ctx.userId, {
@@ -167,7 +182,12 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
                 : 'english_word',
             source: 'ai',
           });
-          return { ok: true, display: 'Deck created', action: r.action };
+          return {
+            ok: true,
+            display: 'Deck created',
+            data: r.deck,
+            action: r.action,
+          };
         }
         case 'add_word_to_deck': {
           const r = await addWordEntryToDeck(
@@ -184,16 +204,21 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
               part_of_speech: (args.part_of_speech as string) || undefined,
             }
           );
-          return { ok: true, display: 'Word added', action: r.action };
+          return {
+            ok: true,
+            display: 'Word added',
+            data: r.entry,
+            action: r.action,
+          };
         }
         case 'search_words': {
-          await searchWords(supabase, ctx.userId, {
+          const data = await searchWords(supabase, ctx.userId, {
             q: (args.q as string) || undefined,
             prefix: (args.prefix as string) || undefined,
             deck_id: (args.deck_id as string) || undefined,
             limit: typeof args.limit === 'number' ? args.limit : undefined,
           });
-          return { ok: true, display: safeDisplay(name) };
+          return { ok: true, display: safeDisplay(name), data };
         }
         default:
           return { ok: false, display: 'Unknown tool: ' + (name || 'unnamed') };

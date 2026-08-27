@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import StatisticsPageClient from './statistics-page-client';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import { unstable_cache } from 'next/cache';
 import {
   CACHE_DURATIONS,
@@ -63,8 +64,8 @@ const emptyData: StatisticsData = {
 
 async function loadStatistics(): Promise<StatisticsPagePayload> {
   const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id;
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  const userId = user?.id;
 
   if (!userId) {
     return {

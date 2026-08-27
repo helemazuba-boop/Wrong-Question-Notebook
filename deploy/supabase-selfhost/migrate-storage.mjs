@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+
+const requireFromWorkingDirectory = createRequire(resolve("package.json"));
+const { createClient } = requireFromWorkingDirectory("@supabase/supabase-js");
 
 function required(name) {
   const value = process.env[name];
@@ -11,25 +15,36 @@ const sourceUrl = required("SOURCE_SUPABASE_URL");
 const sourceKey = required("SOURCE_SUPABASE_SECRET_KEY");
 const targetUrl = required("TARGET_SUPABASE_URL");
 const targetKey = required("TARGET_SUPABASE_SECRET_KEY");
+const confirmedTargetOrigin = required("CONFIRM_TARGET_SUPABASE_ORIGIN");
 const sourceOrigin = new URL(sourceUrl).origin;
 const targetOrigin = new URL(targetUrl).origin;
 if (sourceOrigin !== sourceUrl.replace(/\/+$/, "")) {
   throw new Error("SOURCE_SUPABASE_URL must be an origin without a path");
 }
-if (
-  targetOrigin !== "https://data.helema.cn" ||
-  targetUrl.replace(/\/+$/, "") !== targetOrigin
-) {
-  throw new Error("TARGET_SUPABASE_URL must be https://data.helema.cn");
+if (targetOrigin !== targetUrl.replace(/\/+$/, "")) {
+  throw new Error("TARGET_SUPABASE_URL must be an origin without a path");
 }
 if (new URL(sourceUrl).protocol !== "https:") {
   throw new Error("SOURCE_SUPABASE_URL must use HTTPS");
+}
+if (!new Set(["http:", "https:"]).has(new URL(targetUrl).protocol)) {
+  throw new Error("TARGET_SUPABASE_URL must use HTTP or HTTPS");
+}
+if (confirmedTargetOrigin !== targetOrigin) {
+  throw new Error(
+    `CONFIRM_TARGET_SUPABASE_ORIGIN must exactly equal ${targetOrigin}`,
+  );
 }
 if (!targetKey.startsWith("sb_secret_")) {
   throw new Error("TARGET_SUPABASE_SECRET_KEY must use the sb_secret_ format");
 }
 if (sourceOrigin === targetOrigin)
   throw new Error("Source and target must differ");
+if (new URL(targetUrl).protocol === "http:") {
+  console.warn(
+    "[storage] Target uses HTTP; continue only over an encrypted private network such as WireGuard",
+  );
+}
 
 const source = createClient(sourceUrl, sourceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -37,7 +52,9 @@ const source = createClient(sourceUrl, sourceKey, {
 const target = createClient(targetUrl, targetKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const bucketNames = (process.env.STORAGE_BUCKETS || "avatars,problem-uploads")
+const bucketNames = (
+  process.env.STORAGE_BUCKETS || "avatars,problem-uploads,word-packs"
+)
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);

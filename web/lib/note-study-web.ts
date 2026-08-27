@@ -3,10 +3,12 @@ import { z } from 'zod';
 import type { Database } from './database.types';
 import { logger } from './logger';
 import {
+  noteObservationDataSchema,
   noteStudyModeSchema,
   noteStudySessionItemSchema,
   type NoteStudyMode,
 } from './note-study-v1';
+import { mapObservationRpcError } from './note-study-service';
 
 const sessionStatusSchema = z.enum([
   'active',
@@ -103,6 +105,99 @@ export interface WebNoteStudySessionView extends WebNoteStudySessionSummary {
   };
 }
 
+const webNoteReadStateSchema = z.strictObject({
+  state: z.enum(['unread', 'reading', 'completed']),
+  last_opened_at: z.string().datetime({ offset: true }).nullable(),
+  last_completed_at: z.string().datetime({ offset: true }).nullable(),
+  completed_count: z.number().int().nonnegative(),
+});
+
+const webNoteStudyItemSchema = z.strictObject({
+  available: z.boolean(),
+  item_id: z.uuid(),
+  notebook_id: z.uuid(),
+  notebook_title: z.string(),
+  ordinal: z.number().int().nonnegative(),
+  title: z.string(),
+  content: z.string(),
+  content_format: z.string(),
+  source: z.string(),
+  assets: z.array(
+    z.strictObject({
+      path: z.string(),
+      image_id: z.string(),
+      display_path: z.string(),
+      preview_path: z.string(),
+    })
+  ),
+  revision: z.number().int().nonnegative(),
+  linked_problem: z
+    .strictObject({
+      problem_id: z.uuid(),
+      problem_set_id: z.uuid().nullable(),
+      subject_id: z.uuid(),
+      title: z.string(),
+      status: z.string(),
+    })
+    .nullable(),
+  read_state: webNoteReadStateSchema,
+});
+
+const webNoteStudySessionViewSchema = z.strictObject({
+  session_id: z.uuid(),
+  mode: noteStudyModeSchema,
+  status: sessionStatusSchema,
+  notebook_ids: z.array(z.uuid()).max(32),
+  notebook_titles: z.array(z.string()).max(32),
+  candidate_count: z.number().int().nonnegative().max(500),
+  next_sequence: z.number().int().nonnegative(),
+  started_at: z.string().datetime({ offset: true }),
+  last_activity_at: z.string().datetime({ offset: true }),
+  expires_at: z.string().datetime({ offset: true }),
+  device_id: z.uuid().nullable(),
+  current_note_id: z.uuid().nullable(),
+  current_note_title: z.string().nullable(),
+  current_item: webNoteStudyItemSchema.nullable(),
+  result: z.strictObject({
+    opened_count: z.number().int().nonnegative(),
+    completed_count: z.number().int().nonnegative(),
+    skipped_count: z.number().int().nonnegative(),
+  }),
+});
+
+const webNoteObservationAdvanceSchema = z.strictObject({
+  observation: noteObservationDataSchema,
+  session: webNoteStudySessionViewSchema,
+});
+
+const recentNoteReadsSchema = z.array(
+  z.strictObject({
+    note_id: z.uuid(),
+    notebook_id: z.uuid(),
+    notebook_title: z.string(),
+    note_title: z.string(),
+    state: z.enum(['unread', 'reading', 'completed']),
+    last_opened_at: z.string().datetime({ offset: true }),
+    last_completed_at: z.string().datetime({ offset: true }).nullable(),
+    completed_count: z.number().int().nonnegative(),
+    actor: z.enum(['web', 'note4', 'unknown']),
+  })
+);
+
+export type WebNoteObservationAdvance = z.infer<
+  typeof webNoteObservationAdvanceSchema
+>;
+
+export interface WebNoteObservationInput {
+  request_id: string;
+  session_id: string;
+  sequence: number;
+  item_id: string;
+  action: 'opened' | 'read_completed' | 'skipped';
+  mode: NoteStudyMode;
+  occurred_at: string;
+}
+
 export class WebNoteStudyError extends Error {
   constructor(
     public readonly code: string,
@@ -161,6 +256,7 @@ function mapReadState(row: any): NoteReadStateView {
 
 async function loadNotebookTitles(
   supabase: SupabaseClient<any>,
+  userId: string,
   notebookIds: string[]
 ): Promise<Map<string, string>> {
   const ids = [...new Set(notebookIds)].filter(Boolean);
@@ -168,6 +264,7 @@ async function loadNotebookTitles(
   const { data, error } = await supabase
     .from('notebooks')
     .select('id, title')
+    .eq('user_id', userId)
     .in('id', ids);
   if (error) databaseError('loadNotebookTitles', error);
   return new Map((data || []).map((row: any) => [row.id, row.title]));
@@ -176,9 +273,10 @@ async function loadNotebookTitles(
 function summaryFromRow(
   row: Database['public']['Tables']['study_sessions']['Row'],
   notebookTitles: Map<string, string>,
-  current?: { id: string; title: string } | null
+  current?: { id: string; title: string } | null,
+  parsedScope?: { notebook_ids: string[]; include_archived: boolean }
 ): WebNoteStudySessionSummary {
-  const scope = parseScope(row.scope);
+  const scope = parsedScope ?? parseScope(row.scope);
   return {
     session_id: row.id,
     mode: noteStudyModeSchema.parse(row.mode),
@@ -234,41 +332,45 @@ export async function loadResumableWebNoteStudySessions(
     .limit(Math.min(Math.max(options.limit || 12, 1), 30));
   if (error) databaseError('loadResumableSessions', error);
 
-  const filtered = (data || []).filter(row => {
-    const scope = parseScope(row.scope);
-    return (
-      !options.notebook_id || scope.notebook_ids.includes(options.notebook_id)
+  const filtered = (data || [])
+    .map(row => ({
+      row,
+      scope: parseScope(row.scope),
+      items: parseSessionItems(row),
+    }))
+    .filter(
+      entry =>
+        !options.notebook_id ||
+        entry.scope.notebook_ids.includes(options.notebook_id)
     );
-  });
-  const allNotebookIds = filtered.flatMap(
-    row => parseScope(row.scope).notebook_ids
-  );
-  const titles = await loadNotebookTitles(supabase, allNotebookIds);
-  const currentIds = filtered.flatMap(row => {
-    const items = parseSessionItems(row);
+  const allNotebookIds = filtered.flatMap(entry => entry.scope.notebook_ids);
+  const currentIds = filtered.flatMap(({ row, items }) => {
     const current = items[Number(row.next_sequence)];
     return current ? [current.item_id] : [];
   });
   const currentRows = new Map<string, { id: string; title: string }>();
-  if (currentIds.length) {
-    const { data: notes, error: noteError } = await (
-      supabase as SupabaseClient<any>
-    )
-      .from('notebook_notes')
-      .select('id, title')
-      .in('id', [...new Set(currentIds)])
-      .is('archived_at', null);
-    if (noteError)
-      databaseError('loadResumableSessions.currentNotes', noteError);
-    for (const note of notes || []) currentRows.set(note.id, note);
-  }
+  const currentNotesPromise = currentIds.length
+    ? (supabase as SupabaseClient<any>)
+        .from('notebook_notes')
+        .select('id, title')
+        .eq('user_id', userId)
+        .in('id', [...new Set(currentIds)])
+        .is('archived_at', null)
+    : Promise.resolve({ data: [], error: null });
+  const [titles, { data: notes, error: noteError }] = await Promise.all([
+    loadNotebookTitles(supabase, userId, allNotebookIds),
+    currentNotesPromise,
+  ]);
+  if (noteError) databaseError('loadResumableSessions.currentNotes', noteError);
+  for (const note of notes || []) currentRows.set(note.id, note);
 
-  return filtered.map(row => {
-    const current = parseSessionItems(row)[Number(row.next_sequence)];
+  return filtered.map(({ row, scope, items }) => {
+    const current = items[Number(row.next_sequence)];
     return summaryFromRow(
       row,
       titles,
-      current ? currentRows.get(current.item_id) || null : null
+      current ? currentRows.get(current.item_id) || null : null,
+      scope
     );
   });
 }
@@ -299,6 +401,10 @@ export async function loadNotebookReadSummaries(
   );
   if (!ids.length) return result;
 
+  const sessionsPromise = loadResumableWebNoteStudySessions(supabase, userId, {
+    limit: 30,
+  });
+
   const { data: notes, error: noteError } = await (
     supabase as SupabaseClient<any>
   )
@@ -311,14 +417,25 @@ export async function loadNotebookReadSummaries(
 
   const noteIds = (notes || []).map((row: any) => row.id);
   const stateByNote = new Map<string, any>();
+  const stateChunks: string[][] = [];
   for (let offset = 0; offset < noteIds.length; offset += 200) {
-    const { data, error } = await (supabase as SupabaseClient<any>)
-      .from('note_read_state')
-      .select(
-        'note_id, last_opened_at, last_completed_at, completed_count, updated_at'
+    stateChunks.push(noteIds.slice(offset, offset + 200));
+  }
+  const [stateResults, sessions] = await Promise.all([
+    Promise.all(
+      stateChunks.map(noteIdChunk =>
+        (supabase as SupabaseClient<any>)
+          .from('note_read_state')
+          .select(
+            'note_id, last_opened_at, last_completed_at, completed_count, updated_at'
+          )
+          .eq('user_id', userId)
+          .in('note_id', noteIdChunk)
       )
-      .eq('user_id', userId)
-      .in('note_id', noteIds.slice(offset, offset + 200));
+    ),
+    sessionsPromise,
+  ]);
+  for (const { data, error } of stateResults) {
     if (error) databaseError('loadNotebookReadSummaries.states', error);
     for (const row of data || []) stateByNote.set(row.note_id, row);
   }
@@ -342,9 +459,6 @@ export async function loadNotebookReadSummaries(
     }
   }
 
-  const sessions = await loadResumableWebNoteStudySessions(supabase, userId, {
-    limit: 30,
-  });
   for (const session of sessions) {
     for (const notebookId of session.notebook_ids) {
       const summary = result[notebookId];
@@ -364,96 +478,30 @@ export async function loadRecentNoteReads(
   options: { notebook_id?: string; limit?: number } = {}
 ): Promise<RecentNoteRead[]> {
   const limit = Math.min(Math.max(options.limit || 12, 1), 40);
-  let noteQuery = (supabase as SupabaseClient<any>)
-    .from('notebook_notes')
-    .select('id, notebook_id, title, notebooks(title)')
-    .eq('user_id', userId)
-    .is('archived_at', null);
-  if (options.notebook_id) {
-    noteQuery = noteQuery.eq('notebook_id', options.notebook_id);
-  }
-  const { data: notes, error: noteError } = await noteQuery.limit(1000);
-  if (noteError) databaseError('loadRecentReads.notes', noteError);
-  const noteById = new Map((notes || []).map((row: any) => [row.id, row]));
-  if (!noteById.size) return [];
-
-  const { data: states, error: stateError } = await (
-    supabase as SupabaseClient<any>
-  )
-    .from('note_read_state')
-    .select('note_id, last_opened_at, last_completed_at, completed_count')
-    .eq('user_id', userId)
-    .in('note_id', [...noteById.keys()])
-    .not('last_opened_at', 'is', null)
-    .order('last_opened_at', { ascending: false })
-    .limit(limit);
-  if (stateError) databaseError('loadRecentReads.states', stateError);
-
-  const stateIds = (states || []).map((row: any) => row.note_id);
-  const actorByNote = new Map<string, RecentNoteRead['actor']>();
-  if (stateIds.length) {
-    const { data: observations, error } = await (
-      supabase as SupabaseClient<any>
-    )
-      .from('study_observations')
-      .select('item_id, device_id, occurred_at')
-      .eq('user_id', userId)
-      .in('item_id', stateIds)
-      .in('action', ['opened', 'read_completed'])
-      .order('occurred_at', { ascending: false })
-      .limit(Math.max(limit * 4, 40));
-    if (error) databaseError('loadRecentReads.actors', error);
-    for (const row of observations || []) {
-      if (!actorByNote.has(row.item_id)) {
-        actorByNote.set(row.item_id, row.device_id ? 'note4' : 'web');
+  const { data, error } = await supabase.rpc('get_recent_note_reads_v2', {
+    p_user_id: userId,
+    p_notebook_id: options.notebook_id ?? null,
+    p_limit: limit,
+  });
+  if (error) databaseError('loadRecentReads', error);
+  const parsed = recentNoteReadsSchema.safeParse(data || []);
+  if (!parsed.success) {
+    logger.error(
+      'Recent Note reads RPC returned an invalid result',
+      parsed.error,
+      {
+        component: 'WebNoteStudy',
+        action: 'loadRecentReads.parse',
       }
-    }
+    );
+    throw new WebNoteStudyError(
+      'NOTE_STUDY_UNAVAILABLE',
+      'Recent Note reads are unavailable',
+      503,
+      true
+    );
   }
-
-  return (states || []).flatMap((row: any) => {
-    const note = noteById.get(row.note_id);
-    if (!note || !row.last_opened_at) return [];
-    const readState = mapReadState(row);
-    return [
-      {
-        note_id: note.id,
-        notebook_id: note.notebook_id,
-        notebook_title: note.notebooks?.title || '笔记本',
-        note_title: note.title,
-        state: readState.state,
-        last_opened_at: row.last_opened_at,
-        last_completed_at: row.last_completed_at || null,
-        completed_count: Number(row.completed_count || 0),
-        actor: actorByNote.get(note.id) || 'unknown',
-      } satisfies RecentNoteRead,
-    ];
-  });
-}
-
-function mapAssets(value: unknown): WebNoteStudyItem['assets'] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap(entry => {
-    if (
-      !entry ||
-      typeof entry !== 'object' ||
-      typeof (entry as any).path !== 'string' ||
-      typeof (entry as any).image_id !== 'string'
-    ) {
-      return [];
-    }
-    return [
-      {
-        path: (entry as any).path,
-        image_id: (entry as any).image_id,
-        display_path: String(
-          (entry as any).display_path || (entry as any).path
-        ),
-        preview_path: String(
-          (entry as any).preview_path || (entry as any).path
-        ),
-      },
-    ];
-  });
+  return parsed.data;
 }
 
 export async function loadWebNoteStudySession(
@@ -461,148 +509,79 @@ export async function loadWebNoteStudySession(
   userId: string,
   sessionId: string
 ): Promise<WebNoteStudySessionView> {
-  const { data: session, error } = await supabase
-    .from('study_sessions')
-    .select('*')
-    .eq('id', sessionId)
-    .eq('user_id', userId)
-    .is('device_id', null)
-    .eq('domain', 'note')
-    .maybeSingle();
-  if (error) databaseError('loadSession', error);
-  if (!session) {
+  const { data, error } = await supabase.rpc('get_web_note_study_session_v2', {
+    p_user_id: userId,
+    p_session_id: sessionId,
+  });
+  if (error) {
+    if (String(error.message || '').includes('WEB_NOTE_SESSION_NOT_FOUND')) {
+      throw new WebNoteStudyError(
+        'SESSION_NOT_FOUND',
+        'Note reading session was not found',
+        404
+      );
+    }
+    databaseError('loadSession', error);
+  }
+  const parsed = webNoteStudySessionViewSchema.safeParse(data);
+  if (!parsed.success) {
+    logger.error(
+      'Web Note session RPC returned an invalid result',
+      parsed.error,
+      {
+        component: 'WebNoteStudy',
+        action: 'loadSession.parse',
+        sessionId,
+      }
+    );
     throw new WebNoteStudyError(
-      'SESSION_NOT_FOUND',
-      'Note reading session was not found',
-      404
+      'NOTE_SESSION_SNAPSHOT_INVALID',
+      'Note reading session snapshot is invalid',
+      409
     );
   }
+  return parsed.data;
+}
 
-  const items = parseSessionItems(session);
-  const scope = parseScope(session.scope);
-  const notebookTitles = await loadNotebookTitles(supabase, scope.notebook_ids);
-  const current = items[Number(session.next_sequence)] || null;
-  let currentItem: WebNoteStudyItem | null = null;
-  if (current) {
-    const { data: note, error: noteError } = await (
-      supabase as SupabaseClient<any>
-    )
-      .from('notebook_notes')
-      .select(
-        'id, notebook_id, title, content, content_format, source, assets, revision, linked_problem_id'
-      )
-      .eq('id', current.item_id)
-      .eq('user_id', userId)
-      .is('archived_at', null)
-      .maybeSingle();
-    if (noteError) databaseError('loadSession.currentNote', noteError);
-
-    if (!note) {
-      currentItem = {
-        available: false,
-        item_id: current.item_id,
-        notebook_id: current.notebook_id,
-        notebook_title:
-          notebookTitles.get(current.notebook_id) || '已移除笔记本',
-        ordinal: current.ordinal,
-        title: '笔记已移除',
-        content: '这篇笔记在阅读会话创建后被删除或归档。跳过后可继续。',
-        content_format: 'plain_text_v1',
-        source: 'user',
-        assets: [],
-        revision: 0,
-        linked_problem: null,
-        read_state: mapReadState(null),
-      };
-    } else {
-      const { data: state, error: stateError } = await (
-        supabase as SupabaseClient<any>
-      )
-        .from('note_read_state')
-        .select('last_opened_at, last_completed_at, completed_count')
-        .eq('user_id', userId)
-        .eq('note_id', note.id)
-        .maybeSingle();
-      if (stateError) databaseError('loadSession.readState', stateError);
-
-      let linkedProblem: WebNoteStudyItem['linked_problem'] = null;
-      if (note.linked_problem_id) {
-        const [
-          { data: problem, error: problemError },
-          { data: links, error: linkError },
-        ] = await Promise.all([
-          (supabase as SupabaseClient<any>)
-            .from('problems')
-            .select('id, title, status, subject_id')
-            .eq('id', note.linked_problem_id)
-            .eq('user_id', userId)
-            .maybeSingle(),
-          (supabase as SupabaseClient<any>)
-            .from('problem_set_problems')
-            .select('problem_set_id')
-            .eq('problem_id', note.linked_problem_id)
-            .limit(1),
-        ]);
-        if (problemError || linkError) {
-          databaseError('loadSession.linkedProblem', problemError || linkError);
-        }
-        if (problem) {
-          linkedProblem = {
-            problem_id: problem.id,
-            problem_set_id: links?.[0]?.problem_set_id || null,
-            subject_id: problem.subject_id,
-            title: problem.title,
-            status: problem.status,
-          };
-        }
-      }
-      currentItem = {
-        available: true,
-        item_id: current.item_id,
-        notebook_id: note.notebook_id,
-        notebook_title: notebookTitles.get(note.notebook_id) || '已移除笔记本',
-        ordinal: current.ordinal,
-        title: note.title,
-        content: note.content,
-        content_format: note.content_format || 'plain_text_v1',
-        source: note.source,
-        assets: mapAssets(note.assets),
-        revision: Number(note.revision || 1),
-        linked_problem: linkedProblem,
-        read_state: mapReadState(state),
-      };
+export async function advanceWebNoteStudyObservation(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  input: WebNoteObservationInput
+): Promise<WebNoteObservationAdvance> {
+  const { data, error } = await supabase.rpc(
+    'record_web_note_study_observation_v2',
+    {
+      p_user_id: userId,
+      p_request_id: input.request_id,
+      p_session_id: input.session_id,
+      p_sequence: input.sequence,
+      p_item_id: input.item_id,
+      p_action: input.action,
+      p_mode: input.mode,
+      p_occurred_at: input.occurred_at,
+      p_skip: input.action === 'skipped',
     }
-  }
+  );
+  if (error) mapObservationRpcError('advanceWebNoteStudyObservation', error);
 
-  const { data: observations, error: observationError } = await (
-    supabase as SupabaseClient<any>
-  )
-    .from('study_observations')
-    .select('action')
-    .eq('user_id', userId)
-    .eq('session_id', sessionId);
-  if (observationError)
-    databaseError('loadSession.observations', observationError);
-  const result = {
-    opened_count: 0,
-    completed_count: 0,
-    skipped_count: 0,
-  };
-  for (const observation of observations || []) {
-    if (observation.action === 'opened') result.opened_count += 1;
-    else if (observation.action === 'read_completed') {
-      result.completed_count += 1;
-    } else if (observation.action === 'skipped') result.skipped_count += 1;
+  const parsed = webNoteObservationAdvanceSchema.safeParse(data);
+  if (!parsed.success) {
+    logger.error(
+      'Web Note observation RPC returned an invalid result',
+      parsed.error,
+      {
+        component: 'WebNoteStudy',
+        action: 'advanceObservation.parse',
+      }
+    );
+    throw new WebNoteStudyError(
+      'INVALID_STUDY_RESULT',
+      'Note reading service returned invalid data',
+      503,
+      true
+    );
   }
-  return {
-    ...summaryFromRow(
-      session,
-      notebookTitles,
-      currentItem ? { id: currentItem.item_id, title: currentItem.title } : null
-    ),
-    current_item: currentItem,
-    result,
-  };
+  return parsed.data;
 }
 
 export async function setWebNoteStudySessionStatus(
@@ -634,7 +613,7 @@ export async function setWebNoteStudySessionStatus(
   }
   const row = data as Database['public']['Tables']['study_sessions']['Row'];
   const scope = parseScope(row.scope);
-  const titles = await loadNotebookTitles(supabase, scope.notebook_ids);
+  const titles = await loadNotebookTitles(supabase, userId, scope.notebook_ids);
   return summaryFromRow(row, titles);
 }
 

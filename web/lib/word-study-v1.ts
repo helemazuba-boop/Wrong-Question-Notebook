@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  'a7af5dfcc47e6094c2671bf9ea8cf138d68e7c0ffab0bcf91aef3d7225cbbe70' as const;
+  'b33bfed189b510720571a911f62bdffc260d1e3a14e0ab0dfa57f93035c4504e' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
@@ -135,6 +135,21 @@ export const wordObservationRequestSchema = requestMetadataSchema.extend({
   occurred_at: z.string().datetime(),
 });
 
+// Minimal Tombstone Contract (Candidate A'): the skip endpoint states an
+// identity claim — consume sequence N of session S for item I — and derives
+// action/mode/occurred_at server-side (action is hard-coded 'skipped', mode
+// comes from the locked session, occurred_at defaults to server time). The
+// device may therefore retire a terminally rejected record with placeholder
+// values; only the identity fields stay strict.
+export const wordSkipObservationRequestSchema = requestMetadataSchema.extend({
+  session_id: uuidSchema,
+  sequence: safeCounterSchema,
+  item_id: uuidSchema,
+  action: z.string().min(1).max(32).optional(),
+  mode: z.string().min(1).max(32).optional(),
+  occurred_at: z.string().datetime().optional(),
+});
+
 export const wordProgressProjectionSchema = z
   .strictObject({
     status: z.enum(['new', 'learning', 'review', 'mastered']),
@@ -243,6 +258,9 @@ export type WordCandidatePageRequest = z.infer<
 export type WordCandidatePageData = z.infer<typeof wordCandidatePageDataSchema>;
 export type WordObservationRequest = z.infer<
   typeof wordObservationRequestSchema
+>;
+export type WordSkipObservationRequest = z.infer<
+  typeof wordSkipObservationRequestSchema
 >;
 
 export function semanticsForWordMode(mode: WordStudyMode): {

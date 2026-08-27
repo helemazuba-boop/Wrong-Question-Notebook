@@ -11,7 +11,7 @@ import {
 
 export const NOTE_STUDY_CONTRACT = 'note-study-v1' as const;
 export const NOTE_STUDY_SCHEMA_SHA256 =
-  '78e0cc0788e6c9d470e103b848652a3d81c625030069ffa578a89f6f0036b351' as const;
+  '8349221e6be5c69858f1673f11e79aa5318ea07e020d96d1e0b27b9bb6960d32' as const;
 export const NOTE_PACK_SCHEMA_VERSION = 1 as const;
 export const NOTE_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const NOTE_PACK_MAX_ENTRIES = 5_000;
@@ -134,6 +134,18 @@ export const noteObservationRequestSchema = requestMetadataSchema.extend({
   occurred_at: z.string().datetime(),
 });
 
+// Minimal Tombstone Contract (Candidate A'), note domain: see the matching
+// comment on wordSkipObservationRequestSchema. Identity fields stay strict;
+// the server derives action/mode/occurred_at for the stored tombstone.
+export const noteSkipObservationRequestSchema = requestMetadataSchema.extend({
+  session_id: uuidSchema,
+  sequence: safeCounterSchema,
+  item_id: uuidSchema,
+  action: z.string().min(1).max(32).optional(),
+  mode: z.string().min(1).max(32).optional(),
+  occurred_at: z.string().datetime().optional(),
+});
+
 export const noteProgressProjectionSchema = z
   .strictObject({
     // read-state only: never mastery / known-unknown / schedule.
@@ -246,6 +258,9 @@ export type NoteCandidatePageRequest = z.infer<
 export type NoteCandidatePageData = z.infer<typeof noteCandidatePageDataSchema>;
 export type NoteObservationRequest = z.infer<
   typeof noteObservationRequestSchema
+>;
+export type NoteSkipObservationRequest = z.infer<
+  typeof noteSkipObservationRequestSchema
 >;
 
 export function semanticsForNoteMode(mode: NoteStudyMode): {

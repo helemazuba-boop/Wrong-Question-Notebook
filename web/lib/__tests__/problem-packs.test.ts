@@ -7,10 +7,32 @@ import {
   problemPackMetaSchema,
   problemPackRowSchema,
 } from '@/lib/problem-study-v1';
+import { registerDeviceImageArtifacts } from '@/lib/device-content-artifacts';
 
 vi.mock('@/lib/device-content-artifacts', () => ({
   materializeDevicePackArtifact: vi.fn().mockResolvedValue('artifact.jsonl'),
-  registerDeviceImageArtifacts: vi.fn().mockResolvedValue(undefined),
+  registerDeviceImageArtifacts: vi.fn(
+    async (_client: unknown, _userId: string, groups: unknown[]) => ({
+      registered: groups.flatMap(group =>
+        Array.isArray(group)
+          ? group.flatMap(value => {
+              const asset = value as {
+                image_id?: unknown;
+                gray4_image_id?: unknown;
+              };
+              return [asset.image_id, asset.gray4_image_id]
+                .filter((id): id is string => typeof id === 'string')
+                .map(image_id => ({
+                  image_id,
+                  pixel_format: 'bw1' as const,
+                  storage_path: `${image_id}.wqni`,
+                }));
+            })
+          : []
+      ),
+      missing: [],
+    })
+  ),
 }));
 
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -154,6 +176,45 @@ describe('buildProblemPack', () => {
     );
     expect(first.sha256).toBe(second.sha256);
     expect(first.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('keeps text while omitting image slots whose derivatives are missing', async () => {
+    vi.mocked(registerDeviceImageArtifacts).mockResolvedValueOnce({
+      registered: [
+        {
+          image_id: IMAGE_ID,
+          pixel_format: 'bw1',
+          storage_path: `${IMAGE_ID}.wqni`,
+        },
+      ],
+      missing: [
+        {
+          image_id: GRAY4_ID,
+          pixel_format: 'gray4',
+          source_path: `${GRAY4_ID}.wqni`,
+        },
+        {
+          image_id: SOLUTION_ID,
+          pixel_format: 'bw1',
+          source_path: `${SOLUTION_ID}.wqni`,
+        },
+      ],
+    });
+    const pack = await buildProblemPack(
+      manualSetClient().supabase,
+      USER_ID,
+      SET_ID,
+      { materialize: true }
+    );
+    const parsed = problemPackRowSchema.parse(
+      JSON.parse(pack.body.split('\n')[1])
+    );
+
+    expect(parsed.content_text).toContain('二倍体植物');
+    expect(parsed.image_ids).toEqual([IMAGE_ID]);
+    expect(parsed.gray4_image_ids).toEqual([null]);
+    expect(parsed.solution_image_ids).toEqual([]);
+    expect(parsed.solution_gray4_image_ids).toEqual([]);
   });
 
   it('rejects an unknown problem set with 404', async () => {

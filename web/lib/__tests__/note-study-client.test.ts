@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createWebNoteRequestId,
   dispositionForPendingNoteObservation,
+  noteStudyRetryDelayMs,
   parsePendingWebNoteObservation,
   readNoteStudyStorage,
   removeNoteStudyStorage,
@@ -91,5 +92,15 @@ describe('Web Note reading pending observation recovery', () => {
     expect(readNoteStudyStorage(unavailable, 'key')).toBeNull();
     expect(writeNoteStudyStorage(unavailable, 'key', 'value')).toBe(false);
     expect(() => removeNoteStudyStorage(unavailable, 'key')).not.toThrow();
+  });
+});
+
+describe('noteStudyRetryDelayMs', () => {
+  it('uses a five-second exponential backoff capped at one minute', () => {
+    expect(noteStudyRetryDelayMs(1)).toBe(5_000);
+    expect(noteStudyRetryDelayMs(2)).toBe(10_000);
+    expect(noteStudyRetryDelayMs(4)).toBe(40_000);
+    expect(noteStudyRetryDelayMs(5)).toBe(60_000);
+    expect(noteStudyRetryDelayMs(20)).toBe(60_000);
   });
 });

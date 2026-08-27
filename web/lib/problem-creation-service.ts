@@ -402,9 +402,13 @@ function assetPaths(assets: ProblemAsset[]): string[] {
   return [
     ...new Set(
       assets.flatMap(asset =>
-        [asset.path, asset.display_path, asset.preview_path].filter(
-          (path): path is string => Boolean(path)
-        )
+        [
+          asset.path,
+          asset.display_path,
+          asset.preview_path,
+          asset.gray4_display_path,
+          asset.gray4_preview_path,
+        ].filter((path): path is string => Boolean(path))
       )
     ),
   ];

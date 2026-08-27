@@ -16,6 +16,7 @@ import {
   type Esp32AiAsrProvider,
 } from '@/lib/esp32-ai-asr-selection';
 import { buildAiToolExecutor } from './v2-tools';
+import { appendAiToolPrompt } from '@/lib/esp32-ai-tool-definitions';
 
 export const RUNTIME_TAG = 'nodejs';
 
@@ -220,7 +221,9 @@ export async function handleV2Streaming(
         llmTimeoutMs: resolvedConfig.llmTimeoutMs,
         audioUrlTtlMs: resolvedConfig.audioUrlTtlMs,
         publicBaseUrl: resolvedConfig.publicBaseUrl,
-        systemPrompt: resolvedConfig.systemPrompt,
+        systemPrompt: toolExecutor
+          ? appendAiToolPrompt(resolvedConfig.systemPrompt)
+          : resolvedConfig.systemPrompt,
         toolExecutor: toolExecutor,
         asrProvider: resolvedConfig.asrProvider,
         asrFallbackProvider: resolvedConfig.asrFallbackProvider,

@@ -10,6 +10,7 @@ import {
   webNoteStudyError,
   webNoteStudyInvalidRequest,
   webNoteStudySuccess,
+  withServerTiming,
 } from '@/lib/note-study-web-route';
 
 const paramsSchema = z.object({ id: z.uuid() });
@@ -26,22 +27,31 @@ export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const authStartedAt = performance.now();
   const { user } = await requireUser();
+  const authDurationMs = performance.now() - authStartedAt;
   if (!user) return unauthorised();
   const requestId = requestIdFromUnknown({
     request_id: req.headers.get('X-WQN-Request-Id'),
   });
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return webNoteStudyInvalidRequest(requestId);
+  const studyStartedAt = performance.now();
   try {
     const session = await loadWebNoteStudySession(
       createServiceClient(),
       user.id,
       params.data.id
     );
-    return webNoteStudySuccess(requestId, { session });
+    return withServerTiming(webNoteStudySuccess(requestId, { session }), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   } catch (error) {
-    return webNoteStudyError(requestId, error);
+    return withServerTiming(webNoteStudyError(requestId, error), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   }
 }
 
@@ -49,9 +59,12 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const authStartedAt = performance.now();
   const { user } = await requireUser();
+  const authDurationMs = performance.now() - authStartedAt;
   if (!user) return unauthorised();
   let body: unknown;
+  const studyStartedAt = performance.now();
   try {
     body = await req.json();
   } catch {
@@ -73,8 +86,14 @@ export async function PATCH(
       params.data.id,
       parsed.data.status
     );
-    return webNoteStudySuccess(requestId, { session });
+    return withServerTiming(webNoteStudySuccess(requestId, { session }), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   } catch (error) {
-    return webNoteStudyError(requestId, error);
+    return withServerTiming(webNoteStudyError(requestId, error), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   }
 }

@@ -40,6 +40,7 @@ import {
   injectToolResult,
   type ToolCallArgs,
 } from './toolInterceptor.ts';
+import { applyAiToolSessionConfig } from './sessionConfig.ts';
 
 type DeviceWs = {
   send(data: string | Buffer | Uint8Array, opts?: { binary?: boolean }): void;
@@ -99,6 +100,7 @@ export interface RelayConfig {
   port: number;
   upstream: UpstreamConfig;
   executeToolUrl: string;
+  transcribeChatUrl: string;
   proxySecret: string;
   realtimeEnabled: boolean;
 }
@@ -575,8 +577,12 @@ class RelaySession {
     // model is a URL query param (?model=...), already appended in
     // handleConnection. Previous code injected session.model which is not
     // in the official spec and may cause StepFun to reject the update.
-    // We only validate voice here; everything else passes through unchanged.
-    const session = { ...(evt.session ?? {}) };
+    // We also replace the device's empty/untrusted tool list with the
+    // server-owned definitions when the internal executor is configured.
+    const session = applyAiToolSessionConfig(
+      { ...(evt.session ?? {}) },
+      Boolean(this.config.executeToolUrl && this.config.proxySecret)
+    );
     if (
       typeof session.voice === 'string' &&
       !ALLOWED_VOICES.has(session.voice)

@@ -68,3 +68,19 @@ export function webNoteStudyInvalidRequest(
     { status: 400, headers: { 'Cache-Control': 'no-store' } }
   );
 }
+
+export function withServerTiming<T extends NextResponse>(
+  response: T,
+  metrics: Array<{ name: string; durationMs: number }>
+): T {
+  response.headers.set(
+    'Server-Timing',
+    metrics
+      .map(
+        metric =>
+          `${metric.name.replace(/[^A-Za-z0-9_-]/g, '')};dur=${Math.max(0, metric.durationMs).toFixed(1)}`
+      )
+      .join(', ')
+  );
+  return response;
+}

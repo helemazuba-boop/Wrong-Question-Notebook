@@ -444,7 +444,12 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     const chatBody = JSON.parse(mockFetch.mock.calls[2][1].body);
     expect(chatBody.enable_thinking).toBe(true);
     expect(chatBody.thinking_budget).toBe(8192);
+    expect(chatBody.tools).toHaveLength(11);
+    expect(chatBody.tool_choice).toBe('auto');
     expect(chatBody.messages[0].content).toContain('validate key assumptions');
+    expect(chatBody.messages[0].content).toContain(
+      '不要声称已经写入笔记或 Todo'
+    );
     expect(chatBody.messages.at(-1).content).toBe('请回答。');
   });
 
@@ -902,5 +907,55 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('disabled');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts trusted internal proxy header from wqn-realtime', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.WQN_REALTIME_PROXY_SECRET =
+      '1234567890123456789012345678901234567890';
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            task_id: 'task-internal-1',
+            task_status: 'PENDING',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            task_id: 'task-internal-1',
+            task_status: 'SUCCEEDED',
+            results: [{ text: 'internal proxy test' }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          output: {
+            text: 'internal proxy reply',
+          },
+        }),
+      });
+
+    const headers = {
+      ...createValidHeaders(),
+      'x-wqn-internal-proxy-authorization':
+        'Bearer 1234567890123456789012345678901234567890',
+    };
+    const response = await POST(createAudioRequest(headers));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.transcript).toBe('internal proxy test');
   });
 });

@@ -65,6 +65,8 @@ export interface EinkImageResult {
   imageId: string;
   /** Device-ready 4-bpp/16-gray WQNI file for capable firmware. */
   gray4Wqni: Buffer;
+  /** Strict 400x300 PNG reconstructed from the quantized 16-gray payload. */
+  gray4Preview: Buffer;
   /** SHA-256 hex of gray4Wqni; independent from the legacy BW1 id. */
   gray4ImageId: string;
 }
@@ -99,23 +101,62 @@ export function prepareGrayscaleForGray4(
   if (gray.length !== EINK_IMAGE_WIDTH * EINK_IMAGE_HEIGHT || contrast <= 0) {
     throw new EinkImageError('invalid_image', 'invalid gray4 source');
   }
+  // contain-fit padding is synthesized as exact white. Locate the smallest
+  // rectangle containing any non-padding pixel so white bars do not dominate
+  // autocontrast statistics; an all-white input falls back to the full frame.
+  let minX = EINK_IMAGE_WIDTH;
+  let minY = EINK_IMAGE_HEIGHT;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < EINK_IMAGE_HEIGHT; y++) {
+    const row = y * EINK_IMAGE_WIDTH;
+    for (let x = 0; x < EINK_IMAGE_WIDTH; x++) {
+      if (gray[row + x] < 255) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) {
+    minX = 0;
+    minY = 0;
+    maxX = EINK_IMAGE_WIDTH - 1;
+    maxY = EINK_IMAGE_HEIGHT - 1;
+  }
+
   let minimum = 255;
   let maximum = 0;
-  for (const value of gray) {
-    minimum = Math.min(minimum, value);
-    maximum = Math.max(maximum, value);
+  for (let y = minY; y <= maxY; y++) {
+    const row = y * EINK_IMAGE_WIDTH;
+    for (let x = minX; x <= maxX; x++) {
+      const value = gray[row + x];
+      minimum = Math.min(minimum, value);
+      maximum = Math.max(maximum, value);
+    }
   }
   const stretched = Buffer.allocUnsafe(gray.length);
-  let sum = 0;
   for (let i = 0; i < gray.length; i++) {
-    const value =
-      minimum === maximum
-        ? gray[i]
-        : Math.round(((gray[i] - minimum) * 255) / (maximum - minimum));
+    const value = Math.max(
+      0,
+      Math.min(
+        255,
+        minimum === maximum
+          ? gray[i]
+          : Math.round(((gray[i] - minimum) * 255) / (maximum - minimum))
+      )
+    );
     stretched[i] = value;
-    sum += value;
   }
-  const mean = sum / stretched.length;
+  let sum = 0;
+  for (let y = minY; y <= maxY; y++) {
+    const row = y * EINK_IMAGE_WIDTH;
+    for (let x = minX; x <= maxX; x++) {
+      sum += stretched[row + x];
+    }
+  }
+  const mean = sum / ((maxX - minX + 1) * (maxY - minY + 1));
   for (let i = 0; i < stretched.length; i++) {
     stretched[i] = Math.max(
       0,
@@ -178,6 +219,20 @@ function unpack1BppToGrayscale(payload: Buffer): Buffer {
       const white = (payload[rowIn + (x >> 3)] & (0x80 >> (x & 7))) !== 0;
       gray[rowOut + x] = white ? 255 : 0;
     }
+  }
+  return gray;
+}
+
+/** Expands high/low 4-bpp nibbles to exact 8-bit preview levels. */
+export function unpack4BppToGrayscale(payload: Buffer): Buffer {
+  if (payload.length !== EINK_IMAGE_GRAY4_PAYLOAD_BYTES) {
+    throw new EinkImageError('invalid_image', 'invalid gray4 payload');
+  }
+  const gray = Buffer.allocUnsafe(EINK_IMAGE_WIDTH * EINK_IMAGE_HEIGHT);
+  for (let source = 0, target = 0; source < payload.length; source++) {
+    const packed = payload[source];
+    gray[target++] = (packed >> 4) * 17;
+    gray[target++] = (packed & 0x0f) * 17;
   }
   return gray;
 }
@@ -288,12 +343,22 @@ export async function renderEinkImage(
   })
     .png({ compressionLevel: 9 })
     .toBuffer();
+  const gray4Preview = await sharp(unpack4BppToGrayscale(gray4Payload), {
+    raw: {
+      width: EINK_IMAGE_WIDTH,
+      height: EINK_IMAGE_HEIGHT,
+      channels: 1,
+    },
+  })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
 
   return {
     wqni,
     preview,
     imageId: createHash('sha256').update(wqni).digest('hex'),
     gray4Wqni,
+    gray4Preview,
     gray4ImageId: createHash('sha256').update(gray4Wqni).digest('hex'),
   };
 }

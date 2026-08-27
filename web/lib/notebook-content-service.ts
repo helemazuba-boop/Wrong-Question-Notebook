@@ -40,6 +40,7 @@ export interface NoteImageAsset {
   preview_path: string;
   gray4_image_id?: string;
   gray4_display_path?: string;
+  gray4_preview_path?: string;
 }
 
 export const NOTE_IMAGE_MAX_PER_NOTE = 4;
@@ -123,6 +124,11 @@ function mapNoteAssets(value: unknown): NoteImageAsset[] {
           ? {
               gray4_image_id: (entry as any).gray4_image_id,
               gray4_display_path: (entry as any).gray4_display_path,
+              ...(typeof (entry as any).gray4_preview_path === 'string'
+                ? {
+                    gray4_preview_path: (entry as any).gray4_preview_path,
+                  }
+                : {}),
             }
           : {}),
       });

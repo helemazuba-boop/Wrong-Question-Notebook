@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/supabase/requireUser';
 import { isCurrentUserSuperAdmin } from '@/lib/user-management';
 import { AdminLayoutShell } from '@/components/admin/admin-layout-shell';
 import { ROUTES } from '@/lib/constants';
@@ -16,10 +16,8 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user) {
+  const { user, error: authError } = await requireUser();
+  if (authError || !user) {
     redirect(ROUTES.AUTH.LOGIN);
   }
 

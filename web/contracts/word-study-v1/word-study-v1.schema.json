@@ -9,6 +9,7 @@
     { "$ref": "#/$defs/candidatePageResponse" },
     { "$ref": "#/$defs/observationRequest" },
     { "$ref": "#/$defs/observationResponse" },
+    { "$ref": "#/$defs/skipObservationRequest" },
     { "$ref": "#/$defs/manifestRequest" },
     { "$ref": "#/$defs/manifestResponse" }
   ],
@@ -366,6 +367,46 @@
         }
       ]
     },
+    "skipObservationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "session_id",
+        "sequence",
+        "item_id"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "$ref": "#/$defs/safeCounter" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "action": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "mode": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "occurred_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "skipObservationResponse": { "$ref": "#/$defs/observationResponse" },
     "progressProjection": {
       "type": ["object", "null"],
       "additionalProperties": false,

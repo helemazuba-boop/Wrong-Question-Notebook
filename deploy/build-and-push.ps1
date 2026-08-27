@@ -59,7 +59,6 @@ $EnvFile = Join-Path $WebDir ".env.production"
 $BuildkitConfig = Join-Path $ScriptRoot "buildkit-config.toml"
 $BuildkitConfigHashFile = Join-Path $ScriptRoot ".wqn-builder-config.hash"
 $BuilderName = "wqn-builder"
-$DefaultBuildProxy = "http://127.0.0.1:7890"
 
 # ============================================================
 # Helper functions
@@ -73,7 +72,7 @@ function Write-Step {
         [System.ConsoleColor]$Color = "Yellow"
     )
 
-    Write-Host "  [$((Get-Date).ToString('HH:mm:ss'))] $Msg" -ForegroundColor $Color
+    Write-Host "  [$((Get-Date).ToString('HH\:mm\:ss'))] $Msg" -ForegroundColor $Color
 }
 
 function Read-DotEnvFile {
@@ -214,7 +213,7 @@ function Join-ProcessArguments {
     $quoted = @()
     foreach ($arg in $Arguments) {
         if ($arg -match '[\s"]') {
-            $quoted += '"' + ($arg -replace '"', '\"') + '"'
+            $quoted += '"' + ($arg -replace '"', '\\"') + '"'
         } else {
             $quoted += $arg
         }
@@ -645,6 +644,7 @@ $publicBuildArgKeys = @(
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
     "WQN_SUPABASE_EXPECTED_HOST",
+    "WQN_ALLOW_HTTP_SUPABASE_ORIGIN",
     "SITE_URL"
 )
 
@@ -652,6 +652,7 @@ $script:RuntimeVarKeys = @(
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
     "WQN_SUPABASE_EXPECTED_HOST",
+    "WQN_ALLOW_HTTP_SUPABASE_ORIGIN",
     "SUPABASE_SECRET_KEY",
     "NEXT_PUBLIC_APP_URL",
     "SITE_URL",
@@ -726,9 +727,6 @@ if (-not $NoBuildProxy -and [string]::IsNullOrWhiteSpace($script:BuildProxy)) {
     if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
         $script:BuildProxy = Get-EnvValue "HTTP_PROXY"
     }
-    if ([string]::IsNullOrWhiteSpace($script:BuildProxy)) {
-        $script:BuildProxy = $DefaultBuildProxy
-    }
 }
 $script:BuildNoProxy = Get-EnvValue "NO_PROXY"
 if ([string]::IsNullOrWhiteSpace($script:BuildNoProxy)) {
@@ -769,6 +767,7 @@ Write-Host "  Repo:         $AcrRepo" -ForegroundColor White
 Write-Host "  Tag:          $Tag" -ForegroundColor White
 Write-Host "  Image:        $ImageTag" -ForegroundColor DarkGray
 Write-Host "  Base image:   $BaseNodeImage" -ForegroundColor DarkGray
+
 Write-Host "  Build proxy:  $script:BuildProxy" -ForegroundColor DarkGray
 Write-Host "  Container proxy: $script:ContainerBuildProxy" -ForegroundColor DarkGray
 Write-Host "  Builder:      $script:SelectedBuilder" -ForegroundColor DarkGray

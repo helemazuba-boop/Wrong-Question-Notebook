@@ -334,6 +334,7 @@ export function hasOnlyOwnedAssetPaths(
         display_path?: string;
         preview_path?: string;
         gray4_display_path?: string;
+        gray4_preview_path?: string;
       }>
     | undefined,
   solutionAssets:
@@ -342,15 +343,20 @@ export function hasOnlyOwnedAssetPaths(
         display_path?: string;
         preview_path?: string;
         gray4_display_path?: string;
+        gray4_preview_path?: string;
       }>
     | undefined
 ): boolean {
   const prefix = `user/${userId}/`;
   const allAssets = [...(assets ?? []), ...(solutionAssets ?? [])];
   const allPaths = allAssets.flatMap(a =>
-    [a.path, a.display_path, a.preview_path, a.gray4_display_path].filter(
-      (p): p is string => typeof p === 'string'
-    )
+    [
+      a.path,
+      a.display_path,
+      a.preview_path,
+      a.gray4_display_path,
+      a.gray4_preview_path,
+    ].filter((p): p is string => typeof p === 'string')
   );
   return allPaths.every(path => {
     // Reject paths containing traversal segments before the prefix check

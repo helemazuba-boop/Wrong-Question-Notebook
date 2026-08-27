@@ -233,6 +233,12 @@ describe('device-control v3 authenticated routes', () => {
       todo_count: 2,
       word_due_count: 5,
     });
+    expect(body.data.content_manifest).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'note_packs', revision: 0 }),
+        expect.objectContaining({ kind: 'problem_packs', revision: 0 }),
+      ])
+    );
     expect(mockStoreResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         deviceId: DEVICE_ID,

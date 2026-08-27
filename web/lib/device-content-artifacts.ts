@@ -100,6 +100,34 @@ type ImageArtifact = {
   gray4_display_path?: string;
 };
 
+export interface DeviceImageArtifactRegistrationResult {
+  registered: Array<{
+    image_id: string;
+    pixel_format: 'bw1' | 'gray4';
+    storage_path: string;
+  }>;
+  missing: Array<{
+    image_id: string;
+    pixel_format: 'bw1' | 'gray4';
+    source_path: string;
+  }>;
+}
+
+function isMissingStorageObject(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const value = error as {
+    message?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  if (Number(value.status) === 404 || Number(value.statusCode) === 404)
+    return true;
+  const message = typeof value.message === 'string' ? value.message : '';
+  return /\b(?:not[ _-]?found|does not exist|source object missing|no such object)\b/i.test(
+    message
+  );
+}
+
 function imageArtifactsOf(assets: unknown): Array<{
   image_id: string;
   pixel_format: 'bw1' | 'gray4';
@@ -145,13 +173,13 @@ export async function registerDeviceImageArtifacts(
   supabase: SupabaseClient<any>,
   userId: string,
   assetGroups: unknown[]
-): Promise<void> {
+): Promise<DeviceImageArtifactRegistrationResult> {
   const unique = new Map(
     assetGroups
       .flatMap(imageArtifactsOf)
       .map(row => [row.image_id, row] as const)
   );
-  if (unique.size === 0) return;
+  if (unique.size === 0) return { registered: [], missing: [] };
 
   // Attachment cleanup owns the source `derived/` directory and may remove
   // those objects after a note/problem is edited. A device pack, however, is
@@ -184,46 +212,102 @@ export async function registerDeviceImageArtifacts(
       existingPaths.set(row.image_id, row.storage_path);
     }
   }
-  const copyOne = async (row: (typeof immutableRows)[number]) => {
+  const copyOne = async (
+    row: (typeof immutableRows)[number]
+  ): Promise<
+    | { kind: 'registered'; row: (typeof immutableRows)[number] }
+    | {
+        kind: 'missing';
+        row: (typeof immutableRows)[number];
+        source: string;
+      }
+  > => {
     const source = unique.get(row.image_id)?.storage_path;
     if (
       !source ||
       source === row.storage_path ||
       existingPaths.get(row.image_id) === row.storage_path
     ) {
-      return;
+      return { kind: 'registered', row };
     }
     const { error } = await supabase.storage
       .from(BUCKET)
       .copy(source, row.storage_path);
     if (error && !/already exists|duplicate/i.test(error.message)) {
+      if (isMissingStorageObject(error)) {
+        console.warn(
+          '[device-content-artifacts] source image missing; pack will retain text content',
+          {
+            user_id: userId,
+            image_id: row.image_id,
+            pixel_format: row.pixel_format,
+            source_path: source,
+          }
+        );
+        return { kind: 'missing', row, source };
+      }
       throw new DeviceContentArtifactError(
         'artifact_storage_error',
         error.message,
         500
       );
     }
+    return { kind: 'registered', row };
   };
+  const results: Awaited<ReturnType<typeof copyOne>>[] = [];
   for (let offset = 0; offset < immutableRows.length; offset += 8) {
-    await Promise.all(immutableRows.slice(offset, offset + 8).map(copyOne));
-  }
-
-  const now = new Date().toISOString();
-  const { error } = await supabase.from('device_image_artifacts').upsert(
-    immutableRows.map(row => ({
-      user_id: userId,
-      ...row,
-      last_seen_at: now,
-    })),
-    { onConflict: 'user_id,image_id' }
-  );
-  if (error) {
-    throw new DeviceContentArtifactError(
-      'artifact_storage_error',
-      error.message,
-      500
+    results.push(
+      ...(await Promise.all(
+        immutableRows.slice(offset, offset + 8).map(copyOne)
+      ))
     );
   }
+
+  const registered = results
+    .filter(
+      (
+        result
+      ): result is Extract<
+        Awaited<ReturnType<typeof copyOne>>,
+        { kind: 'registered' }
+      > => result.kind === 'registered'
+    )
+    .map(result => result.row);
+  if (registered.length > 0) {
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('device_image_artifacts').upsert(
+      registered.map(row => ({
+        user_id: userId,
+        ...row,
+        last_seen_at: now,
+      })),
+      { onConflict: 'user_id,image_id' }
+    );
+    if (error) {
+      throw new DeviceContentArtifactError(
+        'artifact_storage_error',
+        error.message,
+        500
+      );
+    }
+  }
+  return {
+    registered,
+    missing: results
+      .filter(
+        (
+          result
+        ): result is Extract<
+          Awaited<ReturnType<typeof copyOne>>,
+          { kind: 'missing' }
+        > => result.kind === 'missing'
+      )
+      .map(result => ({
+        image_id: result.row.image_id,
+        pixel_format: result.row.pixel_format,
+        source_path: result.source,
+      })),
+  };
 }
 
 export async function loadDevicePackArtifact(input: {

@@ -1,16 +1,19 @@
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { requestIdFromUnknown } from '@/lib/device-control-v3';
-import { recordNoteStudyObservation } from '@/lib/note-study-service';
+import { advanceWebNoteStudyObservation } from '@/lib/note-study-web';
 import {
   webNoteObservationSchema,
   webNoteStudyError,
   webNoteStudyInvalidRequest,
   webNoteStudySuccess,
+  withServerTiming,
 } from '@/lib/note-study-web-route';
 
 export async function POST(req: Request) {
+  const authStartedAt = performance.now();
   const { user } = await requireUser();
+  const authDurationMs = performance.now() - authStartedAt;
   if (!user) return unauthorised();
   let body: unknown;
   try {
@@ -26,20 +29,21 @@ export async function POST(req: Request) {
   if (!parsed.success || parsed.data.action === 'skipped') {
     return webNoteStudyInvalidRequest(requestId);
   }
+  const studyStartedAt = performance.now();
   try {
-    const data = await recordNoteStudyObservation(
+    const data = await advanceWebNoteStudyObservation(
       createServiceClient(),
       user.id,
-      null,
-      {
-        ...parsed.data,
-        boot_id: 'web_note_study_actor',
-        firmware_version: 'web',
-        capabilities: ['web.note-study-v1'],
-      }
+      parsed.data
     );
-    return webNoteStudySuccess(requestId, data);
+    return withServerTiming(webNoteStudySuccess(requestId, data), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   } catch (error) {
-    return webNoteStudyError(requestId, error);
+    return withServerTiming(webNoteStudyError(requestId, error), [
+      { name: 'auth', durationMs: authDurationMs },
+      { name: 'study', durationMs: performance.now() - studyStartedAt },
+    ]);
   }
 }

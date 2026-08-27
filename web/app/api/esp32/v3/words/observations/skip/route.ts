@@ -13,7 +13,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { wordStudyErrorResponse } from '@/lib/word-study-route';
 import { skipWordStudyObservation } from '@/lib/word-study-service';
 import {
-  wordObservationRequestSchema,
+  wordSkipObservationRequestSchema,
   wordObservationSuccessSchema,
 } from '@/lib/word-study-v1';
 
@@ -41,7 +41,7 @@ async function skipObservation(req: NextRequest) {
     );
   }
   const requestId = requestIdFromUnknown(body);
-  const parsed = wordObservationRequestSchema.safeParse(body);
+  const parsed = wordSkipObservationRequestSchema.safeParse(body);
   if (!parsed.success) {
     return createV3Error(requestId, 400, 'INVALID_REQUEST', false);
   }

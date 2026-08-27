@@ -39,7 +39,8 @@ export async function deriveProblemImageAssets(
         asset.display_path &&
         asset.preview_path &&
         asset.gray4_image_id &&
-        asset.gray4_display_path
+        asset.gray4_display_path &&
+        asset.gray4_preview_path
       ) {
         return asset;
       }

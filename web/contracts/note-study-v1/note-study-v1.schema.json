@@ -302,6 +302,38 @@
         "occurred_at": { "$ref": "#/$defs/isoDateTime" }
       }
     },
+    "skipObservationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "session_id",
+        "sequence",
+        "item_id"
+      ],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "boot_id": { "$ref": "#/$defs/requestId" },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9._-]+$" }
+        },
+        "session_id": { "$ref": "#/$defs/uuid" },
+        "sequence": { "$ref": "#/$defs/safeCounter" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "action": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "mode": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "occurred_at": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
     "observationData": {
       "type": "object",
       "additionalProperties": false,

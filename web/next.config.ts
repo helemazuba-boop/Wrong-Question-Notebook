@@ -6,14 +6,25 @@ import { validateSupabasePublicEnvironment } from './lib/supabase-config';
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 const projectRoot = path.resolve(__dirname);
 
-if (process.env.NODE_ENV === 'production') {
-  validateSupabasePublicEnvironment({
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    publishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY,
-    expectedHost: process.env.WQN_SUPABASE_EXPECTED_HOST,
-    nodeEnv: process.env.NODE_ENV,
-  });
-}
+const supabaseEnvironment =
+  process.env.NODE_ENV === 'production'
+    ? validateSupabasePublicEnvironment({
+        url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        publishableKey:
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY,
+        expectedHost: process.env.WQN_SUPABASE_EXPECTED_HOST,
+        allowedHttpOrigin: process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN,
+        nodeEnv: process.env.NODE_ENV,
+      })
+    : null;
+
+const supabaseImageUrl = new URL(
+  supabaseEnvironment?.url ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    'https://data.helema.cn'
+);
+const supabaseImageProtocol = supabaseImageUrl.protocol.slice(0, -1) as
+  'http' | 'https';
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
@@ -38,8 +49,9 @@ const nextConfig: NextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'data.helema.cn',
+        protocol: supabaseImageProtocol,
+        hostname: supabaseImageUrl.hostname,
+        port: supabaseImageUrl.port,
         pathname: '/storage/v1/object/public/avatars/**',
       },
       // Temporary rollback compatibility until all avatar objects and URLs

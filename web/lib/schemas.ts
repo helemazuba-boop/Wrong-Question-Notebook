@@ -66,6 +66,7 @@ const Asset = z.object({
     .regex(/^[0-9a-f]{64}$/)
     .optional(),
   gray4_display_path: z.string().optional(),
+  gray4_preview_path: z.string().optional(),
 });
 
 export type ProblemAsset = z.infer<typeof Asset>;

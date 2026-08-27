@@ -92,3 +92,6 @@ supabase/.temp/
 # Package lock files
 package-lock.json
 yarn.lock
+
+# Vendored artifacts with pinned checksums
+vendor/

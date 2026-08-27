@@ -97,6 +97,7 @@ $realtimeRuntimeKeys = @(
     "NODE_ENV",
     "SUPABASE_URL",
     "WQN_SUPABASE_EXPECTED_HOST",
+    "WQN_ALLOW_HTTP_SUPABASE_ORIGIN",
     "SUPABASE_SECRET_KEY",
     "STEP_API_KEY",
     "STEP_TTS_REALTIME_URL",
@@ -156,9 +157,14 @@ try {
     Write-Host "  [ERROR] SUPABASE_URL is not a valid absolute URL." -ForegroundColor Red
     exit 1
 }
-if ($supabaseUri.Scheme -ne "https" -or
+$supabaseOrigin = $supabaseUri.GetLeftPart([System.UriPartial]::Authority)
+$httpIsExplicitlyAllowed = (
+    $supabaseUri.Scheme -eq "http" -and
+    $envVars["WQN_ALLOW_HTTP_SUPABASE_ORIGIN"] -ceq $supabaseOrigin
+)
+if (($supabaseUri.Scheme -ne "https" -and -not $httpIsExplicitlyAllowed) -or
     $supabaseUri.Host -ne $envVars["WQN_SUPABASE_EXPECTED_HOST"]) {
-    Write-Host "  [ERROR] SUPABASE_URL must use HTTPS and match WQN_SUPABASE_EXPECTED_HOST." -ForegroundColor Red
+    Write-Host "  [ERROR] SUPABASE_URL must use HTTPS (or exactly match WQN_ALLOW_HTTP_SUPABASE_ORIGIN) and match WQN_SUPABASE_EXPECTED_HOST." -ForegroundColor Red
     exit 1
 }
 if ($envVars["WQN_INTERNAL_API_BASE"].TrimEnd('/') -ne "http://wqn:3000") {

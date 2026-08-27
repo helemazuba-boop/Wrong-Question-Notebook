@@ -182,6 +182,8 @@ IMAGE=registry.cn-hangzhou.aliyuncs.com/your-namespace/wqn:latest
 NEXT_PUBLIC_SUPABASE_URL=https://data.helema.cn
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=sb_publishable_xxx
 WQN_SUPABASE_EXPECTED_HOST=data.helema.cn
+# HTTPS 部署留空；私网 HTTP 部署必须填写与 URL 完全相同的 origin。
+WQN_ALLOW_HTTP_SUPABASE_ORIGIN=
 SUPABASE_SECRET_KEY=sb_secret_xxx
 
 # Gemini AI（从 Google AI Studio 获取）
@@ -241,6 +243,7 @@ docker run -d \
   -e NEXT_PUBLIC_SUPABASE_URL="https://data.helema.cn" \
   -e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY="xxx" \
   -e WQN_SUPABASE_EXPECTED_HOST="data.helema.cn" \
+  -e WQN_ALLOW_HTTP_SUPABASE_ORIGIN="" \
   -e SUPABASE_SECRET_KEY="xxx" \
   -e GEMINI_API_KEY="xxx" \
   -e SITE_URL="http://localhost:3000" \

@@ -1,8 +1,11 @@
-# data.helema.cn 自托管 Supabase 迁移
+# WQN 自托管 Supabase 迁移
 
-本目录是 WQN 切换到 `data.helema.cn` 自托管 Supabase 的可审计基建。数据库、Storage 和应用切换是独立门禁；任一步失败都不得切换生产流量。
+本目录是 WQN 自托管 Supabase 的可审计迁移基建。数据库、Storage 和应用切换是独立门禁；任一步失败都不得切换生产流量。
 
-> 2026-07-19 的产品决策：当前没有历史用户，不运行兼容栈。旧 Supabase Cloud 仅是较老检查点，不作为本次生产数据源；`data.helema.cn` 尚未就位时不得宣称 M7 生产切换完成。当前执行下文的“全新目标初始化”路径，旧库 dump/restore 与 Storage 复制仅作为未来改变决策时的保留工具。
+> 2026-08-27 的当前决策：Supabase Cloud 仍是 primary，腾讯云 self-hosted
+> Supabase 仅作为 staging / clone target。本阶段从已 linked 的 Cloud 制作数据库与
+> Storage 克隆，不切换生产 DNS、不开放生产写入、不做双写，也不把腾讯目标视为可独立
+> 接管流量的最新副本。正式 cutover 必须另行批准并重新执行最终同步与验收。
 
 上游依据：
 
@@ -14,38 +17,53 @@
 ## 1. 固定拓扑
 
 ```text
-Browser / Next.js / realtime proxy
-               │ HTTPS / WSS
-               ▼
-       data.helema.cn:443
-               │ OpenResty
-               ▼
-       127.0.0.1:8000 Kong
+阿里云 WQN Web（WireGuard 10.77.0.1）
                │
-       Auth / REST / Storage / Realtime
-               │
-          self-hosted PostgreSQL
+               │ WireGuard 10.77.0.0/24
+               ▼
+腾讯云 10.77.0.2:8000 Kong / API Gateway
+               ├── Auth
+               ├── REST
+               ├── Storage
+               ├── Realtime
+               └── self-hosted PostgreSQL
 ```
 
-Kong 的 `8000/8443` 不得监听公网地址；Studio 不经 `data.helema.cn` 暴露。PostgreSQL/Supavisor 端口只允许运维网络访问。
+当前 clone/staging 的 Supabase API origin 是 `http://10.77.0.2:8000`，只能由阿里云 Web
+主机经 WireGuard 使用。HTTP 明文位于 WireGuard 加密隧道内部；不得绕过 VPN 改用腾讯公网
+地址。Kong 的 `8000/8443` 应通过端口绑定、云防火墙或主机防火墙收敛到 WireGuard，Studio
+不得暴露，PostgreSQL/Supavisor 只允许运维网络访问。
+
+WQN 应用和 realtime 默认拒绝 production HTTP Supabase。开源部署若确实通过 WireGuard、
+VPC 或同等受信私网使用 HTTP，必须显式配置完整 origin：
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=http://10.77.0.2:8000
+WQN_SUPABASE_EXPECTED_HOST=10.77.0.2
+WQN_ALLOW_HTTP_SUPABASE_ORIGIN=http://10.77.0.2:8000
+```
+
+`WQN_ALLOW_HTTP_SUPABASE_ORIGIN` 必须与 URL 的规范化 origin 精确相等（不带尾斜杠），
+不是布尔型“关闭 TLS”开关。HTTPS 部署应将其留空。
 
 ## 2. 准备自托管栈
 
 1. 在目标机按官方 Docker 指南部署 Supabase，并记录所用上游 commit、Postgres/Auth/Storage/Kong 版本。
 2. 复制 `selfhost.env.example` 为目标机的私密 `.env`，逐项生成随机值。
-3. 确保以下值固定：
+3. 当前无 Supabase 公网域名或私有 DNS；clone/staging 内部 origin 固定为：
 
    ```dotenv
-   SUPABASE_PUBLIC_URL=https://data.helema.cn
-   API_EXTERNAL_URL=https://data.helema.cn/auth/v1
+   SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+   API_EXTERNAL_URL=http://10.77.0.2:8000/auth/v1
    SITE_URL=https://wqn.helema.cn
    ADDITIONAL_REDIRECT_URLS=https://wqn.helema.cn/auth/callback
    ```
 
-4. 将 Kong 的端口映射限制为 `127.0.0.1:8000:8000`。安装 `openresty-data.helema.cn.conf`，替换证书路径后执行 `openresty -t` 再平滑 reload。
-5. DNS 切换前先通过 `/etc/hosts` 在运维机验证 TLS、Auth、REST、Storage 和 Realtime。
+4. 腾讯 `wg0=10.77.0.2/24`，阿里 `wg0=10.77.0.1/24`；从阿里验证 Kong、Auth、REST、
+   Storage 和 Realtime，不创建 `data.helema.cn` DNS 或 `/etc/hosts` 映射。
+5. 浏览器可达入口、TLS 与正式 cutover 是独立设计门禁；本阶段不得为迁移临时开放公网 Kong。
 
-## 3. 全新目标初始化（当前路径）
+## 3. 全新目标初始化（当前不执行）
 
 目标 Supabase 基础栈就位后，先用直接 PostgreSQL 管理连接确认迁移计划。脚本拒绝 Supabase Cloud、拒绝已有 WQN 表，并要求显式确认解析出的目标主机：
 
@@ -62,42 +80,66 @@ bash deploy/supabase-selfhost/push-target-migrations.sh --apply
 unset TARGET_DATABASE_URL CONFIRM_TARGET_DATABASE_HOST CONFIRM_M7_GREENFIELD_INITIALIZATION
 ```
 
-`--apply` 完成后会验证 `20260719000000`、`20260719010000`、RLS、设备 token 哈希以及所有 SECURITY DEFINER 的固定 `search_path`。该路径不读取、不更新旧 Cloud。
+`--apply` 完成后会验证 `20260719000000`、`20260719010000`、RLS、设备 token 哈希以及所有 SECURITY DEFINER 的固定 `search_path`。该路径不读取、不更新 Cloud；它只用于明确批准的 greenfield 初始化，不得与下文的 Cloud clone 流程混用。
 
-## 4. 旧库恢复工具（当前不执行）
+## 4. Cloud 数据库克隆到 staging（当前路径）
 
-先对旧 Cloud 执行 v3 约束前检查；它只读数据并会在重复 MAC 或非法 token hash 时失败：
-
-```bash
-psql "$SOURCE_DATABASE_URL" \
-  --set ON_ERROR_STOP=1 \
-  --file deploy/supabase-selfhost/before-v3-push.sql
-```
-
-通过后，把仓库内全部 pending migration（包括 v3 与 `20260719010000_self_hosted_security_hardening.sql`）应用到旧 Cloud。必须先 dry-run，输出不得包含意外的历史迁移。若 `supabase migration list --linked` 因 legacy login-role API 失败，使用直接 PostgreSQL URL 的脚本，不依赖 linked project：
+源 Supabase Cloud 必须由 `web` 目录的 Supabase CLI linked project 访问。源端查询和 dump
+不需要也不得要求 `SOURCE_DATABASE_URL`、数据库密码或直接 PostgreSQL 连接。先只读确认
+linked project、PostgreSQL 版本和 migration history：
 
 ```bash
-read -rsp 'Old Cloud DB URL: ' SOURCE_DATABASE_URL; echo
-export SOURCE_DATABASE_URL
-bash deploy/supabase-selfhost/push-source-migrations.sh --dry-run
-
-# 核对 dry-run 清单后才允许写入：
-export CONFIRM_SOURCE_MIGRATION_PUSH=apply-20260719-to-old-cloud
-bash deploy/supabase-selfhost/push-source-migrations.sh --apply
-unset CONFIRM_SOURCE_MIGRATION_PUSH
+cd /home/unknow/projects/WQN/web
+supabase db query --linked --agent yes --output-format json \
+  "select current_user, current_database(), current_setting('server_version');"
+supabase migration list --linked
 ```
 
-脚本会在 apply 后验证 v3/security invariants 以及两条 20260719 migration history。迁库脚本还会要求源库 migration history 与当前 checkout 完全一致，防止从错误分支或漏迁的库制作快照。
+本地 `web/supabase/migrations/` 与 remote history 必须完全一致。此流程不会运行
+`supabase db push`，发现 pending、remote-only 或乱序 migration 时立即停止并先在独立变更中
+完成核对。
 
-迁移脚本遵循官方要求，使用 `supabase db dump` 分别导出 roles/schema/data；不要用原始 `pg_dump`，不要在生产使用 `--include-seed`。
+数据库 dump、源 row counts 和最终 Storage 同步期间，暂停 WQN Web、Realtime、设备写入、
+Storage 上传/删除以及任何 Cloud migration/deploy。Cloud 在维护窗口前后仍是 primary；冻结
+只是为了让 schema、data、row counts 和对象字节来自同一个稳定检查点。
+
+目标必须是空的 PostgreSQL 17.6 self-hosted 数据库，并通过本机 SSH tunnel 使用
+`supabase_admin` PostgreSQL superuser。不要设置 `ALLOW_NONEMPTY_TARGET=1`。先进行只读确认：
 
 ```bash
 cd /home/unknow/projects/WQN
-read -rsp 'Old Cloud DB URL: ' SOURCE_DATABASE_URL; echo
+set +x
+unset SOURCE_DATABASE_URL ALLOW_NONEMPTY_TARGET
 read -rsp 'Self-host admin DB URL: ' TARGET_DATABASE_URL; echo
-export SOURCE_DATABASE_URL TARGET_DATABASE_URL
+export TARGET_DATABASE_URL
+
+psql "$TARGET_DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "
+select
+  current_user,
+  current_database(),
+  current_setting('server_version'),
+  (select rolsuper from pg_roles where rolname = current_user),
+  to_regclass('public.user_profiles');
+"
+```
+
+输出必须显示预期数据库、PostgreSQL 17.6、superuser 为 `t`，且
+`to_regclass('public.user_profiles')` 为空。选择不在 Git 工作树内、权限为 `0700` 的加密或
+受控目录保存 artifacts，然后执行数据库克隆：
+
+```bash
+export MIGRATION_ARTIFACT_DIR=/absolute/private/path/wqn-clone-20260827
+install -d -m 700 "$MIGRATION_ARTIFACT_DIR"
 bash deploy/supabase-selfhost/database-migrate.sh
-unset SOURCE_DATABASE_URL TARGET_DATABASE_URL
+migration_status=$?
+unset TARGET_DATABASE_URL
+test "$migration_status" -eq 0
+
+sha256sum -c "$MIGRATION_ARTIFACT_DIR/SHA256SUMS"
+test ! -s "$MIGRATION_ARTIFACT_DIR/source-migrations.diff"
+test ! -s "$MIGRATION_ARTIFACT_DIR/target-migrations.diff"
+test ! -s "$MIGRATION_ARTIFACT_DIR/migration-history.diff"
+test ! -s "$MIGRATION_ARTIFACT_DIR/row-counts.diff"
 ```
 
 `TARGET_DATABASE_URL` 必须是维护窗口专用的 PostgreSQL superuser 连接（标准自托管栈为
@@ -105,10 +147,16 @@ unset SOURCE_DATABASE_URL TARGET_DATABASE_URL
 `session_replication_role=replica`。不要使用 Next.js 的 `SUPABASE_SECRET_KEY`，也不要把
 数据库 superuser URL 写入应用 env、日志或 shell history；迁移结束后立即从当前会话移除。
 
+迁移脚本遵循官方要求，从 `web` 目录使用 `supabase db dump --linked` 分别导出
+roles/schema/data；不要用原始 `pg_dump`，不要使用 `--include-seed`。源 preflight、migration
+history 和 row counts 使用 `supabase db query --linked`，Target 的检查、restore 和验证仍只
+使用 `TARGET_DATABASE_URL` + `psql`。
+
 脚本会：
 
 - 拒绝重复设备 MAC、非法 token hash 或未应用 v3 的源库；
 - 拒绝覆盖已有 WQN 表的目标库；
+- 在 dump 前精确比较 Source/Target 的 Auth 与 Storage migration history，拒绝不兼容的服务 schema；
 - 生成权限为 `0700/0600` 的 dump、SHA-256 和审计输出；
 - 在单事务中恢复数据；
 - 原样复制并校验源库 `supabase_migrations.schema_migrations`（包括 name/statements），避免后续 `db push` 重放历史；
@@ -116,25 +164,62 @@ unset SOURCE_DATABASE_URL TARGET_DATABASE_URL
 
 词库 migration 的原始 statements 约 1 MB，迁移历史的 CSV 导出/导入在低配主机上可能持续数分钟；此阶段没有进度行属于预期，禁止中断后直接继续切流，必须等待随后的 history diff 通过。
 
+restore 本身是单事务，但 migration history 重建和最终验证发生在后续事务中。如果脚本在
+restore 成功后失败，Target 可能已经非空；不得为了重跑而设置
+`ALLOW_NONEMPTY_TARGET=1`。保留失败 artifacts 和目标用于诊断，然后重新创建干净 staging
+数据库再执行完整流程。restore 的标准输出和错误输出分别保存在 `restore.txt` 与
+`restore-error.txt`，失败时先保留并审查这两个文件，不要直接覆盖重跑。
+
 `artifacts/` 含数据库业务数据，不得提交、上传公共制品库或长期留在构建机。验收后转移到加密备份介质。
 
-## 5. Storage 对象迁移（当前无历史对象，不执行）
+## 5. Storage 对象迁移（数据库克隆成功后执行）
 
-数据库 dump 只恢复 Storage 元数据，不恢复对象字节。先做一轮预复制，维护窗口中再做最终 upsert + SHA-256 校验：
+数据库 dump 只恢复 Storage 元数据，不恢复对象字节。正式 staging clone 应确保 Target 的
+对象存储后端没有上次运行遗留的对象字节，并在源对象写入保持冻结时完成最终 upsert +
+SHA-256 校验。若先做在线预复制，必须注意脚本不会删除 Source 已删除但 Target 仍存在的
+多余对象；最终验收前应清空并重新建立对象存储后端，或单独证明不存在多余对象。数据库中
+`storage.buckets` / `storage.objects` 的 metadata 则由第 4 节 DB restore 带入，不应手工清空。
 
 ```bash
+# 在阿里云 WQN Web 主机执行；Target 请求必须经 WireGuard 到腾讯云 Kong。
 cd /home/unknow/projects/WQN/web
-export SOURCE_SUPABASE_URL='https://old-project.supabase.co'
-export SOURCE_SUPABASE_SECRET_KEY='...'
-export TARGET_SUPABASE_URL='https://data.helema.cn'
-export TARGET_SUPABASE_SECRET_KEY='...'
+set +x
+read -rp 'Source Supabase origin: ' SOURCE_SUPABASE_URL
+read -rsp 'Source Supabase secret key: ' SOURCE_SUPABASE_SECRET_KEY; echo
+read -rp 'Target Supabase WireGuard origin: ' TARGET_SUPABASE_URL
+read -rp 'Confirm exact target origin: ' CONFIRM_TARGET_SUPABASE_ORIGIN
+read -rsp 'Target Supabase secret key: ' TARGET_SUPABASE_SECRET_KEY; echo
+export SOURCE_SUPABASE_URL SOURCE_SUPABASE_SECRET_KEY
+export TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY CONFIRM_TARGET_SUPABASE_ORIGIN
 npm run migrate:supabase-storage
+unset SOURCE_SUPABASE_URL SOURCE_SUPABASE_SECRET_KEY
+unset TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY CONFIRM_TARGET_SUPABASE_ORIGIN
 ```
 
-默认迁移 `avatars,problem-uploads`；通过 `STORAGE_BUCKETS` 显式扩展。任何 checksum mismatch 都是切换阻断项。
+当前阿里云 Web → WireGuard → 腾讯云 Kong 的 Target origin 是
+`http://10.77.0.2:8000`。该 HTTP 连接只能在 WireGuard 加密私网内使用；不得改用公网路径。
+脚本要求 `CONFIRM_TARGET_SUPABASE_ORIGIN` 与解析后的 Target origin 精确一致，并默认迁移
+`avatars,problem-uploads,word-packs`；通过 `STORAGE_BUCKETS` 显式覆盖。任何 checksum mismatch 都是切换阻断项。
 脚本也会比较源/目标 bucket 的 public、文件大小上限和 MIME 白名单；不一致时拒绝继续，
 并为每个 bucket 输出对象数、总字节数和路径/大小/内容散列组成的 manifest SHA-256。
 `VERIFY_STORAGE_BYTES=0` 只可用于预演，输出不能作为正式切换验收证据。
+
+### 5.1 `problem-uploads` 桶的 MIME 白名单是设备管线的硬依赖
+
+设备内容同步会把 pack 物化为 Storage 对象（`web/lib/device-content-artifacts.ts`
+的 `materializeDevicePackArtifact`），上传路径
+`user/<uid>/device-packs/<domain>/<logicalId>/<sha256>.jsonl`，
+**Content-Type 固定为 `application/x-ndjson`**。若桶开启 "Restrict MIME types"
+且白名单未包含该类型，Storage 返回 400，清单接口以
+`ARTIFACT_STORAGE_ERROR`(500, retryable) 失败——设备端表现为笔记/错题包
+永远"部分完成待重试"、按需下载走不通。
+
+要求：
+* `problem-uploads` 的 MIME 白名单必须包含 `application/x-ndjson`；
+  未来任何新增的服务端上传 Content-Type 都必须同步进入白名单。
+* 变更桶配置后无需重刷设备固件：错误分类为可重试瞬态，下一轮同步自动恢复。
+* 排查入口：Supabase Storage 访问日志中的 `POST /storage/v1/object/... 400`
+  加上固件侧 `note-study/problem-study manifest failed: ARTIFACT_STORAGE_ERROR`。
 
 ## 6. Auth
 
@@ -167,7 +252,7 @@ npm run migrate:supabase-storage
 不会写入该文件。直接 `docker run` 部署时，主应用和 Realtime 必须同时加入私有
 `wqn-runtime` 网络，主应用使用网络别名 `wqn`，内部回调固定为 `http://wqn:3000`。
 
-切换前校验两个私密 env 文件：
+staging 验收前校验两个私密 env 文件：
 
 ```bash
 node deploy/supabase-selfhost/validate-environment.mjs \
@@ -177,47 +262,81 @@ node deploy/supabase-selfhost/validate-environment.mjs \
 
 历史镜像曾将 service-role、AI key 和 Server Actions key 作为 build args；应视为已暴露。先部署修复后的镜像，再轮换 Supabase server key、AI provider keys、`WQN_REALTIME_PROXY_SECRET` 和 Server Actions key。发布/secret key 可并行启用后逐实例切换，最后禁用旧 key。
 
-## 8. 切换顺序
+## 8. Staging 克隆验收（当前路径）
 
 1. 在隔离主机部署全新自托管栈并记录所有镜像版本。
-2. 执行 `push-target-migrations.sh --dry-run`，人工核对后再 `--apply`。
-3. 进入维护窗口，停止当前 WQN 与 realtime 写入口。
-4. 用 `/etc/hosts` 验证 `data.helema.cn`，部署指向新目标的 WQN/realtime 镜像。
-5. 执行自动 smoke；旧控制面必须返回 `UPGRADE_REQUIRED`，v3 claim 必须可创建和轮询。
-6. 切换 DNS；观察 Auth/REST/Realtime、5xx、延迟和数据库连接。
-7. 烧录 generation=3 固件；固件构建必须先通过 M8 ownership gate，再按固件仓库
+2. 进入 clone 窗口，冻结 Cloud 的数据库与 Storage 写入口。
+3. 按第 4 节克隆数据库；成功后按第 5 节复制并校验 Storage 对象字节。
+4. 在阿里云部署仅供 staging 验收、明确指向腾讯 Target 的 WQN/realtime 实例；不得修改仍以
+   Cloud 为 primary 的生产实例配置。
+5. 执行环境校验和自动 smoke；旧控制面必须返回 `UPGRADE_REQUIRED`，v3 claim 必须可创建和轮询。
+6. 完成 Auth、REST、Storage、Realtime、行数与关键业务流程的人工验收。
+7. 恢复 Cloud primary 写入口；腾讯 staging 保持隔离，不接收生产流量。
+8. 烧录 generation=3 固件的验收必须先通过 M8 ownership gate，再按固件仓库
    `RELEASE_CHECKLIST.md` 完成擦除、配网、网页 claim、bootstrap、sync、刷新、
    100 次睡眠/唤醒和 AI/Flash 实测。USB/充电状态会主动持有睡眠 Lease，深睡验收必须断开 USB、使用电池供电。
-8. 验证后恢复写入口。旧检查点只用于成对回滚，不做双写或增量合并。
+
+本阶段禁止切换 DNS、生产反向代理或生产应用 env。staging smoke 会在腾讯 Target 创建一条
+自动过期的 pending claim；因此必须在数据库与 Storage clone 完成后执行。
+
+先从阿里云 Web 主机执行不创建业务数据的 Target infrastructure smoke：
+
+```bash
+cd /path/to/WQN/web
+export SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+export CONFIRM_SUPABASE_PUBLIC_ORIGIN=http://10.77.0.2:8000
+read -rsp 'Target Supabase publishable key: ' SUPABASE_PUBLISHABLE_KEY; echo
+export SUPABASE_PUBLISHABLE_KEY
+npm run smoke:target-infra
+unset SUPABASE_PUBLIC_URL CONFIRM_SUPABASE_PUBLIC_ORIGIN SUPABASE_PUBLISHABLE_KEY
+```
+
+该 smoke 验证 Auth、REST、Storage、隐藏的 Kong root 以及 Realtime WebSocket 握手；不输出
+响应 payload 或 key，也不创建业务数据。它不能替代下方要求 staging WQN 实例明确指向
+Tencent Target 的应用级 smoke。阿里一次性 runner 可直接执行
+`run-target-infra-smoke.sh` 并在隐藏提示中输入 publishable key；通过管道调用时则从 stdin
+读取 key。两种模式都会在退出时清理环境变量，并以 90 秒为总超时。
 
 自动 smoke（不会打印 token 或 8 位显示码；会创建一条自动过期的 pending claim）：
 
 ```bash
-cd /home/unknow/projects/WQN/web
-export SUPABASE_PUBLIC_URL=https://data.helema.cn
+cd /path/to/WQN/web
+export SUPABASE_PUBLIC_URL=http://10.77.0.2:8000
+export CONFIRM_SUPABASE_PUBLIC_ORIGIN=http://10.77.0.2:8000
 export SUPABASE_PUBLISHABLE_KEY='...'
-export WQN_BASE_URL=https://wqn.helema.cn
+export WQN_BASE_URL='<阿里云上指向 Tencent Target 的 staging WQN origin>'
 npm run smoke:m7-cutover
+unset SUPABASE_PUBLIC_URL CONFIRM_SUPABASE_PUBLIC_ORIGIN
+unset SUPABASE_PUBLISHABLE_KEY WQN_BASE_URL
 ```
 
 最低人工 smoke：
 
 ```bash
-curl -fsS https://data.helema.cn/auth/v1/health
-curl -i https://data.helema.cn/rest/v1/ \
+curl -i http://10.77.0.2:8000/auth/v1/health \
   -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
-curl -i https://data.helema.cn/
+curl -i http://10.77.0.2:8000/rest/v1/ \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
+curl -i http://10.77.0.2:8000/
+curl -i http://10.77.0.2:8000/ \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
 ```
 
-最后一个请求必须返回 `404`，证明 Studio/Kong root 未暴露。随后在浏览器完成注册确认、登录、刷新 session、头像访问；设备完成 bootstrap/sync；Realtime 完成一次 WebSocket 会话。
+匿名和带 publishable key 的 root 都必须返回 `401` 或 `404`，不得返回 2xx/3xx，证明
+Studio/Kong root 对匿名及 publishable 客户端不可访问。随后在浏览器完成注册确认、登录、
+刷新 session、头像访问；设备完成 bootstrap/sync；Realtime 完成一次 WebSocket 会话。
 
-## 9. 回滚
+## 9. Staging clone 失败处理
 
-切换后若出现数据一致性、Auth、Storage 或 Realtime 故障：
+Cloud 始终是本阶段 primary，因此 staging clone 失败不需要生产回切：
 
-1. 立即重新进入维护状态，禁止产生新写入。
-2. WQN 镜像、runtime env、realtime 和固件按同一发布检查点成对回滚。
-3. 回切 DNS/反向代理到旧 Node + 旧数据库检查点并执行旧链路 smoke；设备本地已擦除，必须重新配对。
-4. 保留失败目标库和日志用于取证，不在事故窗口反向合并数据。
+1. 不修改生产 DNS、反向代理、应用 env 或 Cloud 数据。
+2. 记录失败阶段；保留 artifacts、失败 Target 和日志用于诊断。
+3. 若数据库 restore 已成功但后续 gate 失败，重新创建干净 Target，不使用
+   `ALLOW_NONEMPTY_TARGET=1` 覆盖重跑。
+4. 若 Storage gate 失败，保留失败对象后端用于诊断；重试正式验收前清理 staging 对象字节，
+   避免遗留对象掩盖 Source 删除。
+5. 结束 clone 窗口并恢复 Cloud 写入口；不得把 staging 变更反向合并到 Cloud。
 
-当前没有历史用户，禁止为了“兼容”同时开放旧 pair/poll/sync 与 v3；稳定观察期结束后再清理旧检查点。
+未来生产 cutover 的冻结、最终增量同步、DNS 切换和成对回滚必须另写并审批 runbook；本文件
+当前步骤的成功不能替代 cutover approval。

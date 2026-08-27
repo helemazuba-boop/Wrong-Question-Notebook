@@ -7,7 +7,7 @@ import {
   type NextRequest as NextRequestType,
 } from 'next/server';
 import { hasEnvVars } from '@/lib/server-utils';
-import { updateLastLoginEdge } from '@/lib/edge-utils';
+import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import { ENV_VARS, USER_ROLES } from '@/lib/constants';
 
 const intlMiddleware = createNextIntlMiddleware(routing);
@@ -24,12 +24,12 @@ function stripLocaleFromPath(pathname: string): string {
   return pathname;
 }
 
-/** Get user and access token from request using Supabase SSR client */
+/** Verify the request identity using the access-token signature. */
 async function getUserFromRequest(
   request: NextRequestType,
   cookieUpdater: (cookies: any[]) => void
 ) {
-  if (!hasEnvVars) return { user: null, accessToken: null };
+  if (!hasEnvVars) return { user: null };
 
   try {
     const supabase = createServerClient(
@@ -49,13 +49,10 @@ async function getUserFromRequest(
         },
       }
     );
-    const { data } = await supabase.auth.getUser();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    return { user: data.user, accessToken: session?.access_token ?? null };
+    const { user } = await getAuthenticatedPrincipal(supabase);
+    return { user };
   } catch {
-    return { user: null, accessToken: null };
+    return { user: null };
   }
 }
 
@@ -138,7 +135,7 @@ export async function proxy(request: NextRequest) {
   const contentPath = stripLocaleFromPath(originalPathname);
 
   // Step 2: Check auth state
-  const { user, accessToken } = await getUserFromRequest(request, cookies => {
+  const { user } = await getUserFromRequest(request, cookies => {
     cookiesToUpdate.push(...cookies);
   });
 
@@ -206,16 +203,6 @@ export async function proxy(request: NextRequest) {
       loginUrl.searchParams.set('redirect', contentPath);
     }
     return applyCookies(NextResponse.redirect(loginUrl));
-  }
-
-  // User is authenticated — fire-and-forget login heartbeat
-  if (user.id) {
-    updateLastLoginEdge(
-      user.id,
-      process.env[ENV_VARS.SUPABASE_URL]!,
-      process.env[ENV_VARS.SUPABASE_ANON_KEY]!,
-      accessToken ?? undefined
-    ).catch(() => {});
   }
 
   return applyCookies(finalResponse);
