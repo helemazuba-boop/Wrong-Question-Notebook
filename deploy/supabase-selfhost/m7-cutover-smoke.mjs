@@ -92,8 +92,8 @@ const authenticatedKongRoot = await request(`${dataBase}/`, {
   headers: { apikey: publishableKey },
 });
 assert(
-  authenticatedKongRoot.status === 404,
-  `Authenticated Kong root must return HTTP 404 (got HTTP ${authenticatedKongRoot.status})`,
+  new Set([401, 404]).has(authenticatedKongRoot.status),
+  `Publishable-key Kong root must be hidden (got HTTP ${authenticatedKongRoot.status})`,
 );
 
 const legacyRequestId = `m7_legacy_${randomUUID().replaceAll("-", "").slice(0, 24)}`;

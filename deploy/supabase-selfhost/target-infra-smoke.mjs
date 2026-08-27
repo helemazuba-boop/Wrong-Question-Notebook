@@ -61,8 +61,8 @@ assert(
 );
 const authenticatedKongRoot = await request("/");
 assert(
-  authenticatedKongRoot.status === 404,
-  `Authenticated Kong root must return HTTP 404 (got HTTP ${authenticatedKongRoot.status})`,
+  new Set([401, 404]).has(authenticatedKongRoot.status),
+  `Publishable-key Kong root must be hidden (got HTTP ${authenticatedKongRoot.status})`,
 );
 
 if (typeof WebSocket !== "function") {
