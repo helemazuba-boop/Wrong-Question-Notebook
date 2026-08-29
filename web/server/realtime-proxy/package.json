@@ -9,8 +9,8 @@
     "dev": "bun --watch src/index.ts"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "@supabase/supabase-js": "^2.45.0",
+    "ws": "^8.21.3",
+    "@supabase/supabase-js": "^2.112.4",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
