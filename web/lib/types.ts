@@ -417,7 +417,6 @@ export interface QRUploadSession {
 
 export interface QRSessionCreateResponse {
   sessionId: string;
-  token: string;
   expiresAt: string;
   uploadUrl: string;
 }

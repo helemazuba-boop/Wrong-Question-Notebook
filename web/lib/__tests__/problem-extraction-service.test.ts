@@ -3,14 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   generateContent: vi.fn(),
   checkAndIncrementQuota: vi.fn(),
+  refundQuotaUsage: vi.fn(),
+  acquireExternalProviderRateLimit: vi.fn(),
   getUserTimezone: vi.fn(),
 }));
 
-vi.mock('@/lib/ai/client', () => ({
+vi.mock('@/lib/ai/client', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/ai/client')>()),
   createAIClient: () => ({ generateContent: mocks.generateContent }),
 }));
 vi.mock('@/lib/usage-quota', () => ({
   checkAndIncrementQuota: mocks.checkAndIncrementQuota,
+  refundQuotaUsage: mocks.refundQuotaUsage,
+}));
+vi.mock('@/lib/external-provider-rate-limit', () => ({
+  acquireExternalProviderRateLimit: mocks.acquireExternalProviderRateLimit,
 }));
 vi.mock('@/lib/timezone-utils', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/timezone-utils')>()),
@@ -25,7 +32,10 @@ import {
 
 const USER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SUBJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const IMAGE = { data: 'eA==', mime_type: 'image/png' as const };
+const IMAGE = {
+  data: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAMUlEQVRIie3QMQ0AAAjAMPybBgm7+FoDSzb7bASKRcmiZFGyKFmULEoWJYuSRel90QGLVfSmL9cHVAAAAABJRU5ErkJggg==',
+  mime_type: 'image/png' as const,
+};
 const VALID_EXTRACTION = {
   title: 'Linear Motion',
   content: '',
@@ -77,6 +87,13 @@ beforeEach(() => {
     current: 1,
     limit: 10,
     remaining: 9,
+  });
+  mocks.refundQuotaUsage.mockResolvedValue(0);
+  mocks.acquireExternalProviderRateLimit.mockResolvedValue({
+    allowed: true,
+    current_count: 1,
+    limit: 10,
+    retry_after_ms: 100,
   });
   mocks.generateContent.mockResolvedValue({
     text: JSON.stringify(VALID_EXTRACTION),
@@ -148,6 +165,7 @@ describe('problem extraction service', () => {
       retryable: false,
     });
     expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.refundQuotaUsage).not.toHaveBeenCalled();
   });
 
   it('cleans output and separates matching existing tags from new tags', async () => {
@@ -172,7 +190,10 @@ describe('problem extraction service', () => {
           expect.objectContaining({
             parts: expect.arrayContaining([
               expect.objectContaining({
-                inlineData: { mimeType: 'image/png', data: 'eA==' },
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: expect.any(String),
+                },
               }),
             ]),
           }),
@@ -183,6 +204,7 @@ describe('problem extraction service', () => {
         }),
       })
     );
+    expect(mocks.refundQuotaUsage).not.toHaveBeenCalled();
   });
 
   it('wraps malformed model output as a retryable typed error', async () => {
@@ -194,5 +216,45 @@ describe('problem extraction service', () => {
       status: 503,
       retryable: true,
     });
+    expect(mocks.refundQuotaUsage).toHaveBeenCalledWith(
+      USER_ID,
+      undefined,
+      'Asia/Shanghai'
+    );
+  });
+
+  it('refunds quota when global provider capacity is exhausted', async () => {
+    mocks.acquireExternalProviderRateLimit.mockResolvedValue({
+      allowed: false,
+      current_count: 10,
+      limit: 10,
+      retry_after_ms: 250,
+    });
+
+    await expect(
+      extractProblemFromImages(supabaseWithTags(), USER_ID, [IMAGE], SUBJECT_ID)
+    ).rejects.toMatchObject({
+      code: 'provider_rate_limited',
+      status: 429,
+      retryable: true,
+      details: { retry_after_ms: 250 },
+    });
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.refundQuotaUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not expose provider error details and refunds quota', async () => {
+    mocks.generateContent.mockRejectedValue(
+      new Error('upstream secret diagnostic')
+    );
+
+    await expect(
+      extractProblemFromImages(supabaseWithTags(), USER_ID, [IMAGE], SUBJECT_ID)
+    ).rejects.toMatchObject({
+      code: 'extraction_failed',
+      message: 'AI extraction failed',
+      status: 503,
+    });
+    expect(mocks.refundQuotaUsage).toHaveBeenCalledTimes(1);
   });
 });

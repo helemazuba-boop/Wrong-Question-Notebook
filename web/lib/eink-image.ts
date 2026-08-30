@@ -43,7 +43,7 @@ export const WQNI_PIXEL_FORMAT_GRAY4 = 2;
 export const WQNI_FLAGS_MSB_FIRST_ONE_WHITE = 0x0003;
 export const WQNI_HEADER_BYTES = 20;
 
-const SUPPORTED_FORMATS = new Set(['jpeg', 'png', 'webp']);
+const SUPPORTED_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif']);
 
 export class EinkImageError extends Error {
   constructor(

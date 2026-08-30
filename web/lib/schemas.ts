@@ -55,6 +55,7 @@ const htmlContent = z
 const Asset = z.object({
   path: z.string(),
   kind: z.enum(['image', 'pdf']).optional(),
+  pipeline_version: z.string().max(64).optional(),
   image_id: z
     .string()
     .regex(/^[0-9a-f]{64}$/)
@@ -260,7 +261,13 @@ const ProblemWriteFields = z.object({
   solution_text: htmlContent,
   solution_assets: z.array(Asset),
   last_reviewed_date: z.string().optional(),
-  tag_ids: z.array(z.uuid()).optional(),
+  tag_ids: z
+    .array(z.uuid())
+    .max(100)
+    .refine(ids => new Set(ids).size === ids.length, {
+      message: 'Tag IDs must be unique',
+    })
+    .optional(),
 });
 
 export const CreateProblemDto = ProblemWriteFields.extend({
@@ -633,7 +640,3 @@ export const StartInsightsReviewDto = z.object({
 });
 
 export const QRSessionIdParam = z.uuid();
-
-export const QRUploadQueryParams = z.object({
-  token: z.string().min(1),
-});

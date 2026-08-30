@@ -4,18 +4,16 @@ import { MobileUploader } from './mobile-uploader';
 
 export default async function UploadPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ sessionId: string }>;
-  searchParams: Promise<{ token?: string }>;
 }) {
   const { sessionId } = await params;
-  const { token } = await searchParams;
 
-  // Basic validation — redirect to home if invalid
-  if (!isValidUuid(sessionId) || !token) {
+  // The upload token lives in the URL fragment, which is intentionally not
+  // visible to this server component.
+  if (!isValidUuid(sessionId)) {
     redirect('/');
   }
 
-  return <MobileUploader sessionId={sessionId} token={token} />;
+  return <MobileUploader sessionId={sessionId} />;
 }

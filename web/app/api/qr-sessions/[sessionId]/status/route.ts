@@ -8,6 +8,7 @@ import {
 } from '@/lib/common-utils';
 import { QR_SESSION_CONSTANTS } from '@/lib/constants';
 import type { QRSessionStatusResponse } from '@/lib/types';
+import { createServiceClient } from '@/lib/supabase-utils';
 
 async function getStatus(
   _req: Request,
@@ -45,8 +46,20 @@ async function getStatus(
 
     // Check if expired but not yet marked
     let status = session.status as QRSessionStatusResponse['status'];
-    if (status === 'pending' && new Date(session.expires_at) < new Date()) {
+    if (
+      (status === 'pending' || status === 'uploaded') &&
+      new Date(session.expires_at) < new Date()
+    ) {
       status = 'expired';
+      const serviceClient = createServiceClient();
+      const { error: expiryError } = await serviceClient
+        .from('qr_upload_sessions')
+        .update({ status: 'expired' })
+        .eq('id', sessionId)
+        .in('status', ['pending', 'uploaded']);
+      if (expiryError) {
+        console.error('Failed to persist QR session expiry:', expiryError);
+      }
     }
 
     const response: QRSessionStatusResponse = {

@@ -262,7 +262,7 @@ describe('eink-image', () => {
     expect(byteAt(payload, 300, 150)).toBe(0xff);
   });
 
-  it('rejects unsupported and invalid inputs', async () => {
+  it('accepts a static GIF and rejects unsupported and invalid inputs', async () => {
     const gif = await sharp({
       create: {
         width: 8,
@@ -273,7 +273,20 @@ describe('eink-image', () => {
     })
       .gif()
       .toBuffer();
-    await expect(renderEinkImage(gif)).rejects.toMatchObject({
+    await expect(renderEinkImage(gif)).resolves.toMatchObject({
+      wqni: expect.any(Buffer),
+    });
+    const tiff = await sharp({
+      create: {
+        width: 32,
+        height: 32,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .tiff()
+      .toBuffer();
+    await expect(renderEinkImage(tiff)).rejects.toMatchObject({
       code: 'unsupported_format',
     });
     await expect(

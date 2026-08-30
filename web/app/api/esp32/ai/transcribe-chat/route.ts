@@ -8,27 +8,19 @@ import {
 import { createRateLimit } from '@/lib/rate-limit';
 import { withSecurity } from '@/lib/security-middleware';
 import { analyzePcmS16le } from '@/lib/esp32-ai-audio-staging';
+import {
+  AUDIO_CHANNELS,
+  AUDIO_SAMPLE_FORMAT,
+  AUDIO_SAMPLE_RATE,
+  MAX_AUDIO_BODY_BYTES,
+  MAX_AUDIO_DURATION_MS,
+  MIN_AUDIO_DURATION_MS,
+  MIN_PCM_AUDIO_BODY_BYTES,
+} from '@/lib/esp32-ai-audio-contract';
 import { logger } from '@/lib/logger';
 import { handleV2Streaming, isV2StreamingRequest } from './v2-handler';
 
 export const runtime = 'nodejs';
-
-export const AUDIO_SAMPLE_RATE = '16000';
-export const AUDIO_SAMPLE_FORMAT = 's16le';
-export const AUDIO_CHANNELS = '1';
-export const MIN_AUDIO_DURATION_MS = 1000;
-export const MAX_AUDIO_DURATION_MS = 20000;
-export const MAX_PCM_AUDIO_BODY_BYTES =
-  (Number(AUDIO_SAMPLE_RATE) * 2 * MAX_AUDIO_DURATION_MS) / 1000;
-export const MIN_PCM_AUDIO_BODY_BYTES =
-  (Number(AUDIO_SAMPLE_RATE) *
-    Number(AUDIO_CHANNELS) *
-    2 *
-    MIN_AUDIO_DURATION_MS) /
-  1000;
-export const AUDIO_BODY_TOLERANCE_BYTES = 4096;
-export const MAX_AUDIO_BODY_BYTES =
-  MAX_PCM_AUDIO_BODY_BYTES + AUDIO_BODY_TOLERANCE_BYTES;
 
 const AUTH_RATE_LIMIT = createRateLimit({
   windowMs: 60 * 1000,

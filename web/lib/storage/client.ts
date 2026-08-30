@@ -8,24 +8,26 @@ export async function getUserId() {
   return data.claims.sub;
 }
 
+const fileDigestCache = new WeakMap<File, Promise<string>>();
+
 /**
- * Supabase Storage object keys reject non-ASCII characters ("Invalid key").
- * Mobile camera/scanner filenames are routinely Chinese (文档扫描_….jpg), so
- * the key keeps only [a-zA-Z0-9._-]; a stem that sanitizes away entirely
- * falls back to a timestamp. Display names stay untouched — this is for the
- * storage path only.
+ * Prefix object names with the file content hash. Camera applications reuse
+ * names such as image.jpg, and a path derived from the display name alone can
+ * overwrite an older attachment. The content address makes retries
+ * idempotent while keeping different bytes at different object keys.
  */
-function storageSafeName(name: string): string {
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot + 1) : '';
-  const asciiStem = stem
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/_{2,}/g, '_')
-    .replace(/^_+|_+$/g, '');
-  const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-  const base = asciiStem || `image_${Date.now()}`;
-  return safeExt ? `${base}.${safeExt}` : base;
+function contentAddressedStorageName(file: File): Promise<string> {
+  const cached = fileDigestCache.get(file);
+  if (cached) return cached;
+  const digest = file.arrayBuffer().then(async bytes => {
+    const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const hex = Array.from(new Uint8Array(hash), byte =>
+      byte.toString(16).padStart(2, '0')
+    ).join('');
+    return hex;
+  });
+  fileDigestCache.set(file, digest);
+  return digest;
 }
 
 /**
@@ -71,13 +73,15 @@ export async function uploadFiles(
 
   const paths: string[] = [];
   for (const f of Array.from(files)) {
-    const safeName = storageSafeName(f.name);
+    const safeName = await contentAddressedStorageName(f);
     const path = `${base}/${safeName}`;
     const { error } = await supabase.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
       .upload(path, f, {
         cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
-        upsert: false,
+        // The key is a SHA-256 content address. Replaying the same upload is
+        // therefore safe; different bytes cannot overwrite an older asset.
+        upsert: true,
       });
     if (error) throw error;
     paths.push(path);
@@ -116,16 +120,15 @@ export async function uploadNoteFiles(
 
   const paths: string[] = [];
   for (const f of Array.from(files)) {
-    const safeName = storageSafeName(f.name);
+    const safeName = await contentAddressedStorageName(f);
     const path = `${base}/${safeName}`;
     const { error } = await supabase.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
       .upload(path, f, {
         cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
-        // A retried attach (e.g. the derived-render step failed once) re-uploads
-        // the same filename; overwriting the owner's own note original is the
-        // desired outcome, while upsert:false turned every retry into a
-        // duplicate-key 400.
+        // Content-addressed keys make a retried attach idempotent without
+        // allowing a same-named but different photo to overwrite an older
+        // attachment.
         upsert: true,
       });
     if (error) throw error;

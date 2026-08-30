@@ -307,6 +307,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      external_provider_rate_limits: {
+        Row: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at: string;
+          window_seconds: number;
+        };
+        Insert: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at?: string;
+          window_seconds: number;
+        };
+        Update: {
+          bucket_start?: string;
+          request_count?: number;
+          scope?: string;
+          updated_at?: string;
+          window_seconds?: number;
+        };
+        Relationships: [];
+      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -4225,6 +4249,14 @@ export type Database = {
         };
         Returns: Json;
       };
+      acquire_external_provider_rate_limit: {
+        Args: {
+          p_max_requests: number;
+          p_scope: string;
+          p_window_seconds?: number;
+        };
+        Returns: Json;
+      };
       claim_problem_mark_annotation: {
         Args: { p_lease_seconds?: number; p_problem_id: string };
         Returns: Json;
@@ -4765,6 +4797,18 @@ export type Database = {
         Returns: Json;
       };
       refresh_ranking_scores: { Args: never; Returns: undefined };
+      refund_quota_usage: {
+        Args: {
+          p_resource_type: string;
+          p_user_id: string;
+          p_user_tz?: string;
+        };
+        Returns: number;
+      };
+      replace_problem_tags: {
+        Args: { p_problem_id: string; p_tag_ids: string[] };
+        Returns: undefined;
+      };
       renew_problem_mark_annotation_lease: {
         Args: {
           p_lease_seconds?: number;

@@ -58,6 +58,7 @@ import {
 } from '@/lib/problem-extraction-service';
 import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import { ProblemInitialIdeaSchema } from '@/lib/schemas';
+import { PROBLEM_IMAGE_MAX_BASE64_CHARS } from '@/lib/image-input-normalization';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -73,7 +74,6 @@ const CursorSchema = z
   .max(12)
   .refine(value => Number(value) <= 10_000, 'cursor is too large');
 const IsoDateTimeSchema = z.iso.datetime({ offset: true });
-const MAX_BASE64_IMAGE_CHARS = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
 const MCP_IDEA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const CreateProblemToolArgsSchema = z.union([
   z.object({ get_prompt: z.literal(true) }),
@@ -952,7 +952,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
       images: z
         .array(
           z.object({
-            data: z.string().min(1).max(MAX_BASE64_IMAGE_CHARS),
+            data: z.string().min(1).max(PROBLEM_IMAGE_MAX_BASE64_CHARS),
             mime_type: z.enum(PROBLEM_EXTRACTION_MIME_TYPES),
           })
         )

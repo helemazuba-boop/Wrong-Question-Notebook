@@ -31,7 +31,7 @@ export const revalidate = 300; // 5 minutes
 async function ensureInitialReviewSchedule(userId: string, problemId: string) {
   try {
     const serviceClient = createServiceClient();
-    await serviceClient.from('review_schedule').upsert(
+    const { error } = await serviceClient.from('review_schedule').upsert(
       {
         user_id: userId,
         problem_id: problemId,
@@ -40,6 +40,9 @@ async function ensureInitialReviewSchedule(userId: string, problemId: string) {
       },
       { onConflict: 'user_id,problem_id' }
     );
+    if (error) {
+      console.error('Failed to create review schedule:', error);
+    }
   } catch (error) {
     console.error('Failed to create review schedule:', error);
   }
@@ -475,13 +478,30 @@ async function createProblem(req: Request) {
 
     // Link tags if present
     if (tag_ids?.length) {
-      await supabase.from('problem_tag').insert(
-        tag_ids.map((tag_id: string) => ({
-          user_id: user.id,
-          problem_id: created.id,
-          tag_id,
-        }))
-      );
+      const { error: tagError } = await supabase.rpc('replace_problem_tags', {
+        p_problem_id: created.id,
+        p_tag_ids: tag_ids,
+      });
+      if (tagError) {
+        const { error: rollbackError } = await supabase
+          .from('problems')
+          .delete()
+          .eq('id', created.id)
+          .eq('user_id', user.id);
+        if (rollbackError) {
+          console.error('Failed to roll back Problem after tag error:', {
+            problemId: created.id,
+            rollbackError,
+          });
+        }
+        return NextResponse.json(
+          createApiErrorResponse('Failed to save Problem tags', 500, {
+            code: 'PROBLEM_TAG_SAVE_FAILED',
+            retryable: !rollbackError,
+          }),
+          { status: 500 }
+        );
+      }
     }
 
     // Get the tags for the created problem

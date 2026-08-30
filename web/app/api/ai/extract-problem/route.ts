@@ -12,9 +12,10 @@ import {
   ProblemExtractionServiceError,
   PROBLEM_EXTRACTION_MIME_TYPES,
 } from '@/lib/problem-extraction-service';
+import { PROBLEM_IMAGE_MAX_BASE64_CHARS } from '@/lib/image-input-normalization';
 
 const RequestSchema = z.object({
-  image: z.string().min(1),
+  image: z.string().min(1).max(PROBLEM_IMAGE_MAX_BASE64_CHARS),
   mimeType: z.enum(PROBLEM_EXTRACTION_MIME_TYPES),
   subjectId: z.uuid().optional(),
 });

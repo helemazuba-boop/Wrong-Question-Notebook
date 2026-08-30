@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/project-problem-reviews",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-qr-uploads",
+      "schedule": "17 * * * *"
     }
   ]
 }

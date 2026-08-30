@@ -1,31 +1,31 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { AI_CONSTANTS } from '@/lib/constants';
-import { createAIClient } from '@/lib/ai/client';
+import { AIClientTimeoutError, createAIClient } from '@/lib/ai/client';
 import {
   parsePastedExtraction,
   type ParsedExtraction,
 } from '@/lib/problem-extraction';
 import {
   checkAndIncrementQuota,
+  refundQuotaUsage,
   type QuotaCheckResult,
 } from '@/lib/usage-quota';
 import { getUserTimezone } from '@/lib/timezone-utils';
+import {
+  normalizeProblemImageInputs,
+  ProblemImageInputError,
+  PROBLEM_IMAGE_INPUT_MIME_TYPES,
+  type ProblemImageInputMimeType,
+  type RawProblemImageInput,
+} from '@/lib/image-input-normalization';
+import { acquireExternalProviderRateLimit } from '@/lib/external-provider-rate-limit';
 
-export const PROBLEM_EXTRACTION_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-] as const;
+export const PROBLEM_EXTRACTION_MIME_TYPES = PROBLEM_IMAGE_INPUT_MIME_TYPES;
 
-export type ProblemExtractionMimeType =
-  (typeof PROBLEM_EXTRACTION_MIME_TYPES)[number];
+export type ProblemExtractionMimeType = ProblemImageInputMimeType;
 
-export interface ProblemExtractionImage {
-  data: string;
-  mime_type: ProblemExtractionMimeType;
-}
+export type ProblemExtractionImage = RawProblemImageInput;
 
 export interface ProblemExtractionResult {
   extraction: ParsedExtraction;
@@ -230,51 +230,6 @@ export const PROBLEM_EXTRACTION_JSON_SCHEMA = {
   ] as const,
 };
 
-function decodedImageSize(base64: string): number {
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
-}
-
-function validateImages(images: ProblemExtractionImage[]): void {
-  if (images.length < 1 || images.length > 4) {
-    throw new ProblemExtractionServiceError(
-      'invalid_images',
-      'Provide between 1 and 4 images',
-      400
-    );
-  }
-  let totalBytes = 0;
-  for (const image of images) {
-    if (
-      !PROBLEM_EXTRACTION_MIME_TYPES.includes(image.mime_type) ||
-      !image.data ||
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data)
-    ) {
-      throw new ProblemExtractionServiceError(
-        'invalid_image',
-        'Image data or MIME type is invalid',
-        400
-      );
-    }
-    const bytes = decodedImageSize(image.data);
-    if (bytes > AI_CONSTANTS.EXTRACTION.MAX_IMAGE_SIZE) {
-      throw new ProblemExtractionServiceError(
-        'image_too_large',
-        'Each image must be 5MB or smaller',
-        413
-      );
-    }
-    totalBytes += bytes;
-  }
-  if (totalBytes > AI_CONSTANTS.EXTRACTION.MAX_IMAGE_SIZE * 2) {
-    throw new ProblemExtractionServiceError(
-      'images_too_large',
-      'Combined image size must be 10MB or smaller',
-      413
-    );
-  }
-}
-
 async function loadExistingTags(
   supabase: SupabaseClient<Database>,
   userId: string,
@@ -317,7 +272,19 @@ export async function extractProblemFromImages(
   images: ProblemExtractionImage[],
   subjectId?: string | null
 ): Promise<ProblemExtractionResult> {
-  validateImages(images);
+  let normalizedImages: Awaited<ReturnType<typeof normalizeProblemImageInputs>>;
+  try {
+    normalizedImages = await normalizeProblemImageInputs(images);
+  } catch (error) {
+    if (error instanceof ProblemImageInputError) {
+      throw new ProblemExtractionServiceError(
+        error.code,
+        error.message,
+        error.status
+      );
+    }
+    throw error;
+  }
   const existingTags = await loadExistingTags(
     supabase,
     userId,
@@ -335,92 +302,146 @@ export async function extractProblemFromImages(
     );
   }
 
-  let text = '';
+  const refundQuota = async () => {
+    try {
+      await refundQuotaUsage(userId, undefined, userTimezone);
+    } catch (error) {
+      // Preserve the original extraction error. A failed refund still needs a
+      // durable server-side signal so operators can reconcile usage.
+      console.error('Failed to refund rejected AI extraction quota:', error);
+    }
+  };
+
   try {
+    let providerCapacity;
+    try {
+      const limit = AI_CONSTANTS.EXTRACTION.PROVIDER_RATE_LIMIT;
+      providerCapacity = await acquireExternalProviderRateLimit(
+        `ai-extraction:${AI_CONSTANTS.PROVIDER}`,
+        limit.maxRequests,
+        limit.windowSeconds
+      );
+    } catch (error) {
+      console.error('AI extraction provider capacity check failed:', error);
+      throw new ProblemExtractionServiceError(
+        'provider_capacity_unavailable',
+        'AI extraction is temporarily unavailable',
+        503,
+        true
+      );
+    }
+    if (!providerCapacity.allowed) {
+      throw new ProblemExtractionServiceError(
+        'provider_rate_limited',
+        'AI extraction is busy. Try again shortly.',
+        429,
+        true,
+        { retry_after_ms: providerCapacity.retry_after_ms }
+      );
+    }
+
     const genai = createAIClient(AI_CONSTANTS);
-    const result = await genai.generateContent({
-      model: AI_CONSTANTS.MODELS.EXTRACTION,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.map(image => ({
-              inlineData: {
-                mimeType: image.mime_type,
-                data: image.data,
+    let text = '';
+    try {
+      const result = await genai.generateContent({
+        model: AI_CONSTANTS.MODELS.EXTRACTION,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              ...normalizedImages.map(image => ({
+                inlineData: {
+                  mimeType: image.mime_type,
+                  data: image.data,
+                },
+              })),
+              {
+                text: 'Extract the problem from the supplied image or images. Follow the system instructions exactly.',
               },
-            })),
-            {
-              text: 'Extract the problem from the supplied image or images. Follow the system instructions exactly.',
-            },
-          ],
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: promptWithTagContext(existingTags),
+          responseMimeType: 'application/json',
+          responseSchema: PROBLEM_EXTRACTION_JSON_SCHEMA,
         },
-      ],
-      config: {
-        systemInstruction: promptWithTagContext(existingTags),
-        responseMimeType: 'application/json',
-        responseSchema: PROBLEM_EXTRACTION_JSON_SCHEMA,
+      });
+      text = result.text;
+    } catch (error) {
+      console.error('AI extraction provider call failed:', error);
+      throw new ProblemExtractionServiceError(
+        error instanceof AIClientTimeoutError
+          ? 'extraction_timeout'
+          : 'extraction_failed',
+        error instanceof AIClientTimeoutError
+          ? 'AI extraction timed out'
+          : 'AI extraction failed',
+        503,
+        true
+      );
+    }
+
+    if (!text) {
+      throw new ProblemExtractionServiceError(
+        'empty_extraction',
+        'AI returned an empty extraction',
+        503,
+        true
+      );
+    }
+    const parsed = parsePastedExtraction(text);
+    if (!parsed.ok) {
+      throw new ProblemExtractionServiceError(
+        'invalid_extraction',
+        'AI extraction did not match the problem schema',
+        503,
+        true
+      );
+    }
+
+    const extraction: ParsedExtraction = {
+      ...parsed.data,
+      title: parsed.data.title.trim().slice(0, 50),
+      new_tag_names: parsed.data.new_tag_names.slice(0, 5),
+    };
+    const existingByName = new Map(
+      existingTags.map(tag => [tag.name.toLocaleLowerCase(), tag])
+    );
+    const matchedExisting: Array<{ id: string; name: string }> = [];
+    const newTags: Array<{ name: string }> = [];
+    for (const name of extraction.new_tag_names) {
+      const existing = existingByName.get(name.toLocaleLowerCase());
+      if (existing) {
+        if (!matchedExisting.some(tag => tag.id === existing.id)) {
+          matchedExisting.push(existing);
+        }
+      } else if (
+        !newTags.some(
+          tag => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase()
+        )
+      ) {
+        newTags.push({ name });
+      }
+    }
+
+    return {
+      extraction,
+      suggested_tags: {
+        existing: matchedExisting,
+        new: newTags,
       },
-    });
-    text = result.text;
+      quota,
+    };
   } catch (error) {
+    await refundQuota();
+    if (error instanceof ProblemExtractionServiceError) throw error;
+    console.error('Unexpected AI extraction failure:', error);
     throw new ProblemExtractionServiceError(
       'extraction_failed',
-      error instanceof Error ? error.message : 'AI extraction failed',
+      'AI extraction failed',
       503,
       true
     );
   }
-
-  if (!text) {
-    throw new ProblemExtractionServiceError(
-      'empty_extraction',
-      'AI returned an empty extraction',
-      503,
-      true
-    );
-  }
-  const parsed = parsePastedExtraction(text);
-  if (!parsed.ok) {
-    throw new ProblemExtractionServiceError(
-      'invalid_extraction',
-      `AI extraction did not match the problem schema: ${parsed.detail}`,
-      503,
-      true
-    );
-  }
-
-  const extraction: ParsedExtraction = {
-    ...parsed.data,
-    title: parsed.data.title.trim().slice(0, 50),
-    new_tag_names: parsed.data.new_tag_names.slice(0, 5),
-  };
-  const existingByName = new Map(
-    existingTags.map(tag => [tag.name.toLocaleLowerCase(), tag])
-  );
-  const matchedExisting: Array<{ id: string; name: string }> = [];
-  const newTags: Array<{ name: string }> = [];
-  for (const name of extraction.new_tag_names) {
-    const existing = existingByName.get(name.toLocaleLowerCase());
-    if (existing) {
-      if (!matchedExisting.some(tag => tag.id === existing.id)) {
-        matchedExisting.push(existing);
-      }
-    } else if (
-      !newTags.some(
-        tag => tag.name.toLocaleLowerCase() === name.toLocaleLowerCase()
-      )
-    ) {
-      newTags.push({ name });
-    }
-  }
-
-  return {
-    extraction,
-    suggested_tags: {
-      existing: matchedExisting,
-      new: newTags,
-    },
-    quota,
-  };
 }

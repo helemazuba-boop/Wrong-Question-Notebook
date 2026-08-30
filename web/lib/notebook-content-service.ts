@@ -35,6 +35,7 @@ export type NoteSource = 'user' | 'ai' | 'import';
 // consumes. `image_id` is the SHA-256 of the derived WQNI file.
 export interface NoteImageAsset {
   path: string;
+  pipeline_version?: string;
   image_id: string;
   display_path: string;
   preview_path: string;
@@ -116,6 +117,9 @@ function mapNoteAssets(value: unknown): NoteImageAsset[] {
     ) {
       assets.push({
         path: (entry as any).path,
+        ...(typeof (entry as any).pipeline_version === 'string'
+          ? { pipeline_version: (entry as any).pipeline_version }
+          : {}),
         image_id: (entry as any).image_id,
         display_path: (entry as any).display_path,
         preview_path: (entry as any).preview_path,
@@ -715,7 +719,7 @@ async function mutateNoteAssets(
 
   const { data: current, error: readError } = await supabase
     .from('notebook_notes')
-    .select('assets, revision')
+    .select(NOTE_COLUMNS)
     .eq('id', noteId)
     .eq('notebook_id', notebookId)
     .eq('user_id', userId)
@@ -729,13 +733,21 @@ async function mutateNoteAssets(
   }
 
   const revision = Number(current.revision ?? 1);
-  const nextAssets = mutate(mapNoteAssets(current.assets));
+  const currentAssets = mapNoteAssets(current.assets);
+  const nextAssets = mutate(currentAssets);
   if (nextAssets.length > NOTE_IMAGE_MAX_PER_NOTE) {
     throw new NotebookToolError(
       'invalid_request',
       `A note can hold at most ${NOTE_IMAGE_MAX_PER_NOTE} images`,
       400
     );
+  }
+
+  // A duplicate attach is a real idempotent replay. Do not manufacture a
+  // revision/change-log entry (and a device pack refresh) when the asset list
+  // is byte-for-byte unchanged.
+  if (JSON.stringify(nextAssets) === JSON.stringify(currentAssets)) {
+    return mapNote(current, notebook.subject_id);
   }
 
   const { data, error } = await supabase
@@ -763,11 +775,21 @@ export async function attachNoteImageAsset(
   asset: NoteImageAsset
 ): Promise<NoteRecord> {
   return mutateNoteAssets(supabase, userId, notebookId, noteId, assets => {
-    if (assets.some(existing => existing.image_id === asset.image_id)) {
-      // Idempotent replay: the same rendered image attached twice is a no-op.
+    const existingIndex = assets.findIndex(
+      existing => existing.image_id === asset.image_id
+    );
+    if (existingIndex < 0) {
+      return [...assets, asset];
+    }
+    if (JSON.stringify(assets[existingIndex]) === JSON.stringify(asset)) {
+      // Exact idempotent replay: do not manufacture a note revision.
       return assets;
     }
-    return [...assets, asset];
+    // The BW1 content ID can remain stable while a newer pipeline changes
+    // preview/GRAY4 artifacts. Refresh the asset record in place.
+    const refreshed = [...assets];
+    refreshed[existingIndex] = asset;
+    return refreshed;
   });
 }
 
@@ -786,11 +808,11 @@ export async function detachNoteImageAsset(
     noteId,
     assets => {
       removed = assets.find(asset => asset.image_id === imageId) ?? null;
+      if (!removed) {
+        throw new NotebookToolError('note_not_found', 'Image not found', 404);
+      }
       return assets.filter(asset => asset.image_id !== imageId);
     }
   );
-  if (!removed) {
-    throw new NotebookToolError('note_not_found', 'Image not found', 404);
-  }
-  return { note, removed };
+  return { note, removed: removed! };
 }
