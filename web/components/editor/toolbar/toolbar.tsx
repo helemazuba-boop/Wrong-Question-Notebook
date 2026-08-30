@@ -18,7 +18,7 @@ interface EditorToolbarProps {
   editor: Editor;
   activeState: EditorActiveState;
   disabled: boolean;
-  mathPopoverRef: React.RefObject<MathPopoverHandle>;
+  mathPopoverRef: React.RefObject<MathPopoverHandle | null>;
 }
 
 export function EditorToolbar({
