@@ -9,6 +9,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 web_dir="$script_dir/../../web"
 migration_dir="$web_dir/supabase/migrations"
 : "${TARGET_DATABASE_URL:?Set TARGET_DATABASE_URL to the self-hosted database URL}"
+: "${SOURCE_DATABASE_URL:?Set SOURCE_DATABASE_URL explicitly for the one-time source clone}"
 
 for command_name in diff find psql python3 sed sha256sum sort supabase; do
   command -v "$command_name" >/dev/null || {
@@ -17,28 +18,28 @@ for command_name in diff find psql python3 sed sha256sum sort supabase; do
   }
 done
 
-linked_query() {
+source_query() {
   local sql="$1"
   (
     cd "$web_dir"
-    supabase db query --linked --agent yes --output-format json "$sql"
+    supabase db query --db-url "$SOURCE_DATABASE_URL" --agent yes --output-format json "$sql"
   )
 }
 
-linked_query_file() {
+source_query_file() {
   local sql
   # db query accepts SQL, not psql backslash commands. Only discard complete
   # psql meta-command lines; preserve every SQL line verbatim.
   sql="$(sed -E '/^[[:space:]]*\\[[:alpha:]][[:alnum:]_]*([[:space:]].*)?$/d' "$1")"
-  linked_query "$sql"
+  source_query "$sql"
 }
 
-linked_dump() {
+source_dump() {
   local output_file="$1"
   shift
   (
     cd "$web_dir"
-    supabase db dump --linked --file "$output_file" "$@"
+    supabase db dump --db-url "$SOURCE_DATABASE_URL" --file "$output_file" "$@"
   )
 }
 
@@ -51,7 +52,7 @@ find "$migration_dir" -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
   | sed -nE 's/^([0-9]{14})_.*/\1/p' \
   | sort -u \
   > "$artifact_root/expected-migrations.txt"
-linked_query '
+source_query '
   select version, statements::text as statements, name
   from supabase_migrations.schema_migrations
   order by version
@@ -70,7 +71,7 @@ fi
 python3 "$script_dir/linked-query-output.py" migration-history-csv \
   "$artifact_root/source-migration-history.json" \
   > "$artifact_root/source-migration-history.csv"
-linked_query '
+source_query '
   select version::text as version
   from auth.schema_migrations
   order by version
@@ -78,7 +79,7 @@ linked_query '
 python3 "$script_dir/linked-query-output.py" auth-migration-versions \
   "$artifact_root/source-auth-migrations.json" \
   > "$artifact_root/source-auth-migrations.txt"
-linked_query '
+source_query '
   select id::text as id, name, hash
   from storage.migrations
   order by storage.migrations.id
@@ -88,9 +89,9 @@ python3 "$script_dir/linked-query-output.py" storage-migration-history-csv \
   > "$artifact_root/source-storage-migrations.csv"
 
 printf '%s\n' '[migration] Running source preflight...'
-linked_query_file "$script_dir/source-preflight.sql" \
+source_query_file "$script_dir/source-preflight.sql" \
   > "$artifact_root/source-preflight.txt"
-linked_query_file "$script_dir/row-counts.sql" \
+source_query_file "$script_dir/row-counts.sql" \
   > "$artifact_root/source-row-counts.json"
 python3 "$script_dir/linked-query-output.py" row-counts-tsv \
   "$artifact_root/source-row-counts.json" \
@@ -141,9 +142,9 @@ if ! diff -u \
 fi
 
 printf '%s\n' '[migration] Creating Supabase-compatible role/schema/data dumps...'
-linked_dump "$artifact_root/roles.sql" --role-only
-linked_dump "$artifact_root/schema.sql"
-linked_dump "$artifact_root/data.sql" --use-copy --data-only
+source_dump "$artifact_root/roles.sql" --role-only
+source_dump "$artifact_root/schema.sql"
+source_dump "$artifact_root/data.sql" --use-copy --data-only
 sha256sum "$artifact_root/roles.sql" "$artifact_root/schema.sql" \
   "$artifact_root/data.sql" "$artifact_root/source-migration-history.csv" \
   > "$artifact_root/SHA256SUMS"

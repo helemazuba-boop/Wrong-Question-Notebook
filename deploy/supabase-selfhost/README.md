@@ -84,15 +84,18 @@ unset TARGET_DATABASE_URL CONFIRM_TARGET_DATABASE_HOST CONFIRM_M7_GREENFIELD_INI
 
 ## 4. Cloud 数据库克隆到 staging（当前路径）
 
-源 Supabase Cloud 必须由 `web` 目录的 Supabase CLI linked project 访问。源端查询和 dump
-不需要也不得要求 `SOURCE_DATABASE_URL`、数据库密码或直接 PostgreSQL 连接。先只读确认
-linked project、PostgreSQL 版本和 migration history：
+一次性源库克隆必须显式提供 `SOURCE_DATABASE_URL`，不得再依赖本机 Supabase linked
+project/profile。先只读确认源库、PostgreSQL 版本和 migration history；URL 只保留在当前
+受控维护会话中，不写入仓库或日志：
 
 ```bash
 cd /home/unknow/projects/WQN/web
-supabase db query --linked --agent yes --output-format json \
+set +x
+read -rsp 'Source DB URL: ' SOURCE_DATABASE_URL; echo
+export SOURCE_DATABASE_URL
+supabase db query --db-url "$SOURCE_DATABASE_URL" --agent yes --output-format json \
   "select current_user, current_database(), current_setting('server_version');"
-supabase migration list --linked
+supabase migration list --db-url "$SOURCE_DATABASE_URL"
 ```
 
 本地 `web/supabase/migrations/` 与 remote history 必须完全一致。此流程不会运行
@@ -147,9 +150,10 @@ test ! -s "$MIGRATION_ARTIFACT_DIR/row-counts.diff"
 `session_replication_role=replica`。不要使用 Next.js 的 `SUPABASE_SECRET_KEY`，也不要把
 数据库 superuser URL 写入应用 env、日志或 shell history；迁移结束后立即从当前会话移除。
 
-迁移脚本遵循官方要求，从 `web` 目录使用 `supabase db dump --linked` 分别导出
+迁移脚本遵循官方要求，从 `web` 目录使用
+`supabase db dump --db-url "$SOURCE_DATABASE_URL"` 分别导出
 roles/schema/data；不要用原始 `pg_dump`，不要使用 `--include-seed`。源 preflight、migration
-history 和 row counts 使用 `supabase db query --linked`，Target 的检查、restore 和验证仍只
+history 和 row counts 使用 `supabase db query --db-url "$SOURCE_DATABASE_URL"`，Target 的检查、restore 和验证仍只
 使用 `TARGET_DATABASE_URL` + `psql`。
 
 脚本会：
