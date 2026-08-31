@@ -6,6 +6,16 @@ truth is [`lib/problem-ingestion.ts`](../../lib/problem-ingestion.ts): the Zod
 schema validates runtime JSON and the Structured Output schema in the same
 module constrains the vision provider.
 
+## Standalone prompts
+
+- [English import prompt](./PROMPT.en.md)
+- [中文导入提示词](./PROMPT.zh-CN.md)
+
+These self-contained prompts are for an external vision model when its JSON
+will be pasted back into WQN. They include a schema-valid example because an
+external run does not receive the platform's Structured Output schema. The
+platform extraction path continues to use the same v1 contract directly.
+
 ## Lifecycle
 
 1. Input images are normalized and assigned `page-1`, `page-2`, ... in input

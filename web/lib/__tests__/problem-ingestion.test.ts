@@ -1,11 +1,35 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
+  INGESTION_REGION_ROLES,
   normalizeProblemIngestionDocument,
   parseProblemIngestion,
   problemCandidatesFromIngestion,
   ProblemIngestionDocumentSchema,
   stripProblemIngestionProvenance,
 } from '@/lib/problem-ingestion';
+import { PROBLEM_TYPE_VALUES } from '@/lib/schemas';
+
+const standalonePromptFiles = ['PROMPT.en.md', 'PROMPT.zh-CN.md'] as const;
+
+function readStandalonePrompt(
+  fileName: (typeof standalonePromptFiles)[number]
+) {
+  return readFileSync(
+    new URL(
+      `../../contracts/problem-ingestion-v1/${fileName}`,
+      import.meta.url
+    ),
+    'utf8'
+  );
+}
+
+function parsePromptExample(prompt: string): unknown {
+  const example = prompt.match(/```json\s*([\s\S]*?)\s*```/);
+  if (!example)
+    throw new Error('standalone prompt is missing its JSON example');
+  return JSON.parse(example[1]);
+}
 
 const document = {
   schema_version: 'wqn.problem-ingestion.v1' as const,
@@ -99,6 +123,26 @@ const document = {
 };
 
 describe('Problem Ingestion v1', () => {
+  it.each(standalonePromptFiles)(
+    'ships a self-contained, schema-valid %s import prompt',
+    fileName => {
+      const prompt = readStandalonePrompt(fileName);
+      expect(
+        ProblemIngestionDocumentSchema.parse(parsePromptExample(prompt))
+          .schema_version
+      ).toBe('wqn.problem-ingestion.v1');
+      for (const role of INGESTION_REGION_ROLES) {
+        expect(prompt).toContain(`\`${role}\``);
+      }
+      for (const type of PROBLEM_TYPE_VALUES) {
+        expect(prompt).toContain(`\`${type}\``);
+      }
+      for (const kind of ['text', 'math_inline', 'math_block']) {
+        expect(prompt).toContain(`\`${kind}\``);
+      }
+    }
+  );
+
   it('parses the versioned provider-neutral document', () => {
     expect(ProblemIngestionDocumentSchema.parse(document)).toEqual(document);
     expect(parseProblemIngestion(JSON.stringify(document)).ok).toBe(true);
