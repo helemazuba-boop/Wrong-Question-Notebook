@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+@plugin "tailwindcss-animate";
 
 @layer base {
   :root {
@@ -161,11 +161,11 @@ html body[data-scroll-locked] {
   }
 
   .page-title {
-    @apply heading-lg text-foreground;
+    @apply text-3xl font-bold tracking-tight text-foreground;
   }
 
   .page-description {
-    @apply text-body text-muted-foreground;
+    @apply text-base leading-6 text-muted-foreground;
   }
 
   .section-container {
@@ -181,15 +181,15 @@ html body[data-scroll-locked] {
   }
 
   .card-section-title {
-    @apply heading-xs text-card-foreground;
+    @apply text-lg font-medium tracking-tight text-card-foreground;
   }
 
   .card-section-description {
-    @apply text-body-sm text-muted-foreground;
+    @apply text-sm leading-5 text-muted-foreground;
   }
 
   .card-section-content {
-    @apply text-body p-6;
+    @apply text-base leading-6 p-6;
   }
 
   /* Form Classes */
@@ -210,11 +210,11 @@ html body[data-scroll-locked] {
   }
 
   .form-label {
-    @apply text-label text-muted-foreground sm:w-32;
+    @apply text-sm font-medium leading-none text-muted-foreground sm:w-32;
   }
 
   .form-label-top {
-    @apply text-label text-muted-foreground;
+    @apply text-sm font-medium leading-none text-muted-foreground;
   }
 
   .form-input {
@@ -238,7 +238,7 @@ html body[data-scroll-locked] {
   }
 
   .form-error {
-    @apply text-error mt-1;
+    @apply text-sm text-destructive mt-1;
   }
 
   /* Table Classes */
@@ -310,7 +310,7 @@ html body[data-scroll-locked] {
   }
 
   .clickable {
-    @apply cursor-pointer interactive-hover interactive-focus;
+    @apply cursor-pointer transition-colors hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
   }
 
   /* Utility Classes */
@@ -384,7 +384,7 @@ html body[data-scroll-locked] {
   }
 
   .btn-cta-primary {
-    @apply btn-cta shadow-md;
+    @apply text-base px-7 py-5 rounded-xl shadow-md;
   }
 
   /* Features Page Classes */
@@ -541,27 +541,27 @@ html body[data-scroll-locked] {
   }
 
   .review-section-blue {
-    @apply review-section-warm from-blue-50 to-indigo-100/50 dark:from-blue-950/40 dark:to-indigo-900/20;
+    @apply rounded-2xl p-4 bg-gradient-to-br border from-blue-50 to-indigo-100/50 dark:from-blue-950/40 dark:to-indigo-900/20;
     @apply border-blue-200/40 dark:border-blue-800/30;
   }
 
   .review-section-green {
-    @apply review-section-warm from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20;
+    @apply rounded-2xl p-4 bg-gradient-to-br border from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20;
     @apply border-green-200/40 dark:border-green-800/30;
   }
 
   .review-section-amber {
-    @apply review-section-warm from-amber-50 to-orange-100/50 dark:from-amber-950/40 dark:to-orange-900/20;
+    @apply rounded-2xl p-4 bg-gradient-to-br border from-amber-50 to-orange-100/50 dark:from-amber-950/40 dark:to-orange-900/20;
     @apply border-amber-200/40 dark:border-amber-800/30;
   }
 
   .review-section-rose {
-    @apply review-section-warm from-rose-50 to-pink-100/50 dark:from-rose-950/40 dark:to-pink-900/20;
+    @apply rounded-2xl p-4 bg-gradient-to-br border from-rose-50 to-pink-100/50 dark:from-rose-950/40 dark:to-pink-900/20;
     @apply border-rose-200/40 dark:border-rose-800/30;
   }
 
   .review-section-violet {
-    @apply review-section-warm from-violet-50 to-purple-100/50 dark:from-violet-950/40 dark:to-purple-900/20;
+    @apply rounded-2xl p-4 bg-gradient-to-br border from-violet-50 to-purple-100/50 dark:from-violet-950/40 dark:to-purple-900/20;
     @apply border-violet-200/40 dark:border-violet-800/30;
   }
 
@@ -587,49 +587,49 @@ html body[data-scroll-locked] {
 
   /* Color-specific auth cards */
   .auth-card-amber {
-    @apply auth-card from-amber-50 to-amber-100/50 dark:from-amber-950/40 dark:to-amber-900/20;
+    @apply rounded-2xl p-8 bg-gradient-to-br border shadow-md from-amber-50 to-amber-100/50 dark:from-amber-950/40 dark:to-amber-900/20;
     @apply border-amber-200/40 dark:border-amber-800/30;
   }
 
   .auth-card-orange {
-    @apply auth-card from-orange-50 to-orange-100/50 dark:from-orange-950/40 dark:to-orange-900/20;
+    @apply rounded-2xl p-8 bg-gradient-to-br border shadow-md from-orange-50 to-orange-100/50 dark:from-orange-950/40 dark:to-orange-900/20;
     @apply border-orange-200/40 dark:border-orange-800/30;
   }
 
   .auth-card-rose {
-    @apply auth-card from-rose-50 to-rose-100/50 dark:from-rose-950/40 dark:to-rose-900/20;
+    @apply rounded-2xl p-8 bg-gradient-to-br border shadow-md from-rose-50 to-rose-100/50 dark:from-rose-950/40 dark:to-rose-900/20;
     @apply border-rose-200/40 dark:border-rose-800/30;
   }
 
   .auth-card-green {
-    @apply auth-card from-green-50 to-green-100/50 dark:from-green-950/40 dark:to-green-900/20;
+    @apply rounded-2xl p-8 bg-gradient-to-br border shadow-md from-green-50 to-green-100/50 dark:from-green-950/40 dark:to-green-900/20;
     @apply border-green-200/40 dark:border-green-800/30;
   }
 
   .auth-card-red {
-    @apply auth-card from-red-50 to-red-100/50 dark:from-red-950/40 dark:to-red-900/20;
+    @apply rounded-2xl p-8 bg-gradient-to-br border shadow-md from-red-50 to-red-100/50 dark:from-red-950/40 dark:to-red-900/20;
     @apply border-red-200/40 dark:border-red-800/30;
   }
 
   /* Icon containers with color tints */
   .auth-icon-box-amber {
-    @apply landing-icon-box bg-amber-500/10 dark:bg-amber-500/20;
+    @apply w-12 h-12 rounded-xl flex items-center justify-center bg-amber-500/10 dark:bg-amber-500/20;
   }
 
   .auth-icon-box-orange {
-    @apply landing-icon-box bg-orange-500/10 dark:bg-orange-500/20;
+    @apply w-12 h-12 rounded-xl flex items-center justify-center bg-orange-500/10 dark:bg-orange-500/20;
   }
 
   .auth-icon-box-rose {
-    @apply landing-icon-box bg-rose-500/10 dark:bg-rose-500/20;
+    @apply w-12 h-12 rounded-xl flex items-center justify-center bg-rose-500/10 dark:bg-rose-500/20;
   }
 
   .auth-icon-box-green {
-    @apply landing-icon-box bg-green-500/10 dark:bg-green-500/20;
+    @apply w-12 h-12 rounded-xl flex items-center justify-center bg-green-500/10 dark:bg-green-500/20;
   }
 
   .auth-icon-box-red {
-    @apply landing-icon-box bg-red-500/10 dark:bg-red-500/20;
+    @apply w-12 h-12 rounded-xl flex items-center justify-center bg-red-500/10 dark:bg-red-500/20;
   }
 
   /* Typography for auth pages */
