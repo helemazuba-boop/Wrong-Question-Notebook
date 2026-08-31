@@ -1249,6 +1249,53 @@ export type Database = {
           },
         ];
       };
+      problem_ingestion_candidates: {
+        Row: {
+          assets: Json;
+          created_at: string;
+          ingestion_id: string;
+          position: number;
+          problem_id: string;
+          question_id: string;
+          solution_assets: Json;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          assets?: Json;
+          created_at?: string;
+          ingestion_id: string;
+          position: number;
+          problem_id?: string;
+          question_id: string;
+          solution_assets?: Json;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          assets?: Json;
+          created_at?: string;
+          ingestion_id?: string;
+          position?: number;
+          problem_id?: string;
+          question_id?: string;
+          solution_assets?: Json;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestion_candidates_ingestion_id_fkey';
+            columns: ['ingestion_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_ingestions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       problem_ingestion_problem_links: {
         Row: {
           created_at: string;

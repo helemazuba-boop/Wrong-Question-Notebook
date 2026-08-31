@@ -228,6 +228,38 @@ describe('problem extraction service', () => {
     expect(mocks.checkAndIncrementQuota).not.toHaveBeenCalled();
   });
 
+  it('rejects more than 20 independent questions without silently truncating', async () => {
+    mocks.generateContent.mockResolvedValue({
+      text: JSON.stringify({
+        ...VALID_EXTRACTION,
+        questions: Array.from({ length: 21 }, (_, index) => ({
+          ...SECOND_QUESTION,
+          question_id: `question-${index + 1}`,
+          number_label: String(index + 1),
+          parts: [
+            {
+              ...SECOND_QUESTION.parts[0],
+              part_id: `part-${index + 1}-1`,
+            },
+          ],
+        })),
+      }),
+    });
+
+    await expect(
+      ingestProblemsFromImages(supabaseWithTags(), USER_ID, [IMAGE], SUBJECT_ID)
+    ).rejects.toMatchObject({
+      code: 'too_many_problems_detected',
+      status: 422,
+      details: { count: 21, max: 20 },
+    });
+    expect(mocks.refundQuotaUsage).toHaveBeenCalledWith(
+      USER_ID,
+      undefined,
+      'Asia/Shanghai'
+    );
+  });
+
   it('returns a typed quota error without calling the model', async () => {
     mocks.checkAndIncrementQuota.mockResolvedValue({
       allowed: false,

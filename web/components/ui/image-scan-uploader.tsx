@@ -17,7 +17,6 @@ import {
   Timer,
   ClipboardPaste,
   ScanLine,
-  Paperclip,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { TranslatorProp } from '@/i18n/types';
@@ -25,14 +24,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { ProblemIngestionWorkspacePanel } from '@/components/ui/problem-ingestion-workspace';
 import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
 import { getProblemTypeDisplayName } from '@/lib/common-utils';
 import { parsePastedExtraction } from '@/lib/problem-extraction';
-import {
-  parseProblemIngestion,
-  problemCandidatesFromIngestion,
-} from '@/lib/problem-ingestion';
+import { parseProblemIngestion } from '@/lib/problem-ingestion';
+import type { ProblemIngestionWorkspaceSummary } from '@/lib/problem-ingestion-workspace-contract';
 import type {
   ExtractedProblemData,
   QRSessionCreateResponse,
@@ -59,6 +57,7 @@ interface ImageScanUploaderProps {
   onCancel: () => void;
   quota: ExtractionQuota | null;
   onQuotaChange: (quota: ExtractionQuota) => void;
+  onBatchImported?: (count: number) => void;
 }
 
 type UploaderState = 'initial' | 'preview' | 'result';
@@ -172,18 +171,19 @@ export function ImageScanUploader({
   onCancel,
   quota,
   onQuotaChange,
+  onBatchImported,
 }: ImageScanUploaderProps) {
   const t = useTranslations('ImageScan');
   const tCommon = useTranslations('Common');
   const [state, setState] = useState<UploaderState>('initial');
   // 'scan': platform vision extraction. 'paste': the user ran our
   // off-platform prompt on an external LLM and pastes the JSON back — zero
-  // platform tokens, zero quota; validation is fully client-side.
+  // platform tokens and zero AI quota; valid v1 documents are persisted as
+  // resumable server-side workspaces after local schema validation.
   const [tab, setTab] = useState<UploaderTab>('scan');
   const [pasteText, setPasteText] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
   // Optional original image attached alongside pasted JSON (for diagrams).
-  const [pasteImageFile, setPasteImageFile] = useState<File | null>(null);
   const pasteFileInputRef = useRef<HTMLInputElement>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -196,6 +196,35 @@ export function ImageScanUploader({
   const [saveAsProblemAsset, setSaveAsProblemAsset] = useState(false);
   const [saveAsSolutionAsset, setSaveAsSolutionAsset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeIngestionId, setActiveIngestionId] = useState<string | null>(
+    null
+  );
+  const [resumableWorkspaces, setResumableWorkspaces] = useState<
+    ProblemIngestionWorkspaceSummary[]
+  >([]);
+
+  const refreshResumableWorkspaces = useCallback(async () => {
+    if (!subjectId) {
+      setResumableWorkspaces([]);
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/problem-ingestions?subject_id=${encodeURIComponent(subjectId)}`,
+        { cache: 'no-store' }
+      );
+      const json = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setResumableWorkspaces(json.data?.workspaces ?? []);
+      }
+    } catch {
+      // Recovery is a convenience; the primary import flow remains usable.
+    }
+  }, [subjectId]);
+
+  useEffect(() => {
+    void refreshResumableWorkspaces();
+  }, [refreshResumableWorkspaces]);
 
   // Desktop detection — QR upload only makes sense on desktop
   const [isDesktop, setIsDesktop] = useState(false);
@@ -488,6 +517,11 @@ export function ImageScanUploader({
       if (json.data?.quota) {
         onQuotaChange(json.data.quota);
       }
+      if (json.data?.ingestion?.id) {
+        setActiveIngestionId(json.data.ingestion.id);
+        void refreshResumableWorkspaces();
+        return;
+      }
       setSelectedCandidateIndex(0);
       setExtractionResult(json.data);
       if (json.data.suggest_image_asset) {
@@ -500,49 +534,48 @@ export function ImageScanUploader({
     } finally {
       setIsExtracting(false);
     }
-  }, [imageFile, imagePreview, onQuotaChange, subjectId, t]);
+  }, [
+    imageFile,
+    imagePreview,
+    onQuotaChange,
+    refreshResumableWorkspaces,
+    subjectId,
+    t,
+  ]);
 
-  const handleParsePasted = useCallback(() => {
+  const handleParsePasted = useCallback(async () => {
     const ingestion = parseProblemIngestion(pasteText);
     if (ingestion.ok) {
-      const candidates: ExtractedProblemData[] = problemCandidatesFromIngestion(
-        ingestion.data
-      ).map(draft => {
-        const firstPart = draft.parts[0];
-        return {
-          title: draft.title,
-          content: draft.content,
-          parts: draft.parts,
-          suggest_image_asset: draft.suggest_image_asset,
-          confidence: draft.confidence,
-          suggested_tags: {
-            existing: [],
-            new: draft.new_tag_names.map(name => ({ name })),
-          },
-          problem_type: firstPart.type,
-          mcq_choices: firstPart.mcq_choices,
-          answer_hint: firstPart.answer_hint,
-          ingestion_question_id: draft.question_id,
-          question_number_label: draft.number_label,
-          source_region_ids: draft.source_region_ids,
-          visual_region_ids: draft.visual_region_ids,
-          student_work_count: draft.student_work_count,
-          incomplete: draft.incomplete,
-        };
-      });
-      if (candidates.length === 0) {
-        setPasteError(t('pasteNoProblems'));
+      if (!subjectId) {
+        setPasteError(t('workspaceSubjectRequired'));
         return;
       }
-      setPasteError(null);
-      setSelectedCandidateIndex(0);
-      const data = { ...candidates[0], candidates };
-      setExtractionResult(data);
-      if (pasteImageFile) {
-        setImageFile(pasteImageFile);
-        if (data.suggest_image_asset) setSaveAsProblemAsset(true);
+      setIsExtracting(true);
+      try {
+        const response = await fetch('/api/problem-ingestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject_id: subjectId,
+            document: ingestion.data,
+          }),
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(json.error || t('workspaceCreateFailed'));
+        }
+        setPasteError(null);
+        setActiveIngestionId(json.data.workspace.id);
+        void refreshResumableWorkspaces();
+      } catch (workspaceError) {
+        setPasteError(
+          workspaceError instanceof Error
+            ? workspaceError.message
+            : t('workspaceCreateFailed')
+        );
+      } finally {
+        setIsExtracting(false);
       }
-      setState('result');
       return;
     }
     const parsed = parsePastedExtraction(pasteText);
@@ -573,12 +606,8 @@ export function ImageScanUploader({
       answer_hint: firstPart.answer_hint,
     };
     setExtractionResult(data);
-    if (pasteImageFile) {
-      setImageFile(pasteImageFile);
-      if (data.suggest_image_asset) setSaveAsProblemAsset(true);
-    }
     setState('result');
-  }, [pasteText, pasteImageFile, t]);
+  }, [pasteText, refreshResumableWorkspaces, subjectId, t]);
 
   const handlePasteImageSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -589,7 +618,7 @@ export function ImageScanUploader({
         } else if (file.size > MAX_SIZE) {
           toast.error(t('imageTooLarge'));
         } else {
-          setPasteImageFile(file);
+          setImageFile(file);
         }
       }
       e.target.value = '';
@@ -606,7 +635,6 @@ export function ImageScanUploader({
     setError(null);
     setPasteText('');
     setPasteError(null);
-    setPasteImageFile(null);
     setQrSession(null);
     setQrLoading(false);
     setSaveAsProblemAsset(false);
@@ -647,6 +675,23 @@ export function ImageScanUploader({
     }
   };
 
+  if (activeIngestionId) {
+    return (
+      <ProblemIngestionWorkspacePanel
+        ingestionId={activeIngestionId}
+        onImported={count => {
+          onBatchImported?.(count);
+          void refreshResumableWorkspaces();
+        }}
+        onClose={() => {
+          setActiveIngestionId(null);
+          reset();
+          void refreshResumableWorkspaces();
+        }}
+      />
+    );
+  }
+
   // ── Initial state: dropzone (left) + QR code (right) ──
   if (state === 'initial') {
     const isExpired = qrSession && qrSecondsLeft <= 0;
@@ -682,6 +727,21 @@ export function ImageScanUploader({
             {t('pasteTab')}
           </button>
         </div>
+
+        {resumableWorkspaces.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveIngestionId(resumableWorkspaces[0].id)}
+            className="flex w-full items-center justify-between rounded-xl border border-blue-200/60 bg-blue-50/50 px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50 dark:border-blue-800/40 dark:bg-blue-950/20 dark:text-blue-300"
+          >
+            <span>{t('workspaceResume')}</span>
+            <span>
+              {t('workspaceResumeCount', {
+                count: resumableWorkspaces[0].pending_count,
+              })}
+            </span>
+          </button>
+        )}
 
         {tab === 'scan' ? (
           <div className="flex gap-3">
@@ -825,42 +885,19 @@ export function ImageScanUploader({
                 <span className="break-all">{pasteError}</span>
               </div>
             )}
-            <div className="flex items-center justify-between gap-2">
-              <input
-                ref={pasteFileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={handlePasteImageSelect}
-                className="hidden"
-              />
-              {pasteImageFile ? (
-                <button
-                  type="button"
-                  onClick={() => setPasteImageFile(null)}
-                  className="flex min-w-0 items-center gap-1.5 text-xs text-gray-600 hover:text-rose-600 dark:text-gray-400 dark:hover:text-rose-400"
-                >
-                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{pasteImageFile.name}</span>
-                  <X className="h-3 w-3 shrink-0" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => pasteFileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-amber-600 dark:text-gray-400 dark:hover:text-amber-400"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  {t('attachOriginalImage')}
-                </button>
-              )}
+            <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
                 size="sm"
                 onClick={handleParsePasted}
-                disabled={!pasteText.trim()}
+                disabled={!pasteText.trim() || isExtracting}
               >
-                <CheckCircle2 className="mr-1 h-4 w-4" />
-                {t('parsePasted')}
+                {isExtracting ? (
+                  <Spinner className="mr-1" />
+                ) : (
+                  <CheckCircle2 className="mr-1 h-4 w-4" />
+                )}
+                {isExtracting ? t('workspaceCreating') : t('parsePasted')}
               </Button>
             </div>
           </div>
@@ -1166,6 +1203,27 @@ export function ImageScanUploader({
               </div>
             )}
         </div>
+
+        {!imageFile && (
+          <div className="flex justify-end">
+            <input
+              ref={pasteFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handlePasteImageSelect}
+              className="hidden"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => pasteFileInputRef.current?.click()}
+            >
+              <ImageIcon className="mr-1 h-4 w-4" />
+              {t('attachOriginalImage')}
+            </Button>
+          </div>
+        )}
 
         {imageFile && (
           <ImageAssetToggles

@@ -8,9 +8,11 @@ import {
   type ParsedExtraction,
 } from '@/lib/problem-extraction';
 import {
+  duplicateProblemIngestionQuestionIds,
   normalizeProblemIngestionDocument,
   parseProblemIngestion,
   problemCandidatesFromIngestion,
+  PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS,
   PROBLEM_INGESTION_JSON_SCHEMA,
   PROBLEM_INGESTION_SCHEMA_VERSION,
   type ProblemIngestionDocument,
@@ -236,19 +238,52 @@ export async function persistProblemIngestion(
   userId: string,
   subjectId: string | null | undefined,
   document: ProblemIngestionDocument,
-  providerPayload: Json | null = null
+  metadata: {
+    provider?: string;
+    providerModel?: string;
+    providerPayload?: Json | null;
+  } = {}
 ): Promise<string> {
+  if (
+    document.questions.length < 1 ||
+    document.questions.length > PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS
+  ) {
+    throw new ProblemExtractionServiceError(
+      document.questions.length < 1
+        ? 'no_problem_detected'
+        : 'too_many_problems_detected',
+      document.questions.length < 1
+        ? 'No problem was detected in the ingestion document'
+        : `Detected ${document.questions.length} independent problems; split the import into batches of at most ${PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS}`,
+      422,
+      false,
+      {
+        count: document.questions.length,
+        max: PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS,
+      }
+    );
+  }
+  const duplicateQuestionIds = duplicateProblemIngestionQuestionIds(document);
+  if (duplicateQuestionIds.length > 0) {
+    throw new ProblemExtractionServiceError(
+      'duplicate_question_ids',
+      'Problem ingestion question IDs must be unique',
+      422,
+      false,
+      { question_ids: duplicateQuestionIds }
+    );
+  }
   const { data, error } = await supabase
     .from('problem_ingestions')
     .insert({
       user_id: userId,
       subject_id: subjectId ?? null,
       schema_version: document.schema_version,
-      provider: AI_CONSTANTS.PROVIDER,
-      provider_model: AI_CONSTANTS.MODELS.EXTRACTION,
+      provider: metadata.provider ?? AI_CONSTANTS.PROVIDER,
+      provider_model: metadata.providerModel ?? AI_CONSTANTS.MODELS.EXTRACTION,
       status: document.status,
       document: document as unknown as Json,
-      provider_payload: providerPayload,
+      provider_payload: metadata.providerPayload ?? null,
     })
     .select('id')
     .single();
@@ -461,6 +496,18 @@ export async function ingestProblemsFromImages(
         422,
         false,
         { warnings: document.warnings }
+      );
+    }
+    if (drafts.length > PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS) {
+      throw new ProblemExtractionServiceError(
+        'too_many_problems_detected',
+        `Detected ${drafts.length} independent problems; split the import into batches of at most ${PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS}`,
+        422,
+        false,
+        {
+          count: drafts.length,
+          max: PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS,
+        }
       );
     }
     const existingByName = new Map(

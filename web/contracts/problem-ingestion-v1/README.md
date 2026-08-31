@@ -16,6 +16,11 @@ will be pasted back into WQN. They include a schema-valid example because an
 external run does not receive the platform's Structured Output schema. The
 platform extraction path continues to use the same v1 contract directly.
 
+The import workspace accepts at most 20 independent questions in one batch.
+Parts sharing a printed parent question do not count as independent questions.
+An oversized document is rejected with its observed count; it is never
+silently truncated or merged to fit the product limit.
+
 ## Lifecycle
 
 1. Input images are normalized and assigned `page-1`, `page-2`, ... in input

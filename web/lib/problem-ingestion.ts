@@ -6,6 +6,11 @@ import type { Json } from '@/lib/database.types';
 export const PROBLEM_INGESTION_SCHEMA_VERSION =
   'wqn.problem-ingestion.v1' as const;
 
+// Product workflow limit. The provider-neutral document keeps its broader
+// defensive schema ceiling so an oversized external result can be rejected
+// explicitly instead of being silently truncated or merged.
+export const PROBLEM_INGESTION_IMPORT_MAX_QUESTIONS = 20;
+
 export const IngestionContentNodeSchema = z.object({
   kind: z.enum(['text', 'math_inline', 'math_block']),
   value: z.string().max(5000),
@@ -367,6 +372,18 @@ export type ProblemIngestionDocument = z.infer<
   typeof ProblemIngestionDocumentSchema
 >;
 export type IngestionContentNode = z.infer<typeof IngestionContentNodeSchema>;
+
+export function duplicateProblemIngestionQuestionIds(
+  document: ProblemIngestionDocument
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const question of document.questions) {
+    if (seen.has(question.question_id)) duplicates.add(question.question_id);
+    else seen.add(question.question_id);
+  }
+  return [...duplicates];
+}
 
 export interface IngestionSourcePage {
   image_index: number;

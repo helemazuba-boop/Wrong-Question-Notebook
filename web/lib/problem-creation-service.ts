@@ -257,7 +257,7 @@ function validChoiceIds(part: ExtractedPart): string[] {
   return [...new Set(candidates)].filter(id => available.has(id));
 }
 
-function storedPart(part: ExtractedPart, partCount: number) {
+export function storedPart(part: ExtractedPart, partCount: number) {
   const hint = part.answer_hint;
   const choiceIds = validChoiceIds(part);
   let correctAnswer = '';
@@ -329,7 +329,7 @@ function storedPart(part: ExtractedPart, partCount: number) {
   };
 }
 
-function extractionContent(extraction: ParsedExtraction): string {
+export function extractionContent(extraction: ParsedExtraction): string {
   const blocks: string[] = [];
   if (extraction.content.trim()) blocks.push(extraction.content.trim());
   for (const part of extraction.parts) {

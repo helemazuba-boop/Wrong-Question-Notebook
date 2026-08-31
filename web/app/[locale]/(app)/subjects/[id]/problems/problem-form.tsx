@@ -1336,6 +1336,7 @@ export default function ProblemForm({
             onCancel={() => setShowImageScan(false)}
             quota={extractionQuota}
             onQuotaChange={setExtractionQuota}
+            onBatchImported={() => router.refresh()}
           />
         )}
       </div>
@@ -1352,6 +1353,7 @@ export default function ProblemForm({
           onCancel={() => onCancel?.()}
           quota={extractionQuota}
           onQuotaChange={setExtractionQuota}
+          onBatchImported={() => router.refresh()}
         />
       </div>
     );

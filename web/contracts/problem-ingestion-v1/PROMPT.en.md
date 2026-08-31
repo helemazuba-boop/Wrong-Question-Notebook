@@ -17,6 +17,10 @@ Return no Markdown fence, explanation, or text before or after the JSON.
 - Extract every independent question visible on every supplied page. Never
   arbitrarily select one, merge independent questions, or drop a usable
   partial question.
+- WQN imports at most 20 independent questions in one batch. If the source has
+  more than 20, do not merge or silently omit questions to fit the limit;
+  return the faithful document so WQN can reject it with an instruction to
+  split the source into smaller batches.
 - A question may span pages and may have 1–10 parts sharing one stem. Keep the
   shared stem in `shared_stem`; keep each part's own prompt in that part's
   `content`.
