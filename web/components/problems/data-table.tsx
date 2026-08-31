@@ -5,12 +5,15 @@ import {
   ColumnFiltersState,
   SortingState,
   flexRender,
+} from '@tanstack/react-table';
+import {
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
+  useLegacyTable,
+} from '@tanstack/react-table/legacy';
+import type { RowData } from '@tanstack/table-core';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -27,7 +30,7 @@ import { ProblemStatus } from '@/lib/schemas';
 import { getStatusBorderColor } from '@/lib/common-utils';
 
 import { useColumnVisibility } from '@/lib/hooks/useColumnVisibility';
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   onEdit,
@@ -43,7 +46,7 @@ export function DataTable<TData, TValue>({
   isAddToSetMode = false,
   hideStatusStrip = false,
   meta: externalMeta,
-}: DataTableProps<TData, TValue>) {
+}: DataTableProps<TData>) {
   const t = useTranslations('DataTable');
   const tCommon = useTranslations('Common');
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -55,7 +58,7 @@ export function DataTable<TData, TValue>({
   });
   const [rowSelection, setRowSelection] = React.useState({});
 
-  const table = useReactTable({
+  const table = useLegacyTable({
     data,
     columns,
     onSortingChange: setSorting,
