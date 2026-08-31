@@ -3,7 +3,8 @@
 
 import { ProblemType, ProblemStatus, ProblemSetSharingLevel } from './schemas';
 import type { ErrorBroadCategory } from './constants';
-import { ColumnDef } from '@tanstack/react-table';
+import { LegacyColumnDef } from '@tanstack/react-table/legacy';
+import type { RowData } from '@tanstack/table-core';
 
 // =====================================================
 // Core Entity Types (from database)
@@ -583,8 +584,8 @@ export interface ConfirmationConfig {
   onConfirm: () => void;
 }
 
-export interface DataTableProps<TData, TValue> {
-  columns: ColumnDef<TData, TValue>[];
+export interface DataTableProps<TData extends RowData> {
+  columns: LegacyColumnDef<TData>[];
   data: TData[];
   onEdit?: (problem: Problem) => void;
   onDelete?: (problemId: string, problemTitle: string) => void;

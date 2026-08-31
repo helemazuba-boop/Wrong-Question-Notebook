@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Column } from '@tanstack/react-table';
+import { LegacyColumn } from '@tanstack/react-table/legacy';
+import type { RowData } from '@tanstack/table-core';
 import { Check, PlusCircle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -36,8 +37,8 @@ const getStatusBadgeStyle = (status: string): string => {
   }
 };
 
-interface DataTableFacetedFilterProps<TData, TValue> {
-  column?: Column<TData, TValue>;
+interface DataTableFacetedFilterProps<TData extends RowData> {
+  column?: LegacyColumn<TData>;
   title?: string;
   options: {
     label: string;
@@ -49,14 +50,14 @@ interface DataTableFacetedFilterProps<TData, TValue> {
   children?: React.ReactNode;
 }
 
-export function DataTableFacetedFilter<TData, TValue>({
+export function DataTableFacetedFilter<TData extends RowData>({
   column,
   title,
   options,
   selectedValues: externalSelectedValues,
   onSelectedValuesChange,
   children,
-}: DataTableFacetedFilterProps<TData, TValue>) {
+}: DataTableFacetedFilterProps<TData>) {
   const t = useTranslations('DataTable');
   const facets = column?.getFacetedUniqueValues();
   const internalSelectedValues = new Set(column?.getFilterValue() as string[]);

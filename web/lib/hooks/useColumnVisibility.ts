@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { VisibilityState } from '@tanstack/react-table';
+import { ColumnVisibilityState } from '@tanstack/table-core';
 
 interface UseColumnVisibilityOptions {
   storageKey: string;
-  defaultVisibility?: VisibilityState;
+  defaultVisibility?: ColumnVisibilityState;
 }
 
 /**
@@ -17,7 +17,7 @@ export function useColumnVisibility({
   defaultVisibility = {},
 }: UseColumnVisibilityOptions) {
   const [columnVisibility, setColumnVisibilityState] =
-    useState<VisibilityState>(defaultVisibility);
+    useState<ColumnVisibilityState>(defaultVisibility);
 
   // Load column visibility from session storage on mount
   useEffect(() => {
@@ -38,7 +38,9 @@ export function useColumnVisibility({
   // Save column visibility to session storage whenever it changes
   const setColumnVisibility = useCallback(
     (
-      visibility: VisibilityState | ((prev: VisibilityState) => VisibilityState)
+      visibility:
+        | ColumnVisibilityState
+        | ((prev: ColumnVisibilityState) => ColumnVisibilityState)
     ) => {
       setColumnVisibilityState(prev => {
         const newVisibility =

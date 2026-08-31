@@ -1,6 +1,6 @@
 'use client';
 
-import { ColumnDef } from '@tanstack/react-table';
+import { LegacyColumnDef } from '@tanstack/react-table/legacy';
 import { ArrowUpDown, MoreHorizontal, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -87,7 +87,7 @@ function DataTableColumnHeader({
 export function createColumns(
   t: TranslatorProp,
   locale?: string
-): ColumnDef<Problem>[] {
+): LegacyColumnDef<Problem>[] {
   return [
     {
       id: 'select',
@@ -355,4 +355,4 @@ export function createColumns(
 }
 
 // Default export for backwards compatibility (returns empty array - should be called with t)
-export const columns: ColumnDef<Problem>[] = [];
+export const columns: LegacyColumnDef<Problem>[] = [];
