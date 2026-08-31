@@ -91,6 +91,13 @@ export interface Esp32AiProviderResult {
   functionCalls: Esp32AiFunctionCallSummary[];
 }
 
+export interface Esp32VoiceTranscriptionResult {
+  transcript: string;
+  latencyMs: number;
+  statusTrace: Esp32AiStatusTraceItem[];
+  asr: Esp32AiAsrSummary;
+}
+
 export interface Esp32WordAiLookupResult {
   word: string;
   normalized_word: string;
@@ -576,7 +583,7 @@ function getCommaSeparatedEnv(name: string): string[] {
     .filter(Boolean);
 }
 
-function getProviderConfig(): DashScopeProviderConfig | null {
+function getProviderConfig(requireChat = true): DashScopeProviderConfig | null {
   if (!isDashScopeProviderConfigured()) return null;
 
   const asrSelection = getEsp32AiAsrSelection();
@@ -602,7 +609,7 @@ function getProviderConfig(): DashScopeProviderConfig | null {
   )
     .trim()
     .replace(/\/+$/, '');
-  if (!chatApiKeyStd || !chatApiKeyPro) return null;
+  if (requireChat && (!chatApiKeyStd || !chatApiKeyPro)) return null;
 
   const configuredAsrProviders = [asrSelection.primary, asrSelection.fallback];
   if (configuredAsrProviders.includes('dashscope')) {
@@ -1679,6 +1686,10 @@ export function isEsp32AiProviderConfigured(): boolean {
   return Boolean(getProviderConfig());
 }
 
+export function isEsp32VoiceTranscriptionConfigured(): boolean {
+  return Boolean(getProviderConfig(false));
+}
+
 async function runSelectedAsrProvider(
   config: DashScopeProviderConfig,
   input: Esp32AiProviderInput,
@@ -1707,6 +1718,95 @@ async function runSelectedAsrProvider(
   }
 
   return runDashScopeAsr(config, input, tracker);
+}
+
+async function runAsrWithFallback(
+  config: DashScopeProviderConfig,
+  input: Esp32AiProviderInput,
+  tracker: StatusTracker
+): Promise<{
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+  provider: Esp32AiAsrProvider;
+}> {
+  tracker.mark('asr', 'started');
+  let provider = config.asrProvider;
+  try {
+    const result = await runSelectedAsrProvider(
+      config,
+      input,
+      provider,
+      tracker
+    );
+    tracker.mark(
+      'asr',
+      'succeeded',
+      `text_bytes=${Buffer.byteLength(result.transcript, 'utf8')}`
+    );
+    return { ...result, provider };
+  } catch (error) {
+    if (
+      !config.asrFallbackProvider ||
+      !(error instanceof Esp32AiProviderError) ||
+      !isAsrFallbackEligibleCode(error.code)
+    ) {
+      throw error;
+    }
+    tracker.mark(
+      'asr_fallback',
+      'started',
+      `from=${provider} to=${config.asrFallbackProvider} code=${error.code}`
+    );
+    provider = config.asrFallbackProvider;
+    const result = await runSelectedAsrProvider(
+      config,
+      input,
+      provider,
+      tracker
+    );
+    tracker.mark('asr_fallback', 'succeeded', `provider=${provider}`);
+    tracker.mark(
+      'asr',
+      'succeeded',
+      `text_bytes=${Buffer.byteLength(result.transcript, 'utf8')}`
+    );
+    return { ...result, provider };
+  }
+}
+
+export async function runEsp32VoiceTranscription(
+  input: Esp32AiProviderInput
+): Promise<Esp32VoiceTranscriptionResult> {
+  const config = getProviderConfig(false);
+  if (!config) {
+    throw new Esp32AiProviderError(
+      'disabled',
+      'ESP32 voice transcription is disabled',
+      503
+    );
+  }
+  const startedAt = Date.now();
+  const tracker = createStatusTracker(startedAt);
+  tracker.mark('request', 'started');
+  const result = await runAsrWithFallback(config, input, tracker);
+  tracker.mark('request', 'succeeded');
+  return {
+    transcript: result.transcript,
+    latencyMs: Date.now() - startedAt,
+    statusTrace: tracker.items,
+    asr: {
+      provider: result.provider,
+      model:
+        result.provider === 'stepfun'
+          ? config.stepfunAsrModel
+          : config.asrModel,
+      status: 'succeeded',
+      text: result.transcript,
+      request_id: result.requestId,
+      elapsed_ms: result.elapsedMs,
+    },
+  };
 }
 
 export async function runEsp32WordAiLookup(input: {
@@ -1804,33 +1904,7 @@ export async function runEsp32AiProvider(
   const startedAt = Date.now();
   const tracker = createStatusTracker(startedAt);
   tracker.mark('request', 'started');
-  tracker.mark('asr', 'started');
-  let asr: { transcript: string; requestId: string | null; elapsedMs: number };
-  let usedAsrProvider = config.asrProvider;
-  try {
-    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
-  } catch (error) {
-    if (
-      !config.asrFallbackProvider ||
-      !(error instanceof Esp32AiProviderError) ||
-      !isAsrFallbackEligibleCode(error.code)
-    ) {
-      throw error;
-    }
-    tracker.mark(
-      'asr_fallback',
-      'started',
-      `from=${usedAsrProvider} to=${config.asrFallbackProvider} code=${error.code}`
-    );
-    usedAsrProvider = config.asrFallbackProvider;
-    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
-    tracker.mark('asr_fallback', 'succeeded', `provider=${usedAsrProvider}`);
-  }
-  tracker.mark(
-    'asr',
-    'succeeded',
-    `text_bytes=${Buffer.byteLength(asr.transcript, 'utf8')}`
-  );
+  const asr = await runAsrWithFallback(config, input, tracker);
   const toolContext = input.userId
     ? {
         userId: input.userId,
@@ -1868,11 +1942,9 @@ export async function runEsp32AiProvider(
     actions: chat.actions,
     statusTrace: tracker.items,
     asr: {
-      provider: usedAsrProvider,
+      provider: asr.provider,
       model:
-        usedAsrProvider === 'stepfun'
-          ? config.stepfunAsrModel
-          : config.asrModel,
+        asr.provider === 'stepfun' ? config.stepfunAsrModel : config.asrModel,
       status: 'succeeded',
       text: asr.transcript,
       request_id: asr.requestId,
