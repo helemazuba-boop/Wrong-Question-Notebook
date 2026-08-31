@@ -74,6 +74,13 @@ function extraction(overrides: Record<string, unknown> = {}) {
       existing: [],
       new: [{ name: 'motion' }],
     },
+    ingestion: {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      schema_version: 'wqn.problem-ingestion.v1',
+      question_id: 'question-1',
+      source_region_ids: ['region-1'],
+      visual_region_ids: [],
+    },
     quota: { allowed: true, current: 1, limit: 10, remaining: 9 },
   };
 }
@@ -329,6 +336,12 @@ describe('createProblemFromImages', () => {
     expect(state.problem.source.mcp_request_fingerprint).toBe(
       legacyFingerprint
     );
+    expect(state.problem.source).toMatchObject({
+      ingestion_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      ingestion_schema_version: 'wqn.problem-ingestion.v1',
+      ingestion_question_id: 'question-1',
+      source_region_ids: ['region-1'],
+    });
   });
 
   it('resumes incomplete relation writes before returning a replay', async () => {

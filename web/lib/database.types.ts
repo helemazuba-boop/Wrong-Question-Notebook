@@ -1249,6 +1249,92 @@ export type Database = {
           },
         ];
       };
+      problem_ingestion_problem_links: {
+        Row: {
+          created_at: string;
+          ingestion_id: string;
+          problem_id: string;
+          question_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          ingestion_id: string;
+          problem_id: string;
+          question_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          ingestion_id?: string;
+          problem_id?: string;
+          question_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestion_problem_links_ingestion_id_fkey';
+            columns: ['ingestion_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_ingestions';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_ingestion_problem_links_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: true;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_ingestions: {
+        Row: {
+          created_at: string;
+          document: Json;
+          id: string;
+          provider: string;
+          provider_model: string;
+          provider_payload: Json | null;
+          schema_version: string;
+          status: string;
+          subject_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          document: Json;
+          id?: string;
+          provider: string;
+          provider_model: string;
+          provider_payload?: Json | null;
+          schema_version: string;
+          status: string;
+          subject_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          document?: Json;
+          id?: string;
+          provider?: string;
+          provider_model?: string;
+          provider_payload?: Json | null;
+          schema_version?: string;
+          status?: string;
+          subject_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestions_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       problem_initial_idea_mcp_challenges: {
         Row: {
           challenge_token_hash: string;

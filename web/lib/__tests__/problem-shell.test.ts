@@ -127,6 +127,26 @@ describe('ProblemSourceSchema', () => {
       ProblemSourceSchema.safeParse({ exam_type: 'final_boss' }).success
     ).toBe(false);
   });
+
+  it('accepts a complete ingestion provenance link', () => {
+    expect(
+      ProblemSourceSchema.safeParse({
+        ingestion_id: 'c9caf816-b164-48b7-89a6-e615b840e421',
+        ingestion_schema_version: 'wqn.problem-ingestion.v1',
+        ingestion_question_id: 'question-2',
+        source_region_ids: ['region-3'],
+        visual_region_ids: [],
+      }).success
+    ).toBe(true);
+  });
+
+  it('rejects a partial ingestion provenance link', () => {
+    expect(
+      ProblemSourceSchema.safeParse({
+        ingestion_id: 'c9caf816-b164-48b7-89a6-e615b840e421',
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe('CreateProblemDto (shell model)', () => {

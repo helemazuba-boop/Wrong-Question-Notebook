@@ -5,11 +5,10 @@ import { PROBLEM_CONSTANTS } from './constants';
 // =====================================================
 // Shell-model problem extraction contract
 //
-// Single source of truth for the structured JSON a model (the platform's
-// vision route OR an external LLM run by the user) produces when extracting
-// a problem. Both consumers share this schema:
-//   - /api/ai/extract-problem validates/normalises its model output with it
-//   - the paste tab in ImageScanUploader validates user-pasted JSON with it
+// Final-Problem draft adapter. Platform vision and new external prompts first
+// produce Problem Ingestion v1; each selected ingestion question is then
+// validated/normalised through this schema before it may become a Problem.
+// The paste tab also keeps accepting this direct/legacy single-Problem shape.
 // A problem is a shell (shared stem in `content`) plus 1..N typed parts,
 // matching the gaokao shell model used by the problem form and storage.
 // =====================================================

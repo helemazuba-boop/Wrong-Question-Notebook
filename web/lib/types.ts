@@ -381,6 +381,16 @@ export interface ExtractedProblemData {
   suggested_tags?: SuggestedTags;
   /** @deprecated legacy single-part shape */
   answer_hint?: AnswerHint | null;
+  /** All independent questions found on the supplied page(s). */
+  candidates?: ExtractedProblemData[];
+  ingestion_id?: string;
+  ingestion_schema_version?: 'wqn.problem-ingestion.v1';
+  ingestion_question_id?: string;
+  question_number_label?: string | null;
+  source_region_ids?: string[];
+  visual_region_ids?: string[];
+  student_work_count?: number;
+  incomplete?: boolean;
 }
 
 // =====================================================

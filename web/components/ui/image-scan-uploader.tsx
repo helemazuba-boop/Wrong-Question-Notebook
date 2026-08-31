@@ -29,6 +29,10 @@ import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
 import { getProblemTypeDisplayName } from '@/lib/common-utils';
 import { parsePastedExtraction } from '@/lib/problem-extraction';
+import {
+  parseProblemIngestion,
+  problemCandidatesFromIngestion,
+} from '@/lib/problem-ingestion';
 import type {
   ExtractedProblemData,
   QRSessionCreateResponse,
@@ -186,6 +190,7 @@ export function ImageScanUploader({
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionResult, setExtractionResult] =
     useState<ExtractedProblemData | null>(null);
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [saveAsProblemAsset, setSaveAsProblemAsset] = useState(false);
@@ -483,6 +488,7 @@ export function ImageScanUploader({
       if (json.data?.quota) {
         onQuotaChange(json.data.quota);
       }
+      setSelectedCandidateIndex(0);
       setExtractionResult(json.data);
       if (json.data.suggest_image_asset) {
         setSaveAsProblemAsset(true);
@@ -497,6 +503,48 @@ export function ImageScanUploader({
   }, [imageFile, imagePreview, onQuotaChange, subjectId, t]);
 
   const handleParsePasted = useCallback(() => {
+    const ingestion = parseProblemIngestion(pasteText);
+    if (ingestion.ok) {
+      const candidates: ExtractedProblemData[] = problemCandidatesFromIngestion(
+        ingestion.data
+      ).map(draft => {
+        const firstPart = draft.parts[0];
+        return {
+          title: draft.title,
+          content: draft.content,
+          parts: draft.parts,
+          suggest_image_asset: draft.suggest_image_asset,
+          confidence: draft.confidence,
+          suggested_tags: {
+            existing: [],
+            new: draft.new_tag_names.map(name => ({ name })),
+          },
+          problem_type: firstPart.type,
+          mcq_choices: firstPart.mcq_choices,
+          answer_hint: firstPart.answer_hint,
+          ingestion_question_id: draft.question_id,
+          question_number_label: draft.number_label,
+          source_region_ids: draft.source_region_ids,
+          visual_region_ids: draft.visual_region_ids,
+          student_work_count: draft.student_work_count,
+          incomplete: draft.incomplete,
+        };
+      });
+      if (candidates.length === 0) {
+        setPasteError(t('pasteNoProblems'));
+        return;
+      }
+      setPasteError(null);
+      setSelectedCandidateIndex(0);
+      const data = { ...candidates[0], candidates };
+      setExtractionResult(data);
+      if (pasteImageFile) {
+        setImageFile(pasteImageFile);
+        if (data.suggest_image_asset) setSaveAsProblemAsset(true);
+      }
+      setState('result');
+      return;
+    }
     const parsed = parsePastedExtraction(pasteText);
     if (!parsed.ok) {
       setPasteError(
@@ -507,6 +555,7 @@ export function ImageScanUploader({
       return;
     }
     setPasteError(null);
+    setSelectedCandidateIndex(0);
     const firstPart = parsed.data.parts[0];
     const data: ExtractedProblemData = {
       title: parsed.data.title,
@@ -553,6 +602,7 @@ export function ImageScanUploader({
     setImageFile(null);
     setImagePreview(null);
     setExtractionResult(null);
+    setSelectedCandidateIndex(0);
     setError(null);
     setPasteText('');
     setPasteError(null);
@@ -929,6 +979,7 @@ export function ImageScanUploader({
   if (state === 'result' && extractionResult) {
     const confidence = extractionResult.confidence;
     const warnings = confidence?.warnings || [];
+    const candidates = extractionResult.candidates ?? [extractionResult];
 
     // Shell model: badge the first part's type; legacy responses only carry
     // the flat problem_type.
@@ -959,6 +1010,41 @@ export function ImageScanUploader({
               {t('problemExtracted')}
             </span>
           </div>
+
+          {candidates.length > 1 && (
+            <label className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              <span>
+                {t('questionsDetected', { count: candidates.length })}
+              </span>
+              <select
+                value={selectedCandidateIndex}
+                onChange={event => {
+                  const index = Number(event.target.value);
+                  const selected = candidates[index];
+                  setSelectedCandidateIndex(index);
+                  setExtractionResult({ ...selected, candidates });
+                  if (selected.suggest_image_asset) {
+                    setSaveAsProblemAsset(true);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-emerald-200/70 bg-white px-2 py-1 text-xs dark:border-emerald-800/50 dark:bg-gray-900"
+              >
+                {candidates.map((candidate, index) => (
+                  <option
+                    key={
+                      candidate.ingestion_question_id ?? `candidate-${index}`
+                    }
+                    value={index}
+                  >
+                    {t('questionOption', {
+                      number: candidate.question_number_label || index + 1,
+                      title: candidate.title,
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {/* Confidence badges */}
           <div className="mb-3 flex flex-wrap gap-2">

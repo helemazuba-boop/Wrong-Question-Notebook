@@ -25,6 +25,7 @@ import {
   createProblemMarkCopyMapping,
   inheritProblemMarksBestEffort,
 } from '@/lib/problem-marks/copy';
+import { stripProblemIngestionProvenance } from '@/lib/problem-ingestion';
 import { z } from 'zod';
 
 const CopyProblemBody = z.object({
@@ -298,7 +299,7 @@ async function copyProblem(
         title: sourceProblem.title,
         content: sourceProblem.content,
         parts: sourceProblem.parts,
-        source: sourceProblem.source ?? {},
+        source: stripProblemIngestionProvenance(sourceProblem.source),
         is_optional: sourceProblem.is_optional ?? false,
         status: 'needs_review',
         solution_text: sourceProblem.solution_text,

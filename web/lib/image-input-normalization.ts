@@ -17,6 +17,8 @@ export interface RawProblemImageInput {
 
 export interface NormalizedProblemImageInput extends RawProblemImageInput {
   mime_type: 'image/jpeg';
+  source_width: number;
+  source_height: number;
   width: number;
   height: number;
   original_mime_type: ProblemImageInputMimeType;
@@ -227,6 +229,8 @@ async function normalizeOne(
   return {
     data: normalized.toString('base64'),
     mime_type: 'image/jpeg',
+    source_width: dimensions.width,
+    source_height: dimensions.height,
     width: normalizedMetadata.width,
     height: normalizedMetadata.height,
     original_mime_type: image.mime_type,

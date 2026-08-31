@@ -211,20 +211,43 @@ export const StoredProblemPartsSchema = z
 
 // Exam provenance, deliberately loose (jsonb at rest): promote fields to
 // columns only when query patterns demand it.
-export const ProblemSourceSchema = z.object({
-  year: z
-    .number()
-    .int()
-    .min(PROBLEM_CONSTANTS.SOURCE.MIN_YEAR)
-    .max(PROBLEM_CONSTANTS.SOURCE.MAX_YEAR)
-    .optional(),
-  paper: z.string().max(PROBLEM_CONSTANTS.SOURCE.MAX_PAPER_LENGTH).optional(),
-  exam_type: z.enum(PROBLEM_CONSTANTS.SOURCE.EXAM_TYPES).optional(),
-  question_no: z
-    .string()
-    .max(PROBLEM_CONSTANTS.SOURCE.MAX_QUESTION_NO_LENGTH)
-    .optional(),
-});
+export const ProblemSourceSchema = z
+  .object({
+    year: z
+      .number()
+      .int()
+      .min(PROBLEM_CONSTANTS.SOURCE.MIN_YEAR)
+      .max(PROBLEM_CONSTANTS.SOURCE.MAX_YEAR)
+      .optional(),
+    paper: z.string().max(PROBLEM_CONSTANTS.SOURCE.MAX_PAPER_LENGTH).optional(),
+    exam_type: z.enum(PROBLEM_CONSTANTS.SOURCE.EXAM_TYPES).optional(),
+    question_no: z
+      .string()
+      .max(PROBLEM_CONSTANTS.SOURCE.MAX_QUESTION_NO_LENGTH)
+      .optional(),
+    // Traceability into the provider-neutral recognition document. The
+    // regions/student work stay there; review and attempts continue to use
+    // the normalized Problem shell only.
+    ingestion_id: z.uuid().optional(),
+    ingestion_schema_version: z.literal('wqn.problem-ingestion.v1').optional(),
+    ingestion_question_id: z.string().min(1).max(64).optional(),
+    source_region_ids: z.array(z.string().min(1).max(64)).max(200).optional(),
+    visual_region_ids: z.array(z.string().min(1).max(64)).max(200).optional(),
+  })
+  .refine(
+    source => {
+      const link = [
+        source.ingestion_id,
+        source.ingestion_schema_version,
+        source.ingestion_question_id,
+      ];
+      return link.every(Boolean) || link.every(value => value === undefined);
+    },
+    {
+      message:
+        'ingestion_id, ingestion_schema_version and ingestion_question_id must be provided together',
+    }
+  );
 
 // Per-part outcome recorded on an attempt. score is only meaningful when the
 // part declared full_marks; correct=null marks a self-assessed part the user

@@ -651,10 +651,45 @@ export default function ProblemForm({
     file: File;
     roles: ('problem' | 'solution')[];
   } | null>(null);
+  const [pendingIngestionSource, setPendingIngestionSource] = useState<
+    Record<string, unknown>
+  >(() => {
+    const source = problem?.source as Record<string, unknown> | undefined;
+    if (
+      !source?.ingestion_id ||
+      !source.ingestion_schema_version ||
+      !source.ingestion_question_id
+    ) {
+      return {};
+    }
+    return {
+      ingestion_id: source.ingestion_id,
+      ingestion_schema_version: source.ingestion_schema_version,
+      ingestion_question_id: source.ingestion_question_id,
+      source_region_ids: source.source_region_ids ?? [],
+      visual_region_ids: source.visual_region_ids ?? [],
+    };
+  });
 
   const handleExtractionComplete = useCallback(
     (data: ExtractedProblemData, imageAttachment?: ImageAttachment) => {
       setTitle(data.title);
+      if (data.question_number_label) {
+        setSourceQuestionNo(data.question_number_label);
+      }
+      setPendingIngestionSource(
+        data.ingestion_id &&
+          data.ingestion_schema_version &&
+          data.ingestion_question_id
+          ? {
+              ingestion_id: data.ingestion_id,
+              ingestion_schema_version: data.ingestion_schema_version,
+              ingestion_question_id: data.ingestion_question_id,
+              source_region_ids: data.source_region_ids ?? [],
+              visual_region_ids: data.visual_region_ids ?? [],
+            }
+          : {}
+      );
       // Normalize an extracted type: tolerate the legacy trio alongside the
       // shell part types.
       const legacyTypeMap: Record<string, ProblemType> = {
@@ -989,6 +1024,7 @@ export default function ProblemForm({
       });
 
       const source: Record<string, unknown> = {
+        ...pendingIngestionSource,
         ...(sourceYear.trim() !== '' && !isNaN(Number(sourceYear.trim()))
           ? { year: Number(sourceYear.trim()) }
           : {}),

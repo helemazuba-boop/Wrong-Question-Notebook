@@ -302,9 +302,7 @@ describe('MCP_TOOLS registry shape', () => {
     const create = findMcpTool('create_problem')!;
     const result = await create.handler(ctx, { get_prompt: true });
     expect(result).toMatchObject({
-      prompt: expect.stringContaining(
-        'Extract faithfully. Do NOT solve the problem.'
-      ),
+      prompt: expect.stringContaining('exactly one already-selected question'),
       next_step: expect.stringContaining('call create_problem again'),
     });
     expect(ctx.supabase.from).not.toHaveBeenCalled();

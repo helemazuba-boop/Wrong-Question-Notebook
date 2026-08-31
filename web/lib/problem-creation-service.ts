@@ -725,6 +725,7 @@ async function createProblemFromSource(
   const prepared: {
     extraction: ParsedExtraction;
     quota: ProblemExtractionResult['quota'] | null;
+    ingestion?: ProblemExtractionResult['ingestion'];
   } =
     input.source_kind === 'images'
       ? await extractProblemFromImages(
@@ -793,6 +794,15 @@ async function createProblemFromSource(
     mcp_creation_warnings: tagMaterialization.warnings,
     suggest_image_asset: prepared.extraction.suggest_image_asset,
     extraction_confidence: prepared.extraction.confidence ?? null,
+    ...(prepared.ingestion
+      ? {
+          ingestion_id: prepared.ingestion.id,
+          ingestion_schema_version: prepared.ingestion.schema_version,
+          ingestion_question_id: prepared.ingestion.question_id,
+          source_region_ids: prepared.ingestion.source_region_ids,
+          visual_region_ids: prepared.ingestion.visual_region_ids,
+        }
+      : {}),
   } as Json;
   const { data: created, error } = await supabase
     .from('problems')

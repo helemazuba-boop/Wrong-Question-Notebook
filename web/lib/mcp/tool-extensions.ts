@@ -52,9 +52,9 @@ import {
   type CreateProblemInput,
 } from '@/lib/problem-creation-service';
 import {
-  PROBLEM_EXTRACTION_JSON_SCHEMA,
+  PROBLEM_DRAFT_JSON_SCHEMA,
+  PROBLEM_DRAFT_SYSTEM_PROMPT,
   PROBLEM_EXTRACTION_MIME_TYPES,
-  PROBLEM_EXTRACTION_SYSTEM_PROMPT,
 } from '@/lib/problem-extraction-service';
 import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import { ProblemInitialIdeaSchema } from '@/lib/schemas';
@@ -831,7 +831,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem',
     description:
-      '两阶段新增错题：先只传 get_prompt=true 获取完整题目识别 Prompt；调用方按 Prompt 阅读图片或文本后，再省略 get_prompt（或传 false）并提交壳题干、1-10 个 typed parts、可见答案提示、标签和置信度。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。',
+      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签和置信度。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -844,9 +844,9 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
           type: 'string',
           description: '16-64 位 URL-safe 幂等 ID；重试必须复用',
         },
-        ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties,
+        ...PROBLEM_DRAFT_JSON_SCHEMA.properties,
         title: {
-          ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties.title,
+          ...PROBLEM_DRAFT_JSON_SCHEMA.properties.title,
           minLength: 1,
           description: '题目主题摘要；不含题号和数学公式',
         },
@@ -876,7 +876,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
     handler: async (ctx, args) => {
       if (args.get_prompt === true) {
         return {
-          prompt: PROBLEM_EXTRACTION_SYSTEM_PROMPT,
+          prompt: PROBLEM_DRAFT_SYSTEM_PROMPT,
           next_step:
             'Apply this prompt to the source material, then call create_problem again with get_prompt=false, a 16-64 character URL-safe request_id, and the resulting structured fields. Reuse the same request_id for retries.',
         };
@@ -903,7 +903,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem_from_images',
     description:
-      '使用现有智能识别链路从 1-4 张试卷、练习或手写图片中抽取并新增错题。不会求解；可选科目，省略时自动归入“未分类”；可选直接加入一个已有错题集。写入按 request_id 幂等。',
+      '从 1-4 张仅包含同一道（可跨页）题目的试卷、练习或手写图片中识别并新增错题。不会求解；若检测到多道独立题目会拒绝猜选，应改用 Web ingestion 选择流程。可选科目和错题集，写入按 request_id 幂等。',
     inputSchema: {
       type: 'object',
       properties: {
