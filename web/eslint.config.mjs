@@ -1,20 +1,19 @@
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { FlatCompat } from '@eslint/eslintrc';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
+import coreWebVitals from 'eslint-config-next/core-web-vitals';
+import nextTypescript from 'eslint-config-next/typescript';
+import prettierConfig from 'eslint-config-prettier';
+import prettierPlugin from 'eslint-plugin-prettier';
 
 const eslintConfig = [
-  ...compat.extends('next/core-web-vitals', 'next/typescript'),
-  ...compat.extends('prettier'),
+  ...coreWebVitals,
+  ...nextTypescript,
+  prettierConfig,
   {
+    // Must match eslint-config-next's glob: the `react-hooks` plugin it
+    // registers is itself scoped to these files, and ESLint only resolves a
+    // plugin from configs that apply to the file being linted.
+    files: ['**/*.{js,jsx,mjs,ts,tsx,mts,cts}'],
     plugins: {
-      prettier: (await import('eslint-plugin-prettier')).default,
+      prettier: prettierPlugin,
     },
     rules: {
       // Prettier integration
@@ -41,6 +40,24 @@ const eslintConfig = [
       // React specific rules
       'react-hooks/exhaustive-deps': 'warn',
       'react/no-unescaped-entities': 'off',
+
+      // Debt: eslint-config-next 16 pulls eslint-plugin-react-hooks 5 -> 7,
+      // which introduces these seven rules. They flag 77 pre-existing call
+      // sites across 49 files (52 alone are set-state-in-effect), none of
+      // which were violations under the old plugin. Fixing them means
+      // rewriting effect and state-initialisation logic, which changes runtime
+      // behaviour and needs manual UI regression testing per screen.
+      //
+      // Downgraded to warnings so the upgrade can land without bundling a
+      // behavioural refactor into a dependency bump. Each should be tightened
+      // back to 'error' as its call sites are fixed.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/static-components': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/error-boundaries': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/incompatible-library': 'warn',
     },
   },
   {
