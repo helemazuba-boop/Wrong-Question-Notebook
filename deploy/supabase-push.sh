@@ -11,8 +11,10 @@
 #      (skipped with --dry-run-only)
 #
 # PostgreSQL is never reached through data.helema.cn or a public DB socket.
-# TARGET_DATABASE_URL must use a loopback host; this script opens an SSH
-# localhost tunnel through the configured Tencent SSH alias for each run.
+# TARGET_DATABASE_URL stays on 127.0.0.1:15432. On every run, this script asks
+# Tencent Docker for the live supabase-db container IP, then opens a direct SSH
+# tunnel to that container's PostgreSQL port. Host port 5432 and Supavisor are
+# deliberately bypassed.
 #
 # USAGE:
 #   ./deploy/supabase-push.sh                 # dry-run then apply
@@ -46,7 +48,7 @@ while (( $# )); do
   esac
 done
 
-for command_name in python3 ssh supabase; do
+for command_name in psql python3 ssh supabase; do
   command -v "$command_name" >/dev/null 2>&1 || {
     printf 'ERROR: required command not found: %s\n' "$command_name" >&2
     exit 1
@@ -65,8 +67,6 @@ import re, sys
 path = sys.argv[1]
 wanted = {
     "TARGET_DATABASE_URL",
-    "WQN_DATABASE_SSH_HOST",
-    "WQN_DATABASE_SSH_TARGET",
 }
 pat = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
 with open(path, encoding="utf-8-sig") as handle:
@@ -91,39 +91,20 @@ PY
 )
 
 TARGET_DATABASE_URL="${DOTENV[TARGET_DATABASE_URL]:-}"
-DATABASE_SSH_HOST="${DOTENV[WQN_DATABASE_SSH_HOST]:-tencent}"
-DATABASE_SSH_TARGET="${DOTENV[WQN_DATABASE_SSH_TARGET]:-127.0.0.1:5432}"
+DATABASE_SSH_HOST="tencent"
+DATABASE_CONTAINER="supabase-db"
+LOCAL_DB_HOST="127.0.0.1"
+LOCAL_DB_PORT="15432"
+REMOTE_DB_PORT="5432"
 
 if [[ -z "$TARGET_DATABASE_URL" ]]; then
   cat >&2 <<'ERR'
 ERROR: TARGET_DATABASE_URL is missing from web/.env.production.
-Set it to a percent-encoded PostgreSQL URL whose host is 127.0.0.1 or
-localhost. release.sh never uploads this maintenance URL to App or Realtime.
+Set it to the reviewed percent-encoded PostgreSQL URL on 127.0.0.1:15432.
+release.sh never uploads this maintenance URL to App or Realtime.
 ERR
   exit 1
 fi
-if [[ ! "$DATABASE_SSH_HOST" =~ ^[A-Za-z0-9_.@:-]+$ ]]; then
-  echo "ERROR: invalid WQN_DATABASE_SSH_HOST in web/.env.production" >&2
-  exit 1
-fi
-if [[ ! "$DATABASE_SSH_TARGET" =~ ^([A-Za-z0-9_.-]+|\[[0-9A-Fa-f:]+\]):([0-9]{1,5})$ ]]; then
-  echo "ERROR: WQN_DATABASE_SSH_TARGET must be HOST:PORT" >&2
-  exit 1
-fi
-DATABASE_SSH_TARGET_HOST="${DATABASE_SSH_TARGET%:*}"
-case "$DATABASE_SSH_TARGET_HOST" in
-  127.0.0.1|localhost|'[::1]') ;;
-  *)
-    echo "ERROR: WQN_DATABASE_SSH_TARGET must use Tencent-host loopback, never a public PostgreSQL host" >&2
-    exit 1
-    ;;
-esac
-DATABASE_SSH_PORT="${DATABASE_SSH_TARGET##*:}"
-if (( 10#$DATABASE_SSH_PORT < 1 || 10#$DATABASE_SSH_PORT > 65535 )); then
-  echo "ERROR: WQN_DATABASE_SSH_TARGET port must be between 1 and 65535" >&2
-  exit 1
-fi
-
 mapfile -d '' -t DB_ROUTE < <(
   python3 - "$TARGET_DATABASE_URL" <<'PY'
 import sys
@@ -138,10 +119,10 @@ except ValueError as exc:
 if value.scheme not in {"postgres", "postgresql"} or not value.hostname:
     raise SystemExit("ERROR: TARGET_DATABASE_URL must be a PostgreSQL URL")
 host = value.hostname.lower()
-if host not in {"127.0.0.1", "localhost", "::1"}:
+if host != "127.0.0.1" or port != 15432:
     raise SystemExit(
-        "ERROR: TARGET_DATABASE_URL must use a loopback host and an SSH tunnel; "
-        "public hosts and data.helema.cn are forbidden"
+        "ERROR: TARGET_DATABASE_URL must remain on 127.0.0.1:15432; "
+        "the script tunnels that unchanged URL directly to supabase-db"
     )
 if not value.username or not value.path or value.path == "/":
     raise SystemExit("ERROR: TARGET_DATABASE_URL must include a user and database name")
@@ -150,15 +131,43 @@ if port < 1 or port > 65535:
 sys.stdout.buffer.write(host.encode() + b"\0" + str(port).encode() + b"\0")
 PY
 )
-LOCAL_DB_HOST="${DB_ROUTE[0]:-}"
-LOCAL_DB_PORT="${DB_ROUTE[1]:-}"
-[[ -n "$LOCAL_DB_HOST" && -n "$LOCAL_DB_PORT" ]] || exit 1
+TARGET_DB_HOST="${DB_ROUTE[0]:-}"
+TARGET_DB_PORT="${DB_ROUTE[1]:-}"
+[[ "$TARGET_DB_HOST" == "$LOCAL_DB_HOST" && "$TARGET_DB_PORT" == "$LOCAL_DB_PORT" ]] || exit 1
 
-if [[ "$LOCAL_DB_HOST" == "::1" ]]; then
-  LOCAL_FORWARD="[::1]:$LOCAL_DB_PORT:$DATABASE_SSH_TARGET"
-else
-  LOCAL_FORWARD="$LOCAL_DB_HOST:$LOCAL_DB_PORT:$DATABASE_SSH_TARGET"
+echo "[tunnel] Resolving live $DATABASE_CONTAINER container IP through SSH $DATABASE_SSH_HOST"
+if ! RAW_CONTAINER_IPS="$(
+  ssh "$DATABASE_SSH_HOST" \
+    "sudo docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' $DATABASE_CONTAINER"
+)"; then
+  echo "ERROR: could not inspect the live $DATABASE_CONTAINER container on $DATABASE_SSH_HOST" >&2
+  exit 1
 fi
+if ! DATABASE_CONTAINER_IP="$(python3 - "$RAW_CONTAINER_IPS" <<'PY'
+import ipaddress
+import sys
+
+docker_private_networks = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+valid = []
+for candidate in sys.argv[1].split():
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        continue
+    if address.version == 4 and any(address in network for network in docker_private_networks):
+        valid.append(str(address))
+if not valid:
+    raise SystemExit(1)
+print(valid[0])
+PY
+)"; then
+  echo "ERROR: docker inspect returned no private IPv4 address for $DATABASE_CONTAINER" >&2
+  exit 1
+fi
+LOCAL_FORWARD="$LOCAL_DB_HOST:$LOCAL_DB_PORT:$DATABASE_CONTAINER_IP:$REMOTE_DB_PORT"
 
 TUNNEL_DIR="$(mktemp -d)"
 chmod 700 "$TUNNEL_DIR"
@@ -176,7 +185,7 @@ trap 'exit 143' TERM
 
 echo "WQN Supabase migration deploy"
 echo "Web dir: $WEB_DIR"
-echo "Database route: loopback -> SSH $DATABASE_SSH_HOST -> private PostgreSQL"
+echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
 echo "Extra args: ${EXTRA_ARGS[*]:-}"
 if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
 echo
@@ -190,6 +199,21 @@ ssh \
   -L "$LOCAL_FORWARD" \
   "$DATABASE_SSH_HOST"
 TUNNEL_OPEN=1
+
+echo "[preflight] Verifying the tunnel reaches PostgreSQL directly"
+if ! PREFLIGHT_RESULT="$(
+  psql "$TARGET_DATABASE_URL" \
+    -X --set ON_ERROR_STOP=1 --no-align --tuples-only \
+    --command 'select 1' 2>/dev/null
+)"; then
+  echo "ERROR: PostgreSQL preflight failed through the supabase-db tunnel." >&2
+  echo "ERROR: Supabase CLI was not run." >&2
+  exit 1
+fi
+if [[ "$PREFLIGHT_RESULT" != "1" ]]; then
+  echo "ERROR: PostgreSQL preflight returned an unexpected result; Supabase CLI was not run." >&2
+  exit 1
+fi
 
 cd "$WEB_DIR" || { echo "ERROR: cannot cd to $WEB_DIR" >&2; exit 1; }
 export SUPABASE_TELEMETRY_DISABLED=1

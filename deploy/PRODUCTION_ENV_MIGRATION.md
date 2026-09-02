@@ -39,20 +39,19 @@ Before any release:
 4. Verify `SUPABASE_SECRET_KEY`, then remove the value of
    `SUPABASE_SERVICE_ROLE_KEY`. A populated legacy key blocks deployment.
 5. Add the maintenance-only database route shown in
-   `web/.env.production.template`. `TARGET_DATABASE_URL` must use
-   `127.0.0.1`, `localhost`, or `::1`, with a percent-encoded password.
-   `WQN_DATABASE_SSH_HOST=tencent` uses the existing SSH alias, and
-   `WQN_DATABASE_SSH_TARGET` identifies PostgreSQL on the Tencent host's
-   private/loopback side.
+   `web/.env.production.template`. Keep `TARGET_DATABASE_URL` on
+   `127.0.0.1:15432` with a percent-encoded password. Each run resolves the
+   live `supabase-db` IP using `ssh tencent` + `sudo docker inspect`, then
+   forwards directly to that container's port `5432`.
 
 Do not use `data.helema.cn` as a PostgreSQL host. It remains an HTTPS Supabase
 API origin only. Do not add a public PostgreSQL security-group rule or a public
 Docker port binding.
 
 Before the first database dry run, verify on Tencent that PostgreSQL is bound
-only to loopback/private container networking and confirm the Tencent security
-group has no inbound PostgreSQL rule. The migration script independently
-rejects non-loopback local and remote tunnel endpoints.
+only to private container networking and confirm the Tencent security group has
+no inbound PostgreSQL rule. The migration script never targets Tencent host
+port `5432`, Supavisor, Kong, or the public Supabase API origin.
 
 ## 2. Review without deploying
 
