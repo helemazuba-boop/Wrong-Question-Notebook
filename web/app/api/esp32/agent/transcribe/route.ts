@@ -14,6 +14,7 @@ import {
   runEsp32VoiceTranscription,
 } from '@/lib/esp32-ai-provider';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
+import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -63,6 +64,8 @@ function validateAudioHeaders(req: Request): NextResponse | null {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const auth = await authenticateEsp32Device(req);
   if (auth instanceof NextResponse) return auth;
+  const limited = enforceAgentRateLimit(auth.deviceId, 'transcribe');
+  if (limited) return limited;
   const headerError = validateAudioHeaders(req);
   if (headerError) return headerError;
 

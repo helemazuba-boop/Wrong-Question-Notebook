@@ -141,7 +141,7 @@ export function emitNormalizedOpenCodeEvent(
     return 'activity';
   }
 
-  if (type === 'permission.asked' || type === 'permission.updated') {
+  if (type === 'permission.asked') {
     const metadata = asRecord(properties.metadata);
     const toolInput = asRecord(properties.tool_input);
     writer.emit('agent.permission', {
@@ -161,21 +161,51 @@ export function emitNormalizedOpenCodeEvent(
     });
     return 'activity';
   }
+  if (type === 'permission.updated') {
+    // Resolution echo for a prior ask (answered here or by another client).
+    // Forwarding it would re-arm the device permission prompt after every
+    // reply, so it only counts as activity.
+    return 'activity';
+  }
   return 'continue';
+}
+
+export type OpenCodeRelayMode = 'run' | 'observe';
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
+function sleep(ms: number): Promise<null> {
+  return new Promise(resolve => setTimeout(resolve, ms)).then(() => null);
 }
 
 export async function relayOpenCodeEvents(input: {
   upstream: ReadableStream<Uint8Array>;
   writer: SseWriter;
   sessionId: string;
+  mode?: OpenCodeRelayMode;
 }): Promise<void> {
+  const observe = input.mode === 'observe';
   const reader = input.upstream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let activitySeen = false;
+  // The read promise must survive idle iterations: re-issuing reader.read()
+  // would queue a second consumption and lose the chunk the first one yields.
+  let pendingRead = reader.read();
   try {
     while (!input.writer.isClosed()) {
-      const chunk = await reader.read();
+      // OpenCode can stay silent for a whole LLM/tool stretch. Emit an SSE
+      // comment so intermediate proxies do not reap the connection; the
+      // device parser already discards ':' comment lines.
+      const chunk = await Promise.race([
+        pendingRead,
+        sleep(HEARTBEAT_INTERVAL_MS),
+      ]);
+      if (chunk === null) {
+        input.writer.comment('keepalive');
+        continue;
+      }
+      pendingRead = reader.read();
       buffer += decoder.decode(chunk.value, { stream: !chunk.done });
       if (buffer.length > MAX_UPSTREAM_FRAME_CHARS) {
         throw new Error('OpenCode SSE frame exceeded the relay limit');
@@ -193,11 +223,14 @@ export async function relayOpenCodeEvents(input: {
           .join('\n');
         if (data) {
           try {
+            // Run mode swallows a stale idle buffered before prompt_async is
+            // accepted. Observe mode attaches to whatever state exists, so an
+            // immediate idle means "nothing is running" and ends the watch.
             const result = emitNormalizedOpenCodeEvent(
               input.writer,
               JSON.parse(data),
               input.sessionId,
-              activitySeen
+              observe || activitySeen
             );
             if (result === 'complete') return;
             if (result === 'activity') activitySeen = true;

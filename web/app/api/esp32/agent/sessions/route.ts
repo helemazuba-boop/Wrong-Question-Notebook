@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
+import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 import {
+  createOpenCodeSession,
   listOpenCodeSessions,
   OpenCodeGatewayError,
   resolveOpenCodeBinding,
@@ -31,11 +33,28 @@ function gatewayError(error: unknown): NextResponse {
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const auth = await authenticateEsp32Device(req);
   if (auth instanceof NextResponse) return auth;
+  const limited = enforceAgentRateLimit(auth.deviceId, 'sessions');
+  if (limited) return limited;
   try {
     const sessions = await listOpenCodeSessions(
       resolveOpenCodeBinding(auth.userId)
     );
     return NextResponse.json({ success: true, data: { sessions } });
+  } catch (error) {
+    return gatewayError(error);
+  }
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const auth = await authenticateEsp32Device(req);
+  if (auth instanceof NextResponse) return auth;
+  const limited = enforceAgentRateLimit(auth.deviceId, 'sessions');
+  if (limited) return limited;
+  try {
+    const session = await createOpenCodeSession(
+      resolveOpenCodeBinding(auth.userId)
+    );
+    return NextResponse.json({ success: true, data: { session } });
   } catch (error) {
     return gatewayError(error);
   }

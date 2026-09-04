@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **ESP32 OpenCode agent gateway**
+  - Create device-visible OpenCode sessions through the gateway and verify them against the binding-scoped list before use.
+  - Reply to pending OpenCode permission asks from the device, with corrective reject messages so the run continues.
+  - Re-attach to a running session's event stream without submitting a prompt (observe mode).
+  - Emit SSE keep-alive comments during upstream silence and replace the fixed five-minute event cap with an idle timeout plus a configurable absolute cap.
+  - Rate-limit every agent endpoint per authenticated device id and document the gateway contract under `web/contracts/agent-gateway-v0/`.
 - **ESP32 device-control v3**
   - Add versioned claim, bootstrap, and synchronization contracts with shared golden fixtures.
   - Pair physical devices through an expiring display code and P-256 ECDH/HKDF/AES-GCM sealed credentials.

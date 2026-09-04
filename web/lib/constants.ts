@@ -88,6 +88,25 @@ export const RATE_LIMIT_CONSTANTS = {
       windowMs: 5 * 60 * 1000,
       maxRequests: 180,
     },
+    // ESP32 OpenCode agent gateway, keyed by authenticated device id.
+    // transcribe spends paid ASR quota and run triggers real LLM/tool usage
+    // on the self-hosted OpenCode server, so both stay deliberately tight.
+    esp32AgentSessions: {
+      windowMs: 60 * 1000,
+      maxRequests: 20,
+    },
+    esp32AgentTranscribe: {
+      windowMs: 60 * 1000,
+      maxRequests: 10,
+    },
+    esp32AgentRun: {
+      windowMs: 5 * 60 * 1000,
+      maxRequests: 6,
+    },
+    esp32AgentEvents: {
+      windowMs: 60 * 1000,
+      maxRequests: 20,
+    },
   },
 
   // Cleanup intervals

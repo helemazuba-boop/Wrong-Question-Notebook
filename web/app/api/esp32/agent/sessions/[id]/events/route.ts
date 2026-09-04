@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 
 import { createSseResponse } from '@/lib/ai-stream';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
@@ -11,74 +10,48 @@ import {
   OpenCodeGatewayError,
   OpenCodeSessionAccessError,
   resolveOpenCodeBinding,
-  submitOpenCodePrompt,
 } from '@/lib/opencode-agent-gateway';
 
 export const runtime = 'nodejs';
-// Self-hosted `next start` ignores this hint; it documents the gateway's
-// event absolute cap and matches the default WQN_OPENCODE_EVENT_MAX_DURATION_MS.
+// Read-only re-attach to a session's event stream. This is how the device
+// regains visibility of a run that outlived a previous connection; no prompt
+// is submitted here.
 export const maxDuration = 1800;
 
-const RunBody = z.object({
-  text: z.string().trim().min(1).max(4096),
-  confirmed: z.literal(true),
-});
-
-function jsonError(
-  code: string,
-  message: string,
-  status: number
-): NextResponse {
-  return NextResponse.json(
-    { success: false, error: { code, message } },
-    { status }
-  );
-}
-
-export async function POST(
+export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ): Promise<Response> {
   const auth = await authenticateEsp32Device(req);
   if (auth instanceof NextResponse) return auth;
-  const limited = enforceAgentRateLimit(auth.deviceId, 'run');
+  const limited = enforceAgentRateLimit(auth.deviceId, 'events');
   if (limited) return limited;
   const { id } = await context.params;
   if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) {
-    return jsonError('invalid_session', 'Invalid OpenCode session id', 422);
-  }
-
-  let parsed: z.infer<typeof RunBody>;
-  try {
-    parsed = RunBody.parse(await req.json());
-  } catch {
-    return jsonError(
-      'confirmation_required',
-      'An explicit on-device confirmation is required',
-      422
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'invalid_session',
+          message: 'Invalid OpenCode session id',
+        },
+      },
+      { status: 422 }
     );
   }
 
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
-    // Subscribe before submitting so short tasks cannot complete in the gap
-    // between prompt_async and GET /event.
     const upstream = await openOpenCodeEventStream(binding, req.signal);
-    try {
-      await submitOpenCodePrompt(binding, id, parsed.text);
-    } catch (error) {
-      await upstream.body?.cancel().catch(() => undefined);
-      throw error;
-    }
     const response = createSseResponse(async writer => {
-      writer.emit('agent.accepted', { session_id: id });
+      writer.emit('agent.attached', { session_id: id });
       try {
         await relayOpenCodeEvents({
           upstream: upstream.body!,
           writer,
           sessionId: id,
-          mode: 'run',
+          mode: 'observe',
         });
       } catch {
         writer.emit('agent.error', {
@@ -93,15 +66,32 @@ export async function POST(
     });
   } catch (error) {
     if (error instanceof OpenCodeSessionAccessError) {
-      return jsonError(
-        'session_not_found',
-        'OpenCode session is not available for this binding',
-        404
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'session_not_found',
+            message: 'OpenCode session is not available for this binding',
+          },
+        },
+        { status: 404 }
       );
     }
     if (error instanceof OpenCodeGatewayError) {
-      return jsonError(error.code, error.message, error.status);
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: error.code, message: error.message },
+        },
+        { status: error.status }
+      );
     }
-    return jsonError('upstream_error', 'OpenCode gateway failed', 502);
+    return NextResponse.json(
+      {
+        success: false,
+        error: { code: 'upstream_error', message: 'OpenCode gateway failed' },
+      },
+      { status: 502 }
+    );
   }
 }

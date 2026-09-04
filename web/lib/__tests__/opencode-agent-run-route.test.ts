@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from '@/app/api/esp32/agent/sessions/[id]/run/route';
+import { _resetRateLimitStore } from '@/lib/rate-limit';
 
 const { authenticate, fetchMock } = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock('@/lib/esp32-device-auth', () => ({
 
 describe('OpenCode Agent run route', () => {
   beforeEach(() => {
+    _resetRateLimitStore();
     vi.clearAllMocks();
     vi.stubGlobal('fetch', fetchMock);
     authenticate.mockResolvedValue({ userId: 'user-a', deviceId: 'device-1' });

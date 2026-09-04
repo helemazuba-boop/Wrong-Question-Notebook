@@ -1,13 +1,20 @@
 import 'server-only';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_EVENT_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_EVENT_IDLE_TIMEOUT_MS = 60_000;
+const DEFAULT_EVENT_MAX_DURATION_MS = 30 * 60_000;
+// One shared bound for every binding-scoped session list: device menu, run
+// ownership re-checks, and create-session verification all must agree, or a
+// session could be visible for selection but fail the action-time re-check.
+export const OPENCODE_SESSION_LIST_LIMIT = 12;
 
 export interface OpenCodeSessionSummary {
   id: string;
   title: string;
   updatedAt: number;
 }
+
+export type OpenCodePermissionDecision = 'once' | 'reject';
 
 export interface OpenCodeAgentBinding {
   baseUrl: string;
@@ -199,7 +206,7 @@ function finiteTimestamp(value: unknown): number {
 
 export async function listOpenCodeSessions(
   binding: OpenCodeAgentBinding,
-  limit = 8
+  limit = OPENCODE_SESSION_LIST_LIMIT
 ): Promise<OpenCodeSessionSummary[]> {
   const response = await fetchUpstream(binding, '/session', {
     method: 'GET',
@@ -242,7 +249,7 @@ export async function listOpenCodeSessions(
         session.bindingDirectory === binding.directory
     )
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, Math.max(1, Math.min(limit, 12)))
+    .slice(0, Math.max(1, Math.min(limit, OPENCODE_SESSION_LIST_LIMIT)))
     .map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
 }
 
@@ -273,14 +280,126 @@ export async function submitOpenCodePrompt(
   );
 }
 
+/**
+ * Create a fresh OpenCode session in the binding's directory. The response id
+ * is verified against a binding-scoped re-list because older OpenCode servers
+ * ignore the per-request directory on POST /session; a session created in
+ * another worktree must never become visible to this device.
+ */
+export async function createOpenCodeSession(
+  binding: OpenCodeAgentBinding
+): Promise<OpenCodeSessionSummary> {
+  const response = await fetchUpstream(binding, '/session', {
+    method: 'POST',
+    headers: requestHeaders(binding, true),
+    body: JSON.stringify({}),
+    cache: 'no-store',
+  });
+  const body = (await response.json().catch(() => null)) as {
+    id?: unknown;
+  } | null;
+  const id = typeof body?.id === 'string' ? body.id : '';
+  if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) {
+    throw new OpenCodeGatewayError(
+      'invalid_response',
+      'OpenCode session creation returned an invalid id',
+      502
+    );
+  }
+  const owned = await listOpenCodeSessions(binding);
+  if (!owned.some(session => session.id === id)) {
+    throw new OpenCodeGatewayError(
+      'invalid_response',
+      'Created OpenCode session is not bound to the configured directory',
+      502
+    );
+  }
+  return { id, title: '新 Session', updatedAt: Date.now() };
+}
+
+export async function replyOpenCodePermission(
+  binding: OpenCodeAgentBinding,
+  requestId: string,
+  decision: OpenCodePermissionDecision
+): Promise<void> {
+  const body: Record<string, unknown> = { reply: decision };
+  // A bare reject surfaces as PermissionRejectedError and hard-blocks the
+  // current run; a reject carrying a message is a corrective rejection that
+  // lets the session continue with its next step.
+  if (decision === 'reject') {
+    body.message = 'Rejected from WQN Note4';
+  }
+  await fetchUpstream(
+    binding,
+    `/permission/${encodeURIComponent(requestId)}/reply`,
+    {
+      method: 'POST',
+      headers: requestHeaders(binding, true),
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    }
+  );
+}
+
+export class OpenCodeSessionAccessError extends Error {
+  constructor(sessionId: string) {
+    super(`OpenCode session ${sessionId} is not available for this binding`);
+    this.name = 'OpenCodeSessionAccessError';
+  }
+}
+
+/**
+ * Session ids arrive from the device, so ownership is re-resolved at action
+ * time against the binding-scoped authoritative list instead of trusting the
+ * id or the OpenCode directory header/query alone.
+ */
+export async function assertOpenCodeSessionAccess(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<void> {
+  const ownedSessions = await listOpenCodeSessions(binding);
+  if (!ownedSessions.some(session => session.id === sessionId)) {
+    throw new OpenCodeSessionAccessError(sessionId);
+  }
+}
+
+function positiveEnvNumber(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 export async function openOpenCodeEventStream(
   binding: OpenCodeAgentBinding,
   signal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_EVENT_TIMEOUT_MS);
+  // The absolute cap bounds a whole attach; the idle cap only fires when no
+  // upstream byte has arrived for a while and is reset on every chunk, so a
+  // legitimately long agent run is never cut off while it is still talking.
+  const maxDurationTimer = setTimeout(
+    () => controller.abort(),
+    positiveEnvNumber(
+      'WQN_OPENCODE_EVENT_MAX_DURATION_MS',
+      DEFAULT_EVENT_MAX_DURATION_MS
+    )
+  );
+  let idleTimer: NodeJS.Timeout | null = null;
+  const resetIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(
+      () => controller.abort(),
+      positiveEnvNumber(
+        'WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS',
+        DEFAULT_EVENT_IDLE_TIMEOUT_MS
+      )
+    );
+    idleTimer.unref?.();
+  };
   signal?.addEventListener('abort', () => controller.abort(), { once: true });
   try {
+    resetIdleTimer();
     const response = await fetch(upstreamUrl(binding, '/event'), {
       method: 'GET',
       headers: requestHeaders(binding),
@@ -288,33 +407,36 @@ export async function openOpenCodeEventStream(
       signal: controller.signal,
     });
     if (!response.ok || !response.body) {
-      clearTimeout(timer);
       throw new OpenCodeGatewayError(
         'upstream_error',
         `OpenCode event stream failed with HTTP ${response.status}`,
         502
       );
     }
-    // The caller owns the stream. Cancel the timer when the upstream body is
-    // closed by wrapping it rather than leaving a detached five-minute timer.
+    // The caller owns the stream. Both timers are cleared when the upstream
+    // body is closed by wrapping it rather than leaving detached timers.
     const reader = response.body.getReader();
     const body = new ReadableStream<Uint8Array>({
       async pull(streamController) {
         try {
           const result = await reader.read();
           if (result.done) {
-            clearTimeout(timer);
+            if (idleTimer) clearTimeout(idleTimer);
+            clearTimeout(maxDurationTimer);
             streamController.close();
           } else {
+            resetIdleTimer();
             streamController.enqueue(result.value);
           }
         } catch (error) {
-          clearTimeout(timer);
+          if (idleTimer) clearTimeout(idleTimer);
+          clearTimeout(maxDurationTimer);
           streamController.error(error);
         }
       },
       cancel() {
-        clearTimeout(timer);
+        if (idleTimer) clearTimeout(idleTimer);
+        clearTimeout(maxDurationTimer);
         controller.abort();
         return reader.cancel();
       },
@@ -324,7 +446,8 @@ export async function openOpenCodeEventStream(
       headers: response.headers,
     });
   } catch (error) {
-    clearTimeout(timer);
+    if (idleTimer) clearTimeout(idleTimer);
+    clearTimeout(maxDurationTimer);
     if (error instanceof OpenCodeGatewayError) throw error;
     throw new OpenCodeGatewayError(
       controller.signal.aborted ? 'upstream_timeout' : 'upstream_error',
