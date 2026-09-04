@@ -10,7 +10,7 @@ import {
   type Esp32AiAsrProvider,
 } from './esp32-ai-asr-selection';
 import type { PipelinePusher } from './sse-pipeline-types';
-import { runStepFunAsrSse } from './stepfun-asr';
+import { runStepFunAsrSse, isLikelyNonSpeechPcm } from './stepfun-asr';
 
 export interface AsrResult {
   transcript: string;
@@ -245,6 +245,13 @@ async function runDashScopePipelineAsr(
             .join('');
         }
         if (!transcript) {
+          if (isLikelyNonSpeechPcm(audio)) {
+            throw new Esp32AiProviderError(
+              'no_speech',
+              'DashScope ASR returned no transcript for likely non-speech audio',
+              422
+            );
+          }
           throw new Esp32AiProviderError(
             'asr_failed',
             'DashScope ASR returned no transcript',

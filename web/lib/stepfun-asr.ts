@@ -26,6 +26,29 @@ interface StepFunAsrEvent {
   meta?: { session_id?: string };
 }
 
+// Below these limits the clip is a button tap, a bump or near-silence rather
+// than an utterance, so an empty transcript is expected and must not be
+// reported as a provider failure (500). Device captures are pcm_s16le 16kHz
+// mono, so 2 bytes per sample.
+const NON_SPEECH_MIN_DURATION_MS = 1500;
+const NON_SPEECH_MAX_RMS = 200;
+
+export function isLikelyNonSpeechPcm(audio: ArrayBuffer): boolean {
+  const sampleCount = Math.floor(audio.byteLength / 2);
+  if (sampleCount === 0) return true;
+  const durationMs = (sampleCount / 16000) * 1000;
+  if (durationMs < NON_SPEECH_MIN_DURATION_MS) return true;
+
+  const view = new DataView(audio);
+  let sumSquares = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    const sample = view.getInt16(i * 2, true);
+    sumSquares += sample * sample;
+  }
+  const rms = Math.sqrt(sumSquares / sampleCount);
+  return rms < NON_SPEECH_MAX_RMS;
+}
+
 export async function runStepFunAsrSse(
   config: StepFunAsrConfig,
   audio: ArrayBuffer,
@@ -183,6 +206,13 @@ export async function runStepFunAsrSse(
   clearTimeout(timer);
 
   if (!transcript) {
+    if (isLikelyNonSpeechPcm(audio)) {
+      throw new Esp32AiProviderError(
+        'no_speech',
+        'StepFun ASR returned no transcript for likely non-speech audio',
+        422
+      );
+    }
     throw new Esp32AiProviderError(
       'asr_failed',
       'StepFun ASR returned no transcript',

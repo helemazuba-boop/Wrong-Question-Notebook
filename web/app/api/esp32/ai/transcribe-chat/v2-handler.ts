@@ -11,6 +11,7 @@ import { createSseResponse, SseWriter } from '@/lib/ai-stream';
 import { runStreamingPipeline } from '@/lib/sse-pipeline';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
 import { logger } from '@/lib/logger';
+import { Esp32AiProviderError } from '@/lib/esp32-ai-provider';
 import {
   getEsp32AiAsrSelection,
   type Esp32AiAsrProvider,
@@ -235,9 +236,19 @@ export async function handleV2Streaming(
         stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
       });
     } catch (error) {
-      logger.error('v2-streaming pipeline failed', error, {
-        component: 'Esp32AiTranscribeChat',
-      });
+      if (error instanceof Esp32AiProviderError && error.code === 'no_speech') {
+        // Expected outcome for a button tap or near-silence, not a failure.
+        logger.warn('v2-streaming pipeline: no speech in audio', {
+          component: 'Esp32AiTranscribeChat',
+          code: error.code,
+          status: error.status,
+          message: error.message,
+        });
+      } else {
+        logger.error('v2-streaming pipeline failed', error, {
+          component: 'Esp32AiTranscribeChat',
+        });
+      }
     }
   });
   return new NextResponse(sse.body, {
