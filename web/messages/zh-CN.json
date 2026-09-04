@@ -567,6 +567,7 @@
     "copyProblemId": "复制题目 ID",
     "reviewProblem": "复习题目",
     "addToSet": "添加到集",
+    "removeFromSet": "移出题集",
     "editProblem": "编辑题目",
     "deleteProblem": "删除题目",
     "showingOf": "显示 {showing} / {total}",

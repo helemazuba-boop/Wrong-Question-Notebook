@@ -567,6 +567,7 @@
     "copyProblemId": "Copy problem ID",
     "reviewProblem": "Review problem",
     "addToSet": "Add to Set",
+    "removeFromSet": "Remove from Set",
     "editProblem": "Edit problem",
     "deleteProblem": "Delete problem",
     "showingOf": "Showing {showing} of {total}",

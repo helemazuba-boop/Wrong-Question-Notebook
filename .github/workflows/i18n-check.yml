@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'web/messages/**'
+      - 'web/app/**'
+      - 'web/components/**'
+      - 'web/lib/**'
+      - 'web/server/**'
 
 permissions:
   contents: read
@@ -47,6 +51,21 @@ jobs:
               echo "locales=$CHANGED" >> "$GITHUB_OUTPUT"
               echo "Checking modified locales: $CHANGED"
             fi
+          fi
+
+          # Source changes also matter: the code-referenced-keys check runs
+          # against en.json regardless of whether any locale file was touched.
+          SOURCE_CHANGED=$(gh pr diff ${{ github.event.pull_request.number }} --name-only \
+            | grep -cE '^web/(app|components|lib|server)/' || true)
+
+          if [ "${SOURCE_CHANGED:-0}" != "0" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            ALL=$(ls web/messages/*.json \
+              | xargs -I{} basename {} .json \
+              | grep -v '^en$' \
+              | paste -sd ',' -)
+            echo "locales=$ALL" >> "$GITHUB_OUTPUT"
+            echo "Source changed; checking code-referenced keys against all locales."
           fi
         env:
           GH_TOKEN: ${{ github.token }}
