@@ -214,6 +214,8 @@ function logPcmDiagnostics(input: {
     peak: diagnostics.peak,
     rms: diagnostics.rms,
     zeroSampleRatio: diagnostics.zeroSampleRatio,
+    dcOffset: diagnostics.dcOffset,
+    clipRatio: diagnostics.clipRatio,
   });
 }
 

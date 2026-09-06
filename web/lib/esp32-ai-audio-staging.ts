@@ -48,7 +48,18 @@ export interface PcmS16leDiagnostics {
   peak: number;
   rms: number;
   zeroSampleRatio: number;
+  // Mean signed sample. A persistent non-zero value means the capture rides
+  // on a DC bias: positive peaks saturate while RMS looks moderate, which
+  // degrades provider-side voice detection.
+  dcOffset: number;
+  // Fraction of samples at or above CLIP_SAMPLE_THRESHOLD magnitude. A high
+  // ratio means the capture is clipping (gain too hot or a corrupted path).
+  clipRatio: number;
 }
+
+// Near-full-scale for int16 (max 32767): samples this loud are effectively
+// clipped even when not exactly saturated.
+const CLIP_SAMPLE_THRESHOLD = 32000;
 
 const DEFAULT_TMP_DIR = join(tmpdir(), 'wqn-esp32-ai-audio');
 const AUDIO_ID_RE =
@@ -81,12 +92,16 @@ export function analyzePcmS16le(
   let peak = 0;
   let sumSquares = 0;
   let zeroSamples = 0;
+  let dcSum = 0;
+  let clippedSamples = 0;
 
   for (let index = 0; index < sampleCount; index += 1) {
     const sample = pcm.readInt16LE(index * 2);
     const absolute = Math.abs(sample);
     if (absolute > peak) peak = absolute;
     if (sample === 0) zeroSamples += 1;
+    if (absolute >= CLIP_SAMPLE_THRESHOLD) clippedSamples += 1;
+    dcSum += sample;
     sumSquares += sample * sample;
   }
 
@@ -102,6 +117,11 @@ export function analyzePcmS16le(
     zeroSampleRatio:
       sampleCount > 0
         ? Math.round((zeroSamples / sampleCount) * 1_000_000) / 1_000_000
+        : 0,
+    dcOffset: sampleCount > 0 ? Math.round(dcSum / sampleCount) : 0,
+    clipRatio:
+      sampleCount > 0
+        ? Math.round((clippedSamples / sampleCount) * 1_000_000) / 1_000_000
         : 0,
   };
 }
