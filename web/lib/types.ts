@@ -3,7 +3,15 @@
 
 import { ProblemType, ProblemStatus, ProblemSetSharingLevel } from './schemas';
 import type { ErrorBroadCategory } from './constants';
-import { LegacyColumnDef } from '@tanstack/react-table/legacy';
+// TanStack Table v9 kept the v8 hook/column API as the documented `legacy`
+// compat surface; its "native" React API is a different model
+// (createTableHook + feature-bound generics). To keep the future migration
+// one-shot and small, every table file must use ONLY these aliases — the
+// actual /legacy imports live here and in problems/data-table.tsx.
+import type {
+  LegacyColumn,
+  LegacyColumnDef,
+} from '@tanstack/react-table/legacy';
 import type { RowData } from '@tanstack/table-core';
 
 // =====================================================
@@ -584,8 +592,11 @@ export interface ConfirmationConfig {
   onConfirm: () => void;
 }
 
+export type ProblemColumnDef<TData extends RowData> = LegacyColumnDef<TData>;
+export type ProblemColumn<TData extends RowData> = LegacyColumn<TData>;
+
 export interface DataTableProps<TData extends RowData> {
-  columns: LegacyColumnDef<TData>[];
+  columns: ProblemColumnDef<TData>[];
   data: TData[];
   onEdit?: (problem: Problem) => void;
   onDelete?: (problemId: string, problemTitle: string) => void;

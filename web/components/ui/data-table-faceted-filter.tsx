@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LegacyColumn } from '@tanstack/react-table/legacy';
+import type { ProblemColumn } from '@/lib/types';
 import type { RowData } from '@tanstack/table-core';
 import { Check, PlusCircle } from 'lucide-react';
 
@@ -38,7 +38,7 @@ const getStatusBadgeStyle = (status: string): string => {
 };
 
 interface DataTableFacetedFilterProps<TData extends RowData> {
-  column?: LegacyColumn<TData>;
+  column?: ProblemColumn<TData>;
   title?: string;
   options: {
     label: string;
