@@ -26,9 +26,10 @@ export type FakeQueryHandler = (call: FakeQueryCall) => FakeQueryResult;
 
 const emptyResult: FakeQueryResult = { data: null, error: null };
 
-class FakeQueryBuilder
-  implements PromiseLike<{ data: unknown; error: unknown }>
-{
+class FakeQueryBuilder implements PromiseLike<{
+  data: unknown;
+  error: unknown;
+}> {
   op: FakeQueryCall['op'] = 'select';
   columns: string | null = null;
   payload: FakeRow | null = null;
@@ -80,8 +81,7 @@ class FakeQueryBuilder
 
   then<A, B>(
     onFulfilled?:
-      | ((value: { data: unknown; error: unknown }) => A | PromiseLike<A>)
-      | null,
+      ((value: { data: unknown; error: unknown }) => A | PromiseLike<A>) | null,
     onRejected?: ((reason: unknown) => B | PromiseLike<B>) | null
   ): PromiseLike<A | B> {
     return Promise.resolve(this.settle()).then(onFulfilled, onRejected);

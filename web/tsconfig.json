@@ -26,7 +26,6 @@
     "types": ["vitest/globals"]
   },
   "include": [
-    
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
@@ -34,12 +33,12 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-  "node_modules",
-  "server/realtime-proxy",
-  "**/__tests__/**",
-  "**/*.test.ts",
-  "**/*.test.tsx",
-  "**/*.spec.ts",
-  "**/*.spec.tsx"
-]
+    "node_modules",
+    "server/realtime-proxy",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx"
+  ]
 }

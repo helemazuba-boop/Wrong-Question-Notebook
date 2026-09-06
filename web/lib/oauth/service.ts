@@ -116,10 +116,7 @@ export function normalizeCodeChallenge(raw: string): string | null {
  * The stored challenge is already canonical base64url (see
  * normalizeCodeChallenge), so this stays a plain comparison.
  */
-export function verifyPkceS256(
-  verifier: string,
-  challenge: string
-): boolean {
+export function verifyPkceS256(verifier: string, challenge: string): boolean {
   const computed = Buffer.from(
     createHash('sha256').update(verifier).digest('base64url')
   );
@@ -169,12 +166,7 @@ const FORBIDDEN_URI_PROTOCOLS = new Set([
 
 // RFC 8252 section 7.3 allows a loopback redirect for native clients; plain
 // http anywhere else would put an authorization code on the wire in cleartext.
-const LOOPBACK_HOSTNAMES = new Set([
-  '127.0.0.1',
-  'localhost',
-  '[::1]',
-  '::1',
-]);
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 // Private-use URI scheme (RFC 8252 section 7.1), e.g. cursor://... Desktop
 // clients register these because they cannot own an HTTPS callback.

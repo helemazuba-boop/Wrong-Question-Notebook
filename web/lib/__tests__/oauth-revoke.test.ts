@@ -59,7 +59,9 @@ beforeEach(() => {
 describe('token revocation (RFC 7009)', () => {
   it('revokes an access token scoped to its own client', async () => {
     const calls = install(call =>
-      call.op === 'update' ? { data: { id: 'row-1' }, error: null } : { data: null, error: null }
+      call.op === 'update'
+        ? { data: { id: 'row-1' }, error: null }
+        : { data: null, error: null }
     );
 
     const res = await POST(

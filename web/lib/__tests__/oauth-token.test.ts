@@ -75,9 +75,7 @@ function tokenRow(overrides: Row = {}): Row {
     scope: 'mcp:all',
     resource: RESOURCE,
     revoked_at: null,
-    refresh_token_expires_at: new Date(
-      Date.now() + 86_400_000
-    ).toISOString(),
+    refresh_token_expires_at: new Date(Date.now() + 86_400_000).toISOString(),
     ...overrides,
   };
 }

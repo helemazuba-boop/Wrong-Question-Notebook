@@ -24,9 +24,7 @@ process.env.SITE_URL = ORIGIN;
 
 /** A genuine S256 challenge: base64url(SHA256(verifier)), always 43 chars. */
 const VERIFIER = 'abcdefghij' + 'k'.repeat(35);
-const CANONICAL = createHash('sha256')
-  .update(VERIFIER)
-  .digest('base64url');
+const CANONICAL = createHash('sha256').update(VERIFIER).digest('base64url');
 
 function baseParams(
   overrides: Record<string, string | null> = {}
@@ -223,9 +221,9 @@ describe('other parameter validation', () => {
   it('allows a long state but caps it', () => {
     // `state` is opaque and merely echoed, so realistic client blobs have to
     // fit; the cap is a DoS bound, not a spec requirement.
-    expect(parseAuthorizationRequest(baseParams({ state: 's'.repeat(4096) })).ok).toBe(
-      true
-    );
+    expect(
+      parseAuthorizationRequest(baseParams({ state: 's'.repeat(4096) })).ok
+    ).toBe(true);
     expect(
       parseAuthorizationRequest(baseParams({ state: 's'.repeat(4097) }))
     ).toMatchObject({ detail: 'state_too_long' });

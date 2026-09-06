@@ -11,14 +11,14 @@ not be identified".
             "message":"Client metadata host is unreachable (ECONNREFUSED)"}}
 ```
 
-| `reason`      | Meaning                                          | Where to look                |
-|---------------|--------------------------------------------------|------------------------------|
-| `dns`         | Host does not resolve (ENOTFOUND, EAI_AGAIN)      | resolver, split-horizon DNS  |
+| `reason`      | Meaning                                           | Where to look                   |
+| ------------- | ------------------------------------------------- | ------------------------------- |
+| `dns`         | Host does not resolve (ENOTFOUND, EAI_AGAIN)      | resolver, split-horizon DNS     |
 | `unreachable` | TCP refused/reset (ECONNREFUSED, ETIMEDOUT)       | egress firewall, security group |
-| `timeout`     | Connected but no response within 8s (or TLS hang) | upstream slowness, proxy     |
-| `tls`         | Certificate validation failed                     | MITM proxy, missing CA roots |
-| `http_status` | Host answered with something other than 200       | the client's own document    |
-| `unknown`     | No errno code found on the error chain            | see below                    |
+| `timeout`     | Connected but no response within 8s (or TLS hang) | upstream slowness, proxy        |
+| `tls`         | Certificate validation failed                     | MITM proxy, missing CA roots    |
+| `http_status` | Host answered with something other than 200       | the client's own document       |
+| `unknown`     | No errno code found on the error chain            | see below                       |
 
 A `reason` of `unknown` alongside the message "Failed to fetch client metadata
 document (no error code)" means Node's fetch failed without an errno code. That
@@ -44,6 +44,7 @@ indistinguishable from inside the app, and the only alternative to pinning
 would be disabling CIMD.
 
 To pin a client:
+
 1. `curl -s https://<client-host>/oauth/client.json`
 2. Copy `client_id`, `client_name` and `redirect_uris` verbatim.
 3. Insert them following `supabase/migrations/20260906000000_pin_unreachable_cimd_clients.sql`.

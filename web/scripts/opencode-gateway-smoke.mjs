@@ -35,7 +35,9 @@ const headers = {
 let failures = 0;
 
 function check(name, ok, detail) {
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(
+    `${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`
+  );
   if (!ok) failures += 1;
 }
 
@@ -124,7 +126,9 @@ async function main() {
     check(
       'GET /event opens as SSE',
       response.ok &&
-        (response.headers.get('content-type') || '').includes('text/event-stream'),
+        (response.headers.get('content-type') || '').includes(
+          'text/event-stream'
+        ),
       `${response.status} ${response.headers.get('content-type') || ''}`
     );
     clearTimeout(timer);
@@ -161,10 +165,18 @@ async function main() {
       check('POST /session/:id/prompt_async accepted', false, String(error));
     }
   } else if (wantPrompt) {
-    check('POST /session/:id/prompt_async accepted', false, 'no session to prompt');
+    check(
+      'POST /session/:id/prompt_async accepted',
+      false,
+      'no session to prompt'
+    );
   }
 
-  console.log(failures === 0 ? '\nAll smoke checks passed.' : `\n${failures} check(s) failed.`);
+  console.log(
+    failures === 0
+      ? '\nAll smoke checks passed.'
+      : `\n${failures} check(s) failed.`
+  );
   process.exit(failures === 0 ? 0 : 1);
 }
 

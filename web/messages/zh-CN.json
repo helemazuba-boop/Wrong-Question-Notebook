@@ -1759,7 +1759,14 @@
     "connectTitle": "如何接入",
     "connectExplanation": "在支持 MCP 的 AI 客户端（如 Claude Desktop）中添加远程 MCP 服务：填入下方地址，并在请求头中携带 Bearer 令牌。",
     "endpointLabel": "服务地址",
-    "configExampleLabel": "配置示例"
+    "configExampleLabel": "配置示例",
+    "tokenQuota": "已用 {used} / {max} 个活跃 Token",
+    "quotaExceeded": "最多允许 {max} 个活跃 Token，请先吊销一个。",
+    "loadFailed": "Token 加载失败",
+    "retry": "重试",
+    "created": "Token 已创建",
+    "createFailed": "创建 Token 失败",
+    "revokeFailed": "吊销 Token 失败"
   },
   "OAuthConsent": {
     "title": "授权访问",

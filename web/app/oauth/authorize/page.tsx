@@ -108,9 +108,7 @@ export default async function AuthorizePage({
     const t = await getTranslations('OAuthConsent');
     return (
       <ConsentShell title={t('errorTitle')}>
-        <p className="auth-subtitle mt-2">
-          {t('errors.invalid_redirect_uri')}
-        </p>
+        <p className="auth-subtitle mt-2">{t('errors.invalid_redirect_uri')}</p>
       </ConsentShell>
     );
   }

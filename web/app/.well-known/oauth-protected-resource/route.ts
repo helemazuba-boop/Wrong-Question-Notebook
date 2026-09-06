@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getAppOrigin } from '@/lib/app-origin';
-import { MCP_RESOURCE_URL, OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth/constants';
+import {
+  MCP_RESOURCE_URL,
+  OAUTH_SCOPES_SUPPORTED,
+} from '@/lib/oauth/constants';
 
 // RFC 9728 protected resource metadata for the public MCP endpoint.
 //

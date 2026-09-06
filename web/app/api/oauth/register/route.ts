@@ -21,11 +21,7 @@ const MAX_REDIRECT_URIS = 20;
 const MAX_CLIENT_NAME_LENGTH = 100;
 
 const RegisterRequestSchema = z.object({
-  client_name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(MAX_CLIENT_NAME_LENGTH),
+  client_name: z.string().trim().min(1).max(MAX_CLIENT_NAME_LENGTH),
   redirect_uris: z.array(z.string()).min(1).max(MAX_REDIRECT_URIS),
   grant_types: z
     .array(z.enum(['authorization_code', 'refresh_token']))
@@ -68,8 +64,10 @@ async function handleRegister(req: NextRequest): Promise<NextResponse> {
   const uniqueRedirectUris = [...new Set(redirectUris)];
 
   const clientId = generateClientId();
-  const grantTypes =
-    parsed.data.grant_types ?? ['authorization_code', 'refresh_token'];
+  const grantTypes = parsed.data.grant_types ?? [
+    'authorization_code',
+    'refresh_token',
+  ];
   const responseTypes = parsed.data.response_types ?? ['code'];
 
   const svc = createServiceClient();

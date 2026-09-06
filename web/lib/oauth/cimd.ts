@@ -176,12 +176,7 @@ export interface ClientMetadata {
  * reproducing it.
  */
 export type CimdFailureReason =
-  | 'timeout'
-  | 'dns'
-  | 'unreachable'
-  | 'tls'
-  | 'http_status'
-  | 'unknown';
+  'timeout' | 'dns' | 'unreachable' | 'tls' | 'http_status' | 'unknown';
 
 export class CimdError extends Error {
   readonly reason: CimdFailureReason;
@@ -258,10 +253,19 @@ function describeFetchFailure(error: unknown): CimdError {
     );
   }
   if (code.startsWith('CERT') || code.includes('SSL') || code.includes('TLS')) {
-    return new CimdError(`Client metadata TLS handshake failed (${code})`, 'tls');
+    return new CimdError(
+      `Client metadata TLS handshake failed (${code})`,
+      'tls'
+    );
   }
-  if (code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || code === 'DEPTH_ZERO_SELF_SIGNED_CERT') {
-    return new CimdError(`Client metadata TLS verification failed (${code})`, 'tls');
+  if (
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT'
+  ) {
+    return new CimdError(
+      `Client metadata TLS verification failed (${code})`,
+      'tls'
+    );
   }
 
   return new CimdError(

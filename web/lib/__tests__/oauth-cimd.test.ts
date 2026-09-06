@@ -58,7 +58,10 @@ describe('Client ID Metadata Document fetch', () => {
 
   it('falls back to the hostname when the document omits client_name', async () => {
     mockFetch.mockResolvedValue(
-      jsonResponse({ client_id: CLIENT_ID, redirect_uris: ['https://a.test/cb'] })
+      jsonResponse({
+        client_id: CLIENT_ID,
+        redirect_uris: ['https://a.test/cb'],
+      })
     );
 
     const result = await fetchClientMetadataDocument(CLIENT_ID);
@@ -191,7 +194,9 @@ describe('failure classification', () => {
     const middle = new Error('middle') as NodeJS.ErrnoException & {
       cause?: unknown;
     };
-    const top = new TypeError('fetch failed') as TypeError & { cause?: unknown };
+    const top = new TypeError('fetch failed') as TypeError & {
+      cause?: unknown;
+    };
     middle.cause = deep;
     top.cause = middle;
 

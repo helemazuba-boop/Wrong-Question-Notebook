@@ -22,9 +22,7 @@ import {
 
 export const runtime = 'nodejs';
 
-async function readParams(
-  req: NextRequest
-): Promise<Record<string, string>> {
+async function readParams(req: NextRequest): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   const form = await req.formData().catch(() => null);
   if (form) {
@@ -36,7 +34,9 @@ async function readParams(
 
   const body: unknown = await req.json().catch(() => null);
   if (body && typeof body === 'object') {
-    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      body as Record<string, unknown>
+    )) {
       if (typeof value === 'string') result[key] = value;
     }
   }

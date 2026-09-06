@@ -80,7 +80,9 @@ describe('PKCE verification', () => {
   });
 
   it('rejects verifiers outside the RFC 7636 character set and length', () => {
-    expect(isValidCodeVerifier(randomBytes(32).toString('base64url'))).toBe(true);
+    expect(isValidCodeVerifier(randomBytes(32).toString('base64url'))).toBe(
+      true
+    );
     // 42 characters: one below the minimum.
     expect(isValidCodeVerifier('a'.repeat(42))).toBe(false);
     // 129 characters: one above the maximum.
@@ -130,7 +132,9 @@ describe('redirect_uri validation', () => {
   });
 
   it('rejects fragments as RFC 6749 requires', () => {
-    expect(isValidRedirectUri('https://example.com/callback#token')).toBe(false);
+    expect(isValidRedirectUri('https://example.com/callback#token')).toBe(
+      false
+    );
   });
 
   it('rejects values that are not URLs at all', () => {

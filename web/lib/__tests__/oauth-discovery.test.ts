@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createApiTokenUnauthorizedResponse, createApiTokenInsufficientScopeResponse } from '@/lib/api-token-auth';
+import {
+  createApiTokenUnauthorizedResponse,
+  createApiTokenInsufficientScopeResponse,
+} from '@/lib/api-token-auth';
 import { GET as protectedResource } from '@/app/.well-known/oauth-protected-resource/route';
 import { GET as authorizationServer } from '@/app/.well-known/oauth-authorization-server/route';
 

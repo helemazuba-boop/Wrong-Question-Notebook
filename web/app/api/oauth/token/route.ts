@@ -45,7 +45,11 @@ function oauthError(
 }
 
 function serverError(): NextResponse {
-  return oauthError(500, 'server_error', 'Token request could not be completed');
+  return oauthError(
+    500,
+    'server_error',
+    'Token request could not be completed'
+  );
 }
 
 /**
@@ -54,16 +58,16 @@ function serverError(): NextResponse {
  * RFC 6749 mandates application/x-www-form-urlencoded, which is what MCP
  * clients send; JSON is accepted too because some clients get this wrong.
  */
-async function readParams(
-  req: NextRequest
-): Promise<Record<string, string>> {
+async function readParams(req: NextRequest): Promise<Record<string, string>> {
   const contentType = req.headers.get('content-type') || '';
   const result: Record<string, string> = {};
 
   if (contentType.includes('application/json')) {
     const body: unknown = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') return result;
-    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      body as Record<string, unknown>
+    )) {
       if (typeof value === 'string') result[key] = value;
     }
     return result;
@@ -207,7 +211,11 @@ async function handleAuthorizationCodeGrant(
     return oauthError(400, 'invalid_grant', 'Authorization code has expired');
   }
   if (row.resource !== null && row.resource !== audience) {
-    return oauthError(400, 'invalid_grant', 'Authorization code audience mismatch');
+    return oauthError(
+      400,
+      'invalid_grant',
+      'Authorization code audience mismatch'
+    );
   }
 
   const client = await resolveClient(clientId);

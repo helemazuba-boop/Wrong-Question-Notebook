@@ -1759,7 +1759,14 @@
     "connectTitle": "How to connect",
     "connectExplanation": "In an MCP-capable AI client (e.g. Claude Desktop), add a remote MCP server with the URL below and a Bearer token header.",
     "endpointLabel": "Endpoint",
-    "configExampleLabel": "Config example"
+    "configExampleLabel": "Config example",
+    "tokenQuota": "{used} of {max} active tokens",
+    "quotaExceeded": "At most {max} active tokens are allowed. Revoke one first.",
+    "loadFailed": "Failed to load tokens",
+    "retry": "Retry",
+    "created": "Token created",
+    "createFailed": "Failed to create token",
+    "revokeFailed": "Failed to revoke token"
   },
   "OAuthConsent": {
     "title": "Authorize access",

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { API_TOKEN_PREFIX, hashApiToken, isValidApiToken } from '@/lib/api-token';
+import {
+  API_TOKEN_PREFIX,
+  hashApiToken,
+  isValidApiToken,
+} from '@/lib/api-token';
 import { getAppOrigin } from '@/lib/app-origin';
 import {
   OAUTH_ACCESS_TOKEN_PREFIX,
@@ -10,7 +14,10 @@ import {
   hashOAuthSecret,
   isOAuthAccessToken,
 } from '@/lib/oauth/service';
-import { OAUTH_PROTECTED_RESOURCE_METADATA_PATH, OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth/constants';
+import {
+  OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
+  OAUTH_SCOPES_SUPPORTED,
+} from '@/lib/oauth/constants';
 
 // Bearer authentication for the public MCP endpoint. Mirrors
 // esp32-device-auth.ts: extract the token, hash it, look the digest up, never
@@ -233,4 +240,3 @@ export async function authenticateMcpRequest(
 
   return createApiTokenUnauthorizedResponse('Invalid access token');
 }
-

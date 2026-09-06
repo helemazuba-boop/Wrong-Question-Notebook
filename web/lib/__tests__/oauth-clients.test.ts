@@ -20,9 +20,8 @@ vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({ from: mockFrom }),
 }));
 
-const { resolveClient, clientAllowsRedirectUri } = await import(
-  '@/lib/oauth/clients'
-);
+const { resolveClient, clientAllowsRedirectUri } =
+  await import('@/lib/oauth/clients');
 const { CimdError } = await import('@/lib/oauth/cimd');
 const { installFakeSupabase } = await import('@/lib/test/fake-supabase');
 import type { FakeQueryHandler } from '@/lib/test/fake-supabase';
@@ -138,9 +137,9 @@ describe('redirect URI matching', () => {
       false
     );
     // A prefix match here is how code interception gets in.
-    expect(
-      clientAllowsRedirectUri(client, 'https://a.test/cb.evil.test')
-    ).toBe(false);
+    expect(clientAllowsRedirectUri(client, 'https://a.test/cb.evil.test')).toBe(
+      false
+    );
   });
 
   it('accepts a registered custom scheme', () => {

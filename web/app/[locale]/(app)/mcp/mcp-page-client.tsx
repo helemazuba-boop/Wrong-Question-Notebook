@@ -1,6 +1,5 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
 import {
   Check,
   Copy,
@@ -11,9 +10,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
+import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -22,65 +23,73 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PageHeader } from '@/components/page-header';
+import { Input } from '@/components/ui/input';
+import { errorMessage } from '@/lib/api-client';
+import { localizedApiErrorMessage } from '@/lib/error-codes';
+import type { TranslatorProp } from '@/i18n/types';
+import {
+  useCreateMcpToken,
+  useMcpTokens,
+  useRevokeMcpToken,
+} from '@/lib/queries/mcp-tokens';
 
-type McpToken = {
-  id: string;
-  name: string;
-  created_at: string;
-  last_used_at: string | null;
-};
+const MCP_ERROR_KEYS = {
+  token_quota_exceeded: 'quotaExceeded',
+} as const;
 
 export default function McpPageClient() {
   const t = useTranslations('Mcp');
   const tCommon = useTranslations('Common');
 
-  const [tokens, setTokens] = useState<McpToken[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, error, refetch } = useMcpTokens();
+  const tokens = data?.tokens ?? [];
+  const maxActiveTokens = data?.maxActiveTokens;
+  const quotaFull =
+    maxActiveTokens !== undefined && tokens.length >= maxActiveTokens;
+
+  const createToken = useCreateMcpToken();
+  const revokeToken = useRevokeMcpToken();
+
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenName, setTokenName] = useState('');
-  const [creating, setCreating] = useState(false);
   const [createdPlaintext, setCreatedPlaintext] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const endpointUrl =
     typeof window !== 'undefined' ? `${window.location.origin}/api/mcp` : '';
 
-  const loadTokens = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/mcp-tokens');
-      const json = await res.json();
-      if (json.success) {
-        setTokens(json.data.tokens || []);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadTokens();
-  }, [loadTokens]);
-
   const handleCreate = async () => {
-    if (!tokenName.trim()) return;
-    setCreating(true);
+    const name = tokenName.trim();
+    if (!name) return;
     try {
-      const res = await fetch('/api/mcp-tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: tokenName.trim() }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setCreatedPlaintext(json.data.plaintext);
-        setTokenName('');
-        loadTokens();
-      }
-    } finally {
-      setCreating(false);
+      const created = await createToken.mutateAsync(name);
+      setCreatedPlaintext(created.plaintext);
+      setTokenName('');
+      toast.success(t('created'));
+    } catch (err) {
+      toast.error(
+        localizedApiErrorMessage(
+          err,
+          MCP_ERROR_KEYS,
+          t as TranslatorProp,
+          t('createFailed')
+        )
+      );
+    }
+  };
+
+  const handleRevoke = async (tokenId: string) => {
+    try {
+      await revokeToken.mutateAsync(tokenId);
+    } catch (err) {
+      toast.error(
+        localizedApiErrorMessage(
+          err,
+          {},
+          t as TranslatorProp,
+          t('revokeFailed')
+        )
+      );
     }
   };
 
@@ -91,20 +100,6 @@ export default function McpPageClient() {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard unavailable (non-HTTPS context); the token stays visible.
-    }
-  };
-
-  const handleRevoke = async (tokenId: string) => {
-    setRevokingId(tokenId);
-    try {
-      const res = await fetch(`/api/mcp-tokens/${tokenId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setTokens(prev => prev.filter(token => token.id !== tokenId));
-      }
-    } finally {
-      setRevokingId(null);
     }
   };
 
@@ -137,6 +132,7 @@ export default function McpPageClient() {
         actions={
           <Button
             onClick={() => setCreateOpen(true)}
+            disabled={quotaFull}
             className="btn-cta-primary py-2.5"
           >
             <Plus className="mr-2 h-4 w-4" />
@@ -154,13 +150,35 @@ export default function McpPageClient() {
             <div>
               <h2 className="landing-card-title">{t('tokens')}</h2>
               <p className="landing-card-text">{t('tokensHint')}</p>
+              {maxActiveTokens !== undefined ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('tokenQuota', {
+                    used: tokens.length,
+                    max: maxActiveTokens,
+                  })}
+                </p>
+              ) : null}
             </div>
           </div>
 
-          {loading ? (
+          {isLoading ? (
             <div className="flex items-center gap-2 rounded-xl border border-emerald-200/40 bg-white/70 px-4 py-5 text-sm text-muted-foreground dark:border-emerald-800/30 dark:bg-gray-900/40">
               <Loader2 className="h-4 w-4 animate-spin" />
               {tCommon('loading')}
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-200/60 bg-red-50/70 px-4 py-5 text-sm dark:border-red-800/40 dark:bg-red-950/30">
+              <p className="text-red-700 dark:text-red-300">
+                {errorMessage(error, t('loadFailed'))}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => refetch()}
+              >
+                {t('retry')}
+              </Button>
             </div>
           ) : tokens.length === 0 ? (
             <div className="rounded-xl border border-dashed border-emerald-300/60 bg-white/70 px-4 py-8 text-center dark:border-emerald-800/40 dark:bg-gray-900/40">
@@ -198,10 +216,14 @@ export default function McpPageClient() {
                     variant="outline"
                     size="sm"
                     className="shrink-0 rounded-xl text-red-600 hover:text-red-700 dark:text-red-400"
-                    disabled={revokingId === token.id}
+                    disabled={
+                      revokeToken.isPending &&
+                      revokeToken.variables === token.id
+                    }
                     onClick={() => handleRevoke(token.id)}
                   >
-                    {revokingId === token.id ? (
+                    {revokeToken.isPending &&
+                    revokeToken.variables === token.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Trash2 className="h-4 w-4" />
@@ -272,31 +294,39 @@ export default function McpPageClient() {
               </DialogFooter>
             </div>
           ) : (
-            <div className="space-y-3">
+            <form
+              onSubmit={event => {
+                event.preventDefault();
+                handleCreate();
+              }}
+              className="space-y-3"
+            >
               <Input
                 value={tokenName}
                 onChange={event => setTokenName(event.target.value)}
                 placeholder={t('tokenNamePlaceholder')}
                 maxLength={60}
+                autoFocus
               />
               <DialogFooter>
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => closeCreateDialog(false)}
                 >
                   {tCommon('cancel')}
                 </Button>
                 <Button
-                  onClick={handleCreate}
-                  disabled={creating || !tokenName.trim()}
+                  type="submit"
+                  disabled={createToken.isPending || !tokenName.trim()}
                 >
-                  {creating ? (
+                  {createToken.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
                   {tCommon('create')}
                 </Button>
               </DialogFooter>
-            </div>
+            </form>
           )}
         </DialogContent>
       </Dialog>

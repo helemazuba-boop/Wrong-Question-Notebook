@@ -16,14 +16,14 @@ All endpoints are under `/api/esp32/agent` and require device
 authentication. Errors use the agent envelope
 `{"success": false, "error": {"code", "message"}}`.
 
-| Method | Path | Purpose |
-| ------ | ---- | ------- |
-| `GET` | `/sessions` | List the binding's recent OpenCode sessions. |
-| `POST` | `/sessions` | Create a new OpenCode session in the binding directory. |
-| `POST` | `/agent/transcribe` | Raw-PCM ASR, shared with the voice AI pipeline. |
-| `POST` | `/sessions/{id}/run` | Submit a prompt and stream the run (SSE). |
-| `POST` | `/sessions/{id}/permission` | Reply to a pending permission ask. |
-| `GET` | `/sessions/{id}/events` | Re-attach to a session's event stream without submitting a prompt (SSE). |
+| Method | Path                        | Purpose                                                                  |
+| ------ | --------------------------- | ------------------------------------------------------------------------ |
+| `GET`  | `/sessions`                 | List the binding's recent OpenCode sessions.                             |
+| `POST` | `/sessions`                 | Create a new OpenCode session in the binding directory.                  |
+| `POST` | `/agent/transcribe`         | Raw-PCM ASR, shared with the voice AI pipeline.                          |
+| `POST` | `/sessions/{id}/run`        | Submit a prompt and stream the run (SSE).                                |
+| `POST` | `/sessions/{id}/permission` | Reply to a pending permission ask.                                       |
+| `GET`  | `/sessions/{id}/events`     | Re-attach to a session's event stream without submitting a prompt (SSE). |
 
 Every action that takes a session id re-resolves ownership at action time
 against the binding-scoped session list; an id outside the list is `404
@@ -32,16 +32,16 @@ session_not_found`. Session lists are bounded to the most recent
 
 ## Device SSE events (WQN → device)
 
-| Event | Payload | Meaning |
-| ----- | ------- | ------- |
-| `agent.accepted` | `{session_id}` | `prompt_async` was submitted. |
-| `agent.attached` | `{session_id}` | Observe stream connected; no prompt was sent. |
-| `agent.status` | `{session_id, status, attempt?, message?}` | `busy`, `retry`, or `idle`. `idle` ends the stream. |
-| `agent.text.delta` | `{session_id, delta}` | Incremental assistant text. |
-| `agent.text` | `{session_id, text}` | Full assistant text snapshot (truncated at 8 KiB). |
-| `agent.tool` | `{session_id, tool, status, preview?}` | Tool activity preview. |
-| `agent.permission` | `{session_id, permission_id, type, title, preview?}` | OpenCode is waiting for approval. |
-| `agent.error` | `{session_id, message}` | Session-level failure. |
+| Event              | Payload                                              | Meaning                                             |
+| ------------------ | ---------------------------------------------------- | --------------------------------------------------- |
+| `agent.accepted`   | `{session_id}`                                       | `prompt_async` was submitted.                       |
+| `agent.attached`   | `{session_id}`                                       | Observe stream connected; no prompt was sent.       |
+| `agent.status`     | `{session_id, status, attempt?, message?}`           | `busy`, `retry`, or `idle`. `idle` ends the stream. |
+| `agent.text.delta` | `{session_id, delta}`                                | Incremental assistant text.                         |
+| `agent.text`       | `{session_id, text}`                                 | Full assistant text snapshot (truncated at 8 KiB).  |
+| `agent.tool`       | `{session_id, tool, status, preview?}`               | Tool activity preview.                              |
+| `agent.permission` | `{session_id, permission_id, type, title, preview?}` | OpenCode is waiting for approval.                   |
+| `agent.error`      | `{session_id, message}`                              | Session-level failure.                              |
 
 Run mode swallows an `idle` that arrives before any activity so a stale
 buffered idle cannot complete a run that has not started. Observe mode treats
@@ -73,12 +73,12 @@ The gateway calls the modern OpenCode endpoint
 
 ## Rate limits (per device id)
 
-| Bucket | Limit |
-| ------ | ----- |
-| sessions (list/create) | 20 / min |
-| transcribe | 10 / min |
-| run | 6 / 5 min |
-| permission, events | 20 / min |
+| Bucket                 | Limit     |
+| ---------------------- | --------- |
+| sessions (list/create) | 20 / min  |
+| transcribe             | 10 / min  |
+| run                    | 6 / 5 min |
+| permission, events     | 20 / min  |
 
 ## Binding configuration
 

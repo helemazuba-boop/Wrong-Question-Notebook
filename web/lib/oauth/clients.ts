@@ -1,10 +1,6 @@
 import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
-import {
-  CimdError,
-  fetchClientMetadataDocument,
-  isCimdClientId,
-} from './cimd';
+import { CimdError, fetchClientMetadataDocument, isCimdClientId } from './cimd';
 
 // Resolve a client_id to the metadata needed to authorize it.
 //
@@ -71,8 +67,7 @@ export async function resolveClient(
     const document = await fetchClientMetadataDocument(clientId);
     return { ...document, source: 'cimd' };
   } catch (error) {
-    const reason =
-      error instanceof CimdError ? error.reason : 'unknown';
+    const reason = error instanceof CimdError ? error.reason : 'unknown';
     const message =
       error instanceof CimdError ? error.message : 'Unexpected CIMD failure';
     logger.warn('Client ID metadata document rejected', {

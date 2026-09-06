@@ -94,7 +94,10 @@ describe('OAuth access tokens (wqn_oa_)', () => {
   it('rejects a revoked token', async () => {
     install(call =>
       call.table === 'oauth_tokens' && call.op === 'select'
-        ? { data: oauthRow({ revoked_at: new Date().toISOString() }), error: null }
+        ? {
+            data: oauthRow({ revoked_at: new Date().toISOString() }),
+            error: null,
+          }
         : { data: null, error: null }
     );
 
@@ -109,7 +112,9 @@ describe('OAuth access tokens (wqn_oa_)', () => {
       call.table === 'oauth_tokens' && call.op === 'select'
         ? {
             data: oauthRow({
-              access_token_expires_at: new Date(Date.now() - 1000).toISOString(),
+              access_token_expires_at: new Date(
+                Date.now() - 1000
+              ).toISOString(),
             }),
             error: null,
           }
