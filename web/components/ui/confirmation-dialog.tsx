@@ -1,7 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import * as React from 'react';
+
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ConfirmationDialogProps {
   isOpen: boolean;
@@ -14,6 +23,14 @@ interface ConfirmationDialogProps {
   variant?: 'default' | 'destructive';
 }
 
+/**
+ * Confirmation modal built on the shared Radix Dialog (focus trap,
+ * Escape, overlay click, aria wiring all inherited).
+ *
+ * Compatibility with the legacy hand-rolled modal: confirm/cancel hide the
+ * dialog immediately and then invoke the callback, so consumers that rely
+ * on auto-close and those that flip `isOpen` themselves both keep working.
+ */
 export function ConfirmationDialog({
   isOpen,
   title,
@@ -24,79 +41,54 @@ export function ConfirmationDialog({
   onCancel,
   variant = 'default',
 }: ConfirmationDialogProps) {
-  const [isVisible, setIsVisible] = useState(false);
+  const [acted, setActed] = React.useState(false);
+  const [wasOpen, setWasOpen] = React.useState(isOpen);
 
-  useEffect(() => {
-    if (isOpen) {
-      setIsVisible(true);
-    }
-  }, [isOpen]);
+  // Adjust state during render (React's recommended alternative to a
+  // resetting effect): reopening the dialog clears the acted flag.
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) setActed(false);
+  }
+
+  const open = isOpen && !acted;
 
   const handleConfirm = () => {
-    setIsVisible(false);
-    setTimeout(() => {
-      onConfirm();
-    }, 150); // Allow animation to complete
+    setActed(true);
+    onConfirm();
   };
 
   const handleCancel = () => {
-    setIsVisible(false);
-    setTimeout(() => {
-      onCancel();
-    }, 150);
+    setActed(true);
+    onCancel();
   };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      handleCancel();
-    } else if (e.key === 'Enter') {
-      handleConfirm();
-    }
-  };
-
-  if (!isOpen) return null;
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-150 ${
-        isVisible ? 'opacity-100' : 'opacity-0'
-      }`}
-      onClick={handleCancel}
-    >
-      <div
-        className={`mx-4 w-full max-w-md rounded-lg border bg-background p-6 shadow-lg transition-all duration-150 ${
-          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
-        onClick={e => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
-        tabIndex={-1}
-      >
-        <h3 className="text-lg font-semibold text-foreground mb-2">{title}</h3>
-        <p className="text-muted-foreground mb-6">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <Button
-            variant="outline"
-            onClick={handleCancel}
-            className="transition-colors"
-          >
+    <Dialog open={open} onOpenChange={next => (!next ? handleCancel() : null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleCancel}>
             {cancelText}
           </Button>
           <Button
             variant={variant === 'destructive' ? 'destructive' : 'default'}
             onClick={handleConfirm}
-            className="transition-colors"
           >
             {confirmText}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // Hook for easier usage
 export function useConfirmationDialog() {
-  const [dialog, setDialog] = useState<{
+  const [dialog, setDialog] = React.useState<{
     isOpen: boolean;
     title: string;
     message: string;
