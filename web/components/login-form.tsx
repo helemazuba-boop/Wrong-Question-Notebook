@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from '@/i18n/navigation';
 import { useRouter } from '@/i18n/navigation';
+// Plain router, without next-intl's locale prefixing. Only used for targets
+// that live outside the `[locale]` segment -- see the comment at the redirect.
+import { useRouter as usePlainRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ERROR_MESSAGES } from '@/lib/constants';
 import { getSafeAuthRedirect } from '@/lib/auth-redirect';
@@ -25,6 +28,7 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
+  const plainRouter = usePlainRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +43,17 @@ export function LoginForm({ className, redirectTo, ...props }: LoginFormProps) {
       });
       if (error) throw error;
       const destination = getSafeAuthRedirect(redirectTo);
-      router.replace(destination);
+      if (destination.startsWith('/oauth/')) {
+        // The OAuth consent screen deliberately sits outside `[locale]` --
+        // the authorization endpoint advertised in the RFC 8414 metadata
+        // carries no locale prefix. next-intl's router would rewrite this to
+        // /en/oauth/authorize, which does not exist, stranding the user after
+        // login. Every other destination keeps the localized router so the
+        // existing behaviour is untouched.
+        plainRouter.replace(destination);
+      } else {
+        router.replace(destination);
+      }
       router.refresh();
     } catch (error: unknown) {
       let message =

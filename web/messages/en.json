@@ -1736,5 +1736,27 @@
     "connectExplanation": "In an MCP-capable AI client (e.g. Claude Desktop), add a remote MCP server with the URL below and a Bearer token header.",
     "endpointLabel": "Endpoint",
     "configExampleLabel": "Config example"
+  },
+  "OAuthConsent": {
+    "title": "Authorize access",
+    "subtitle": "{clientName} wants to connect to your WQN account.",
+    "scopeTitle": "This will allow the application to:",
+    "scopeMcpAll": "Use every MCP tool as you — review your problems, and read or write your notes, notebooks and todos.",
+    "applicationLabel": "Application",
+    "redirectLabel": "Redirects to",
+    "allow": "Allow",
+    "deny": "Deny",
+    "tokenHint": "The application receives an access token without ever seeing your password. You can revoke it at any time in Settings.",
+    "errorTitle": "This authorization request could not be processed",
+    "errors": {
+      "invalid_request": "The request is missing required parameters or they are malformed.",
+      "unauthorized_client": "This application is not allowed to request an authorization code.",
+      "unsupported_response_type": "Only the authorization code flow is supported.",
+      "invalid_scope": "The requested scope is not supported.",
+      "invalid_target": "The requested resource is not served by this authorization server.",
+      "invalid_redirect_uri": "The redirect URI was not registered by this application.",
+      "invalid_client": "The application could not be identified.",
+      "server_error": "Something went wrong while preparing the authorization code. Please try again."
+    }
   }
 }

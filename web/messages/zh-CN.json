@@ -1736,5 +1736,27 @@
     "connectExplanation": "在支持 MCP 的 AI 客户端（如 Claude Desktop）中添加远程 MCP 服务：填入下方地址，并在请求头中携带 Bearer 令牌。",
     "endpointLabel": "服务地址",
     "configExampleLabel": "配置示例"
+  },
+  "OAuthConsent": {
+    "title": "授权访问",
+    "subtitle": "{clientName} 想要连接你的 WQN 账号。",
+    "scopeTitle": "授权后该应用将能够：",
+    "scopeMcpAll": "以你的身份使用全部 MCP 工具——复习你的题目，读取或写入你的笔记、笔记本与待办。",
+    "applicationLabel": "应用",
+    "redirectLabel": "回调地址",
+    "allow": "允许",
+    "deny": "拒绝",
+    "tokenHint": "该应用只会拿到访问令牌，不会获知你的密码。你可以随时在设置中撤销授权。",
+    "errorTitle": "无法处理该授权请求",
+    "errors": {
+      "invalid_request": "请求缺少必要参数，或参数格式不正确。",
+      "unauthorized_client": "该应用无权申请授权码。",
+      "unsupported_response_type": "仅支持授权码模式。",
+      "invalid_scope": "不支持所请求的权限范围。",
+      "invalid_target": "所请求的资源不属于本授权服务器。",
+      "invalid_redirect_uri": "该回调地址未经此应用注册。",
+      "invalid_client": "无法识别该应用。",
+      "server_error": "生成授权码时出错，请重试。"
+    }
   }
 }

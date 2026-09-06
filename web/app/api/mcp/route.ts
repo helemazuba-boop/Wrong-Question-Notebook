@@ -9,7 +9,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { withSecurity } from '@/lib/security-middleware';
-import { authenticateApiToken } from '@/lib/api-token-auth';
+import { authenticateMcpRequest } from '@/lib/api-token-auth';
+import { getAppOrigin } from '@/lib/app-origin';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { logger } from '@/lib/logger';
 import {
@@ -104,30 +105,8 @@ function invalidParamsMessage(error: z.ZodError): string {
   return `Invalid params: ${details}`;
 }
 
-function mcpConfirmationOrigin(): string {
-  const configuredOrigin =
-    process.env.SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
-      : '');
-
-  if (!configuredOrigin) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SITE_URL or NEXT_PUBLIC_APP_URL must be configured');
-    }
-    return 'http://localhost:3000';
-  }
-
-  const url = new URL(configuredOrigin);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('Configured application URL must use HTTP or HTTPS');
-  }
-  return url.origin;
-}
-
 async function handleMcp(req: NextRequest): Promise<NextResponse> {
-  const auth = await authenticateApiToken(req);
+  const auth = await authenticateMcpRequest(req);
   if (auth instanceof NextResponse) return auth;
 
   let parsedBody: unknown;
@@ -188,7 +167,7 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
       const ctx: McpToolContext = {
         userId: auth.userId,
         apiTokenId: auth.tokenId,
-        origin: mcpConfirmationOrigin(),
+        origin: getAppOrigin(),
         confirmationPath: '/mcp/idea-confirm',
         supabase: createServiceClient(),
       };

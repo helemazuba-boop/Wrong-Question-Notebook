@@ -11,7 +11,7 @@ const { mockAuthenticate, mockFrom, mockRpc } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api-token-auth', () => ({
-  authenticateApiToken: mockAuthenticate,
+  authenticateMcpRequest: mockAuthenticate,
 }));
 vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({ from: mockFrom, rpc: mockRpc }),

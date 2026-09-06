@@ -1249,6 +1249,162 @@ export type Database = {
           },
         ];
       };
+      oauth_authorization_codes: {
+        Row: {
+          client_id: string;
+          code_challenge: string;
+          code_challenge_method: string;
+          code_hash: string;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          redirect_uri: string;
+          resource: string | null;
+          scope: string;
+          used_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          client_id: string;
+          code_challenge: string;
+          code_challenge_method?: string;
+          code_hash: string;
+          created_at?: string;
+          expires_at: string;
+          id?: string;
+          redirect_uri: string;
+          resource?: string | null;
+          scope?: string;
+          used_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          client_id?: string;
+          code_challenge?: string;
+          code_challenge_method?: string;
+          code_hash?: string;
+          created_at?: string;
+          expires_at?: string;
+          id?: string;
+          redirect_uri?: string;
+          resource?: string | null;
+          scope?: string;
+          used_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'oauth_authorization_codes_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'oauth_clients';
+            referencedColumns: ['client_id'];
+          },
+          {
+            foreignKeyName: 'oauth_authorization_codes_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      oauth_clients: {
+        Row: {
+          client_id: string;
+          client_name: string;
+          client_secret_hash: string | null;
+          created_at: string;
+          grant_types: string[];
+          id: string;
+          is_dynamic: boolean;
+          redirect_uris: string[];
+          response_types: string[];
+        };
+        Insert: {
+          client_id: string;
+          client_name: string;
+          client_secret_hash?: string | null;
+          created_at?: string;
+          grant_types?: string[];
+          id?: string;
+          is_dynamic?: boolean;
+          redirect_uris: string[];
+          response_types?: string[];
+        };
+        Update: {
+          client_id?: string;
+          client_name?: string;
+          client_secret_hash?: string | null;
+          created_at?: string;
+          grant_types?: string[];
+          id?: string;
+          is_dynamic?: boolean;
+          redirect_uris?: string[];
+          response_types?: string[];
+        };
+        Relationships: [];
+      };
+      oauth_tokens: {
+        Row: {
+          access_token_expires_at: string;
+          access_token_hash: string;
+          client_id: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          refresh_token_expires_at: string | null;
+          refresh_token_hash: string | null;
+          resource: string | null;
+          revoked_at: string | null;
+          scope: string;
+          user_id: string;
+        };
+        Insert: {
+          access_token_expires_at: string;
+          access_token_hash: string;
+          client_id: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          refresh_token_expires_at?: string | null;
+          refresh_token_hash?: string | null;
+          resource?: string | null;
+          revoked_at?: string | null;
+          scope?: string;
+          user_id: string;
+        };
+        Update: {
+          access_token_expires_at?: string;
+          access_token_hash?: string;
+          client_id?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          refresh_token_expires_at?: string | null;
+          refresh_token_hash?: string | null;
+          resource?: string | null;
+          revoked_at?: string | null;
+          scope?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'oauth_tokens_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'oauth_clients';
+            referencedColumns: ['client_id'];
+          },
+          {
+            foreignKeyName: 'oauth_tokens_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       problem_ingestion_candidates: {
         Row: {
           assets: Json;
