@@ -77,7 +77,7 @@ WQN 围绕一条长期学习链路构建：
        WQN Web          WQN MCP        WQN Note4
 
        图形界面          AI Agent        专用学习终端
-       管理与复习        35 个工具         墨水屏
+       管理与复习        38 个工具         墨水屏
        Discovery        自然语言交互      离线学习
        Insights         外部客户端        Audio / Cache
 ```
@@ -120,7 +120,7 @@ WQN Web 是 WQN 完整的图形化学习与管理界面。
 
 WQN 提供完整的 **Model Context Protocol（MCP）** 服务。
 
-当前 WQN MCP 包含 **35 个工具**，已经覆盖 Web 中绝大多数核心操作。
+当前 WQN MCP 包含 **38 个工具**，已经覆盖 Web 中绝大多数核心操作。
 
 这使 WQN 可以直接接入支持 MCP 的 AI 客户端，例如：
 

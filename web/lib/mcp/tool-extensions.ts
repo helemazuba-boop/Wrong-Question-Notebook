@@ -4,6 +4,7 @@ import type {
   McpToolContext,
   McpToolDefinition,
 } from '@/lib/mcp/tool-registry';
+import { TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
 import {
   listAuthorizedNotebooks,
   loadNotebookAiAccess,
@@ -110,14 +111,38 @@ function base64UrlToken(bytes = 32): string {
 }
 
 function mcpIdeaConfirmUrl(
-  ctx: McpToolContext,
+  origin: string,
+  confirmationPath: string,
   challengeId: string,
   challengeToken: string
 ): string {
-  const path = `${ctx.confirmationPath}/${challengeId}`;
-  const url = new URL(path, ctx.origin);
+  const path = `${confirmationPath}/${challengeId}`;
+  const url = new URL(path, origin);
   url.hash = `token=${challengeToken}`;
   return url.toString();
+}
+
+// The initial-idea confirmation flow records which MCP credential proposed the
+// draft and builds a browser link back to the deployment, so it is only
+// defined for the /api/mcp surface. Voice callers never see these tools, but
+// the guard keeps the failure explicit if that ever changes.
+function requireMcpCredentialContext(ctx: McpToolContext): {
+  apiTokenId: string;
+  origin: string;
+  confirmationPath: string;
+} {
+  if (!ctx.apiTokenId || !ctx.origin || !ctx.confirmationPath) {
+    throw new ProblemCreationServiceError(
+      'initial_idea_challenge_unavailable',
+      'Initial idea confirmation requires an MCP credential context',
+      400
+    );
+  }
+  return {
+    apiTokenId: ctx.apiTokenId,
+    origin: ctx.origin,
+    confirmationPath: ctx.confirmationPath,
+  };
 }
 
 async function createMcpInitialIdeaChallenge(
@@ -126,6 +151,8 @@ async function createMcpInitialIdeaChallenge(
   requestId: string,
   proposedIdea: string
 ) {
+  const { apiTokenId, origin, confirmationPath } =
+    requireMcpCredentialContext(ctx);
   const exactTextHash = sha256Hex(proposedIdea);
   const existing = await ctx.supabase
     .from('problem_initial_idea_mcp_challenges')
@@ -148,7 +175,7 @@ async function createMcpInitialIdeaChallenge(
   if (existing.data) {
     const sameRequest =
       existing.data.problem_id === problemId &&
-      existing.data.source_api_token_id === ctx.apiTokenId &&
+      existing.data.source_api_token_id === apiTokenId &&
       existing.data.proposed_idea === proposedIdea &&
       existing.data.exact_text_hash === exactTextHash;
     if (!sameRequest) {
@@ -204,7 +231,7 @@ async function createMcpInitialIdeaChallenge(
       .insert({
         user_id: ctx.userId,
         problem_id: problemId,
-        source_api_token_id: ctx.apiTokenId,
+        source_api_token_id: apiTokenId,
         source_request_id: requestId,
         proposed_idea: proposedIdea,
         exact_text_hash: exactTextHash,
@@ -229,7 +256,12 @@ async function createMcpInitialIdeaChallenge(
     exact_text: proposedIdea,
     exact_text_hash: exactTextHash,
     expires_at: expiresAt,
-    confirm_url: mcpIdeaConfirmUrl(ctx, challengeId, challengeToken),
+    confirm_url: mcpIdeaConfirmUrl(
+      origin,
+      confirmationPath,
+      challengeId,
+      challengeToken
+    ),
     next_step:
       'Stop. Show exact_text verbatim to the user and ask them to open confirm_url. Do not call another tool to attest or confirm on their behalf. Only the signed-in WQN page can promote this machine draft to human evidence.',
   };
@@ -1346,12 +1378,8 @@ const NOTE_TOOLS: McpToolDefinition[] = [
 
 const WORD_TOOLS: McpToolDefinition[] = [
   {
-    name: 'list_authorized_word_decks',
-    description:
-      '列出授权给 AI 的 Word 词库、词条数量和 can_read/can_create/can_update 权限。科目可能为空。',
-    inputSchema: { type: 'object', properties: {} },
+    ...TOOL_CATALOG.list_authorized_word_decks,
     argsSchema: z.object({}),
-    annotations: READ_ONLY,
     handler: async ctx => listAuthorizedWordDecks(ctx),
   },
   {
@@ -1423,27 +1451,7 @@ const WORD_TOOLS: McpToolDefinition[] = [
     },
   },
   {
-    name: 'add_word_entry',
-    description:
-      '向已授权 can_create 的用户 Word 词库新增或按规范化词形幂等更新一个词条。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        deck_id: { type: 'string', description: '目标 Word 词库 ID' },
-        word: { type: 'string', description: '词形，最多 80 字符' },
-        meaning: { type: 'string', description: '释义，最多 1000 字符' },
-        phonetic: { type: ['string', 'null'] },
-        example: { type: ['string', 'null'] },
-        example_translation: { type: ['string', 'null'] },
-        part_of_speech: { type: ['string', 'null'] },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '最多 16 个字符串标签',
-        },
-      },
-      required: ['deck_id', 'word', 'meaning'],
-    },
+    ...TOOL_CATALOG.add_word_entry,
     argsSchema: z.object({
       deck_id: UuidSchema,
       word: z.string().trim().min(1).max(80),

@@ -17,7 +17,7 @@ import {
   type Esp32AiAsrProvider,
 } from '@/lib/esp32-ai-asr-selection';
 import { buildAiToolExecutor } from './v2-tools';
-import { appendAiToolPrompt } from '@/lib/esp32-ai-tool-definitions';
+import { appendAiToolPrompt } from '@/lib/ai-tools/voice-tools';
 
 export const RUNTIME_TAG = 'nodejs';
 
@@ -189,6 +189,7 @@ export async function handleV2Streaming(
     toolExecutor = buildAiToolExecutor(ctx);
   }
 
+  const pipelineStartedAtMs = Date.now();
   const sse = createSseResponse(async function (writer: SseWriter) {
     try {
       await runStreamingPipeline({
@@ -249,6 +250,15 @@ export async function handleV2Streaming(
           component: 'Esp32AiTranscribeChat',
         });
       }
+    }
+    if (writer.isClosed()) {
+      // The relay/device gave up before the pipeline finished (turn timeout,
+      // WS drop). Without this line a turn that completes into a closed
+      // stream is invisible: no failure log, no device output, no trace.
+      logger.warn('v2-streaming pipeline finished after client stream closed', {
+        component: 'Esp32AiTranscribeChat',
+        elapsed_since_start_ms: Date.now() - pipelineStartedAtMs,
+      });
     }
   });
   return new NextResponse(sse.body, {

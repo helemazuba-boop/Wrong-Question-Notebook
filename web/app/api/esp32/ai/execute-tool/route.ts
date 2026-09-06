@@ -27,6 +27,7 @@ import {
   buildAiToolExecutor,
   type V2ToolContext,
 } from '../transcribe-chat/v2-tools';
+import { VOICE_TOOL_NAMES } from '@/lib/mcp/tool-catalog';
 import { createApiErrorResponse } from '@/lib/common-utils';
 import { logger } from '@/lib/logger';
 import { verifyInternalRequest } from '@/lib/internal-request-auth';
@@ -34,19 +35,9 @@ import { createServiceClient } from '@/lib/supabase-utils';
 
 export const runtime = 'nodejs';
 
-const TOOL_NAMES = [
-  'list_authorized_notebooks',
-  'create_notebook_note',
-  'search_user_problems',
-  'get_problem_detail',
-  'list_todos',
-  'create_todo',
-  'update_todo_status',
-  'list_word_decks',
-  'create_word_deck',
-  'add_word_to_deck',
-  'search_words',
-] as const;
+// Derived from the shared voice catalog -- the same name set the realtime
+// session config advertises to the upstream model.
+const TOOL_NAMES = VOICE_TOOL_NAMES;
 
 const BodySchema = z.object({
   request_id: z
@@ -182,6 +173,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         display: result.display,
         data: result.data ?? null,
         action: result.action ?? null,
+        error: result.error ?? null,
       },
     },
     { status: 200 }

@@ -1,7 +1,7 @@
 import {
   AI_TOOLS,
   appendAiToolPrompt,
-} from '../../../lib/esp32-ai-tool-definitions.ts';
+} from '../../../lib/ai-tools/voice-tools.ts';
 
 export function applyAiToolSessionConfig(
   input: Record<string, unknown>,

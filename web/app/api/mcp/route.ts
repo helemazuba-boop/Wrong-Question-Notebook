@@ -167,6 +167,8 @@ async function handleMcp(req: NextRequest): Promise<NextResponse> {
       const ctx: McpToolContext = {
         userId: auth.userId,
         apiTokenId: auth.tokenId,
+        conversationId: null,
+        deviceId: null,
         origin: getAppOrigin(),
         confirmationPath: '/mcp/idea-confirm',
         supabase: createServiceClient(),

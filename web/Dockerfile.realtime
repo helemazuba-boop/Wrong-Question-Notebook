@@ -31,9 +31,12 @@ COPY --from=deps --chown=wqn:wqn /app/package.json ./package.json
 RUN npm install tsx --no-save
 
 # Preserve the source layout because the relay imports the dependency-free
-# ESP32 tool schema shared with the Next.js streaming path.
+# voice tool projection (lib/ai-tools/voice-tools.ts) and the MCP catalog it
+# projects from (lib/mcp/tool-catalog.ts), both shared with the Next.js
+# streaming path. Keep every specifier inside them alias-free.
 COPY --chown=wqn:wqn server/realtime-proxy/src ./server/realtime-proxy/src
-COPY --chown=wqn:wqn lib/esp32-ai-tool-definitions.ts ./lib/esp32-ai-tool-definitions.ts
+COPY --chown=wqn:wqn lib/ai-tools/voice-tools.ts ./lib/ai-tools/voice-tools.ts
+COPY --chown=wqn:wqn lib/mcp/tool-catalog.ts ./lib/mcp/tool-catalog.ts
 
 USER wqn
 

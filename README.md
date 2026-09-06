@@ -77,7 +77,7 @@ At present, WQN has three primary entry points:
        WQN Web          WQN MCP        WQN Note4
 
        Graphical UI      AI Agent       Dedicated Study Device
-       Manage & Review   35 Tools       E-paper
+       Manage & Review   38 Tools       E-paper
        Discovery         Natural Lang.  Offline Study
        Insights          External Apps  Audio / Cache
 ```
@@ -126,7 +126,7 @@ But the Web is not WQN's only interface.
 
 WQN provides a complete **Model Context Protocol (MCP)** service.
 
-WQN MCP currently contains **36 tools**, covering most of the core operations available in the Web application.
+WQN MCP currently contains **38 tools**, covering most of the core operations available in the Web application.
 
 This allows WQN to connect directly to AI clients that support MCP, including:
 

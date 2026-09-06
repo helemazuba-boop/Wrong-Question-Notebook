@@ -30,6 +30,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Unified AI tool contract (MCP registry as single source)**
+  - Extract the shared tool contracts (name, description, parameter schema, annotations) of the 11 voice-relevant tools into the dependency-free `web/lib/mcp/tool-catalog.ts`; the MCP registry attaches zod schemas and handlers, and the voice pipelines project the same entries into OpenAI function definitions.
+  - Serve two new MCP tools from the same lib layer the voice path already used: `create_word_deck` and `search_words` (registry grows from 36 to 38 tools).
+  - Execute ESP32 voice tool calls through the shared MCP registry handlers for all three voice paths (v2 streaming, Flash realtime execute-tool, and the legacy v1 provider), replacing three independent tool-schema copies and two independent executors; the legacy in-provider mirror and its parity test are gone.
+  - Rename two voice tools to the registry names: `list_word_decks` → `list_authorized_word_decks` and `add_word_to_deck` → `add_word_entry`; tool names only reach the LLM and device status events (firmware renders them verbatim).
+  - Enforce the per-tool zod schema on the voice path: invalid or oversized arguments now return `invalid_arguments` with the reason to the model instead of being silently coerced or truncated, and voice tool failures are logged with their error code.
+  - Surface the device `action` object from MCP write-tool results (`create_notebook_note`, `create_todo`, `update_todo_status`, `create_word_deck`, `add_word_entry`), which previously dropped it.
+  - Record voice conversation/device provenance on AI-created todos and notes via the shared tool context; route MCP calls carry `conversationId`/`deviceId` explicitly as null.
+  - Keep the device-facing contracts unchanged: `{ok, display, data, action}` envelopes, English v2 / Chinese v1 display strings, `tool.start`/`tool.result`/`tool.done` events, and the v1 `{success, data}` JSON shape.
 - **ESP32 voice AI**
   - Add StepFun ASR selection for standard and professional voice sessions.
   - Accept both LF and CRLF event framing from upstream SSE providers.
