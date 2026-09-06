@@ -90,6 +90,46 @@ async function main() {
     check('POST /session returns a ses_ id', false, String(error));
   }
 
+  // 2b. Session detail: createOpenCodeSession verifies every new session with
+  //     a targeted GET /session/:id and a directory comparison. If this server
+  //     does not expose the endpoint (or omits directory in the body), every
+  //     device-side create fails closed — do not deploy that path with this
+  //     check failing.
+  {
+    const normalizeDir = value => {
+      const trimmed = String(value).trim();
+      return trimmed === '/' ? '/' : trimmed.replace(/\/+$/, '');
+    };
+    const detailLabel =
+      'GET /session/:id returns the created session with its directory';
+    if (!createdId) {
+      check(detailLabel, false, 'no created session to fetch');
+    } else {
+      try {
+        const detailUrl = new URL(
+          `/session/${encodeURIComponent(createdId)}`,
+          `${baseUrl}/`
+        );
+        detailUrl.searchParams.set('directory', directory);
+        const response = await fetch(detailUrl, { headers });
+        const body = await response.json().catch(() => null);
+        const rowDirectory =
+          typeof body?.directory === 'string'
+            ? normalizeDir(body.directory)
+            : '';
+        check(
+          detailLabel,
+          response.ok &&
+            body?.id === createdId &&
+            rowDirectory === normalizeDir(directory),
+          `${response.status}, id=${body?.id ?? '(none)'}, directory=${body?.directory ?? '(none)'}`
+        );
+      } catch (error) {
+        check(detailLabel, false, String(error));
+      }
+    }
+  }
+
   // 3. Permission reply endpoint: a well-formed reply for a bogus request id
   //    must be routed (4xx from the handler) rather than falling through to
   //    the server's generic not-found page.

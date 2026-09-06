@@ -62,14 +62,11 @@ describe('OpenCode Agent session create route', () => {
     );
     fetchMock.mockResolvedValue(
       new Response(
-        JSON.stringify([
-          {
-            id: 'ses_new9',
-            title: '',
-            directory: '/workspaces/a',
-            time: { updated: 5 },
-          },
-        ]),
+        JSON.stringify({
+          id: 'ses_new9',
+          directory: '/workspaces/a',
+          time: { updated: 5 },
+        }),
         { status: 200 }
       )
     );
@@ -88,21 +85,18 @@ describe('OpenCode Agent session create route', () => {
   });
 
   it('rate limits session creation per device', async () => {
-    fetchMock.mockImplementation(async (_url, init?: RequestInit) => {
+    fetchMock.mockImplementation(async (url, init?: RequestInit) => {
       if (init?.method === 'POST') {
         return new Response(JSON.stringify({ id: 'ses_burst' }), {
           status: 200,
         });
       }
       return new Response(
-        JSON.stringify([
-          {
-            id: 'ses_burst',
-            title: '',
-            directory: '/workspaces/a',
-            time: { updated: 5 },
-          },
-        ]),
+        JSON.stringify({
+          id: 'ses_burst',
+          directory: '/workspaces/a',
+          time: { updated: 5 },
+        }),
         { status: 200 }
       );
     });

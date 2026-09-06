@@ -146,20 +146,17 @@ describe('OpenCode Agent gateway', () => {
     expect(text).toContain('"status":"idle"');
   });
 
-  it('creates a session and verifies it against the binding list', async () => {
+  it('creates a session and verifies it with a targeted detail fetch', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ id: 'ses_new1' }), { status: 200 })
     );
     fetchMock.mockResolvedValue(
       new Response(
-        JSON.stringify([
-          {
-            id: 'ses_new1',
-            title: '',
-            directory: '/srv/project',
-            time: { updated: 3 },
-          },
-        ]),
+        JSON.stringify({
+          id: 'ses_new1',
+          directory: '/srv/project',
+          time: { updated: 3 },
+        }),
         { status: 200 }
       )
     );
@@ -169,25 +166,31 @@ describe('OpenCode Agent gateway', () => {
     );
 
     expect(session.id).toBe('ses_new1');
-    const [createCall, listCall] = fetchMock.mock.calls as [
+    expect(session.updatedAt).toBe(3);
+    const [createCall, detailCall] = fetchMock.mock.calls as [
       [URL, RequestInit],
       [URL, RequestInit],
     ];
     expect(createCall[0].pathname).toBe('/session');
     expect(createCall[1].method).toBe('POST');
     expect(JSON.parse(String(createCall[1].body))).toEqual({});
-    expect(listCall[0].pathname).toBe('/session');
-    expect(listCall[1].method).toBe('GET');
+    expect(detailCall[0].pathname).toBe('/session/ses_new1');
+    expect(detailCall[1].method).toBe('GET');
   });
 
-  it('fails closed when a created session is not in the binding directory', async () => {
+  it('fails closed when a created session answers outside the binding directory', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ id: 'ses_stray' }), { status: 200 })
     );
-    // The binding-scoped list does not contain the created id: an older
-    // OpenCode server ignored the directory parameter.
+    // The targeted detail fetch resolves the session into another worktree:
+    // an older OpenCode server ignored the directory parameter.
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 })
+      new Response(
+        JSON.stringify({ id: 'ses_stray', directory: '/srv/other' }),
+        {
+          status: 200,
+        }
+      )
     );
 
     await expect(
@@ -277,5 +280,51 @@ describe('OpenCode Agent gateway', () => {
 
     const text = await response.text();
     expect(text).toContain('"status":"idle"');
+  });
+
+  it('delivers asks arriving as permission.updated and dedupes echoes by id', async () => {
+    const encoder = new TextEncoder();
+    const ask = {
+      sessionID: 'ses_123',
+      requestID: 'perm-1',
+      permission: 'bash',
+      title: 'run tests',
+    };
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const events = [
+          // SDK-event servers deliver new asks as permission.updated.
+          { type: 'permission.updated', properties: ask },
+          // Resolution echo after the device replied: same id, must not re-arm.
+          { type: 'permission.updated', properties: ask },
+          // A second, different ask is still delivered.
+          {
+            type: 'permission.asked',
+            properties: { ...ask, requestID: 'perm-2', permission: 'edit' },
+          },
+          // An ask without any id can never be answered from the device; it
+          // must surface as status text instead of a dead prompt.
+          {
+            type: 'permission.updated',
+            properties: { sessionID: 'ses_123', permission: 'bash' },
+          },
+        ];
+        controller.enqueue(
+          encoder.encode(
+            events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')
+          )
+        );
+        controller.close();
+      },
+    });
+    const response = createSseResponse(writer =>
+      relayOpenCodeEvents({ upstream, writer, sessionId: 'ses_123' })
+    );
+
+    const text = await response.text();
+    expect(text.match(/event: agent.permission/g)).toHaveLength(2);
+    expect(text).toContain('"permission_id":"perm-1"');
+    expect(text).toContain('"permission_id":"perm-2"');
+    expect(text).toContain('权限请求缺少 ID');
   });
 });

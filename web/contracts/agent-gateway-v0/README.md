@@ -64,8 +64,9 @@ The gateway calls the modern OpenCode endpoint
 ## Gateway timing
 
 - Idle timeout: the upstream event stream is aborted after
-  `WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS` (default 60 s) without a byte; every
-  received chunk resets it.
+  `WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS` (default 300 s) without a byte; every
+  received chunk resets it. OpenCode itself stays silent during long tool
+  runs, so do not lower this below the longest acceptable silent wait.
 - Absolute cap: `WQN_OPENCODE_EVENT_MAX_DURATION_MS` (default 30 min) bounds a
   whole attach regardless of activity.
 - A run that outlives its stream keeps executing on the OpenCode server; the

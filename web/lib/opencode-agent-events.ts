@@ -52,7 +52,8 @@ export function emitNormalizedOpenCodeEvent(
   writer: SseWriter,
   raw: unknown,
   sessionId: string,
-  allowIdle = true
+  allowIdle = true,
+  seenPermissions?: Set<string>
 ): 'continue' | 'activity' | 'complete' {
   const event = asRecord(raw) as OpenCodeEvent;
   const type = typeof event.type === 'string' ? event.type : '';
@@ -141,12 +142,39 @@ export function emitNormalizedOpenCodeEvent(
     return 'activity';
   }
 
-  if (type === 'permission.asked') {
+  if (type === 'permission.asked' || type === 'permission.updated') {
+    // OpenCode's internal event system delivers asks as permission.asked while
+    // SDK event systems deliver them as permission.updated (both appear in the
+    // Espressif reference client). Resolution echoes repeat an id the device
+    // already acted on, so dedupe on the id instead of dropping either event
+    // type — dropping one would lose new asks on SDK-event servers.
+    const permissionId = stringField(
+      properties,
+      'requestID',
+      'permissionID',
+      'id'
+    );
+    if (seenPermissions) {
+      if (!permissionId) {
+        // Without an id the device could never reply to this ask. Surface it
+        // as status text so the run does not just appear silently stuck.
+        writer.emit('agent.status', {
+          session_id: sessionId,
+          status: 'busy',
+          message: '权限请求缺少 ID，请在 OpenCode 端审批',
+        });
+        return 'activity';
+      }
+      if (seenPermissions.has(permissionId)) {
+        return 'activity';
+      }
+      seenPermissions.add(permissionId);
+    }
     const metadata = asRecord(properties.metadata);
     const toolInput = asRecord(properties.tool_input);
     writer.emit('agent.permission', {
       session_id: sessionId,
-      permission_id: stringField(properties, 'requestID', 'permissionID', 'id'),
+      permission_id: permissionId,
       type: (
         stringField(properties, 'permission', 'type', 'tool_name') || 'tool'
       ).slice(0, 80),
@@ -159,12 +187,6 @@ export function emitNormalizedOpenCodeEvent(
         previewValue(toolInput) ||
         previewValue(properties.patterns),
     });
-    return 'activity';
-  }
-  if (type === 'permission.updated') {
-    // Resolution echo for a prior ask (answered here or by another client).
-    // Forwarding it would re-arm the device permission prompt after every
-    // reply, so it only counts as activity.
     return 'activity';
   }
   return 'continue';
@@ -189,6 +211,10 @@ export async function relayOpenCodeEvents(input: {
   const decoder = new TextDecoder();
   let buffer = '';
   let activitySeen = false;
+  // Permission ids already projected to the device during this attach; the
+  // resolution echo for a replied ask repeats its id and must not re-arm the
+  // device prompt.
+  const seenPermissions = new Set<string>();
   // The read promise must survive idle iterations: re-issuing reader.read()
   // would queue a second consumption and lose the chunk the first one yields.
   let pendingRead = reader.read();
@@ -230,7 +256,8 @@ export async function relayOpenCodeEvents(input: {
               input.writer,
               JSON.parse(data),
               input.sessionId,
-              observe || activitySeen
+              observe || activitySeen,
+              seenPermissions
             );
             if (result === 'complete') return;
             if (result === 'activity') activitySeen = true;

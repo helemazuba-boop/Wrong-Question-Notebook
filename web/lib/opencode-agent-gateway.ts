@@ -1,7 +1,10 @@
 import 'server-only';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_EVENT_IDLE_TIMEOUT_MS = 60_000;
+// OpenCode's /event stream emits nothing during a long tool run (tests,
+// installs), so the idle window must outlast the longest plausible silent
+// stretch; the absolute cap below still bounds every attach.
+const DEFAULT_EVENT_IDLE_TIMEOUT_MS = 300_000;
 const DEFAULT_EVENT_MAX_DURATION_MS = 30 * 60_000;
 // One shared bound for every binding-scoped session list: device menu, run
 // ownership re-checks, and create-session verification all must agree, or a
@@ -204,6 +207,12 @@ function finiteTimestamp(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export async function listOpenCodeSessions(
   binding: OpenCodeAgentBinding,
   limit = OPENCODE_SESSION_LIST_LIMIT
@@ -281,10 +290,12 @@ export async function submitOpenCodePrompt(
 }
 
 /**
- * Create a fresh OpenCode session in the binding's directory. The response id
- * is verified against a binding-scoped re-list because older OpenCode servers
+ * Create a fresh OpenCode session in the binding's directory. The created id
+ * is verified with a targeted GET /session/:id because older OpenCode servers
  * ignore the per-request directory on POST /session; a session created in
- * another worktree must never become visible to this device.
+ * another worktree must never become visible to this device. (Re-listing the
+ * latest sessions cannot be used here: a directory at the list cap can evict
+ * the fresh session and turn a successful create into a false failure.)
  */
 export async function createOpenCodeSession(
   binding: OpenCodeAgentBinding
@@ -306,15 +317,35 @@ export async function createOpenCodeSession(
       502
     );
   }
-  const owned = await listOpenCodeSessions(binding);
-  if (!owned.some(session => session.id === id)) {
+  const detail = await fetchUpstream(
+    binding,
+    `/session/${encodeURIComponent(id)}`,
+    {
+      method: 'GET',
+      headers: requestHeaders(binding, true),
+      cache: 'no-store',
+    }
+  );
+  const row = (await detail.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const time = asRecord(row?.time);
+  const rowId = typeof row?.id === 'string' ? row.id : '';
+  const rowDirectory =
+    typeof row?.directory === 'string' ? normalizeDirectory(row.directory) : '';
+  if (rowId !== id || rowDirectory !== binding.directory) {
     throw new OpenCodeGatewayError(
       'invalid_response',
       'Created OpenCode session is not bound to the configured directory',
       502
     );
   }
-  return { id, title: '新 Session', updatedAt: Date.now() };
+  return {
+    id,
+    title: '新 Session',
+    updatedAt: finiteTimestamp(time.updated) || Date.now(),
+  };
 }
 
 export async function replyOpenCodePermission(
