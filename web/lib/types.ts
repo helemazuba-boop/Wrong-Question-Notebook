@@ -742,6 +742,8 @@ export type ProblemFormProps = {
   onProblemUpdated?: ((updatedProblem: Problem) => void) | null;
   alwaysExpanded?: boolean;
   initialShowImageScan?: boolean;
+  /** When set, problems imported via the ingestion workspace are linked into this problem set. */
+  problemSetId?: string;
 };
 
 export type SubjectFormProps = {

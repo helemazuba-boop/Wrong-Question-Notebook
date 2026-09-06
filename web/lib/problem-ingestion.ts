@@ -697,29 +697,119 @@ export type ParseProblemIngestionResult =
   | { ok: true; data: ProblemIngestionDocument }
   | { ok: false; error: 'invalid_json' | 'invalid_schema'; detail: string };
 
+export type JsonExtraction =
+  | { ok: true; values: unknown[] }
+  | { ok: false; reason: 'no_json' | 'unparseable_json'; detail: string };
+
+const MAX_JSON_CANDIDATES = 10;
+
+/**
+ * Extracts parseable top-level JSON values from arbitrary model output.
+ * External clients rarely return a bare document: the answer is typically
+ * wrapped in prose ("Here is the result:") and markdown fences, sometimes
+ * with smaller JSON snippets before the real payload. The scanner walks
+ * balanced `{...}`/`[...]` regions while respecting JSON string escapes and
+ * collects every candidate that parses, in document order.
+ */
+export function extractJsonFromPaste(raw: string): JsonExtraction {
+  const text = raw.trim();
+  if (text === '') {
+    return { ok: false, reason: 'no_json', detail: 'Pasted text is empty' };
+  }
+
+  const candidates: unknown[] = [];
+  let lastParseError: string | null = null;
+  let sawCandidate = false;
+  let index = 0;
+  while (index < text.length && candidates.length < MAX_JSON_CANDIDATES) {
+    const ch = text[index];
+    if (ch !== '{' && ch !== '[') {
+      index += 1;
+      continue;
+    }
+    const end = balancedJsonEnd(text, index);
+    if (end === null) {
+      index += 1;
+      continue;
+    }
+    sawCandidate = true;
+    const snippet = text.slice(index, end + 1);
+    try {
+      candidates.push(JSON.parse(snippet));
+    } catch (error) {
+      lastParseError =
+        error instanceof Error ? error.message : 'JSON parse failed';
+    }
+    index = end + 1;
+  }
+
+  if (candidates.length > 0) return { ok: true, values: candidates };
+  if (sawCandidate) {
+    return {
+      ok: false,
+      reason: 'unparseable_json',
+      detail: lastParseError ?? 'JSON-like text could not be parsed',
+    };
+  }
+  return {
+    ok: false,
+    reason: 'no_json',
+    detail: 'No JSON object was found in the pasted text',
+  };
+}
+
+/** Returns the index of the bracket closing the one at `start`, or null. */
+function balancedJsonEnd(text: string, start: number): number | null {
+  const open = text[start];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === open) {
+      depth += 1;
+    } else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return null;
+}
+
 export function parseProblemIngestion(
   raw: string
 ): ParseProblemIngestionResult {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  let json: unknown;
-  try {
-    json = JSON.parse(fenced ? fenced[1] : trimmed);
-  } catch (error) {
-    return {
-      ok: false,
-      error: 'invalid_json',
-      detail: error instanceof Error ? error.message : 'JSON parse failed',
-    };
+  const extraction = extractJsonFromPaste(raw);
+  if (!extraction.ok) {
+    return { ok: false, error: 'invalid_json', detail: extraction.detail };
   }
-  const parsed = ProblemIngestionDocumentSchema.safeParse(json);
-  if (parsed.success) return { ok: true, data: parsed.data };
-  const issue = parsed.error.issues[0];
+
+  let firstIssue: { path: string; message: string } | null = null;
+  for (const json of extraction.values) {
+    const parsed = ProblemIngestionDocumentSchema.safeParse(json);
+    if (parsed.success) return { ok: true, data: parsed.data };
+    const issue = parsed.error.issues[0];
+    if (issue && !firstIssue) {
+      firstIssue = {
+        path: issue.path.join('.') || '(root)',
+        message: issue.message,
+      };
+    }
+  }
   return {
     ok: false,
     error: 'invalid_schema',
-    detail: issue
-      ? `${issue.path.join('.') || '(root)'}: ${issue.message}`
+    detail: firstIssue
+      ? `${firstIssue.path}: ${firstIssue.message}`
       : 'schema validation failed',
   };
 }

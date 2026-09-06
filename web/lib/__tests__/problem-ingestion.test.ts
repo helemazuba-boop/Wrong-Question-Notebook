@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  extractJsonFromPaste,
   INGESTION_REGION_ROLES,
   normalizeProblemIngestionDocument,
   parseProblemIngestion,
@@ -11,6 +12,10 @@ import {
 import { PROBLEM_TYPE_VALUES } from '@/lib/schemas';
 
 const standalonePromptFiles = ['PROMPT.en.md', 'PROMPT.zh-CN.md'] as const;
+const publicPromptFiles = {
+  'PROMPT.en.md': 'problem-ingestion-prompt.en.md',
+  'PROMPT.zh-CN.md': 'problem-ingestion-prompt.zh-CN.md',
+} as const;
 
 function readStandalonePrompt(
   fileName: (typeof standalonePromptFiles)[number]
@@ -20,6 +25,13 @@ function readStandalonePrompt(
       `../../contracts/problem-ingestion-v1/${fileName}`,
       import.meta.url
     ),
+    'utf8'
+  );
+}
+
+function readPublicPrompt(fileName: string) {
+  return readFileSync(
+    new URL(`../../public/docs/${fileName}`, import.meta.url),
     'utf8'
   );
 }
@@ -215,4 +227,103 @@ describe('Problem Ingestion v1', () => {
       })
     ).toEqual({ year: 2024 });
   });
+});
+
+describe('paste JSON extraction', () => {
+  const jsonText = JSON.stringify(document, null, 2);
+
+  it('parses a bare JSON document', () => {
+    expect(parseProblemIngestion(jsonText)).toEqual({
+      ok: true,
+      data: document,
+    });
+  });
+
+  it('parses JSON wrapped in prose and a markdown fence', () => {
+    const wrapped = `好的，以下是识别结果：\n\`\`\`json\n${jsonText}\n\`\`\`\n如果需要调整请告诉我。`;
+    expect(parseProblemIngestion(wrapped)).toEqual({
+      ok: true,
+      data: document,
+    });
+  });
+
+  it('parses JSON with surrounding prose and no fence', () => {
+    const wrapped = `Here is the extraction:\n\n${jsonText}\n\nLet me know if you need changes.`;
+    expect(parseProblemIngestion(wrapped)).toEqual({
+      ok: true,
+      data: document,
+    });
+  });
+
+  it('skips smaller JSON snippets embedded in prose', () => {
+    const withNoise = `空对象是 {}，空数组是 []。\n\n真实结果：\n${jsonText}`;
+    expect(parseProblemIngestion(withNoise)).toEqual({
+      ok: true,
+      data: document,
+    });
+  });
+
+  it('respects braces inside JSON strings while scanning', () => {
+    const tricky = {
+      ...document,
+      questions: [
+        {
+          ...document.questions[0],
+          shared_stem: [
+            { kind: 'text' as const, value: 'brace } and { inside string' },
+          ],
+        },
+      ],
+    };
+    const wrapped = `answer:\n${JSON.stringify(tricky, null, 2)}\nend`;
+    const parsed = parseProblemIngestion(wrapped);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.data.questions[0].question_id).toBe('question-1');
+    }
+  });
+
+  it('reports the v1 schema issue when JSON parses but the shape is wrong', () => {
+    const wrong = JSON.stringify({ schema_version: 'x', questions: [] });
+    const result = parseProblemIngestion(`说明：\n${wrong}\n以上。`);
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error === 'invalid_schema') {
+      expect(result.detail).toContain('schema_version');
+      expect(result.detail).toContain('wqn.problem-ingestion.v1');
+    } else {
+      expect.unreachable('expected invalid_schema');
+    }
+  });
+
+  it('reports no_json when the text contains no JSON at all', () => {
+    const result = parseProblemIngestion('第1题选B，第2题选A。');
+    expect(result).toEqual({
+      ok: false,
+      error: 'invalid_json',
+      detail: 'No JSON object was found in the pasted text',
+    });
+  });
+
+  it('reports unparseable_json when JSON-like text is malformed', () => {
+    const result = extractJsonFromPaste('结果：\n{"a": 1, "b": [1,2}');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('unparseable_json');
+    } else {
+      expect.unreachable('expected failure');
+    }
+  });
+});
+
+describe('public paste-prompt copies', () => {
+  it.each(Object.entries(publicPromptFiles))(
+    'keeps public/docs/%s identical to the contract prompt',
+    (contractFile, publicFile) => {
+      expect(readPublicPrompt(publicFile)).toBe(
+        readStandalonePrompt(
+          contractFile as (typeof standalonePromptFiles)[number]
+        )
+      );
+    }
+  );
 });

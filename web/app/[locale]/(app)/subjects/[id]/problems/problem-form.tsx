@@ -526,6 +526,7 @@ export default function ProblemForm({
   onProblemUpdated = null,
   alwaysExpanded = false,
   initialShowImageScan = false,
+  problemSetId,
 }: ProblemFormProps) {
   const t = useTranslations('Subjects');
   const tCommon = useTranslations('Common');
@@ -1337,6 +1338,7 @@ export default function ProblemForm({
             quota={extractionQuota}
             onQuotaChange={setExtractionQuota}
             onBatchImported={() => router.refresh()}
+            problemSetId={problemSetId}
           />
         )}
       </div>
@@ -1354,6 +1356,7 @@ export default function ProblemForm({
           quota={extractionQuota}
           onQuotaChange={setExtractionQuota}
           onBatchImported={() => router.refresh()}
+          problemSetId={problemSetId}
         />
       </div>
     );

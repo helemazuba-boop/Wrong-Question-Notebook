@@ -57,6 +57,11 @@ export default function ProblemSetPageClient({
   const [problemSet, setProblemSet] = useState<
     ProblemSetWithDetails & { problems: ProblemInSet[] }
   >(initialProblemSet);
+  // Adopt refreshed server data so problems linked into the set elsewhere
+  // (e.g. the ingestion workspace import) appear without a full reload.
+  useEffect(() => {
+    setProblemSet(initialProblemSet);
+  }, [initialProblemSet]);
   const [progress, setProgress] = useState<ProblemSetProgress>({
     total_problems: 0,
     wrong_count: 0,
@@ -440,6 +445,7 @@ export default function ProblemSetPageClient({
             subjectId={problemSet.subject_id}
             alwaysExpanded
             initialShowImageScan={createFormScan}
+            problemSetId={problemSet.id}
             onCancel={() => setCreateFormOpen(false)}
             onProblemCreated={handleProblemCreated}
           />

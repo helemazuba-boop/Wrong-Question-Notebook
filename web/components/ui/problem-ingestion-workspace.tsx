@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   ArrowDown,
   ArrowUp,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
+import type { TranslatorProp } from '@/i18n/types';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { uploadFiles } from '@/lib/storage/client';
@@ -26,9 +28,34 @@ interface ProblemIngestionWorkspaceProps {
   ingestionId: string;
   onClose: () => void;
   onImported?: (count: number) => void;
+  /** When set, newly accepted problems are linked into this problem set. */
+  problemSetId?: string;
 }
 
 type AssetRole = 'assets' | 'solution_assets';
+
+const MAX_CANDIDATE_ASSETS = 20;
+const MAX_ASSET_NAME_LENGTH = 255;
+
+/** API error carrying the structured code/details the backend attaches. */
+class WorkspaceApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly errorDetails?: unknown;
+
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    errorDetails?: unknown
+  ) {
+    super(message);
+    this.name = 'WorkspaceApiError';
+    this.status = status;
+    this.code = code;
+    this.errorDetails = errorDetails;
+  }
+}
 
 function fileUrl(path: string): string {
   return `/api/files/${encodeURIComponent(path)}`;
@@ -36,14 +63,58 @@ function fileUrl(path: string): string {
 
 async function responseWorkspace(response: Response) {
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(json.error || 'Workspace request failed');
+  if (!response.ok) {
+    throw new WorkspaceApiError(
+      json.error || 'Workspace request failed',
+      response.status,
+      json.details?.code,
+      json.details?.details
+    );
+  }
   return json.data.workspace as ProblemIngestionWorkspace;
+}
+
+type Translator = TranslatorProp;
+
+const WORKSPACE_ERROR_KEYS: Record<string, string> = {
+  image_asset_required: 'workspaceErrorImageAssetRequired',
+  no_problem_detected: 'workspaceErrorNoProblem',
+  too_many_problems_detected: 'workspaceErrorTooMany',
+  duplicate_question_ids: 'workspaceErrorDuplicateIds',
+  invalid_ingestion_document: 'workspaceErrorInvalidDocument',
+  subject_not_found: 'workspaceErrorSubjectMissing',
+  empty_question_content: 'workspaceErrorEmptyContent',
+  problem_limit_reached: 'workspaceErrorProblemLimit',
+  storage_limit_reached: 'workspaceErrorStorageLimit',
+  candidate_skipped: 'workspaceErrorCandidateSkipped',
+  candidate_already_accepted: 'workspaceErrorAlreadyAccepted',
+  reserved_problem_id_conflict: 'workspaceErrorIdConflict',
+  invalid_asset_path: 'workspaceErrorInvalidAssetPath',
+  ingestion_not_found: 'workspaceErrorNotFound',
+};
+
+/**
+ * Maps known backend error codes to localized messages; anything unknown
+ * (including network failures) falls back to the raw message or a generic
+ * localized string.
+ */
+function workspaceErrorMessage(
+  t: Translator,
+  error: unknown,
+  fallback: string
+): string {
+  if (error instanceof WorkspaceApiError && error.code) {
+    const key = WORKSPACE_ERROR_KEYS[error.code];
+    if (key) return t(key);
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function ProblemIngestionWorkspacePanel({
   ingestionId,
   onClose,
   onImported,
+  problemSetId,
 }: ProblemIngestionWorkspaceProps) {
   const t = useTranslations('ImageScan');
   const [workspace, setWorkspace] = useState<ProblemIngestionWorkspace | null>(
@@ -83,11 +154,7 @@ export function ProblemIngestionWorkspacePanel({
         )
       );
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : t('workspaceLoadFailed')
-      );
+      setError(workspaceErrorMessage(t, loadError, t('workspaceLoadFailed')));
     }
   }, [applyWorkspace, ingestionId, t]);
 
@@ -132,9 +199,21 @@ export function ProblemIngestionWorkspacePanel({
     async (
       candidate: ProblemIngestionWorkspaceCandidate,
       role: AssetRole,
-      files: FileList
+      fileList: FileList
     ) => {
+      // Snapshot the FileList before any await: the caller resets the input
+      // value immediately, and engines may empty the captured list in place.
+      const files = Array.from(fileList);
       if (files.length === 0) return;
+      const existing = candidate[role];
+      if (existing.length + files.length > MAX_CANDIDATE_ASSETS) {
+        toast.error(t('workspaceTooManyImages'));
+        return;
+      }
+      if (files.some(file => file.name.length > MAX_ASSET_NAME_LENGTH)) {
+        toast.error(t('workspaceInvalidImageName'));
+        return;
+      }
       setBusyQuestion(candidate.question_id);
       const storageRole = role === 'assets' ? 'problem' : 'solution';
       let uploadedPaths: string[] = [];
@@ -145,13 +224,12 @@ export function ProblemIngestionWorkspacePanel({
           storageRole,
           candidate.problem_id
         );
-        const existing = candidate[role];
         const existingPaths = new Set(existing.map(asset => asset.path));
         cleanupPaths = uploadedPaths.filter(path => !existingPaths.has(path));
         const appended = uploadedPaths
           .map((path, index) => ({
             path,
-            name: files.item(index)?.name || t('uploadedImage'),
+            name: files[index]?.name || t('uploadedImage'),
             part_id: null,
           }))
           .filter(asset => !existingPaths.has(asset.path));
@@ -167,19 +245,26 @@ export function ProblemIngestionWorkspacePanel({
         );
         applyWorkspace(next);
       } catch (uploadError) {
-        await Promise.allSettled(
-          cleanupPaths.map(path =>
-            fetch('/api/files/delete', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path }),
-            })
-          )
-        );
+        // A 5xx may have committed the DB update before the response failed,
+        // leaving the candidate row referencing these objects — keep the
+        // files so a retry does not strand stored asset paths.
+        const status =
+          uploadError instanceof WorkspaceApiError
+            ? uploadError.status
+            : undefined;
+        if (status === undefined || status < 500) {
+          await Promise.allSettled(
+            cleanupPaths.map(path =>
+              fetch('/api/files/delete', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path }),
+              })
+            )
+          );
+        }
         toast.error(
-          uploadError instanceof Error
-            ? uploadError.message
-            : t('workspaceUploadFailed')
+          workspaceErrorMessage(t, uploadError, t('workspaceUploadFailed'))
         );
       } finally {
         setBusyQuestion(null);
@@ -198,9 +283,7 @@ export function ProblemIngestionWorkspacePanel({
         await patchCandidate(candidate, { [role]: assets });
       } catch (patchError) {
         toast.error(
-          patchError instanceof Error
-            ? patchError.message
-            : t('workspaceOrderFailed')
+          workspaceErrorMessage(t, patchError, t('workspaceOrderFailed'))
         );
       }
     },
@@ -254,9 +337,7 @@ export function ProblemIngestionWorkspacePanel({
         }
       } catch (removeError) {
         toast.error(
-          removeError instanceof Error
-            ? removeError.message
-            : t('workspaceDeleteImageFailed')
+          workspaceErrorMessage(t, removeError, t('workspaceDeleteImageFailed'))
         );
       } finally {
         setBusyQuestion(null);
@@ -270,26 +351,80 @@ export function ProblemIngestionWorkspacePanel({
     setAccepting(true);
     try {
       const count = selected.size;
+      const requestedIds = [...selected];
       const next = await responseWorkspace(
         await fetch(`/api/problem-ingestions/${ingestionId}/accept`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question_ids: [...selected] }),
+          body: JSON.stringify({ question_ids: requestedIds }),
         })
       );
       applyWorkspace(next);
+      // Problems land in the subject; when the import was started from a
+      // problem set, also link them into that set so they show up there.
+      if (problemSetId) {
+        const acceptedIds = next.candidates
+          .filter(
+            candidate =>
+              requestedIds.includes(candidate.question_id) &&
+              candidate.accepted_problem_id
+          )
+          .map(candidate => candidate.accepted_problem_id as string);
+        if (acceptedIds.length > 0) {
+          try {
+            const response = await fetch(
+              `/api/problem-sets/${problemSetId}/problems`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ problem_ids: acceptedIds }),
+              }
+            );
+            if (!response.ok) throw new Error('set link failed');
+          } catch {
+            toast.warning(t('workspaceSetLinkFailed'));
+          }
+        }
+      }
       toast.success(t('workspaceImported', { count }));
       onImported?.(count);
     } catch (acceptError) {
-      toast.error(
-        acceptError instanceof Error
-          ? acceptError.message
-          : t('workspaceImportFailed')
-      );
+      if (
+        acceptError instanceof WorkspaceApiError &&
+        acceptError.code === 'image_asset_required'
+      ) {
+        const missingIds = new Set(
+          (acceptError.errorDetails as { question_ids?: string[] })
+            ?.question_ids ?? []
+        );
+        const labels = (workspace?.candidates ?? [])
+          .filter(candidate => missingIds.has(candidate.question_id))
+          .map(
+            candidate => candidate.draft.number_label || candidate.draft.title
+          )
+          .filter(Boolean);
+        toast.error(
+          t('workspaceErrorImageAssetRequiredList', {
+            labels: labels.join('、'),
+          })
+        );
+      } else {
+        toast.error(
+          workspaceErrorMessage(t, acceptError, t('workspaceImportFailed'))
+        );
+      }
     } finally {
       setAccepting(false);
     }
-  }, [applyWorkspace, ingestionId, onImported, selected, t]);
+  }, [
+    applyWorkspace,
+    ingestionId,
+    onImported,
+    problemSetId,
+    selected,
+    t,
+    workspace,
+  ]);
 
   const discard = useCallback(async () => {
     if (!window.confirm(t('workspaceDiscardConfirm'))) return;
@@ -304,9 +439,7 @@ export function ProblemIngestionWorkspacePanel({
       onClose();
     } catch (discardError) {
       toast.error(
-        discardError instanceof Error
-          ? discardError.message
-          : t('workspaceDiscardFailed')
+        workspaceErrorMessage(t, discardError, t('workspaceDiscardFailed'))
       );
     } finally {
       setDiscarding(false);
@@ -334,6 +467,9 @@ export function ProblemIngestionWorkspacePanel({
   const pending = workspace.candidates.filter(
     candidate => candidate.status !== 'accepted'
   );
+  const acceptedCount = workspace.candidates.filter(
+    candidate => candidate.status === 'accepted'
+  ).length;
   const canDiscard = workspace.candidates.every(
     candidate => candidate.status !== 'accepted'
   );
@@ -521,6 +657,32 @@ export function ProblemIngestionWorkspacePanel({
         </div>
       </div>
 
+      {acceptedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200/60 bg-emerald-50/50 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
+          <p className="text-sm text-emerald-800 dark:text-emerald-300">
+            {t('workspaceAcceptedCount', { count: acceptedCount })}
+          </p>
+          <div className="flex items-center gap-3 text-xs">
+            {problemSetId && (
+              <Link
+                href={`/problem-sets/${problemSetId}`}
+                className="font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+              >
+                {t('workspaceViewImported')}
+              </Link>
+            )}
+            {workspace.subject_id && (
+              <Link
+                href={`/subjects/${workspace.subject_id}/problems`}
+                className="font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+              >
+                {t('workspaceViewSubjectProblems')}
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
       {workspace.warnings.length > 0 && (
         <div className="rounded-xl border border-amber-200/60 px-3 py-2 text-xs text-amber-700 dark:border-amber-800/40 dark:text-amber-300">
           {workspace.warnings.join(' · ')}
@@ -530,6 +692,13 @@ export function ProblemIngestionWorkspacePanel({
       <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
         {workspace.candidates.map(candidate => {
           const disabled = candidate.status === 'accepted';
+          const isEmptyDraft =
+            !candidate.draft.content.trim() &&
+            candidate.draft.parts.every(
+              part =>
+                part.content.trim() === '' &&
+                part.mcq_choices.every(choice => choice.text.trim() === '')
+            );
           return (
             <article
               key={candidate.question_id}
@@ -574,6 +743,11 @@ export function ProblemIngestionWorkspacePanel({
                           {t('workspaceProblemImageRequired')}
                         </span>
                       )}
+                    {isEmptyDraft && candidate.status !== 'accepted' && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+                        {t('workspaceEmptyContent')}
+                      </span>
+                    )}
                     {candidate.status === 'accepted' && (
                       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                         {t('workspaceAccepted')}
@@ -644,9 +818,11 @@ export function ProblemIngestionWorkspacePanel({
                             : 'skipped',
                       }).catch(patchError =>
                         toast.error(
-                          patchError instanceof Error
-                            ? patchError.message
-                            : t('workspaceUpdateFailed')
+                          workspaceErrorMessage(
+                            t,
+                            patchError,
+                            t('workspaceUpdateFailed')
+                          )
                         )
                       )
                     }

@@ -18,7 +18,7 @@ import {
   ClipboardPaste,
   ScanLine,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import type { TranslatorProp } from '@/i18n/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -58,6 +58,8 @@ interface ImageScanUploaderProps {
   quota: ExtractionQuota | null;
   onQuotaChange: (quota: ExtractionQuota) => void;
   onBatchImported?: (count: number) => void;
+  /** When set, problems imported via the ingestion workspace are linked into this problem set. */
+  problemSetId?: string;
 }
 
 type UploaderState = 'initial' | 'preview' | 'result';
@@ -172,9 +174,11 @@ export function ImageScanUploader({
   quota,
   onQuotaChange,
   onBatchImported,
+  problemSetId,
 }: ImageScanUploaderProps) {
   const t = useTranslations('ImageScan');
   const tCommon = useTranslations('Common');
+  const locale = useLocale();
   const [state, setState] = useState<UploaderState>('initial');
   // 'scan': platform vision extraction. 'paste': the user ran our
   // off-platform prompt on an external LLM and pastes the JSON back — zero
@@ -580,10 +584,13 @@ export function ImageScanUploader({
     }
     const parsed = parsePastedExtraction(pasteText);
     if (!parsed.ok) {
+      // Both formats failed. The v1 ingestion result is the authoritative
+      // diagnosis (it saw the JSON the external model actually produced);
+      // the legacy fallback error would only describe the old shape.
       setPasteError(
-        parsed.error === 'invalid_json'
-          ? t('pasteInvalidJson', { detail: parsed.detail })
-          : t('pasteSchemaMismatch', { detail: parsed.detail })
+        ingestion.error === 'invalid_json'
+          ? t('pasteInvalidJson', { detail: ingestion.detail })
+          : t('pasteSchemaMismatch', { detail: ingestion.detail })
       );
       return;
     }
@@ -608,6 +615,20 @@ export function ImageScanUploader({
     setExtractionResult(data);
     setState('result');
   }, [pasteText, refreshResumableWorkspaces, subjectId, t]);
+
+  const copyIngestionPrompt = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/problem-ingestion-prompt?locale=${encodeURIComponent(locale)}`
+      );
+      if (!response.ok) throw new Error('prompt fetch failed');
+      const text = await response.text();
+      await navigator.clipboard.writeText(text);
+      toast.success(t('pasteCopiedPrompt'));
+    } catch {
+      toast.error(t('pasteCopyPromptFailed'));
+    }
+  }, [locale, t]);
 
   const handlePasteImageSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -679,6 +700,7 @@ export function ImageScanUploader({
     return (
       <ProblemIngestionWorkspacePanel
         ingestionId={activeIngestionId}
+        problemSetId={problemSetId}
         onImported={count => {
           onBatchImported?.(count);
           void refreshResumableWorkspaces();
@@ -728,20 +750,21 @@ export function ImageScanUploader({
           </button>
         </div>
 
-        {resumableWorkspaces.length > 0 && (
+        {resumableWorkspaces.map(resumable => (
           <button
+            key={resumable.id}
             type="button"
-            onClick={() => setActiveIngestionId(resumableWorkspaces[0].id)}
+            onClick={() => setActiveIngestionId(resumable.id)}
             className="flex w-full items-center justify-between rounded-xl border border-blue-200/60 bg-blue-50/50 px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50 dark:border-blue-800/40 dark:bg-blue-950/20 dark:text-blue-300"
           >
             <span>{t('workspaceResume')}</span>
             <span>
               {t('workspaceResumeCount', {
-                count: resumableWorkspaces[0].pending_count,
+                count: resumable.pending_count,
               })}
             </span>
           </button>
-        )}
+        ))}
 
         {tab === 'scan' ? (
           <div className="flex gap-3">
@@ -869,6 +892,19 @@ export function ImageScanUploader({
           </div>
         ) : (
           <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('pasteJsonHint')}
+              </p>
+              <button
+                type="button"
+                onClick={() => void copyIngestionPrompt()}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 transition-colors hover:border-amber-300 hover:text-amber-700 dark:border-gray-700 dark:text-gray-300 dark:hover:border-amber-600 dark:hover:text-amber-300"
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" />
+                {t('pasteCopyPrompt')}
+              </button>
+            </div>
             <textarea
               value={pasteText}
               onChange={e => {

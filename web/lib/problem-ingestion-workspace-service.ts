@@ -71,6 +71,35 @@ function assertImportable(document: ProblemIngestionDocument): void {
   }
 }
 
+/**
+ * A document whose questions carry no recognized text would import as
+ * Problems with empty bodies. Checked only when a workspace is created —
+ * already-stored documents keep loading so their workspace stays repairable.
+ */
+function assertQuestionContent(document: ProblemIngestionDocument): void {
+  const emptyQuestionIds = document.questions
+    .filter(question => {
+      const hasStem = question.shared_stem.some(node => node.value.trim());
+      const hasPartText = question.parts.some(
+        part =>
+          part.content.some(node => node.value.trim()) ||
+          part.choices.some(choice =>
+            choice.content.some(node => node.value.trim())
+          )
+      );
+      return !hasStem && !hasPartText;
+    })
+    .map(question => question.question_id);
+  if (emptyQuestionIds.length > 0) {
+    throw new ProblemIngestionWorkspaceError(
+      'empty_question_content',
+      'Every question needs at least some recognized text before it can be imported',
+      422,
+      { question_ids: emptyQuestionIds }
+    );
+  }
+}
+
 function candidateAssets(value: Json): ProblemIngestionCandidateAsset[] {
   const parsed = ProblemIngestionCandidateAssetsSchema.safeParse(value);
   if (!parsed.success) {
@@ -256,6 +285,7 @@ export async function persistExternalProblemIngestion(
     );
   }
   assertImportable(parsed.data);
+  assertQuestionContent(parsed.data);
   const { data: subject, error: subjectError } = await supabase
     .from('subjects')
     .select('id')
