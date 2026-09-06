@@ -23,19 +23,10 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { isValidUuid } from '@/lib/common-utils';
 import { PROBLEM_TYPE_VALUES, type ProblemType } from '@/lib/schemas';
-import { getProblemTypeDisplayName, isValidUuid } from '@/lib/common-utils';
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/editor';
-import { MCQChoiceEditor } from '@/components/ui/mcq-choice-editor';
-import {
-  ShortAnswerConfig,
-  type ShortAnswerConfigValue,
-} from '@/components/ui/short-answer-config';
-import {
-  VALIDATION_CONSTANTS,
-  ANSWER_CONFIG_CONSTANTS,
-  PROBLEM_CONSTANTS,
-} from '@/lib/constants';
+import { VALIDATION_CONSTANTS, PROBLEM_CONSTANTS } from '@/lib/constants';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -48,8 +39,6 @@ import {
 import {
   SimpleTag,
   ProblemFormProps,
-  MCQChoice,
-  AnswerConfig,
   ProblemPart,
   ExtractedProblemData,
 } from '@/lib/types';
@@ -61,461 +50,18 @@ import {
 import { convertMathTextToTipTapHtml } from '@/lib/math-to-tiptap';
 import { uploadFiles } from '@/lib/storage/client';
 import { apiUrl } from '@/lib/api-utils';
-import { PenLine, Plus, ScanLine, X } from 'lucide-react';
+import { PenLine, Plus, ScanLine } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-
-// =====================================================
-// Shell-model part drafts: one homogeneous card per part
-// =====================================================
-
-// Every part is edited through the SAME card (type + label + marks + answer
-// area). Draft state for every editor kind coexists per part, so switching a
-// part's type back and forth never loses input.
-interface PartDraft {
-  type: ProblemType;
-  /** Display label, e.g. "(1)"; auto-renumbered until the user touches it. */
-  label: string;
-  labelTouched: boolean;
-  fullMarks: string;
-  /** Simple text answer (choice fallback / fill-blank / short simple mode). */
-  answerText: string;
-  // Choice builder state
-  choices: MCQChoice[];
-  correctChoiceId: string;
-  multiCorrectText: string;
-  randomizeChoices: boolean;
-  useChoicePicker: boolean;
-  // Short-answer advanced state
-  shortConfig: ShortAnswerConfigValue;
-  useAdvancedShort: boolean;
-}
-
-function defaultDraftChoices(): MCQChoice[] {
-  return ANSWER_CONFIG_CONSTANTS.MCQ.DEFAULT_CHOICES.map(id => ({
-    id,
-    text: '',
-  }));
-}
-
-function makePartDraft(
-  position: number,
-  type: ProblemType = 'short_answer'
-): PartDraft {
-  return {
-    type,
-    label: `(${position})`,
-    labelTouched: false,
-    fullMarks: '',
-    answerText: '',
-    choices: defaultDraftChoices(),
-    correctChoiceId: '',
-    multiCorrectText: '',
-    randomizeChoices: true,
-    useChoicePicker: true,
-    shortConfig: { mode: 'text', acceptable_answers: [] },
-    useAdvancedShort: false,
-  };
-}
-
-function draftFromPart(part: ProblemPart, position: number): PartDraft {
-  const draft = makePartDraft(position, part.type);
-  draft.label = part.label || `(${position})`;
-  draft.labelTouched = !!part.label && part.label !== `(${position})`;
-  draft.fullMarks =
-    part.full_marks !== undefined ? String(part.full_marks) : '';
-  draft.answerText = part.correct_answer || '';
-  const config = part.answer_config;
-  if (config?.type === 'mcq') {
-    draft.choices = config.choices;
-    draft.correctChoiceId = config.correct_choice_id;
-    draft.randomizeChoices = config.randomize_choices ?? true;
-  } else if (config?.type === 'multi_mcq') {
-    draft.choices = config.choices;
-    draft.multiCorrectText = config.correct_choice_ids.join('');
-    draft.randomizeChoices = config.randomize_choices ?? true;
-  } else if (config?.type === 'short') {
-    draft.useAdvancedShort = true;
-    draft.shortConfig =
-      config.mode === 'text'
-        ? { mode: 'text', acceptable_answers: config.acceptable_answers }
-        : {
-            mode: 'numeric',
-            numeric_config: {
-              correct_value: config.numeric_config.correct_value,
-              tolerance: config.numeric_config.tolerance,
-              unit: config.numeric_config.unit,
-            },
-          };
-  } else if (
-    (part.type === 'single_choice' || part.type === 'multi_choice') &&
-    part.correct_answer
-  ) {
-    // A choice part answered by plain text keeps the picker off on edit.
-    draft.useChoicePicker = false;
-  }
-  return draft;
-}
-
-/** Correct choice ids parsed from compact letters, limited to existing ids. */
-function multiIdsOf(draft: PartDraft): string[] {
-  const available = new Set(draft.choices.map(choice => choice.id));
-  return [
-    ...new Set(
-      draft.multiCorrectText
-        .toUpperCase()
-        .split('')
-        .map(letter => letter.trim())
-        .filter(letter => available.has(letter))
-    ),
-  ];
-}
-
-function buildDraftAnswerConfig(draft: PartDraft): AnswerConfig | null {
-  if (draft.type === 'single_choice' && draft.useChoicePicker) {
-    if (!draft.correctChoiceId) return null;
-    return {
-      type: 'mcq',
-      choices: draft.choices,
-      correct_choice_id: draft.correctChoiceId,
-      randomize_choices: draft.randomizeChoices,
-    };
-  }
-  if (draft.type === 'multi_choice' && draft.useChoicePicker) {
-    const ids = multiIdsOf(draft);
-    if (ids.length === 0) return null;
-    return {
-      type: 'multi_mcq',
-      choices: draft.choices,
-      correct_choice_ids: ids,
-      randomize_choices: draft.randomizeChoices,
-    };
-  }
-  if (
-    (draft.type === 'fill_blank' || draft.type === 'short_answer') &&
-    draft.useAdvancedShort
-  ) {
-    if (draft.shortConfig.mode === 'text') {
-      if (draft.shortConfig.acceptable_answers.length === 0) return null;
-      return {
-        type: 'short',
-        mode: 'text',
-        acceptable_answers: draft.shortConfig.acceptable_answers,
-      };
-    }
-    const nc = draft.shortConfig.numeric_config;
-    if (nc.correct_value === '' || nc.tolerance === '') return null;
-    return {
-      type: 'short',
-      mode: 'numeric',
-      numeric_config: {
-        correct_value: Number(nc.correct_value),
-        tolerance: Number(nc.tolerance),
-        unit: nc.unit || undefined,
-      },
-    };
-  }
-  return null;
-}
-
-function buildDraftAnswerText(draft: PartDraft): string {
-  if (draft.type === 'single_choice') {
-    return draft.useChoicePicker && draft.correctChoiceId
-      ? draft.correctChoiceId
-      : draft.answerText;
-  }
-  if (draft.type === 'multi_choice') {
-    if (draft.useChoicePicker) return multiIdsOf(draft).join('');
-    return draft.answerText;
-  }
-  if (draft.useAdvancedShort) {
-    if (draft.shortConfig.mode === 'text') {
-      return draft.shortConfig.acceptable_answers[0] || '';
-    }
-    if (draft.shortConfig.numeric_config.correct_value !== '') {
-      return String(draft.shortConfig.numeric_config.correct_value);
-    }
-    return '';
-  }
-  return draft.answerText;
-}
-
-/** After insert/remove: renumber every label the user never touched. */
-function renumberDrafts(drafts: PartDraft[]): PartDraft[] {
-  return drafts.map((draft, i) =>
-    draft.labelTouched ? draft : { ...draft, label: `(${i + 1})` }
-  );
-}
-
-// Auto-growing answer textarea: expands downward with content instead of
-// scrolling inside a fixed box (short-answer / essay reference answers).
-function AutoGrowTextarea({
-  value,
-  placeholder,
-  onValueChange,
-  disabled,
-}: {
-  value: string;
-  placeholder?: string;
-  onValueChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  const grow = (element: HTMLTextAreaElement | null) => {
-    if (!element) return;
-    element.style.height = 'auto';
-    element.style.height = `${element.scrollHeight}px`;
-  };
-  return (
-    <Textarea
-      ref={grow}
-      rows={2}
-      className="form-input min-h-[3.5rem] resize-none overflow-hidden"
-      placeholder={placeholder}
-      value={value}
-      maxLength={VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX}
-      onChange={e => {
-        onValueChange(e.target.value);
-        grow(e.currentTarget);
-      }}
-      disabled={disabled}
-    />
-  );
-}
-
-// One homogeneous editor card per part. showShellChrome hides the shell
-// affordances (position badge, label, remove) while the problem is a plain
-// single-part one, so simple problems keep the zero-ceremony flow.
-function PartEditorCard({
-  draft,
-  position,
-  showShellChrome,
-  disabled,
-  onPatch,
-  onRemove,
-}: {
-  draft: PartDraft;
-  position: number;
-  showShellChrome: boolean;
-  disabled: boolean;
-  onPatch: (patch: Partial<PartDraft>) => void;
-  onRemove: () => void;
-}) {
-  const t = useTranslations('Subjects');
-  const tProblems = useTranslations('Problems');
-  const isChoice =
-    draft.type === 'single_choice' || draft.type === 'multi_choice';
-  const isShortLike =
-    draft.type === 'fill_blank' || draft.type === 'short_answer';
-
-  return (
-    <div className="rounded-xl border border-blue-200/50 dark:border-blue-800/40 bg-white/50 dark:bg-gray-900/30 p-3 space-y-3">
-      {/* Header: position + label + type + marks + remove */}
-      <div className="flex flex-wrap items-center gap-2">
-        {showShellChrome && (
-          <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-            ({position})
-          </span>
-        )}
-        {showShellChrome && (
-          <Input
-            className="form-input w-20"
-            placeholder={tProblems('partLabelField')}
-            maxLength={16}
-            value={draft.label}
-            onChange={e =>
-              onPatch({ label: e.target.value, labelTouched: true })
-            }
-            disabled={disabled}
-          />
-        )}
-        <Select
-          value={draft.type}
-          onValueChange={value => onPatch({ type: value as ProblemType })}
-        >
-          <SelectTrigger className="w-36 rounded-xl">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PROBLEM_TYPE_VALUES.map(type => (
-              <SelectItem key={type} value={type}>
-                {tProblems(getProblemTypeDisplayName(type))}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          type="number"
-          className="form-input w-24"
-          placeholder={tProblems('fullMarksField')}
-          min={0}
-          max={150}
-          value={draft.fullMarks}
-          onChange={e => onPatch({ fullMarks: e.target.value })}
-          disabled={disabled}
-        />
-        {showShellChrome && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={onRemove}
-            disabled={disabled}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-
-      {/* Answer area, per type */}
-      {isChoice && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id={`part-${position}-picker`}
-                checked={draft.useChoicePicker}
-                onCheckedChange={checked =>
-                  onPatch({ useChoicePicker: checked })
-                }
-                disabled={disabled}
-              />
-              <Label
-                htmlFor={`part-${position}-picker`}
-                className="text-sm cursor-pointer"
-              >
-                {t('useChoicePicker')}
-              </Label>
-            </div>
-            {draft.useChoicePicker && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id={`part-${position}-randomize`}
-                  checked={draft.randomizeChoices}
-                  onCheckedChange={checked =>
-                    onPatch({ randomizeChoices: checked })
-                  }
-                  disabled={disabled}
-                />
-                <Label
-                  htmlFor={`part-${position}-randomize`}
-                  className="text-sm cursor-pointer"
-                >
-                  {t('randomizeChoices')}
-                </Label>
-              </div>
-            )}
-          </div>
-
-          {draft.useChoicePicker ? (
-            <MCQChoiceEditor
-              choices={draft.choices}
-              correctChoiceId={
-                draft.type === 'multi_choice' ? '' : draft.correctChoiceId
-              }
-              correctChoiceIds={
-                draft.type === 'multi_choice' ? multiIdsOf(draft) : undefined
-              }
-              onChoicesChange={choices => onPatch({ choices })}
-              onCorrectChoiceChange={
-                draft.type === 'multi_choice'
-                  ? choiceId => {
-                      // Toggle membership in the correct set (gaokao
-                      // multi-choice): click letters to mark them.
-                      const ids = multiIdsOf(draft);
-                      const next = ids.includes(choiceId)
-                        ? ids.filter(id => id !== choiceId)
-                        : [...ids, choiceId];
-                      onPatch({ multiCorrectText: next.join('') });
-                    }
-                  : correctChoiceId => onPatch({ correctChoiceId })
-              }
-              disabled={disabled}
-            />
-          ) : (
-            <div className="form-row">
-              <label className="form-label">{t('correctChoice')}</label>
-              <Input
-                className="form-input w-32"
-                placeholder={t('correctChoicePlaceholder')}
-                value={draft.answerText}
-                maxLength={VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX}
-                onChange={e => onPatch({ answerText: e.target.value })}
-                disabled={disabled}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {isShortLike && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Switch
-              id={`part-${position}-advanced`}
-              checked={draft.useAdvancedShort}
-              onCheckedChange={checked =>
-                onPatch({ useAdvancedShort: checked })
-              }
-              disabled={disabled}
-            />
-            <Label
-              htmlFor={`part-${position}-advanced`}
-              className="text-sm cursor-pointer"
-            >
-              {t('advancedMode')}
-            </Label>
-          </div>
-
-          {draft.useAdvancedShort ? (
-            <ShortAnswerConfig
-              value={draft.shortConfig}
-              onChange={shortConfig => onPatch({ shortConfig })}
-              disabled={disabled}
-            />
-          ) : draft.type === 'fill_blank' ? (
-            <div className="form-row">
-              <label className="form-label">{t('correctText')}</label>
-              <Input
-                className="form-input"
-                placeholder={t('correctTextPlaceholder')}
-                value={draft.answerText}
-                maxLength={VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX}
-                onChange={e => onPatch({ answerText: e.target.value })}
-                disabled={disabled}
-              />
-            </div>
-          ) : (
-            <div className="form-row-start">
-              <label className="form-label pt-2">{t('correctText')}</label>
-              <AutoGrowTextarea
-                value={draft.answerText}
-                placeholder={t('correctTextPlaceholder')}
-                onValueChange={answerText => onPatch({ answerText })}
-                disabled={disabled}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Essay parts: a reference answer / worked solution, self-assessed at
-          review time. */}
-      {draft.type === 'essay' && (
-        <div className="form-row-start">
-          <label className="form-label pt-2">
-            {tProblems('partAnswerField')}
-          </label>
-          <AutoGrowTextarea
-            value={draft.answerText}
-            placeholder={tProblems('essayAnswerPlaceholder')}
-            onValueChange={answerText => onPatch({ answerText })}
-            disabled={disabled}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
+import {
+  buildDraftAnswerConfig,
+  buildDraftAnswerText,
+  draftFromPart,
+  makePartDraft,
+  renumberDrafts,
+  validatePartDrafts,
+  type PartDraft,
+} from '@/lib/problem-form/model';
+import { PartEditorCard } from '@/components/problems/part-editor-card';
 
 export default function ProblemForm({
   subjectId,
@@ -937,47 +483,24 @@ export default function ProblemForm({
       return;
     }
 
-    // Per-part validation; error messages carry the part label when the
-    // shell has more than one part.
-    for (let i = 0; i < parts.length; i++) {
-      const draft = parts[i];
+    // Per-part validation through the shared model; error messages carry
+    // the part label when the shell has more than one part.
+    const issues = validatePartDrafts(parts);
+    if (issues.length > 0) {
+      const first = issues[0];
+      const draft = parts[first.partIndex];
       const prefix =
-        parts.length > 1 ? `${draft.label.trim() || `(${i + 1})`} ` : '';
-      if (
-        draft.type === 'single_choice' &&
-        draft.useChoicePicker &&
-        !draft.correctChoiceId
-      ) {
-        toast.error(prefix + t('correctChoiceRequired'));
-        return;
-      }
-      if (
-        draft.type === 'multi_choice' &&
-        draft.useChoicePicker &&
-        multiIdsOf(draft).length === 0
-      ) {
-        toast.error(prefix + t('correctChoiceRequired'));
-        return;
-      }
-      if (
-        (draft.type === 'fill_blank' || draft.type === 'short_answer') &&
-        draft.useAdvancedShort
-      ) {
-        if (
-          draft.shortConfig.mode === 'text' &&
-          draft.shortConfig.acceptable_answers.length === 0
-        ) {
-          toast.error(prefix + t('addAtLeastOneAnswer'));
-          return;
-        }
-        if (draft.shortConfig.mode === 'numeric') {
-          const nc = draft.shortConfig.numeric_config;
-          if (nc.correct_value === '' || nc.tolerance === '') {
-            toast.error(prefix + t('fillCorrectValueAndTolerance'));
-            return;
-          }
-        }
-      }
+        parts.length > 1
+          ? `${draft.label.trim() || `(${first.partIndex + 1})`} `
+          : '';
+      const issueKey =
+        first.kind === 'correct_choice_required'
+          ? 'correctChoiceRequired'
+          : first.kind === 'answer_required'
+            ? 'addAtLeastOneAnswer'
+            : 'fillCorrectValueAndTolerance';
+      toast.error(prefix + t(issueKey));
+      return;
     }
 
     setIsSubmitting(true);
