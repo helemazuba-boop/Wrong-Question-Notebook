@@ -825,6 +825,20 @@ export default function ProblemForm({
     };
   }, [problemUuid, cleanupUnsavedProblem]);
 
+  // Single renderer for the scan intake; the collapsed and expanded create
+  // modes differ only in what "cancel" means (hide scanner vs close form).
+  const renderScanUploader = (onCancelAction: () => void) => (
+    <ImageScanUploader
+      subjectId={subjectId}
+      onExtracted={handleExtractionComplete}
+      onCancel={onCancelAction}
+      quota={extractionQuota}
+      onQuotaChange={setExtractionQuota}
+      onBatchImported={() => router.refresh()}
+      problemSetId={problemSetId}
+    />
+  );
+
   // If not expanded (create mode only), show the two entry buttons + optional scanner
   if (!isExpanded && !isEditMode && !alwaysExpanded) {
     return (
@@ -853,17 +867,7 @@ export default function ProblemForm({
             </Button>
           </div>
         )}
-        {showImageScan && (
-          <ImageScanUploader
-            subjectId={subjectId}
-            onExtracted={handleExtractionComplete}
-            onCancel={() => setShowImageScan(false)}
-            quota={extractionQuota}
-            onQuotaChange={setExtractionQuota}
-            onBatchImported={() => router.refresh()}
-            problemSetId={problemSetId}
-          />
-        )}
+        {showImageScan && renderScanUploader(() => setShowImageScan(false))}
       </div>
     );
   }
@@ -871,17 +875,7 @@ export default function ProblemForm({
   // When alwaysExpanded + initialShowImageScan, show scanner instead of form
   if (alwaysExpanded && !isEditMode && showImageScan) {
     return (
-      <div className="space-y-3">
-        <ImageScanUploader
-          subjectId={subjectId}
-          onExtracted={handleExtractionComplete}
-          onCancel={() => onCancel?.()}
-          quota={extractionQuota}
-          onQuotaChange={setExtractionQuota}
-          onBatchImported={() => router.refresh()}
-          problemSetId={problemSetId}
-        />
-      </div>
+      <div className="space-y-3">{renderScanUploader(() => onCancel?.())}</div>
     );
   }
 

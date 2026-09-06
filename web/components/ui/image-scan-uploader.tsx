@@ -28,7 +28,6 @@ import { ProblemIngestionWorkspacePanel } from '@/components/ui/problem-ingestio
 import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
 import { getProblemTypeDisplayName } from '@/lib/common-utils';
-import { parsePastedExtraction } from '@/lib/problem-extraction';
 import { parseProblemIngestion } from '@/lib/problem-ingestion';
 import type { ProblemIngestionWorkspaceSummary } from '@/lib/problem-ingestion-workspace-contract';
 import type {
@@ -582,38 +581,6 @@ export function ImageScanUploader({
       }
       return;
     }
-    const parsed = parsePastedExtraction(pasteText);
-    if (!parsed.ok) {
-      // Both formats failed. The v1 ingestion result is the authoritative
-      // diagnosis (it saw the JSON the external model actually produced);
-      // the legacy fallback error would only describe the old shape.
-      setPasteError(
-        ingestion.error === 'invalid_json'
-          ? t('pasteInvalidJson', { detail: ingestion.detail })
-          : t('pasteSchemaMismatch', { detail: ingestion.detail })
-      );
-      return;
-    }
-    setPasteError(null);
-    setSelectedCandidateIndex(0);
-    const firstPart = parsed.data.parts[0];
-    const data: ExtractedProblemData = {
-      title: parsed.data.title,
-      content: parsed.data.content,
-      parts: parsed.data.parts,
-      suggest_image_asset: parsed.data.suggest_image_asset,
-      confidence: parsed.data.confidence,
-      suggested_tags: {
-        existing: [],
-        new: parsed.data.new_tag_names.map(name => ({ name })),
-      },
-      // Legacy mirror keeps the shared result preview logic simple.
-      problem_type: firstPart.type,
-      mcq_choices: firstPart.mcq_choices,
-      answer_hint: firstPart.answer_hint,
-    };
-    setExtractionResult(data);
-    setState('result');
   }, [pasteText, refreshResumableWorkspaces, subjectId, t]);
 
   const copyIngestionPrompt = useCallback(async () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import ProblemForm from './problem-form';
+import ProblemForm from '@/components/problems/problem-form';
 import EnhancedProblemsTable from './enhanced-problems-table';
 import StatsStrip from './stats-strip';
 import EmptyState from './empty-state';

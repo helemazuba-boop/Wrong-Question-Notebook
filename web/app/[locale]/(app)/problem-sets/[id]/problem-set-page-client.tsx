@@ -40,7 +40,7 @@ import { useReviewSession } from '@/lib/hooks/useReviewSession';
 import { appendFromParam } from '@/lib/navigation-context';
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/api-utils';
-import ProblemForm from '../../subjects/[id]/problems/problem-form';
+import ProblemForm from '@/components/problems/problem-form';
 
 export default function ProblemSetPageClient({
   initialProblemSet,
