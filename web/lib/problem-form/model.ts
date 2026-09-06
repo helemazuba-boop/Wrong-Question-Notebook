@@ -13,11 +13,7 @@
 
 import type { ProblemType } from '@/lib/schemas';
 import { ANSWER_CONFIG_CONSTANTS } from '@/lib/constants';
-import type {
-  MCQChoice,
-  AnswerConfig,
-  ProblemPart,
-} from '@/lib/types';
+import type { MCQChoice, AnswerConfig, ProblemPart } from '@/lib/types';
 import type { ShortAnswerConfigValue } from '@/components/ui/short-answer-config';
 
 export interface PartDraft {
@@ -41,9 +37,7 @@ export interface PartDraft {
 
 /** Why a part draft cannot be submitted yet. */
 export type PartDraftIssueKind =
-  | 'correct_choice_required'
-  | 'answer_required'
-  | 'numeric_incomplete';
+  'correct_choice_required' | 'answer_required' | 'numeric_incomplete';
 
 export interface PartDraftIssue {
   partIndex: number;

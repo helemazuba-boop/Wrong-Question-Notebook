@@ -61,6 +61,36 @@ const eslintConfig = [
     },
   },
   {
+    // UI convergence guard rails (see CONTRIBUTING.md, "UI 约定").
+    // No server component under app/[locale] uses fetch today (they read
+    // via services), so this only flags client-side call sites.
+    files: ['app/[locale]/**/*.tsx', 'components/**/*.tsx'],
+    rules: {
+      // Browser→API requests must go through lib/api-client.ts so envelope
+      // unwrapping and error normalization stay in one place. Warning while
+      // the existing call sites migrate; tighten to 'error' as they convert.
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "CallExpression[callee.name='fetch']",
+          message:
+            'Use lib/api-client.ts (apiGet/apiPost/…) instead of bare fetch in UI code.',
+        },
+      ],
+    },
+  },
+  {
+    // New UI primitives must stay composable; the known oversized files
+    // warn until they are split (refactor plan M2c).
+    files: ['components/**/*.tsx'],
+    rules: {
+      'max-lines': [
+        'warn',
+        { max: 300, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
+  {
     ignores: [
       'node_modules/**',
       '.next/**',

@@ -131,6 +131,24 @@ npm run prepush
 
 This runs, in order: auto-fix formatting → type-check → lint → format-check → tests → production build. If any step fails, fix the issue before pushing.
 
+## UI 约定
+
+UI 的长期可靠性来自三条纪律。改动 UI 前请先读本节；违反这些约定的 PR 会被要求返工。
+
+### 1. 替换式迭代:新实现落地,旧实现必须删除
+
+迭代一个功能时,如果引入了新一代实现(组件、解析器、路由、入口),同一个 PR 必须删除被替代的旧实现。历史教训:录题链路曾有五代入口并存、两套 QR 上传流程、三代数据模型——每一次"先留着旧的"都在为下一次迭代增加理解成本。判断标准:合入后 `grep` 不到旧实现的调用方,而不是"以后再删"。
+
+### 2. 三个收敛层:数据、反馈、入口
+
+- **数据层**:浏览器侧请求一律走 `lib/api-client.ts`(`apiGet/apiPost/…`)+ `lib/queries/` 的资源 hooks(TanStack Query)。组件内不允许裸 `fetch`(ESLint 会警告)。错误统一是 `ApiError { status, code, details }`;需要本地化文案时用 `lib/error-codes.ts` 的 code→key 映射。
+- **反馈层**:对话框表单用 `ui/form-dialog`,按钮 pending 态用 `ui/async-button`,内容区加载用 `ui/skeleton`,确认弹窗用 `ui/confirmation-dialog`(Radix)。toast 只有 sonner 一种;loading/error 不允许每个组件自造写法。
+- **样式层**:主题 token 定义在 `app/globals.css` 的 `@theme inline`(无 tailwind.config)。UI 组件优先用语义 token(`bg-background`/`text-muted-foreground`);改 token 时跑 `scripts/compile-css-probe.mjs` 验证编译结果。
+
+### 3. 尺寸上限
+
+`components/` 下的文件软上限 300 行(ESLint 警告)。超限通常意味着数据获取、状态、渲染混在一起:把纯逻辑抽到 `lib/` 可测模块,把子视图抽成组件。`problem-form` 的拆分(`lib/problem-form/model.ts` + `components/problems/part-editor-card.tsx`)是参照样板。
+
 ## Available Scripts
 
 Run from `web/`:
