@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "ws": "^8.21.3",
-    "@supabase/supabase-js": "^2.112.4",
+    "@supabase/supabase-js": "^2.115.0",
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
