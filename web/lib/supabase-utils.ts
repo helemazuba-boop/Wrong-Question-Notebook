@@ -120,6 +120,76 @@ export async function handleDatabaseCountOperation(
 }
 
 // =====================================================
+// Retryable Auth Failure Helpers
+// =====================================================
+
+/**
+ * PostgREST codes meaning "this session token was unusable right now" rather
+ * than "this caller may not read this row": they are raised before a policy
+ * is ever evaluated.
+ *
+ * `PGRST303` ("JWT issued at future") is the one observed in production: the
+ * token GoTrue handed out carried an `iat` that PostgREST had not reached
+ * yet. The burst is sub-second wide -- the request logged one millisecond
+ * later against the same URL succeeded -- but anything that reads it as a
+ * denial serves a user-visible failure out of that instant.
+ */
+const RETRYABLE_AUTH_ERROR_CODES = new Set(['PGRST301', 'PGRST303']);
+
+/**
+ * True when `error` is a PostgREST rejection of the caller's session token
+ * that is expected to clear on its own.
+ */
+export function isRetryableAuthError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === 'string' && RETRYABLE_AUTH_ERROR_CODES.has(code);
+}
+
+/**
+ * Run a Supabase query, retrying once if it failed with a retryable auth
+ * error. The second attempt still returns its own result, so a caller that
+ * needs to distinguish "denied" from "unavailable" can do so unchanged.
+ */
+export async function retryOnAuthFailure<T = any>(
+  query: () => Promise<T>,
+  delayMs = 120
+): Promise<T> {
+  const first = await query();
+  const error = (first as { error?: unknown } | null | undefined)?.error;
+  if (!isRetryableAuthError(error)) {
+    return first;
+  }
+
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+  return query();
+}
+
+/**
+ * Wrap a session-token rejection as a throwable `Error`, preserving the
+ * PostgREST code so callers can still tell the two apart.
+ *
+ * Callers throw instead of returning their "not found" sentinel because the
+ * page-level loaders memoise with `unstable_cache`: returning the sentinel
+ * would make one sub-second blip authoritative for the whole revalidate
+ * window, which is what turned it into a failure the user could not reload
+ * away. A thrown error caches nothing and retries on the next request.
+ */
+export function toAuthUnavailableError(error: unknown): Error {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : String(
+          (error as { message?: unknown } | null | undefined)?.message ?? error
+        );
+  const wrapped = new Error(`Supabase session token rejected: ${detail}`);
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  if (typeof code === 'string') {
+    (wrapped as Error & { code?: string }).code = code;
+  }
+  return wrapped;
+}
+
+// =====================================================
 // Query Building Helpers
 // =====================================================
 
