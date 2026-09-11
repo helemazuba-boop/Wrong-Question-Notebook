@@ -48,6 +48,31 @@ export function guidedRandomBucket(
   return candidate.status === 'learning' ? 0 : 1;
 }
 
+// Guided random reserves part of every session for words the user has never
+// seen. Buckets 0 (learning, due) and 1 (review, due) sort ahead of bucket 2
+// (new), so once a backlog of overdue words reaches the session size the pool
+// is entirely backlog and the device serves the same words forever -- the user
+// never reaches a new word no matter how many rounds they study.
+export const WORD_STUDY_DUE_NOW_SHARE = 0.6;
+
+export function capDueNowCandidates(
+  candidates: readonly WordStudyCandidate[],
+  nowMs: number,
+  outputLimit: number
+): WordStudyCandidate[] {
+  const maxDueNow = Math.floor(outputLimit * WORD_STUDY_DUE_NOW_SHARE);
+  const kept: WordStudyCandidate[] = [];
+  let dueNowKept = 0;
+  for (const candidate of candidates) {
+    if (guidedRandomBucket(candidate, nowMs) <= 1) {
+      if (dueNowKept >= maxDueNow) continue;
+      dueNowKept += 1;
+    }
+    kept.push(candidate);
+  }
+  return kept;
+}
+
 /**
  * The firmware orders text with std::string/strcmp, i.e. by UTF-8 bytes.
  * TextEncoder makes the cloud comparator explicit and avoids JavaScript's

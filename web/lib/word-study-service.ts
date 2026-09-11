@@ -9,6 +9,7 @@ import {
   loadVisibleWordPackDecksByIds,
 } from './word-packs';
 import {
+  capDueNowCandidates,
   orderWordStudyCandidates,
   type CandidateProgressStatus,
   type WordStudyCandidate,
@@ -200,6 +201,11 @@ async function collectCandidates(
       nowMs,
       outputLimit
     );
+    // Only guided random mixes by urgency; sequential/lexicographic are
+    // explicit browse choices and must stay a faithful walk of the scope.
+    if (ordering === 'guided_random_v1') {
+      pool = capDueNowCandidates(pool, nowMs, outputLimit);
+    }
 
     if (entries.length < CANDIDATE_PAGE_SIZE) break;
   }
