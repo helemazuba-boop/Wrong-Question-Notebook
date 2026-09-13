@@ -49,6 +49,11 @@ export default function PrintDialog({
     };
     window.addEventListener('afterprint', cleanup, { once: true });
 
+    if (window.WQNAndroid?.print?.(document.title)) {
+      setOpen(false);
+      return;
+    }
+
     window.print();
     setOpen(false);
   };

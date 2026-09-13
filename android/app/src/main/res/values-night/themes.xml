@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark variant of Theme.Wqn: light status-bar icons, dark window background.
+         uiMode is deliberately NOT in android:configChanges, so toggling system
+         dark mode recreates the activity and re-resolves these resources. -->
+    <style name="Theme.Wqn" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

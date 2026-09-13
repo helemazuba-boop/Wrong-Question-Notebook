@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cn.helema.wqn",
+      "sha256_cert_fingerprints": [
+        "3C:8E:42:29:84:33:D6:A6:45:10:2C:9F:49:36:60:AC:D3:0B:A7:6D:50:2F:56:FC:56:E4:D4:09:F3:7A:67:3F"
+      ]
+    }
+  }
+]

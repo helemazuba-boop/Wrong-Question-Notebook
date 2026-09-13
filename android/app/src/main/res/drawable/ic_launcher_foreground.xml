@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Adaptive icon safe zone is the centre 66dp of a 108dp canvas; keep the
+         glyph inside a radius of ~8/12 of the viewport. -->
+    <path
+        android:pathData="M5,8 L8.5,17 L12,11.5 L15.5,17 L19,8"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
