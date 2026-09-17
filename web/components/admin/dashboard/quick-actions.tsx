@@ -1,5 +1,12 @@
 import { Link } from '@/i18n/navigation';
-import { Users, Settings, Activity, Megaphone, ArrowRight } from 'lucide-react';
+import {
+  Users,
+  Settings,
+  Activity,
+  Megaphone,
+  Tags,
+  ArrowRight,
+} from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 
 const actions = [
@@ -34,6 +41,14 @@ const actions = [
     icon: Settings,
     color: 'text-purple-600 dark:text-purple-400',
     bg: 'bg-purple-500/10 dark:bg-purple-500/20',
+  },
+  {
+    title: 'Problem Marks',
+    description: 'Annotation queue health',
+    href: ROUTES.ADMIN.PROBLEM_MARKS,
+    icon: Tags,
+    color: 'text-rose-600 dark:text-rose-400',
+    bg: 'bg-rose-500/10 dark:bg-rose-500/20',
   },
 ];
 

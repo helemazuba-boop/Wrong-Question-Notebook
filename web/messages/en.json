@@ -645,7 +645,16 @@
     "essayAnswerPlaceholder": "Reference answer / worked solution (optional; self-assessed at review)",
     "initialIdeaLabel": "What you first thought (optional)",
     "initialIdeaDescription": "Keep your own words from when you first saw the problem. This is private reflection evidence and never changes the problem's objective knowledge classification.",
-    "initialIdeaPlaceholder": "For example: I tried completing the square first, but did not know how to continue after the substitution…"
+    "initialIdeaPlaceholder": "For example: I tried completing the square first, but did not know how to continue after the substitution…",
+    "marksTitle": "What this problem needs",
+    "marksTarget": "Target",
+    "marksRequired": "Required",
+    "marksKnowledge": "Knowledge",
+    "marksSkill": "Skills",
+    "marksPending": "Still analysing this problem.",
+    "marksEmpty": "No marks assigned yet.",
+    "marksAi": "AI",
+    "marksYours": "Yours"
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",
@@ -1241,7 +1250,24 @@
     "showBannerDesc": "Show the announcement banner across the app",
     "to": "To",
     "toDate": "To Date",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "problemMarkQueue": "Problem Mark queue",
+    "problemMarkQueueDesc": "Annotation queue health: how many are stuck, and why.",
+    "statusBreakdown": "Status breakdown",
+    "errorBreakdown": "Error codes",
+    "oldestPending": "Oldest pending age",
+    "stuckTotal": "Abandoned or exhausted",
+    "recentFailures": "Recent failures",
+    "enqueueFailures": "Enqueue failures",
+    "requeueAll": "Requeue all",
+    "requeueAllConfirm": "Requeue every unfinished annotation? This re-runs them all and costs provider calls.",
+    "requeueDone": "Requeued",
+    "requeueFailed": "Requeue failed",
+    "noFailures": "Nothing here.",
+    "unknownError": "Unknown",
+    "requeue": "Requeue",
+    "refresh": "Refresh",
+    "attemptCount": "attempts"
   },
   "CookieConsent": {
     "weValuePrivacy": "We value your privacy",

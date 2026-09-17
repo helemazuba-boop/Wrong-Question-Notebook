@@ -645,7 +645,16 @@
     "essayAnswerPlaceholder": "参考答案 / 解题过程（可选，复习时自评）",
     "initialIdeaLabel": "当时的想法（可选）",
     "initialIdeaDescription": "保存你第一次看到这道题时的原话。它只用于个人回顾和归因，不参与题目的客观知识归类。",
-    "initialIdeaPlaceholder": "例如：我先尝试了配方法，但在换元后不知道如何继续……"
+    "initialIdeaPlaceholder": "例如：我先尝试了配方法，但在换元后不知道如何继续……",
+    "marksTitle": "这道题需要什么",
+    "marksTarget": "目标",
+    "marksRequired": "需要",
+    "marksKnowledge": "知识点",
+    "marksSkill": "方法",
+    "marksPending": "仍在分析这道题。",
+    "marksEmpty": "尚未标注。",
+    "marksAi": "AI",
+    "marksYours": "你的"
   },
   "ProblemSets": {
     "title": "错题本",
@@ -1241,7 +1250,24 @@
     "showBannerDesc": "在应用中显示公告横幅",
     "to": "到",
     "toDate": "结束日期",
-    "unknown": "未知"
+    "unknown": "未知",
+    "problemMarkQueue": "题目标注队列",
+    "problemMarkQueueDesc": "标注队列健康状况：有多少卡住，以及原因。",
+    "statusBreakdown": "状态分布",
+    "errorBreakdown": "错误码",
+    "oldestPending": "最久未处理时长",
+    "stuckTotal": "已终止或重试耗尽",
+    "recentFailures": "最近的失败",
+    "enqueueFailures": "入队失败",
+    "requeueAll": "全部重新入队",
+    "requeueAllConfirm": "重新入队所有未完成的标注？这会全部重跑并产生模型调用成本。",
+    "requeueDone": "已重新入队",
+    "requeueFailed": "重新入队失败",
+    "noFailures": "暂无记录。",
+    "unknownError": "未知",
+    "requeue": "重新入队",
+    "refresh": "刷新",
+    "attemptCount": "重试次数"
   },
   "CookieConsent": {
     "weValuePrivacy": "我们重视你的隐私",
