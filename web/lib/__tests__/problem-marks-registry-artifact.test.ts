@@ -99,4 +99,13 @@ describe('Knowledge Registry artifact consumer', () => {
       parseKnowledgeRegistryArtifactText(`${JSON.stringify(value)}\n`)
     ).toThrow();
   });
+
+  it('rejects an artifact with no marks instead of syncing an empty Registry', () => {
+    const value = JSON.parse(artifactText());
+    value.marks = [];
+    const text = `${JSON.stringify(value)}\n`;
+    expect(() => verifyKnowledgeRegistryArtifact(lock(text), text)).toThrow(
+      'contains no marks'
+    );
+  });
 });

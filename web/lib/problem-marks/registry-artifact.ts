@@ -93,11 +93,21 @@ export const KnowledgeRegistryArtifactSchema = z
     }
   });
 
+// The published Skill retrieval profiles. Switching profile is a lock change,
+// not a code change: the protocol selects the wire shape, and everything
+// identity-bearing is pinned by the lock hashes.
+export const SKILL_RETRIEVAL_PROTOCOLS = [
+  'dashscope-qwen37-native-v1',
+  'nvidia-query-passage-v1',
+] as const;
+
+export const skillRetrievalProtocolSchema = z.enum(SKILL_RETRIEVAL_PROTOCOLS);
+
 export const SkillRetrievalLockSchema = z
   .object({
-    profile_id: z.literal('skill-rag-qwen37-v1'),
+    profile_id: nonBlankSchema,
     profile_fingerprint: revisionSchema,
-    provider_protocol: z.literal('dashscope-qwen37-native-v1'),
+    provider_protocol: skillRetrievalProtocolSchema,
     representation_revision: revisionSchema,
     artifact_url: z
       .string()
@@ -179,6 +189,12 @@ export function verifyKnowledgeRegistryArtifact(
   }
   if (parsed.contentSha256 !== lock.content_sha256) {
     throw new Error('Knowledge Registry content hash does not match the lock');
+  }
+  // An empty Registry is almost always a mistake, not a valid state: syncing it
+  // would leave every Subject with no candidates and every annotation would
+  // short-circuit as registry_empty with no visible cause.
+  if (parsed.artifact.marks.length === 0) {
+    throw new Error('Knowledge Registry artifact contains no marks');
   }
   return parsed.artifact;
 }

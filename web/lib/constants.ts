@@ -270,6 +270,7 @@ export const ROUTES = {
     ACTIVITY: '/admin/activity',
     SETTINGS: '/admin/settings',
     ANNOUNCEMENTS: '/admin/announcements',
+    PROBLEM_MARKS: '/admin/problem-marks',
   },
   SUBJECTS: '/subjects',
   HOME: '/',

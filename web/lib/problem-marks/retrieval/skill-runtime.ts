@@ -3,7 +3,7 @@ import 'server-only';
 import { readFile } from 'node:fs/promises';
 import type { KnowledgeRegistryLock } from '@/lib/problem-marks/registry-artifact';
 import { parseSkillRetrievalArtifact } from './skill-artifact';
-import { createDashScopeEmbeddingProvider } from './embedding-provider';
+import { createEmbeddingProvider } from './embedding-provider';
 import type { SkillRetrievalRuntime } from './skill-retriever';
 
 async function fetchText(url: string): Promise<string> {
@@ -51,6 +51,6 @@ export async function loadSkillRetrievalRuntime(
     lock: lock.skill_retrieval,
     artifact,
     manifest,
-    provider: createDashScopeEmbeddingProvider(artifact.embedding_profile),
+    provider: createEmbeddingProvider(artifact.embedding_profile),
   };
 }

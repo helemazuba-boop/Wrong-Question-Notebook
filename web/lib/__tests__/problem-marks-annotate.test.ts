@@ -86,7 +86,7 @@ function context(overrides: Record<string, unknown> = {}) {
 
 function makeSupabase(
   contextValue = context(),
-  opts: { renewStale?: boolean } = {}
+  opts: { renewStale?: boolean; attemptCount?: number } = {}
 ) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
@@ -98,7 +98,7 @@ function makeSupabase(
           semantic_revision: 2,
           lease_token: LEASE_TOKEN,
           lease_until: '2026-08-11T01:02:03.000Z',
-          attempt_count: 1,
+          attempt_count: opts.attemptCount ?? 1,
         },
         error: null,
       };
@@ -337,20 +337,23 @@ describe('Problem Mark annotator', () => {
       'transient provider error',
       () => new EmbeddingProviderTransientError('boom'),
       'SKILL_RETRIEVAL_TRANSIENT',
+      false,
     ],
     [
       'contract violation',
       () => new EmbeddingProviderContractError('boom'),
       'SKILL_RETRIEVAL_CONTRACT',
+      true,
     ],
     [
       'retriever contract error',
       () => new SkillRetrievalError('SKILL_RETRIEVAL_CONTRACT', 'boom'),
       'SKILL_RETRIEVAL_CONTRACT',
+      true,
     ],
   ])(
     'fails the run without calling the model on %s',
-    async (_, makeError, code) => {
+    async (_, makeError, code, terminal) => {
       const db = makeSupabase();
       const retrieve = vi.fn(async () => {
         throw makeError();
@@ -376,6 +379,9 @@ describe('Problem Mark annotator', () => {
           p_run_id: RUN_ID,
           p_lease_token: LEASE_TOKEN,
           p_error_code: code,
+          // Contract violations cannot resolve by retrying, so they abandon the
+          // annotation instead of holding a claim slot.
+          p_terminal: terminal,
         },
       });
     }
@@ -589,7 +595,42 @@ describe('Problem Mark annotator', () => {
         // reported with the rotated (current) lease token, not the original.
         p_lease_token: '44444444-4444-4444-8444-444444444444',
         p_error_code: 'PROBLEM_MARK_PROVIDER_ERROR',
+        p_terminal: false,
       },
     });
   });
+
+  // A completion that does not parse is usually one bad response, so it keeps a
+  // small retry budget instead of being abandoned on the first attempt.
+  it.each([
+    [1, false],
+    [2, false],
+    [3, true],
+  ])(
+    'reports terminal=%s for an unparseable model response on attempt %i',
+    async (attemptCount, terminal) => {
+      const db = makeSupabase(context(), { attemptCount });
+      const retrieve = fakeRetrieve();
+      const ai = {
+        generateContent: vi.fn().mockResolvedValue({ text: 'not json' }),
+      } as unknown as AIClient;
+
+      await expect(
+        annotateProblemMarks(db.supabase, PROBLEM_ID, {
+          aiClient: ai,
+          lock,
+          skillRetrieve: retrieve,
+        })
+      ).resolves.toEqual({
+        status: 'failed',
+        assignments: 0,
+        unresolved: 0,
+        error_code: 'INVALID_MODEL_OUTPUT',
+      });
+      expect(db.calls.at(-1)).toMatchObject({
+        name: 'fail_problem_mark_annotation_run',
+        args: { p_error_code: 'INVALID_MODEL_OUTPUT', p_terminal: terminal },
+      });
+    }
+  );
 });

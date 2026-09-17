@@ -11,6 +11,20 @@ export interface EmbeddingProvider {
   embed(texts: string[], role: EmbeddingRole): Promise<number[][]>;
 }
 
+export interface EmbeddingProviderOptions {
+  endpoint?: string;
+  token?: string;
+}
+
+type DashscopeProfile = Extract<
+  SkillRetrievalProfile,
+  { provider_protocol: 'dashscope-qwen37-native-v1' }
+>;
+type NvidiaProfile = Extract<
+  SkillRetrievalProfile,
+  { provider_protocol: 'nvidia-query-passage-v1' }
+>;
+
 function assertTexts(texts: string[]): void {
   if (
     texts.length === 0 ||
@@ -22,8 +36,10 @@ function assertTexts(texts: string[]): void {
   }
 }
 
-function requestBody(
-  profile: SkillRetrievalProfile,
+// DashScope nests the input and carries protocol knobs under `parameters`;
+// rows come back as `output.embeddings[]` keyed by `text_index`.
+function dashscopeBody(
+  profile: DashscopeProfile,
   texts: string[],
   role: EmbeddingRole
 ): Record<string, unknown> {
@@ -43,23 +59,43 @@ function requestBody(
   };
 }
 
-function decodeEmbeddings(payload: unknown, expectedRows: number): number[][] {
+// NVIDIA NIM follows the OpenAI embeddings shape: a flat `input` array and rows
+// under `data[]`. There is no `instruct`; `input_type` carries the role.
+function nvidiaBody(
+  profile: NvidiaProfile,
+  texts: string[],
+  role: EmbeddingRole
+): Record<string, unknown> {
+  const contract =
+    role === 'document' ? profile.document_contract : profile.query_contract;
+  return {
+    model: profile.model,
+    input: texts,
+    input_type: contract.input_type,
+    truncate: contract.truncate,
+    encoding_format: profile.encoding_format,
+  };
+}
+
+// The two protocols name the row position differently — DashScope returns
+// `text_index`, NVIDIA NIM returns `index` — but both carry the vector as
+// `embedding`.
+interface IndexedRow {
+  embedding: unknown;
+}
+
+function extractRows(
+  payload: unknown,
+  expectedRows: number,
+  readRows: (payload: Record<string, unknown>) => unknown,
+  indexKey: 'text_index' | 'index'
+): number[][] {
   if (!payload || typeof payload !== 'object') {
     throw new EmbeddingProviderContractError(
       'Embedding provider returned malformed JSON'
     );
   }
-  const response = payload as {
-    status_code?: unknown;
-    output?: { embeddings?: unknown };
-  };
-  const statusCode = response.status_code ?? 200;
-  if (statusCode !== 200) {
-    throw new EmbeddingProviderContractError(
-      'Embedding provider rejected the request'
-    );
-  }
-  const rows = response.output?.embeddings;
+  const rows = readRows(payload as Record<string, unknown>);
   if (!Array.isArray(rows)) {
     throw new EmbeddingProviderContractError(
       'Embedding provider returned malformed JSON'
@@ -72,8 +108,8 @@ function decodeEmbeddings(payload: unknown, expectedRows: number): number[][] {
         'Embedding provider returned a malformed row'
       );
     }
-    const index = (row as { text_index?: unknown }).text_index;
-    const vector = (row as { embedding?: unknown }).embedding;
+    const { embedding: vector } = row as IndexedRow;
+    const index = (row as Record<string, unknown>)[indexKey];
     if (
       typeof index !== 'number' ||
       !Number.isInteger(index) ||
@@ -106,6 +142,51 @@ function decodeEmbeddings(payload: unknown, expectedRows: number): number[][] {
   });
 }
 
+function dashscopeDecode(payload: unknown, expectedRows: number): number[][] {
+  const response = payload as { status_code?: unknown };
+  const statusCode = response?.status_code ?? 200;
+  if (statusCode !== 200) {
+    throw new EmbeddingProviderContractError(
+      'Embedding provider rejected the request'
+    );
+  }
+  return extractRows(
+    payload,
+    expectedRows,
+    value => (value.output as { embeddings?: unknown } | undefined)?.embeddings,
+    'text_index'
+  );
+}
+
+function nvidiaDecode(payload: unknown, expectedRows: number): number[][] {
+  return extractRows(
+    payload,
+    expectedRows,
+    value => (value as { data?: unknown }).data,
+    'index'
+  );
+}
+
+interface Wire {
+  body: (texts: string[], role: EmbeddingRole) => Record<string, unknown>;
+  decode: (payload: unknown, expectedRows: number) => number[][];
+}
+
+function wireFor(profile: SkillRetrievalProfile): Wire {
+  switch (profile.provider_protocol) {
+    case 'dashscope-qwen37-native-v1':
+      return {
+        body: (texts, role) => dashscopeBody(profile, texts, role),
+        decode: dashscopeDecode,
+      };
+    case 'nvidia-query-passage-v1':
+      return {
+        body: (texts, role) => nvidiaBody(profile, texts, role),
+        decode: nvidiaDecode,
+      };
+  }
+}
+
 function normalize(vector: number[], dimension: number): number[] {
   if (vector.length !== dimension) {
     throw new EmbeddingProviderContractError(
@@ -127,11 +208,11 @@ function normalize(vector: number[], dimension: number): number[] {
 }
 
 async function requestOnce(
-  profile: SkillRetrievalProfile,
   endpoint: string,
   token: string,
-  texts: string[],
-  role: EmbeddingRole
+  body: Record<string, unknown>,
+  decode: (payload: unknown, expectedRows: number) => number[][],
+  expectedRows: number
 ): Promise<number[][]> {
   let response: Response;
   try {
@@ -141,7 +222,7 @@ async function requestOnce(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody(profile, texts, role)),
+      body: JSON.stringify(body),
       cache: 'no-store',
     });
   } catch {
@@ -167,35 +248,32 @@ async function requestOnce(
       'Embedding provider returned malformed JSON'
     );
   }
-  return decodeEmbeddings(payload, texts.length);
+  return decode(payload, expectedRows);
 }
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-export function createDashScopeEmbeddingProvider(
+function createProvider(
   profile: SkillRetrievalProfile,
-  options: { endpoint?: string; token?: string } = {}
+  endpoint: string,
+  token: string
 ): EmbeddingProvider {
-  const token = (options.token ?? process.env.DASHSCOPE_API_KEY ?? '').trim();
-  const endpoint = (
-    options.endpoint ??
-    process.env.DASHSCOPE_ENDPOINT ??
-    profile.endpoint
-  ).trim();
-  if (!token || !endpoint) {
-    throw new EmbeddingProviderContractError(
-      'Protected DashScope API key or endpoint is not configured'
-    );
-  }
+  const wire = wireFor(profile);
   return {
     async embed(texts: string[], role: EmbeddingRole): Promise<number[][]> {
       assertTexts(texts);
       let vectors: number[][] | null = null;
       for (let attempt = 0; attempt < 4; attempt += 1) {
         try {
-          vectors = await requestOnce(profile, endpoint, token, texts, role);
+          vectors = await requestOnce(
+            endpoint,
+            token,
+            wire.body(texts, role),
+            wire.decode,
+            texts.length
+          );
           break;
         } catch (error) {
           if (
@@ -215,4 +293,54 @@ export function createDashScopeEmbeddingProvider(
       return vectors.map(vector => normalize(vector, profile.dimension));
     },
   };
+}
+
+export function createDashScopeEmbeddingProvider(
+  profile: SkillRetrievalProfile,
+  options: EmbeddingProviderOptions = {}
+): EmbeddingProvider {
+  const token = (options.token ?? process.env.DASHSCOPE_API_KEY ?? '').trim();
+  const endpoint = (
+    options.endpoint ??
+    process.env.DASHSCOPE_ENDPOINT ??
+    profile.endpoint
+  ).trim();
+  if (!token || !endpoint) {
+    throw new EmbeddingProviderContractError(
+      'Protected DashScope API key or endpoint is not configured'
+    );
+  }
+  return createProvider(profile, endpoint, token);
+}
+
+export function createNvidiaEmbeddingProvider(
+  profile: SkillRetrievalProfile,
+  options: EmbeddingProviderOptions = {}
+): EmbeddingProvider {
+  const token = (options.token ?? process.env.NVIDIA_API_KEY ?? '').trim();
+  const endpoint = (
+    options.endpoint ??
+    process.env.NVIDIA_ENDPOINT ??
+    profile.endpoint
+  ).trim();
+  if (!token || !endpoint) {
+    throw new EmbeddingProviderContractError(
+      'Protected NVIDIA API key or endpoint is not configured'
+    );
+  }
+  return createProvider(profile, endpoint, token);
+}
+
+// Selects the wire protocol from the locked profile, so switching a published
+// profile is a lock change rather than a code change.
+export function createEmbeddingProvider(
+  profile: SkillRetrievalProfile,
+  options: EmbeddingProviderOptions = {}
+): EmbeddingProvider {
+  switch (profile.provider_protocol) {
+    case 'dashscope-qwen37-native-v1':
+      return createDashScopeEmbeddingProvider(profile, options);
+    case 'nvidia-query-passage-v1':
+      return createNvidiaEmbeddingProvider(profile, options);
+  }
 }
