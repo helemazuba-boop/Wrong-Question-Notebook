@@ -27,6 +27,8 @@ declare -A CFG=(
   [WQN_INTERNAL_API_BASE]='http://wqn:3000'
   [WQN_INTERNAL_API_ALLOWED_HOST]='wqn'
   [WQN_ESP32_AI_AUDIO_URL_SECRET]='audio-test-value'
+  [WQN_OPENCODE_SERVER_URL]='http://opencode.example.test:4096'
+  [WQN_OPENCODE_SERVER_PASSWORD]='secret-opencode-pass'
   [ACR_PASSWORD]='must-not-be-runtime'
   [NEXT_SERVER_ACTIONS_ENCRYPTION_KEY]='must-not-be-runtime-either'
   [TARGET_DATABASE_URL]='postgresql://admin:test@127.0.0.1:65432/postgres'
@@ -70,6 +72,8 @@ assert_key "$TMP_DIR/app.env" NEXT_PUBLIC_SUPABASE_URL
 assert_key "$TMP_DIR/app.env" SUPABASE_SECRET_KEY
 assert_key "$TMP_DIR/app.env" AI_PROVIDER_API_KEY
 assert_key "$TMP_DIR/app.env" STEPFUN_API_KEY
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_URL
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_PASSWORD
 assert_key "$TMP_DIR/realtime.env" SUPABASE_URL
 assert_key "$TMP_DIR/realtime.env" SUPABASE_SECRET_KEY
 assert_key "$TMP_DIR/realtime.env" STEP_API_KEY
@@ -85,7 +89,8 @@ for key in \
   ACR_PASSWORD TARGET_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL \
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY NEXT_PUBLIC_APP_URL SITE_URL \
   SUPABASE_SERVICE_ROLE_KEY NEXT_SERVER_ACTIONS_ENCRYPTION_KEY AI_PROVIDER_API_KEY \
-  DASHSCOPE_API_KEY STEPFUN_API_KEY WQN_ESP32_AI_AUDIO_URL_SECRET
+  DASHSCOPE_API_KEY STEPFUN_API_KEY WQN_ESP32_AI_AUDIO_URL_SECRET \
+  WQN_OPENCODE_SERVER_PASSWORD
 do
   assert_no_key "$TMP_DIR/realtime.env" "$key"
 done
