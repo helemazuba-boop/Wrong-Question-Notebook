@@ -5059,6 +5059,7 @@ export type Database = {
         };
         Returns: Json;
       };
+      problem_mark_annotation_health: { Args: never; Returns: Json };
       record_problem_set_copy: {
         Args: { p_problem_set_id: string; p_user_id: string };
         Returns: undefined;
@@ -5106,6 +5107,7 @@ export type Database = {
         };
         Returns: Json;
       };
+      requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
         Returns: Json;
