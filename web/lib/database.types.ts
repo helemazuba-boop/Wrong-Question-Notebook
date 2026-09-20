@@ -4546,6 +4546,10 @@ export type Database = {
         };
         Returns: Json;
       };
+      cancel_word_progress_fsrs_cutover: {
+        Args: { p_cutover_id: string; p_user_id: string };
+        Returns: Json;
+      };
       claim_problem_mark_annotation: {
         Args: { p_lease_seconds?: number; p_problem_id: string };
         Returns: Json;
@@ -4555,6 +4559,10 @@ export type Database = {
         Returns: Json;
       };
       claim_problem_review_projection_jobs: {
+        Args: { p_lease_seconds?: number; p_limit?: number };
+        Returns: Json;
+      };
+      claim_word_progress_projection_jobs: {
         Args: { p_lease_seconds?: number; p_limit?: number };
         Returns: Json;
       };
@@ -4605,6 +4613,17 @@ export type Database = {
           p_lease_token: string;
           p_run_id: string;
           p_sm2_projection: Json;
+        };
+        Returns: Json;
+      };
+      commit_word_progress_projection: {
+        Args: {
+          p_expected_base_revision: number;
+          p_expected_event_count: number;
+          p_expected_fingerprint: string;
+          p_fsrs_card: Json | null;
+          p_lease_token: string;
+          p_run_id: string;
         };
         Returns: Json;
       };
@@ -4731,6 +4750,10 @@ export type Database = {
         Args: { p_expected_projections: Json; p_user_id: string };
         Returns: Json;
       };
+      cutover_user_word_progress_to_fsrs: {
+        Args: { p_expected_projections: Json; p_user_id: string };
+        Returns: Json;
+      };
       fail_problem_mark_annotation: {
         Args: {
           p_error_code: string;
@@ -4749,6 +4772,15 @@ export type Database = {
           p_lease_token: string;
           p_problem_id: string;
           p_user_id: string;
+        };
+        Returns: boolean;
+      };
+      fail_word_progress_projection_job: {
+        Args: {
+          p_error_code: string;
+          p_lease_token: string;
+          p_user_id: string;
+          p_word_entry_id: string;
         };
         Returns: boolean;
       };
@@ -4993,6 +5025,14 @@ export type Database = {
         };
         Returns: Json;
       };
+      prepare_word_progress_projection: {
+        Args: {
+          p_lease_token: string;
+          p_user_id: string;
+          p_word_entry_id: string;
+        };
+        Returns: Json;
+      };
       problem_parts_valid: { Args: { p: Json }; Returns: boolean };
       prune_word_packs_v1: {
         Args: { p_deck_id: string };
@@ -5110,6 +5150,10 @@ export type Database = {
       requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      seed_word_scheduler_settings: {
+        Args: { p_default_authority_mode: string };
         Returns: Json;
       };
       set_problem_initial_idea: {

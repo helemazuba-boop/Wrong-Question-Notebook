@@ -8,6 +8,7 @@ import {
   loadVisibleWordPackDecks,
   loadVisibleWordPackDecksByIds,
 } from './word-packs';
+import { wakeWordProgressProjection } from './word-progress-wake';
 import {
   capDueNowCandidates,
   orderWordStudyCandidates,
@@ -607,6 +608,15 @@ export async function recordWordStudyObservation(
       503,
       true
     );
+  }
+  // Under FSRS authority the projector owns the schedule, so the shadow has to
+  // move now for the next word list to show the new due date. Under SM-2 the
+  // synchronous ladder already wrote it and the shadow is only read at cutover
+  // time, which the cron drain keeps current -- an sm2 deployment therefore
+  // pays nothing per observation. A replayed observation carries no mode and
+  // is already durable, so it falls through to the sm2 branch.
+  if (parsed.data.authority_mode === 'fsrs') {
+    wakeWordProgressProjection();
   }
   return parsed.data;
 }

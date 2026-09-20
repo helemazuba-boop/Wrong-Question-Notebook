@@ -168,6 +168,10 @@ export const wordObservationDataSchema = z.strictObject({
   sequence: safeCounterSchema,
   item_id: uuidSchema,
   action: wordObservationActionSchema,
+  // Absent on a replayed observation: an idempotent replay returns the result
+  // JSON that was persisted when the observation first landed, which predates
+  // this field. Treat a missing value as 'sm2'.
+  authority_mode: z.enum(['sm2', 'fsrs']).optional(),
   progress: wordProgressProjectionSchema,
   projection_applied: z.boolean(),
   replayed: z.boolean(),

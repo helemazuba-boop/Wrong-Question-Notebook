@@ -31,14 +31,14 @@ insert into public.study_sessions (
   ('92000000-0000-4000-8000-000000000002',
    '92000000-0000-4000-8000-000000000001',
    'word', 'random', 'study', 'guided_random_v1',
-   '{"deck_ids":[]}'::jsonb, 'seed_skip_word',
-   '[]'::jsonb, '[]'::jsonb, 0, 0,
+   '{"deck_ids":[],"include_mastered":false}'::jsonb, 'seed_skip_word',
+   '[]'::jsonb, '[]'::jsonb, 0, null,
    'session_create_word_001', repeat('a', 64)),
   ('92000000-0000-4000-8000-000000000003',
    '92000000-0000-4000-8000-000000000001',
-   'note', 'recent', 'study', 'sequential_note_v1',
-   '{"notebook_ids":[]}'::jsonb, 'seed_skip_note',
-   '[]'::jsonb, '[]'::jsonb, 0, 0,
+   'note', 'recent', 'browse', 'least_recently_viewed_v1',
+   '{"notebook_ids":[],"include_archived":false}'::jsonb, 'seed_skip_note',
+   '[]'::jsonb, '[]'::jsonb, 0, null,
    'session_create_note_001', repeat('b', 64));
 
 -- 1. Word: a fully minimal tombstone (null placeholders) is accepted, stores
