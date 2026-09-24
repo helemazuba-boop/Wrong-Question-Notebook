@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - New gateway reads for the capabilities that only exist in OpenCode v2: session message history (projected from the 11-way message union, oldest first, and trimmed cloud-side to the device's 16 KiB response ceiling), the pending permission list, the form/question list and its per-form state, the active-session map, spawned subagent sessions, session outcome, and run interruption.
   - Freeze the v2 upstream contract as test fixtures captured from a live server (OpenAPI excerpt plus raw SSE bytes) so the relay regression tests replay real envelopes instead of hand-written ones.
   - `web/scripts/opencode-gateway-smoke.mjs` now probes the six v2 endpoints and asserts every response is a `{data}` envelope rather than an error envelope.
+- **ESP32 agent capability routes**
+  - `GET /api/esp32/agent/sessions/{id}/history` backfills a session the device has not rendered yet, projected oldest-first from the upstream 11-way message union so the device appends in order.
+  - `POST /api/esp32/agent/sessions/{id}/question` answers a pending form with the option value the device chose; the cloud resolves the form's field id (falling back to the form id when the detail read fails) and assembles the `answer` record, so the device never sees upstream field ids.
+  - `POST /api/esp32/agent/sessions/{id}/interrupt` stops a submitted run and reports what upstream answered, treating "already finished" as a success rather than an error.
 - **ESP32 OpenCode agent gateway**
   - Create device-visible OpenCode sessions through the gateway and verify each new session with a targeted binding-directory detail fetch before use.
   - Reply to pending OpenCode permission asks from the device, with corrective reject messages so the run continues; asks and echoes are deduped by permission id across both OpenCode event systems.
