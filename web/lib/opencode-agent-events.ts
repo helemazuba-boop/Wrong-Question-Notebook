@@ -1,12 +1,129 @@
 import type { SseWriter } from '@/lib/ai-stream';
 
+/** The permission shape this projection needs; the gateway produces it. */
+export interface OpenCodePendingAsk {
+  id: string;
+  sessionId: string;
+  action: string;
+  title: string;
+  preview: string;
+}
+
+/** The form shape this projection needs; the gateway produces it. */
+export interface OpenCodePendingQuestion {
+  id: string;
+  /** Empty for `Form.Info`; only `Form.Detail` carries a resolved state. */
+  status: string;
+  title: string;
+  options: Array<{ value: string; label: string }>;
+  /** Raw option count, before the two-slot device cap. */
+  optionCount: number;
+}
+
+/**
+ * Projection of OpenCode v2 upstream events onto the device event vocabulary.
+ *
+ * The device contract (`agent.*`) is unchanged by the v2 migration; everything
+ * v2 invents is translated here. Two shapes change upstream:
+ *
+ *  - the SSE envelope moved from `event.properties.*` to `event.data.*`, and the
+ *    owning session id moved with it. There is no `payload` wrapper.
+ *  - the v1 vocabulary (`session.status`, `message.part.*`, `permission.asked`)
+ *    is gone. v2 splits user input, assistant text and reasoning into three
+ *    separate event families, which is what makes P1 (the gateway echoing the
+ *    user's own prompt back as the answer) structurally impossible.
+ *
+ * Everything below is a whitelist: an upstream event that is not named here is
+ * dropped, never passed through. The event shape for the delta/execution
+ * families has not been captured from a live run yet, so those branches are
+ * marked `[v2-unverified]`.
+ */
+
 const MAX_UPSTREAM_FRAME_CHARS = 64 * 1024;
 const MAX_TEXT_EVENT_CHARS = 8 * 1024;
 const MAX_DELTA_EVENT_CHARS = 2 * 1024;
+const MAX_REASONING_EVENT_CHARS = 2 * 1024;
+const MAX_STATUS_MESSAGE_CHARS = 240;
+
+/**
+ * Device-visible option bar has exactly two slots; a third would collide with
+ * the key-hint strip. The cloud caps the list, so more options never render.
+ */
+const MAX_QUESTION_OPTIONS = 2;
+
+/** Pending-ask polling cadence. */
+const DEFAULT_PENDING_POLL_INTERVAL_MS = 2000;
+// Heartbeat every 7 ticks = 14s: under the 15s proxy reap window that made the
+// v1 fixed sleep necessary, while keeping one timer for both concerns.
+const HEARTBEAT_EVERY_N_TICKS = 7;
+
+function pendingPollIntervalMs(): number {
+  const configured = Number(
+    process.env.WQN_OPENCODE_PENDING_POLL_MS || DEFAULT_PENDING_POLL_INTERVAL_MS
+  );
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_PENDING_POLL_INTERVAL_MS;
+}
 
 interface OpenCodeEvent {
   type?: string;
-  properties?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Per-attach relay state. Passing it in (rather than keeping it in module
+ * scope) keeps two concurrent attaches from sharing dedupe sets, which would
+ * silently drop an ask on one of them.
+ */
+export interface OpenCodeRelayState {
+  /** Permission ids already projected during this attach. */
+  seenPermissions: Set<string>;
+  /** Form ids already projected during this attach. */
+  seenQuestions: Set<string>;
+  /**
+   * (assistantMessageID, ordinal) -> characters of `agent.text.delta` already
+   * sent. This is the only record of what the device actually received, so
+   * `session.text.ended` can tell a complete stream from a truncated one.
+   */
+  textDeltas: Map<string, number>;
+  /** Same accounting for `agent.reasoning.delta`. */
+  reasoningDeltas: Map<string, number>;
+  /**
+   * The device holds exactly one pending-ask string per kind, so a second ask
+   * would overwrite the first instead of stacking. A new ask is only armed once
+   * the running one is answered.
+   */
+  pendingPermissionId: string | null;
+  pendingQuestionId: string | null;
+}
+
+export function createOpenCodeRelayState(): OpenCodeRelayState {
+  return {
+    seenPermissions: new Set<string>(),
+    seenQuestions: new Set<string>(),
+    textDeltas: new Map<string, number>(),
+    reasoningDeltas: new Map<string, number>(),
+    pendingPermissionId: null,
+    pendingQuestionId: null,
+  };
+}
+
+/**
+ * The upstream reads the relay needs in order to discover asks. Injected
+ * rather than imported so the relay stays free of HTTP concerns (and so the
+ * routes remain the single place that knows how a binding is resolved).
+ */
+export interface OpenCodePendingProbe {
+  activeSessions(): Promise<string[]>;
+  childSessions(sessionId: string): Promise<string[]>;
+  permissions(sessionId: string): Promise<OpenCodePendingAsk[]>;
+  questions(sessionId: string): Promise<OpenCodePendingQuestion[]>;
+  formDetail(
+    sessionId: string,
+    formId: string
+  ): Promise<OpenCodePendingQuestion | null>;
+  sessionOutcome(sessionId: string): Promise<string>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -26,6 +143,11 @@ function stringField(
   return '';
 }
 
+function numberField(object: Record<string, unknown>, key: string): number {
+  const value = object[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 function previewValue(value: unknown, max = 160): string {
   if (typeof value === 'string') return value.slice(0, max);
   if (!value || typeof value !== 'object') return '';
@@ -37,198 +159,529 @@ function previewValue(value: unknown, max = 160): string {
   return '';
 }
 
-function eventSessionId(event: OpenCodeEvent): string {
-  const properties = asRecord(event.properties);
-  const part = asRecord(properties.part);
-  const info = asRecord(properties.info);
+function sleep(ms: number): Promise<null> {
+  return new Promise(resolve => setTimeout(resolve, ms)).then(() => null);
+}
+
+/** Pages the pending text deltas sent so far for one (message, ordinal) part. */
+function streamKey(data: Record<string, unknown>): string {
+  const messageId = stringField(data, 'assistantMessageID');
+  const ordinal = numberField(data, 'ordinal');
+  return messageId ? `${messageId}#${ordinal}` : '';
+}
+
+/**
+ * [v2-unverified] `session.text.delta` / `.ended` are keyed by
+ * (assistantMessageID, ordinal) in the official reducer; that key is what makes
+ * the lost-delta self-heal below unambiguous even when one run produces several
+ * text parts.
+ */
+function applyDelta(
+  writer: SseWriter,
+  sessionId: string,
+  data: Record<string, unknown>,
+  state: OpenCodeRelayState
+): void {
+  const delta = stringField(data, 'delta');
+  if (!delta) return;
+  const clipped = delta.slice(0, MAX_DELTA_EVENT_CHARS);
+  const key = streamKey(data);
+  if (key) {
+    state.textDeltas.set(
+      key,
+      (state.textDeltas.get(key) ?? 0) + clipped.length
+    );
+  }
+  writer.emit('agent.text.delta', { session_id: sessionId, delta: clipped });
+}
+
+/**
+ * [v2-unverified] `session.text.ended` carries the whole part. Replay the full
+ * text only when the deltas actually sent do not already account for it: that
+ * is the single self-heal channel for a delta the upstream never delivered, and
+ * staying silent when the lengths agree keeps ``agent.text`` from overwriting
+ * the stream the device is still appending to.
+ */
+function endText(
+  writer: SseWriter,
+  sessionId: string,
+  data: Record<string, unknown>,
+  state: OpenCodeRelayState
+): void {
+  const text = stringField(data, 'text');
+  if (!text) return;
+  const key = streamKey(data);
+  const sent = key ? (state.textDeltas.get(key) ?? 0) : 0;
+  if (key && sent >= text.length) return;
+  writer.emit('agent.text', {
+    session_id: sessionId,
+    text: text.slice(0, MAX_TEXT_EVENT_CHARS),
+  });
+}
+
+function applyReasoningDelta(
+  writer: SseWriter,
+  sessionId: string,
+  data: Record<string, unknown>,
+  state: OpenCodeRelayState
+): void {
+  const delta = stringField(data, 'delta');
+  if (!delta) return;
+  const clipped = delta.slice(0, MAX_REASONING_EVENT_CHARS);
+  const key = streamKey(data);
+  if (key) {
+    state.reasoningDeltas.set(
+      key,
+      (state.reasoningDeltas.get(key) ?? 0) + clipped.length
+    );
+  }
+  writer.emit('agent.reasoning.delta', {
+    session_id: sessionId,
+    delta: clipped,
+  });
+}
+
+/**
+ * Same lost-delta self-heal as `endText`, for the reasoning channel. Reasoning
+ * is rendered as its own replace-in-place message and never enters the response
+ * text, so a stray full frame here cannot corrupt the answer (P1).
+ */
+function endReasoning(
+  writer: SseWriter,
+  sessionId: string,
+  data: Record<string, unknown>,
+  state: OpenCodeRelayState
+): void {
+  const text = stringField(data, 'text');
+  if (!text) return;
+  const key = streamKey(data);
+  const sent = key ? (state.reasoningDeltas.get(key) ?? 0) : 0;
+  if (key && sent >= text.length) return;
+  writer.emit('agent.reasoning', {
+    session_id: sessionId,
+    text: text.slice(0, MAX_REASONING_EVENT_CHARS),
+  });
+}
+
+/**
+ * [v2-unverified] `session.tool.success` reports the tool output in `content[]`;
+ * prefer the first text entry so the device shows what the tool produced rather
+ * than another copy of its input.
+ */
+function toolSuccessPreview(data: Record<string, unknown>): string {
+  const content = Array.isArray(data.content) ? data.content : [];
+  for (const entry of content) {
+    const record = asRecord(entry);
+    if (stringField(record, 'type') === 'text') {
+      const text = stringField(record, 'text');
+      if (text) return text.slice(0, 160);
+    }
+  }
   return (
-    stringField(properties, 'sessionID', 'sessionId', 'session_id') ||
-    stringField(part, 'sessionID', 'sessionId', 'session_id') ||
-    stringField(info, 'sessionID', 'sessionId', 'session_id')
+    previewValue(data.content) ||
+    previewValue(data.metadata) ||
+    previewValue(data.input) ||
+    previewValue(data.state)
   );
+}
+
+function toolPreview(data: Record<string, unknown>): string {
+  return (
+    previewValue(data.input) ||
+    previewValue(data.state) ||
+    previewValue(data.metadata) ||
+    previewValue(data.content) ||
+    previewValue(data.patterns)
+  );
+}
+
+function errorMessage(source: unknown, fallback: string): string {
+  const record = asRecord(source);
+  return (
+    stringField(record, 'message') ||
+    stringField(record, 'name') ||
+    fallback
+  ).slice(0, MAX_STATUS_MESSAGE_CHARS);
 }
 
 export function emitNormalizedOpenCodeEvent(
   writer: SseWriter,
   raw: unknown,
   sessionId: string,
-  allowIdle = true,
-  seenPermissions?: Set<string>
+  state: OpenCodeRelayState = createOpenCodeRelayState()
 ): 'continue' | 'activity' | 'complete' {
   const event = asRecord(raw) as OpenCodeEvent;
   const type = typeof event.type === 'string' ? event.type : '';
-  const properties = asRecord(event.properties);
-  const eventSession = eventSessionId(event);
-  // /event is server-wide. Fail closed when an upstream event cannot be tied
-  // to the selected session; never project another run onto this device.
-  if (eventSession !== sessionId) return 'continue';
-
-  if (type === 'session.status') {
-    const statusValue = properties.status;
-    const status =
-      typeof statusValue === 'string'
-        ? statusValue
-        : stringField(asRecord(statusValue), 'type');
-    const statusObject = asRecord(statusValue);
-    if (status === 'idle' && !allowIdle) return 'continue';
-    writer.emit('agent.status', {
-      session_id: sessionId,
-      status: status || 'busy',
-      attempt:
-        typeof statusObject.attempt === 'number'
-          ? statusObject.attempt
-          : undefined,
-      message: stringField(statusObject, 'message').slice(0, 240) || undefined,
-    });
-    return status === 'idle' ? 'complete' : 'activity';
+  const data = asRecord(event.data);
+  // /event is server-wide: every attached session receives every run's events.
+  // Fail closed when an event cannot be tied to the selected session — never
+  // project another run onto this device.
+  if (stringField(data, 'sessionID', 'sessionId') !== sessionId) {
+    return 'continue';
   }
 
-  if (type === 'session.idle') {
-    if (!allowIdle) return 'continue';
-    writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
-    return 'complete';
-  }
-
-  if (type === 'session.error') {
-    const error = asRecord(properties.error);
-    const data = asRecord(error.data);
-    const message =
-      stringField(data, 'message') ||
-      stringField(error, 'message', 'name') ||
-      'OpenCode session failed';
-    writer.emit('agent.error', {
-      session_id: sessionId,
-      message: message.slice(0, 240),
-    });
-    return 'activity';
-  }
-
-  if (type === 'message.part.delta') {
-    if (stringField(properties, 'field') === 'text') {
-      const delta = stringField(properties, 'delta');
-      if (delta) {
-        writer.emit('agent.text.delta', {
-          session_id: sessionId,
-          delta: delta.slice(0, MAX_DELTA_EVENT_CHARS),
-        });
-      }
+  switch (type) {
+    // Terminators. v2 has no `session.status idle`; these are the only events
+    // that end the device stream.
+    case 'session.execution.succeeded': {
+      writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
+      return 'complete';
     }
-    return 'activity';
-  }
+    case 'session.execution.failed': {
+      // Error first, then the terminator: without the trailing idle the device
+      // waits out the 30-minute absolute cap and reports stream_incomplete
+      // instead of the failure.
+      writer.emit('agent.error', {
+        session_id: sessionId,
+        message: errorMessage(data.error, 'OpenCode 执行失败'),
+      });
+      writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
+      return 'complete';
+    }
+    case 'session.execution.interrupted': {
+      writer.emit('agent.error', {
+        session_id: sessionId,
+        message: '执行已中止',
+      });
+      writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
+      return 'complete';
+    }
+    case 'global.disposed': {
+      writer.emit('agent.error', {
+        session_id: sessionId,
+        message: 'OpenCode 服务已断开',
+      });
+      return 'activity';
+    }
 
-  if (type === 'message.part.updated') {
-    const part = asRecord(properties.part);
-    const partType = stringField(part, 'type');
-    if (partType === 'text') {
-      const text = stringField(part, 'text');
-      if (text) {
-        writer.emit('agent.text', {
-          session_id: sessionId,
-          text: text.slice(0, MAX_TEXT_EVENT_CHARS),
-        });
-      }
-    } else if (partType === 'tool') {
-      const state = asRecord(part.state);
+    // A failed step is not a failed run: the agent retries, so report the error
+    // but keep the stream open.
+    case 'session.step.failed': {
+      writer.emit('agent.error', {
+        session_id: sessionId,
+        message: errorMessage(data.error, 'Agent 执行步骤失败'),
+      });
+      return 'activity';
+    }
+
+    case 'session.step.started': {
+      writer.emit('agent.status', {
+        session_id: sessionId,
+        status: 'busy',
+        message: 'Agent 执行中',
+      });
+      return 'activity';
+    }
+    case 'session.compaction.started': {
+      writer.emit('agent.status', {
+        session_id: sessionId,
+        status: 'busy',
+        message: '正在压缩上下文',
+      });
+      return 'activity';
+    }
+    case 'session.retry.scheduled': {
+      writer.emit('agent.status', {
+        session_id: sessionId,
+        status: 'retry',
+        attempt: numberField(data, 'attempt') || undefined,
+        message: errorMessage(data.error, 'Agent 即将重试'),
+      });
+      return 'activity';
+    }
+
+    case 'session.text.delta': {
+      applyDelta(writer, sessionId, data, state);
+      return 'activity';
+    }
+    case 'session.text.ended': {
+      endText(writer, sessionId, data, state);
+      return 'activity';
+    }
+    case 'session.reasoning.delta': {
+      applyReasoningDelta(writer, sessionId, data, state);
+      return 'activity';
+    }
+    case 'session.reasoning.ended': {
+      endReasoning(writer, sessionId, data, state);
+      return 'activity';
+    }
+
+    case 'session.tool.called': {
       writer.emit('agent.tool', {
         session_id: sessionId,
-        tool: (stringField(part, 'tool') || 'tool').slice(0, 80),
-        status: (stringField(state, 'status') || 'running').slice(0, 40),
-        preview:
-          previewValue(state.input) ||
-          previewValue(state.output) ||
-          previewValue(state.error),
+        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        status: 'running',
+        preview: toolPreview(data),
       });
+      return 'activity';
     }
-    return 'activity';
+    case 'session.tool.success': {
+      writer.emit('agent.tool', {
+        session_id: sessionId,
+        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        status: 'done',
+        preview: toolSuccessPreview(data),
+      });
+      return 'activity';
+    }
+    case 'session.tool.failed': {
+      writer.emit('agent.tool', {
+        session_id: sessionId,
+        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        status: 'error',
+        preview: errorMessage(data.error, '工具执行失败'),
+      });
+      return 'activity';
+    }
+
+    case 'session.shell.started': {
+      writer.emit('agent.tool', {
+        session_id: sessionId,
+        tool: 'shell',
+        status: 'running',
+        preview: stringField(data, 'command').slice(0, 160),
+      });
+      return 'activity';
+    }
+    case 'session.shell.ended': {
+      const code = numberField(data, 'exitCode');
+      writer.emit('agent.tool', {
+        session_id: sessionId,
+        tool: 'shell',
+        status: code === 0 ? 'done' : 'error',
+        preview: stringField(data, 'output').slice(0, 160),
+      });
+      return 'activity';
+    }
+
+    default:
+      return 'continue';
+  }
+}
+
+/**
+ * Ask the upstream for pending asks and project the ones the device can still
+ * answer. Nothing here may throw: a failed poll round only costs one interval,
+ * and a thrown poll would tear down a healthy event stream.
+ */
+async function pollPendingAsks(input: {
+  probe: OpenCodePendingProbe;
+  writer: SseWriter;
+  sessionId: string;
+  state: OpenCodeRelayState;
+}): Promise<void> {
+  const { probe, writer, sessionId, state } = input;
+
+  // Gate 1: nothing is running, so nothing can be waiting to be answered. This
+  // is also what stops a stalely armed ask from being re-armed forever after
+  // its run has already ended and been answered.
+  let active: string[];
+  try {
+    active = await probe.activeSessions();
+  } catch {
+    return;
+  }
+  const watch = [sessionId];
+  if (active.includes(sessionId)) {
+    // Gate 2: subagents get their own session ids and can raise asks against
+    // them, and a subagent may spawn mid-run — so re-read the child list every
+    // round instead of caching it.
+    try {
+      for (const child of await probe.childSessions(sessionId)) {
+        if (child && child !== sessionId && !watch.includes(child)) {
+          watch.push(child);
+        }
+      }
+    } catch {
+      // A missing child list only narrows the watch list; keep going.
+    }
+  } else {
+    return;
   }
 
-  if (type === 'permission.asked' || type === 'permission.updated') {
-    // OpenCode's internal event system delivers asks as permission.asked while
-    // SDK event systems deliver them as permission.updated (both appear in the
-    // Espressif reference client). Resolution echoes repeat an id the device
-    // already acted on, so dedupe on the id instead of dropping either event
-    // type — dropping one would lose new asks on SDK-event servers.
-    const permissionId = stringField(
-      properties,
-      'requestID',
-      'permissionID',
-      'id'
-    );
-    if (seenPermissions) {
-      if (!permissionId) {
-        // Without an id the device could never reply to this ask. Surface it
-        // as status text so the run does not just appear silently stuck.
-        writer.emit('agent.status', {
-          session_id: sessionId,
-          status: 'busy',
-          message: '权限请求缺少 ID，请在 OpenCode 端审批',
-        });
-        return 'activity';
+  for (const target of watch) {
+    if (!state.pendingPermissionId) {
+      let permissions: OpenCodePendingAsk[] = [];
+      try {
+        permissions = await probe.permissions(target);
+      } catch {
+        permissions = [];
       }
-      if (seenPermissions.has(permissionId)) {
-        return 'activity';
+      for (const request of permissions) {
+        if (!request?.id || state.seenPermissions.has(request.id)) continue;
+        if (state.pendingPermissionId) break;
+        state.seenPermissions.add(request.id);
+        state.pendingPermissionId = request.id;
+        emitAgentPermission(writer, target, request);
       }
-      seenPermissions.add(permissionId);
     }
-    const metadata = asRecord(properties.metadata);
-    const toolInput = asRecord(properties.tool_input);
-    writer.emit('agent.permission', {
-      session_id: sessionId,
-      permission_id: permissionId,
-      type: (
-        stringField(properties, 'permission', 'type', 'tool_name') || 'tool'
-      ).slice(0, 80),
-      title: (
-        stringField(properties, 'title', 'description') ||
-        'OpenCode permission required'
-      ).slice(0, 160),
-      preview:
-        previewValue(metadata) ||
-        previewValue(toolInput) ||
-        previewValue(properties.patterns),
-    });
-    return 'activity';
+    if (!state.pendingQuestionId) {
+      let forms: OpenCodePendingQuestion[] = [];
+      try {
+        forms = await probe.questions(target);
+      } catch {
+        forms = [];
+      }
+      for (const summary of forms) {
+        if (!summary?.id) continue;
+        // Form.Info carries no state, so an id seen before is not enough to
+        // know whether it was answered: re-attach must not re-arm a form the
+        // user already answered in OpenCode. Pay for the detail read.
+        let form = summary;
+        if (!summary.status) {
+          try {
+            form = (await probe.formDetail(target, summary.id)) ?? summary;
+          } catch {
+            form = summary;
+          }
+        }
+        if (form.status === 'answered' || form.status === 'cancelled') {
+          state.seenQuestions.add(summary.id);
+          continue;
+        }
+        if (state.seenQuestions.has(summary.id)) continue;
+        if (state.pendingQuestionId) break;
+        state.seenQuestions.add(summary.id);
+        state.pendingQuestionId = form.id;
+        emitAgentQuestion(writer, target, form);
+      }
+    }
   }
-  return 'continue';
+}
+
+function emitAgentPermission(
+  writer: SseWriter,
+  sessionId: string,
+  request: OpenCodePendingAsk
+): void {
+  writer.emit('agent.permission', {
+    session_id: sessionId,
+    permission_id: request.id,
+    type: (request.action || 'tool').slice(0, 80),
+    title: (request.title || 'OpenCode 请求权限').slice(0, 160),
+    preview: request.preview,
+  });
+}
+
+/**
+ * Project a form onto the device's single-field question. The device answers
+ * with an option value only — the cloud is what knows how to turn that into an
+ * `answer` record, so no answer shape is ever assembled on device.
+ */
+function emitAgentQuestion(
+  writer: SseWriter,
+  sessionId: string,
+  form: OpenCodePendingQuestion
+): void {
+  if (form.options.length === 0) {
+    // Nothing the option bar can carry; the run would otherwise look stuck
+    // behind a question that cannot be answered here.
+    writer.emit('agent.status', {
+      session_id: sessionId,
+      status: 'busy',
+      message: '检测到提问，请在 OpenCode 端回答',
+    });
+    return;
+  }
+  if (form.optionCount > MAX_QUESTION_OPTIONS) {
+    writer.emit('agent.status', {
+      session_id: sessionId,
+      status: 'busy',
+      message: `检测到 ${form.optionCount} 选项提问，请在 OpenCode 端回答`,
+    });
+    return;
+  }
+  writer.emit('agent.question', {
+    session_id: sessionId,
+    question_id: form.id,
+    title: form.title || 'OpenCode 提问',
+    options: form.options.slice(0, MAX_QUESTION_OPTIONS),
+  });
+}
+
+/**
+ * Observe mode: v2's event stream is live-only, so attaching to a finished run
+ * delivers nothing at all. `outcome` is written when a run ends and is absent
+ * on an idle session, so it is an exact "this run is over" signal — not a
+ * timeout. Run mode never uses this: a running agent can legitimately be
+ * silent for minutes.
+ */
+async function observeRunEnded(input: {
+  probe: OpenCodePendingProbe;
+  writer: SseWriter;
+  sessionId: string;
+  state: OpenCodeRelayState;
+}): Promise<boolean> {
+  const { probe, writer, sessionId, state } = input;
+  let active: string[];
+  try {
+    active = await probe.activeSessions();
+  } catch {
+    return false;
+  }
+  if (active.includes(sessionId)) return false;
+  let outcome = '';
+  try {
+    outcome = await probe.sessionOutcome(sessionId);
+  } catch {
+    return false;
+  }
+  if (!outcome) return false;
+  state.pendingPermissionId = null;
+  state.pendingQuestionId = null;
+  writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
+  return true;
 }
 
 export type OpenCodeRelayMode = 'run' | 'observe';
-
-const HEARTBEAT_INTERVAL_MS = 15_000;
-
-function sleep(ms: number): Promise<null> {
-  return new Promise(resolve => setTimeout(resolve, ms)).then(() => null);
-}
 
 export async function relayOpenCodeEvents(input: {
   upstream: ReadableStream<Uint8Array>;
   writer: SseWriter;
   sessionId: string;
   mode?: OpenCodeRelayMode;
+  probe?: OpenCodePendingProbe;
 }): Promise<void> {
   const observe = input.mode === 'observe';
+  const probe = input.probe;
+  const pollIntervalMs = pendingPollIntervalMs();
   const reader = input.upstream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let activitySeen = false;
-  // Permission ids already projected to the device during this attach; the
-  // resolution echo for a replied ask repeats its id and must not re-arm the
-  // device prompt.
-  const seenPermissions = new Set<string>();
-  // The read promise must survive idle iterations: re-issuing reader.read()
+  const state = createOpenCodeRelayState();
+  // The read promise must survive poll iterations: re-issuing reader.read()
   // would queue a second consumption and lose the chunk the first one yields.
   let pendingRead = reader.read();
+  let tick = 0;
   try {
     while (!input.writer.isClosed()) {
-      // OpenCode can stay silent for a whole LLM/tool stretch. Emit an SSE
-      // comment so intermediate proxies do not reap the connection; the
-      // device parser already discards ':' comment lines.
-      const chunk = await Promise.race([
-        pendingRead,
-        sleep(HEARTBEAT_INTERVAL_MS),
-      ]);
+      // OpenCode can stay silent for a whole LLM/tool stretch. One timer drives
+      // both the pending-ask poll and the heartbeat; a chunk always wins the
+      // race, so a busy run never pays for the poll.
+      const chunk = await Promise.race([pendingRead, sleep(pollIntervalMs)]);
       if (chunk === null) {
-        input.writer.comment('keepalive');
+        tick += 1;
+        if (tick % HEARTBEAT_EVERY_N_TICKS === 0) {
+          input.writer.comment('keepalive');
+        }
+        if (probe) {
+          await pollPendingAsks({
+            probe,
+            writer: input.writer,
+            sessionId: input.sessionId,
+            state,
+          });
+        }
+        if (observe && probe) {
+          const ended = await observeRunEnded({
+            probe,
+            writer: input.writer,
+            sessionId: input.sessionId,
+            state,
+          });
+          if (ended) return;
+        }
         continue;
       }
       pendingRead = reader.read();
@@ -249,18 +702,13 @@ export async function relayOpenCodeEvents(input: {
           .join('\n');
         if (data) {
           try {
-            // Run mode swallows a stale idle buffered before prompt_async is
-            // accepted. Observe mode attaches to whatever state exists, so an
-            // immediate idle means "nothing is running" and ends the watch.
             const result = emitNormalizedOpenCodeEvent(
               input.writer,
               JSON.parse(data),
               input.sessionId,
-              observe || activitySeen,
-              seenPermissions
+              state
             );
             if (result === 'complete') return;
-            if (result === 'activity') activitySeen = true;
           } catch {
             // One malformed upstream event must not tear down an active run.
           }

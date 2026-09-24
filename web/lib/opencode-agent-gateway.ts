@@ -1,5 +1,10 @@
 import 'server-only';
 
+// Type-only: the gateway produces the values, the relay consumes them, and the
+// edge stays type-checked in both directions without either module importing
+// the other at runtime.
+import type { OpenCodePendingProbe } from '@/lib/opencode-agent-events';
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 // OpenCode's /event stream emits nothing during a long tool run (tests,
 // installs), so the idle window must outlast the longest plausible silent
@@ -1017,4 +1022,28 @@ export async function loadOpenCodeSessionOutcome(
     'session detail'
   );
   return stringField(data, 'outcome');
+}
+
+/**
+ * The six reads the event relay needs to discover pending asks and, in observe
+ * mode, to tell a finished run from an idle one. v2 has no ask events: an ask
+ * reaches the device only because the relay polls for it, so the relay needs a
+ * binding-scoped view of these endpoints rather than the credentials itself.
+ *
+ * Every method rejects on upstream failure by design — the relay treats each
+ * one as optional and keeps the event stream alive.
+ */
+export function createOpenCodePendingProbe(
+  binding: OpenCodeAgentBinding
+): OpenCodePendingProbe {
+  return {
+    activeSessions: () => listOpenCodeActiveSessions(binding),
+    childSessions: async sessionId =>
+      (await listOpenCodeChildSessions(binding, sessionId)).map(row => row.id),
+    permissions: sessionId => listOpenCodePermissions(binding, sessionId),
+    questions: sessionId => listOpenCodeQuestions(binding, sessionId),
+    formDetail: (sessionId, formId) =>
+      loadOpenCodeFormDetail(binding, sessionId, formId),
+    sessionOutcome: sessionId => loadOpenCodeSessionOutcome(binding, sessionId),
+  };
 }

@@ -6,6 +6,7 @@ import { relayOpenCodeEvents } from '@/lib/opencode-agent-events';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 import {
   assertOpenCodeSessionAccess,
+  createOpenCodePendingProbe,
   openOpenCodeEventStream,
   OpenCodeGatewayError,
   OpenCodeSessionAccessError,
@@ -52,6 +53,10 @@ export async function GET(
           writer,
           sessionId: id,
           mode: 'observe',
+          // v2's event stream is live-only: an idle session sends nothing at
+          // all. The probe is what ends this attach when the run it watches is
+          // over, and what delivers asks the upstream never sends as events.
+          probe: createOpenCodePendingProbe(binding),
         });
       } catch {
         writer.emit('agent.error', {

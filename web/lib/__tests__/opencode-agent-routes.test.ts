@@ -250,8 +250,8 @@ describe('OpenCode Agent observe events route', () => {
       new Response(
         encoder.encode(
           `data: ${JSON.stringify({
-            type: 'session.status',
-            properties: { sessionID: 'ses_owned', status: { type: 'busy' } },
+            type: 'session.step.started',
+            data: { sessionID: 'ses_owned' },
           })}\n\n`
         ),
         {
@@ -275,6 +275,63 @@ describe('OpenCode Agent observe events route', () => {
     expect(text).toContain('"status":"busy"');
     const [, eventInit] = fetchMock.mock.calls[1] as [URL, RequestInit];
     expect(eventInit.method).toBe('GET');
+  });
+
+  it('ends an observe attach once the upstream reports the run is over', async () => {
+    // v2's event stream is live-only: attaching to a finished run delivers
+    // nothing at all, so without the outcome read the device would sit in
+    // kRunning for the whole 30-minute cap and report the watch as failed.
+    process.env.WQN_OPENCODE_PENDING_POLL_MS = '4';
+    fetchMock.mockImplementation(async (url: URL) => {
+      if (url.pathname === '/api/session') {
+        return new Response(OWNED_LIST, { status: 200 });
+      }
+      if (url.pathname === '/api/session/active') {
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      }
+      if (url.pathname === '/api/session/ses_owned') {
+        return new Response(
+          JSON.stringify({ data: { id: 'ses_owned', outcome: 'succeeded' } }),
+          { status: 200 }
+        );
+      }
+      // The event stream itself never yields a single byte.
+      return new Response(new ReadableStream({ cancel() {} }), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    });
+
+    try {
+      const response = await streamEvents(
+        authedRequest(
+          'http://localhost/api/esp32/agent/sessions/ses_owned/events',
+          {
+            method: 'GET',
+          }
+        ),
+        { params: Promise.resolve({ id: 'ses_owned' }) }
+      );
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toContain('event: agent.attached');
+      // The terminator is driven by the outcome read, not by anything the
+      // silent event stream sent.
+      expect(text).toContain('"status":"idle"');
+      expect(
+        fetchMock.mock.calls.filter(
+          ([url]) => (url as URL).pathname === '/api/session/ses_owned'
+        ).length
+      ).toBeGreaterThan(0);
+      expect(
+        fetchMock.mock.calls.filter(
+          ([url]) => (url as URL).pathname === '/api/session/active'
+        ).length
+      ).toBeGreaterThan(0);
+    } finally {
+      delete process.env.WQN_OPENCODE_PENDING_POLL_MS;
+    }
   });
 
   it('cannot observe a session owned by another binding', async () => {

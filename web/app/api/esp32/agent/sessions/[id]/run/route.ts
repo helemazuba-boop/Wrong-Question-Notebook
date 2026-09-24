@@ -7,6 +7,7 @@ import { relayOpenCodeEvents } from '@/lib/opencode-agent-events';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 import {
   assertOpenCodeSessionAccess,
+  createOpenCodePendingProbe,
   openOpenCodeEventStream,
   OpenCodeGatewayError,
   OpenCodeSessionAccessError,
@@ -90,6 +91,10 @@ export async function POST(
           writer,
           sessionId: id,
           mode: 'run',
+          // v2 has no permission or question events: the only way an ask
+          // reaches the device is this poll. Run mode must not use the probe's
+          // outcome read — a running agent can be silent for minutes.
+          probe: createOpenCodePendingProbe(binding),
         });
       } catch {
         writer.emit('agent.error', {
