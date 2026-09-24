@@ -16,6 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `GET /api/esp32/agent/sessions/{id}/history` backfills a session the device has not rendered yet, projected oldest-first from the upstream 11-way message union so the device appends in order.
   - `POST /api/esp32/agent/sessions/{id}/question` answers a pending form with the option value the device chose; the cloud resolves the form's field id (falling back to the form id when the detail read fails) and assembles the `answer` record, so the device never sees upstream field ids.
   - `POST /api/esp32/agent/sessions/{id}/interrupt` stops a submitted run and reports what upstream answered, treating "already finished" as a success rather than an error.
+- **ESP32 agent gateway contract documentation**
+  - Rewrite `web/contracts/agent-gateway-v0/README.md` so the cloud mirror matches the device contract again: nine device routes, eleven stream events including `agent.question`, the `agent.reasoning` channel that never feeds answer text, the bounds the cloud stays inside, and the upstream v2 path mapping that only the cloud knows.
+  - Document how pending asks reach the device — v2 has no ask event, so permissions and forms are polled behind the active-session gate — and name the firmware-side contract copy as the authority for the wire vocabulary.
 - **ESP32 OpenCode agent gateway**
   - Create device-visible OpenCode sessions through the gateway and verify each new session with a targeted binding-directory detail fetch before use.
   - Reply to pending OpenCode permission asks from the device, with corrective reject messages so the run continues; asks and echoes are deduped by permission id across both OpenCode event systems.
