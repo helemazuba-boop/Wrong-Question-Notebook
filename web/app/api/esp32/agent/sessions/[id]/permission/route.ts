@@ -14,7 +14,9 @@ import {
 export const runtime = 'nodejs';
 
 const PermissionBody = z.object({
-  permission_id: z.string().trim().min(1).max(256),
+  // The device echoes the id the cloud projected from Permission.Request, so
+  // the bound matches the firmware schema rather than an arbitrary length.
+  permission_id: z.string().trim().min(1).max(128),
   decision: z.enum(['once', 'reject']),
   confirmed: z.literal(true),
 });
@@ -57,8 +59,11 @@ export async function POST(
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
+    // The v2 reply path is session-scoped, so the session id travels with the
+    // request instead of being inferred from a global route.
     await replyOpenCodePermission(
       binding,
+      id,
       parsed.permission_id,
       parsed.decision
     );

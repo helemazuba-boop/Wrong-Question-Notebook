@@ -15,14 +15,18 @@ vi.mock('@/lib/esp32-device-auth', () => ({
   authenticateEsp32Device: authenticate,
 }));
 
-const OWNED_LIST = JSON.stringify([
-  {
-    id: 'ses_owned',
-    title: 'Owned',
-    directory: '/workspaces/a',
-    time: { updated: 2 },
-  },
-]);
+// The binding-scoped list is the ownership authority. v2 wraps it in {data}
+// and does not put a directory on each row.
+const OWNED_LIST = JSON.stringify({
+  data: [
+    {
+      id: 'ses_owned',
+      title: 'Owned',
+      location: { directory: '/workspaces/a' },
+      time: { updated: 2 },
+    },
+  ],
+});
 
 function authedRequest(
   url: string,
@@ -58,14 +62,18 @@ describe('OpenCode Agent session create route', () => {
 
   it('creates a session and returns it in the agent envelope', async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 'ses_new9' }), { status: 200 })
+      new Response(JSON.stringify({ data: { id: 'ses_new9' } }), {
+        status: 200,
+      })
     );
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 'ses_new9',
-          directory: '/workspaces/a',
-          time: { updated: 5 },
+          data: {
+            id: 'ses_new9',
+            location: { directory: '/workspaces/a' },
+            time: { updated: 5 },
+          },
         }),
         { status: 200 }
       )
@@ -85,17 +93,19 @@ describe('OpenCode Agent session create route', () => {
   });
 
   it('rate limits session creation per device', async () => {
-    fetchMock.mockImplementation(async (url, init?: RequestInit) => {
+    fetchMock.mockImplementation(async (_url, init?: RequestInit) => {
       if (init?.method === 'POST') {
-        return new Response(JSON.stringify({ id: 'ses_burst' }), {
+        return new Response(JSON.stringify({ data: { id: 'ses_burst' } }), {
           status: 200,
         });
       }
       return new Response(
         JSON.stringify({
-          id: 'ses_burst',
-          directory: '/workspaces/a',
-          time: { updated: 5 },
+          data: {
+            id: 'ses_burst',
+            location: { directory: '/workspaces/a' },
+            time: { updated: 5 },
+          },
         }),
         { status: 200 }
       );
@@ -206,8 +216,9 @@ describe('OpenCode Agent permission route', () => {
 
     expect(response.status).toBe(200);
     const [url, init] = fetchMock.mock.calls[1] as [URL, RequestInit];
-    expect(url.pathname).toBe('/permission/perm-1/reply');
-    expect(JSON.parse(String(init.body))).toEqual({ reply: 'once' });
+    // The v2 reply path is session-scoped and carries `decision`, not `reply`.
+    expect(url.pathname).toBe('/api/session/ses_owned/permission/perm-1/reply');
+    expect(JSON.parse(String(init.body))).toEqual({ decision: 'once' });
   });
 });
 

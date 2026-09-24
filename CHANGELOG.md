@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **OpenCode v2 upstream support**
+  - New gateway reads for the capabilities that only exist in OpenCode v2: session message history (projected from the 11-way message union, oldest first, and trimmed cloud-side to the device's 16 KiB response ceiling), the pending permission list, the form/question list and its per-form state, the active-session map, spawned subagent sessions, session outcome, and run interruption.
+  - Freeze the v2 upstream contract as test fixtures captured from a live server (OpenAPI excerpt plus raw SSE bytes) so the relay regression tests replay real envelopes instead of hand-written ones.
+  - `web/scripts/opencode-gateway-smoke.mjs` now probes the six v2 endpoints and asserts every response is a `{data}` envelope rather than an error envelope.
 - **ESP32 OpenCode agent gateway**
   - Create device-visible OpenCode sessions through the gateway and verify each new session with a targeted binding-directory detail fetch before use.
   - Reply to pending OpenCode permission asks from the device, with corrective reject messages so the run continues; asks and echoes are deduped by permission id across both OpenCode event systems.
@@ -30,6 +34,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **OpenCode gateway speaks the v2 upstream contract**
+  - Move every upstream path under `/api` (`/api/session`, `/api/session/:id/prompt`, `/api/session/:id/permission/:rid/reply`, `/api/event`) and read the `{data}` response envelope everywhere.
+  - Move the configured agent and model from the prompt request onto session creation (`POST /api/session` with `{location, agent, model:{id, providerID}}`); the v2 prompt request accepts only `text` plus `delivery`.
+  - Submit prompts with `delivery: 'steer'` so text reaches a run already in flight instead of queueing behind it.
+  - Write the `agent.accepted` frame before the prompt request is issued and submit the prompt inside the SSE body, so a long-running `/prompt` no longer keeps the device waiting on response headers until its own socket timeout turns a successful run into `stream_incomplete`.
+  - Use `?order=desc&parentID=null` on the session list: `order=updated.desc` is rejected with a 400, and the list includes subagent sessions unless `parentID=null` excludes them.
 - **Unified AI tool contract (MCP registry as single source)**
   - Extract the shared tool contracts (name, description, parameter schema, annotations) of the 11 voice-relevant tools into the dependency-free `web/lib/mcp/tool-catalog.ts`; the MCP registry attaches zod schemas and handlers, and the voice pipelines project the same entries into OpenAI function definitions.
   - Serve two new MCP tools from the same lib layer the voice path already used: `create_word_deck` and `search_words` (registry grows from 36 to 38 tools).
@@ -47,6 +57,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **ESP32 OpenCode agent gateway against OpenCode v2**
+  - The device session selector is no longer empty. The gateway read a non-existent top-level `directory` field on each session row (v2 puts it on `location.directory`) and then compared it to the binding directory, which matched nothing and dropped every row. Tenant scoping is now the server-side `?directory=` query alone, and sessions whose own worktree differs from the binding are no longer silently discarded. The same bug made every action-time ownership re-check return `session_not_found`, so run, permission reply, and observe were all blocked behind it.
+  - Creating a session no longer always fails closed. The gateway read `body.id` where v2 returns `{data:{…}}` and compared a directory field that does not exist, so every create returned `invalid_response` (502). Creation now verifies only that the new id is readable back through `GET /api/session/:id`.
+  - Session titles fall back to 新 Session when upstream omits the optional `title` field, so the device renders a label instead of a blank row.
+  - Permission replies travel the v2 session-scoped path with `decision` instead of `reply`.
 - **Problem Mark annotation queue**
   - Schedule the bounded annotation drain (/api/cron/problem-marks-annotate) every 10 minutes and give it a platform time budget that covers its 240-second batch deadline. Without both, the best-effort post-response wake stayed the only execution path and any annotation it lost had no drain.
   - Persist enqueue failures to problem_mark_enqueue_errors instead of only raising a warning, so a Problem whose annotation head could not be written no longer fails invisibly.

@@ -62,17 +62,28 @@ export async function POST(
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
-    // Subscribe before submitting so short tasks cannot complete in the gap
-    // between prompt_async and GET /event.
+    // Subscribe before submitting, so a run that finishes faster than the
+    // subscribe round trip cannot slip through the gap unwatched.
     const upstream = await openOpenCodeEventStream(binding, req.signal);
-    try {
-      await submitOpenCodePrompt(binding, id, parsed.text);
-    } catch (error) {
-      await upstream.body?.cancel().catch(() => undefined);
-      throw error;
-    }
     const response = createSseResponse(async writer => {
+      // The accepted frame is written before the prompt request is issued, and
+      // the prompt is submitted inside the SSE body rather than before the
+      // response is returned. v2's /prompt is not fire-and-forget: it can block
+      // until the run finishes. Submitting it before the response would leave
+      // the device waiting in esp_http_client_fetch_headers until its own socket
+      // timeout cut the connection, and a successful run would surface as
+      // stream_incomplete.
       writer.emit('agent.accepted', { session_id: id });
+      try {
+        await submitOpenCodePrompt(binding, id, parsed.text);
+      } catch {
+        await upstream.body?.cancel().catch(() => undefined);
+        writer.emit('agent.error', {
+          session_id: id,
+          message: 'OpenCode rejected the prompt',
+        });
+        return;
+      }
       try {
         await relayOpenCodeEvents({
           upstream: upstream.body!,

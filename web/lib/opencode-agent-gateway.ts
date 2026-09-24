@@ -11,6 +11,21 @@ const DEFAULT_EVENT_MAX_DURATION_MS = 30 * 60_000;
 // session could be visible for selection but fail the action-time re-check.
 export const OPENCODE_SESSION_LIST_LIMIT = 12;
 
+// The device can only buffer one prompt response in internal RAM
+// (`kMaxJsonResponseBytes` in opencode_client.cpp). A real session with two
+// tool calls blows past that, so history is truncated here — cloud side, where
+// the full upstream payload is available — instead of failing on the device.
+export const OPENCODE_HISTORY_MESSAGE_LIMIT = 24;
+// Budget for the serialized response body. Kept well under the device's 16 KiB
+// hard ceiling so the HTTP envelope and JSON escaping stay inside it too.
+export const OPENCODE_HISTORY_JSON_BUDGET_CHARS = 12 * 1024;
+export const OPENCODE_HISTORY_TEXT_CHARS = 2 * 1024;
+export const OPENCODE_HISTORY_THINKING_CHARS = 2 * 1024;
+export const OPENCODE_HISTORY_PREVIEW_CHARS = 240;
+// The device option bar renders exactly two slots; a third collides with the
+// key-hint strip. More options than this degrade to status text on device.
+export const OPENCODE_QUESTION_OPTION_LIMIT = 2;
+
 export interface OpenCodeSessionSummary {
   id: string;
   title: string;
@@ -18,6 +33,57 @@ export interface OpenCodeSessionSummary {
 }
 
 export type OpenCodePermissionDecision = 'once' | 'reject';
+
+export type OpenCodeHistoryToolStatus = 'running' | 'done' | 'error';
+
+export interface OpenCodeHistoryTool {
+  name: string;
+  status: OpenCodeHistoryToolStatus;
+  preview: string;
+}
+
+export interface OpenCodeHistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  thinking?: string;
+  tools?: OpenCodeHistoryTool[];
+}
+
+export interface OpenCodePermissionRequest {
+  id: string;
+  sessionId: string;
+  action: string;
+  title: string;
+  preview: string;
+}
+
+export interface OpenCodeQuestionOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * A form projected onto the single field the device can answer. `status` is
+ * empty for `Form.Info` (upstream has no state on the list shape) and only
+ * becomes pending/answered/cancelled through `loadOpenCodeFormDetail`.
+ */
+export interface OpenCodeFormState {
+  id: string;
+  sessionId: string;
+  title: string;
+  status: 'pending' | 'answered' | 'cancelled' | '';
+  fieldKey: string;
+  options: OpenCodeQuestionOption[];
+  /** Raw option count before the two-slot device cap. */
+  optionCount: number;
+}
+
+export type OpenCodeQuestionAnswerValue = string | number | boolean | string[];
+
+export type OpenCodeQuestionAnswer = Record<
+  string,
+  OpenCodeQuestionAnswerValue
+>;
 
 export interface OpenCodeAgentBinding {
   baseUrl: string;
@@ -203,6 +269,59 @@ async function fetchUpstream(
   }
 }
 
+/**
+ * v2 wraps every response in `{data}`. Read it and reject the error envelope
+ * (`{_tag, message, kind}`) rather than letting `undefined` surface as a
+ * valid-but-empty result.
+ */
+async function readDataEnvelope(
+  binding: OpenCodeAgentBinding,
+  path: string,
+  label: string
+): Promise<Record<string, unknown>> {
+  const response = await fetchUpstream(binding, path, {
+    method: 'GET',
+    headers: requestHeaders(binding, true),
+    cache: 'no-store',
+  });
+  const body = (await response.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const data = body?.data;
+  if (!data || typeof data !== 'object') {
+    throw new OpenCodeGatewayError(
+      'invalid_response',
+      `OpenCode ${label} response is invalid`,
+      502
+    );
+  }
+  return data as Record<string, unknown>;
+}
+
+async function readDataRows(
+  binding: OpenCodeAgentBinding,
+  path: string,
+  label: string
+): Promise<Record<string, unknown>[]> {
+  const response = await fetchUpstream(binding, path, {
+    method: 'GET',
+    headers: requestHeaders(binding, true),
+    cache: 'no-store',
+  });
+  const body = (await response.json().catch(() => null)) as {
+    data?: unknown;
+  } | null;
+  if (!Array.isArray(body?.data)) {
+    throw new OpenCodeGatewayError(
+      'invalid_response',
+      `OpenCode ${label} response is invalid`,
+      502
+    );
+  }
+  return body.data.map(asRecord);
+}
+
 function finiteTimestamp(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -213,103 +332,108 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function stringField(
+  object: Record<string, unknown>,
+  ...keys: string[]
+): string {
+  for (const key of keys) {
+    const value = object[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return '';
+}
+
+function clampText(value: string, maxChars: number): string {
+  return value.length > maxChars ? value.slice(0, maxChars) : value;
+}
+
+/**
+ * First human-readable field of a tool payload. The key order matters: a bash
+ * call carries `command`, an edit/patch carries `path`, a search carries
+ * `pattern`, and a description always wins because it is the tool's own words.
+ */
+function previewValue(
+  value: unknown,
+  max = OPENCODE_HISTORY_PREVIEW_CHARS
+): string {
+  if (typeof value === 'string') return value.slice(0, max);
+  if (!value || typeof value !== 'object') return '';
+  const object = value as Record<string, unknown>;
+  for (const key of ['command', 'path', 'file', 'description', 'pattern']) {
+    const field = object[key];
+    if (typeof field === 'string' && field) return field.slice(0, max);
+  }
+  return '';
+}
+
+function sessionRow(row: unknown): OpenCodeSessionSummary | null {
+  const record = asRecord(row);
+  const id = stringField(record, 'id');
+  if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) return null;
+  const time = asRecord(record.time);
+  // Session.Info.title is optional and is genuinely absent on fresh and failed
+  // sessions; the device must render a placeholder rather than a blank row.
+  return {
+    id,
+    title: clampText(stringField(record, 'title').trim() || '新 Session', 120),
+    updatedAt: finiteTimestamp(time.updated),
+  };
+}
+
 export async function listOpenCodeSessions(
   binding: OpenCodeAgentBinding,
   limit = OPENCODE_SESSION_LIST_LIMIT
 ): Promise<OpenCodeSessionSummary[]> {
-  const response = await fetchUpstream(binding, '/session', {
-    method: 'GET',
-    headers: requestHeaders(binding, true),
-    cache: 'no-store',
-  });
-  const body = (await response.json()) as unknown;
-  if (!Array.isArray(body)) {
-    throw new OpenCodeGatewayError(
-      'invalid_response',
-      'OpenCode session response is invalid',
-      502
-    );
-  }
-
-  return body
-    .map(value => {
-      const row = value as Record<string, unknown>;
-      const time =
-        row.time && typeof row.time === 'object'
-          ? (row.time as Record<string, unknown>)
-          : {};
-      return {
-        id: typeof row.id === 'string' ? row.id : '',
-        title:
-          typeof row.title === 'string' && row.title.trim()
-            ? row.title.trim().slice(0, 120)
-            : 'Untitled session',
-        bindingDirectory:
-          typeof row.directory === 'string'
-            ? normalizeDirectory(row.directory)
-            : '',
-        updatedAt:
-          finiteTimestamp(time.updated) || finiteTimestamp(row.updated_at),
-      };
-    })
-    .filter(
-      session =>
-        /^ses_[A-Za-z0-9_-]+$/.test(session.id) &&
-        session.bindingDirectory === binding.directory
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, Math.max(1, Math.min(limit, OPENCODE_SESSION_LIST_LIMIT)))
-    .map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
-}
-
-export async function submitOpenCodePrompt(
-  binding: OpenCodeAgentBinding,
-  sessionId: string,
-  text: string
-): Promise<void> {
-  const body: Record<string, unknown> = {
-    parts: [{ type: 'text', text }],
-  };
-  if (binding.agent) body.agent = binding.agent;
-  if (binding.providerId && binding.modelId) {
-    body.model = {
-      providerID: binding.providerId,
-      modelID: binding.modelId,
-    };
-  }
-  await fetchUpstream(
+  // `order=desc` (NOT `updated.desc`, which the server 400s), `parentID=null`
+  // to exclude subagent sessions, and `?directory=` as the tenant boundary.
+  // There is deliberately no client-side directory comparison: a session's own
+  // `location.directory` is its worktree and is not forced to equal the
+  // binding's startup directory — filtering on equality drops every row.
+  const url = upstreamUrl(binding, '/api/session');
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('order', 'desc');
+  url.searchParams.set('parentID', 'null');
+  const sessions = await readDataRows(
     binding,
-    `/session/${encodeURIComponent(sessionId)}/prompt_async`,
-    {
-      method: 'POST',
-      headers: requestHeaders(binding, true),
-      body: JSON.stringify(body),
-      cache: 'no-store',
-    }
+    url.pathname + url.search,
+    'session list'
   );
+  return sessions
+    .map(sessionRow)
+    .filter((session): session is OpenCodeSessionSummary => session !== null)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, Math.max(1, Math.min(limit, OPENCODE_SESSION_LIST_LIMIT)));
 }
 
 /**
  * Create a fresh OpenCode session in the binding's directory. The created id
- * is verified with a targeted GET /session/:id because older OpenCode servers
- * ignore the per-request directory on POST /session; a session created in
- * another worktree must never become visible to this device. (Re-listing the
- * latest sessions cannot be used here: a directory at the list cap can evict
- * the fresh session and turn a successful create into a false failure.)
+ * is verified with a targeted GET /api/session/:id because an id that cannot be
+ * read back is not usable. (Re-listing the latest sessions cannot be used
+ * here: a directory at the list cap can evict the fresh session and turn a
+ * successful create into a false failure.)
  */
 export async function createOpenCodeSession(
   binding: OpenCodeAgentBinding
 ): Promise<OpenCodeSessionSummary> {
-  const response = await fetchUpstream(binding, '/session', {
+  const body: Record<string, unknown> = {
+    location: { directory: binding.directory },
+  };
+  // v2 moved the agent/model selection off the prompt request and onto session
+  // creation: POST /api/session/:id/prompt only accepts `text` + `delivery`.
+  if (binding.agent) body.agent = binding.agent;
+  if (binding.providerId && binding.modelId) {
+    body.model = { id: binding.modelId, providerID: binding.providerId };
+  }
+  const response = await fetchUpstream(binding, '/api/session', {
     method: 'POST',
     headers: requestHeaders(binding, true),
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
     cache: 'no-store',
   });
-  const body = (await response.json().catch(() => null)) as {
-    id?: unknown;
+  const created = (await response.json().catch(() => null)) as {
+    data?: { id?: unknown };
   } | null;
-  const id = typeof body?.id === 'string' ? body.id : '';
+  const id = typeof created?.data?.id === 'string' ? created.data.id : '';
   if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) {
     throw new OpenCodeGatewayError(
       'invalid_response',
@@ -317,30 +441,19 @@ export async function createOpenCodeSession(
       502
     );
   }
-  const detail = await fetchUpstream(
+  const row = await readDataEnvelope(
     binding,
-    `/session/${encodeURIComponent(id)}`,
-    {
-      method: 'GET',
-      headers: requestHeaders(binding, true),
-      cache: 'no-store',
-    }
+    `/api/session/${encodeURIComponent(id)}`,
+    'session detail'
   );
-  const row = (await detail.json().catch(() => null)) as Record<
-    string,
-    unknown
-  > | null;
-  const time = asRecord(row?.time);
-  const rowId = typeof row?.id === 'string' ? row.id : '';
-  const rowDirectory =
-    typeof row?.directory === 'string' ? normalizeDirectory(row.directory) : '';
-  if (rowId !== id || rowDirectory !== binding.directory) {
+  if (stringField(row, 'id') !== id) {
     throw new OpenCodeGatewayError(
       'invalid_response',
-      'Created OpenCode session is not bound to the configured directory',
+      'Created OpenCode session is not readable after creation',
       502
     );
   }
+  const time = asRecord(row.time);
   return {
     id,
     title: '新 Session',
@@ -348,21 +461,62 @@ export async function createOpenCodeSession(
   };
 }
 
+export async function submitOpenCodePrompt(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  text: string
+): Promise<void> {
+  const response = await fetchUpstream(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/prompt`,
+    {
+      method: 'POST',
+      headers: requestHeaders(binding, true),
+      // `delivery: 'steer'` hands the text to a run already in flight instead
+      // of queueing behind it; 'queue' is the alternative. The agent and model
+      // were fixed at session-creation time and are not accepted here.
+      body: JSON.stringify({ text, delivery: 'steer' }),
+      cache: 'no-store',
+    }
+  );
+  // 204 (or an empty body) is an accepted fire-and-forget submit.
+  if (response.status === 204) return;
+  const body = (await response.json().catch(() => null)) as {
+    data?: Record<string, unknown>;
+  } | null;
+  if (!body?.data) return;
+  if (
+    stringField(body.data, 'sessionID') !== sessionId ||
+    stringField(body.data, 'type') !== 'user'
+  ) {
+    throw new OpenCodeGatewayError(
+      'invalid_response',
+      'OpenCode prompt response is not an accepted user message',
+      502
+    );
+  }
+}
+
 export async function replyOpenCodePermission(
   binding: OpenCodeAgentBinding,
+  sessionId: string,
   requestId: string,
   decision: OpenCodePermissionDecision
 ): Promise<void> {
-  const body: Record<string, unknown> = { reply: decision };
+  const body: Record<string, unknown> = { decision };
   // A bare reject surfaces as PermissionRejectedError and hard-blocks the
   // current run; a reject carrying a message is a corrective rejection that
   // lets the session continue with its next step.
+  //
+  // The v2 enum is once|always|reject, but only once|reject are reachable from
+  // the device — the firmware permission reply carries a bool and writes
+  // "once"/"reject" literally. A third value would be dead surface.
   if (decision === 'reject') {
     body.message = 'Rejected from WQN Note4';
   }
   await fetchUpstream(
     binding,
-    `/permission/${encodeURIComponent(requestId)}/reply`,
+    `/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(requestId)}/reply`,
     {
       method: 'POST',
       headers: requestHeaders(binding, true),
@@ -382,7 +536,8 @@ export class OpenCodeSessionAccessError extends Error {
 /**
  * Session ids arrive from the device, so ownership is re-resolved at action
  * time against the binding-scoped authoritative list instead of trusting the
- * id or the OpenCode directory header/query alone.
+ * id or the OpenCode directory header/query alone. This deliberately lists only
+ * root sessions, matching the device selector.
  */
 export async function assertOpenCodeSessionAccess(
   binding: OpenCodeAgentBinding,
@@ -431,7 +586,7 @@ export async function openOpenCodeEventStream(
   signal?.addEventListener('abort', () => controller.abort(), { once: true });
   try {
     resetIdleTimer();
-    const response = await fetch(upstreamUrl(binding, '/event'), {
+    const response = await fetch(upstreamUrl(binding, '/api/event'), {
       method: 'GET',
       headers: requestHeaders(binding),
       cache: 'no-store',
@@ -488,4 +643,378 @@ export async function openOpenCodeEventStream(
       controller.signal.aborted ? 504 : 502
     );
   }
+}
+
+/**
+ * Read the full message history, oldest first. `order=desc` is what upstream
+ * wants for a newest-first page, so rows are reversed locally rather than
+ * trusting a second parameterization.
+ */
+export async function loadOpenCodeMessages(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  limit = OPENCODE_HISTORY_MESSAGE_LIMIT
+): Promise<OpenCodeHistoryMessage[]> {
+  const url = upstreamUrl(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/message`
+  );
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('order', 'desc');
+  const rows = await readDataRows(
+    binding,
+    url.pathname + url.search,
+    'message list'
+  );
+
+  const messages: OpenCodeHistoryMessage[] = [];
+  for (const row of [...rows].reverse()) {
+    const message = projectHistoryMessage(row);
+    if (message) messages.push(message);
+  }
+  return trimHistoryToBudget(messages);
+}
+
+/**
+ * `Session.Message.Info` is an 11-way anyOf. Only `user` and `assistant` carry
+ * anything the device renders; `idle` is a turn boundary, and the remaining
+ * eight kinds (agent/model/location switches, synthetic, system, skill, shell,
+ * provider-state) are upstream bookkeeping with no device representation.
+ */
+function projectHistoryMessage(
+  record: Record<string, unknown>
+): OpenCodeHistoryMessage | null {
+  const type = stringField(record, 'type');
+  if (type === 'user') {
+    // The user text is a top-level field on the message, not a content part.
+    const text = stringField(record, 'text');
+    return text
+      ? { role: 'user', text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS) }
+      : null;
+  }
+  if (type !== 'assistant') return null;
+
+  let text = '';
+  let thinking = '';
+  const tools: OpenCodeHistoryTool[] = [];
+  // `retry` is a top-level `finish` state, not a content item; `content` is
+  // exactly the Text | Reasoning | Tool union.
+  const content = Array.isArray(record.content) ? record.content : [];
+  for (const item of content) {
+    const part = asRecord(item);
+    const partType = stringField(part, 'type');
+    if (partType === 'text') {
+      text += stringField(part, 'text');
+    } else if (partType === 'reasoning') {
+      thinking += stringField(part, 'text');
+    } else if (partType === 'tool') {
+      const state = asRecord(part.state);
+      // Do NOT use `executed` to decide whether a tool ran: it is false even
+      // for completed calls in captured history. `state.status` is the only
+      // reliable signal.
+      const rawStatus = stringField(state, 'status');
+      const status: OpenCodeHistoryToolStatus =
+        rawStatus === 'completed'
+          ? 'done'
+          : rawStatus === 'error'
+            ? 'error'
+            : 'running';
+      tools.push({
+        name: (
+          stringField(part, 'tool') ||
+          stringField(part, 'name') ||
+          'tool'
+        ).slice(0, 80),
+        status,
+        preview:
+          previewValue(state.input) ||
+          firstTextContent(state.content) ||
+          previewValue(state.error) ||
+          previewValue(state.metadata),
+      });
+    }
+  }
+  const message: OpenCodeHistoryMessage = {
+    role: 'assistant',
+    text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS),
+  };
+  if (thinking) {
+    message.thinking = clampText(thinking, OPENCODE_HISTORY_THINKING_CHARS);
+  }
+  if (tools.length > 0) message.tools = tools.slice(0, 8);
+  // A failed turn can be empty except for `error`; surface it so the device
+  // does not render an empty bubble with no explanation.
+  const error =
+    stringField(asRecord(record.error), 'message') ||
+    stringField(record, 'error');
+  if (error && !text) {
+    message.text = clampText(error, OPENCODE_HISTORY_TEXT_CHARS);
+  }
+  if (!message.text && !message.thinking && !message.tools) return null;
+  return message;
+}
+
+function firstTextContent(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  for (const item of value) {
+    const part = asRecord(item);
+    if (stringField(part, 'type') === 'text') {
+      const text = stringField(part, 'text');
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+/** Drop oldest messages until the response fits the device budget. */
+function trimHistoryToBudget(
+  messages: OpenCodeHistoryMessage[]
+): OpenCodeHistoryMessage[] {
+  const trimmed = [...messages];
+  while (
+    trimmed.length > 1 &&
+    JSON.stringify(trimmed).length > OPENCODE_HISTORY_JSON_BUDGET_CHARS
+  ) {
+    trimmed.shift();
+  }
+  return trimmed;
+}
+
+/**
+ * Pending asks. `Permission.Request` carries no state field — upstream enqueues
+ * an ask on request and removes it on reply — so the list is the pending set.
+ */
+export async function listOpenCodePermissions(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<OpenCodePermissionRequest[]> {
+  const rows = await readDataRows(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/permission`,
+    'permission list'
+  );
+  const requests: OpenCodePermissionRequest[] = [];
+  for (const record of rows) {
+    const id = stringField(record, 'id');
+    if (!id) continue;
+    const action = stringField(record, 'action') || 'tool';
+    const resources = Array.isArray(record.resources)
+      ? record.resources.filter(
+          (value): value is string => typeof value === 'string' && !!value
+        )
+      : [];
+    requests.push({
+      id,
+      sessionId: stringField(record, 'sessionID') || sessionId,
+      action: action.slice(0, 80),
+      // Permission.Request.message is the human sentence upstream already
+      // wrote; only compose one when it is absent.
+      title: clampText(
+        stringField(record, 'message') ||
+          [action, ...resources].join(' ').trim() ||
+          'OpenCode permission required',
+        160
+      ),
+      preview: clampText(
+        previewValue(asRecord(record.metadata)) || resources[0] || action,
+        OPENCODE_HISTORY_PREVIEW_CHARS
+      ),
+    });
+  }
+  return requests;
+}
+
+/**
+ * `GET /api/session/active` maps every running session id to its state; a
+ * session absent from the map is inactive. Used as the cheap first gate before
+ * any permission/form polling round.
+ */
+export async function listOpenCodeActiveSessions(
+  binding: OpenCodeAgentBinding
+): Promise<string[]> {
+  const data = await readDataEnvelope(
+    binding,
+    '/api/session/active',
+    'active sessions'
+  );
+  return Object.keys(data).filter(id => !!id);
+}
+
+/**
+ * `GET /api/session/:id/form` returns `Form.Info`, which has NO state — a
+ * reconnecting relay would re-arm an already-answered form. This list is only
+ * good for discovery; `loadOpenCodeFormDetail` answers pending vs resolved.
+ */
+export async function listOpenCodeQuestions(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<OpenCodeFormState[]> {
+  const rows = await readDataRows(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/form`,
+    'form list'
+  );
+  const forms: OpenCodeFormState[] = [];
+  for (const record of rows) {
+    const form = projectForm(record, sessionId, '');
+    if (form) forms.push(form);
+  }
+  return forms;
+}
+
+export async function loadOpenCodeFormDetail(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  formId: string
+): Promise<OpenCodeFormState | null> {
+  const data = await readDataEnvelope(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}`,
+    'form detail'
+  );
+  return projectForm(data, sessionId, formState(data));
+}
+
+function formState(data: Record<string, unknown>): OpenCodeFormState['status'] {
+  const status = stringField(asRecord(data.state), 'status');
+  if (status === 'pending' || status === 'answered' || status === 'cancelled') {
+    return status;
+  }
+  // Form.State is a discriminated union on `status`; a missing status means the
+  // union did not resolve, which for a Detail response is unexpected.
+  return '';
+}
+
+/**
+ * Project a form onto the one field the device can answer: skip hidden fields
+ * and fields gated behind a `when[]` condition (the device has no other answers
+ * to branch on), then take the first `string`/`multiselect` field that carries
+ * options. Option labels fall back to the raw value when upstream omits them.
+ */
+function projectForm(
+  form: Record<string, unknown>,
+  sessionId: string,
+  status: OpenCodeFormState['status']
+): OpenCodeFormState | null {
+  const id = stringField(form, 'id');
+  if (!id) return null;
+  const fields = Array.isArray(form.fields) ? form.fields : [];
+  for (const rawField of fields) {
+    const field = asRecord(rawField);
+    if (field.hidden === true) continue;
+    if (Array.isArray(field.when) && field.when.length > 0) continue;
+    const fieldType = stringField(field, 'type');
+    if (fieldType !== 'string' && fieldType !== 'multiselect') continue;
+    const rawOptions = Array.isArray(field.options) ? field.options : [];
+    if (rawOptions.length === 0) continue;
+    const options: OpenCodeQuestionOption[] = [];
+    for (const rawOption of rawOptions) {
+      const option = asRecord(rawOption);
+      const value =
+        stringField(option, 'value') ||
+        stringField(option, 'id') ||
+        stringField(option, 'label');
+      if (!value) continue;
+      options.push({
+        value,
+        label: clampText(stringField(option, 'label') || value, 80),
+      });
+    }
+    if (options.length === 0) continue;
+    return {
+      id,
+      sessionId: stringField(form, 'sessionID') || sessionId,
+      title: clampText(stringField(form, 'title') || 'OpenCode 提问', 160),
+      status,
+      fieldKey: stringField(field, 'key') || id,
+      // Two slots is the device's hard geometry limit (a third collides with
+      // the key-hint strip); more options degrade to status text on device.
+      options: options.slice(0, OPENCODE_QUESTION_OPTION_LIMIT),
+      optionCount: options.length,
+    };
+  }
+  return null;
+}
+
+export async function replyOpenCodeQuestion(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  formId: string,
+  answer: OpenCodeQuestionAnswer
+): Promise<void> {
+  await fetchUpstream(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}/reply`,
+    {
+      method: 'POST',
+      headers: requestHeaders(binding, true),
+      // Only the cloud knows a form's field ids, so the cloud assembles the
+      // `answer` record; the device only ever sends a chosen option value.
+      body: JSON.stringify({ answer }),
+      cache: 'no-store',
+    }
+  );
+}
+
+/** Stop a submitted run. Returns whether upstream reports an interruption. */
+export async function interruptOpenCodeSession(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<boolean> {
+  const response = await fetchUpstream(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
+    {
+      method: 'POST',
+      headers: requestHeaders(binding, true),
+      cache: 'no-store',
+    }
+  );
+  // Upstream answers `{data:{interrupted:bool}}`; treat any non-false value
+  // (including an empty body) as interrupted so the device can stop waiting.
+  const body = (await response.json().catch(() => null)) as {
+    data?: { interrupted?: unknown };
+  } | null;
+  return body?.data?.interrupted !== false;
+}
+
+/**
+ * Spawned subagent sessions. A subagent can raise its own permission asks, so
+ * the poller re-reads this every round rather than caching it.
+ */
+export async function listOpenCodeChildSessions(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  limit = 8
+): Promise<OpenCodeSessionSummary[]> {
+  const url = upstreamUrl(binding, '/api/session');
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('order', 'desc');
+  url.searchParams.set('parentID', sessionId);
+  const rows = await readDataRows(
+    binding,
+    url.pathname + url.search,
+    'child session list'
+  );
+  return rows
+    .map(sessionRow)
+    .filter((session): session is OpenCodeSessionSummary => session !== null);
+}
+
+/**
+ * `Session.Info.outcome` is only written when a run finishes (succeeded /
+ * failed / interrupted) and is absent while a session is idle. That makes it
+ * the exact marker for "this observed session is done", which the pure live
+ * event stream cannot provide.
+ */
+export async function loadOpenCodeSessionOutcome(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<string> {
+  const data = await readDataEnvelope(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}`,
+    'session detail'
+  );
+  return stringField(data, 'outcome');
 }
