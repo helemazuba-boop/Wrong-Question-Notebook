@@ -707,6 +707,178 @@ describe('OpenCode v2 event projection', () => {
     }
   });
 
+  it('clears the device buffer when a new round starts in brief', () => {
+    // One turn is several assistant rounds and only the last one is the answer.
+    // The device appends deltas into a single buffer, so the brief tier clears
+    // it when a new round's text starts -- otherwise every round's lead-in
+    // ("让我看看：") stays glued in front of the answer.
+    const state = createOpenCodeRelayState(0);
+    const writer = createWriter();
+    const delta = (messageId: string, text: string) => ({
+      type: 'session.text.delta',
+      data: {
+        sessionID: SESSION,
+        assistantMessageID: messageId,
+        ordinal: 0,
+        delta: text,
+      },
+    });
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      delta('msg_1', '让我看看：'),
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      delta('msg_2', '答案在此'),
+      SESSION,
+      state
+    );
+
+    expect(writer.names()).toEqual([
+      'agent.text.delta',
+      'agent.text',
+      'agent.text.delta',
+    ]);
+    expect(writer.frames[1].data.text).toBe('');
+    expect(writer.frames[2].data.delta).toBe('答案在此');
+  });
+
+  it('leaves the device buffer alone at the standard and full tiers', () => {
+    for (const detail of [1, 2] as const) {
+      const state = createOpenCodeRelayState(detail);
+      const writer = createWriter();
+      const delta = (messageId: string, text: string) => ({
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: messageId,
+          ordinal: 0,
+          delta: text,
+        },
+      });
+
+      emitNormalizedOpenCodeEvent(
+        writer,
+        delta('msg_1', '让我看看：'),
+        SESSION,
+        state
+      );
+      emitNormalizedOpenCodeEvent(
+        writer,
+        delta('msg_2', '答案在此'),
+        SESSION,
+        state
+      );
+
+      expect(writer.names()).toEqual(['agent.text.delta', 'agent.text.delta']);
+    }
+  });
+
+  it('does not replay a superseded round when its end arrives late in brief', () => {
+    const state = createOpenCodeRelayState(0);
+    const writer = createWriter();
+
+    // Round 1's deltas are cut short (2 of 5 characters), so its `ended` would
+    // normally self-heal by replaying the whole part.
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          delta: '让我',
+        },
+      },
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_2',
+          ordinal: 0,
+          delta: '答案在此',
+        },
+      },
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.ended',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          text: '让我看看：',
+        },
+      },
+      SESSION,
+      state
+    );
+
+    // The bubble has moved on to round 2; replaying round 1 would glue it back
+    // in front of the answer.
+    expect(writer.names()).toEqual([
+      'agent.text.delta',
+      'agent.text',
+      'agent.text.delta',
+    ]);
+  });
+
+  it('still shows a round whose deltas never arrived in brief', () => {
+    const state = createOpenCodeRelayState(0);
+    const writer = createWriter();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          delta: '开头',
+        },
+      },
+      SESSION,
+      state
+    );
+    // Round 2 produced text but no delta reached the relay: its `ended` is the
+    // only copy, so it becomes the current round (reset, then the full text).
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.ended',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_2',
+          ordinal: 0,
+          text: '答案在此',
+        },
+      },
+      SESSION,
+      state
+    );
+
+    expect(writer.names()).toEqual([
+      'agent.text.delta',
+      'agent.text',
+      'agent.text',
+    ]);
+    expect(writer.frames[1].data.text).toBe('');
+    expect(writer.frames[2].data.text).toBe('答案在此');
+  });
+
   it('clips a single delta to the device budget', () => {
     const writer = createWriter();
 

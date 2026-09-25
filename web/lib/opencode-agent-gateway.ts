@@ -732,8 +732,17 @@ export async function loadOpenCodeMessages(
     'message list'
   );
 
+  const chronological = [...rows].reverse();
+  // [detail] The brief tier is the one tier projected per TURN rather than per
+  // message: upstream splits a turn into one assistant message per model
+  // round-trip, and only the turn's last text is the answer. See
+  // projectBriefTurns.
+  if (detail < 1) {
+    return trimHistoryToBudget(projectBriefTurns(chronological));
+  }
+
   const messages: OpenCodeHistoryMessage[] = [];
-  for (const row of [...rows].reverse()) {
+  for (const row of chronological) {
     const message = projectHistoryMessage(row, detail);
     if (message) messages.push(message);
   }
@@ -745,6 +754,10 @@ export async function loadOpenCodeMessages(
  * anything the device renders; `idle` is a turn boundary, and the remaining
  * eight kinds (agent/model/location switches, synthetic, system, skill, shell,
  * provider-state) are upstream bookkeeping with no device representation.
+ *
+ * Standard and full tiers only. The brief tier projects whole turns instead
+ * (see projectBriefTurns): one turn is several assistant messages, and only the
+ * last one carries the answer.
  */
 function projectHistoryMessage(
   record: Record<string, unknown>,
@@ -760,8 +773,8 @@ function projectHistoryMessage(
   }
   if (type !== 'assistant') return null;
 
-  let text = '';
   let thinking = '';
+  const text = textOfContent(record);
   const tools: OpenCodeHistoryTool[] = [];
   // `retry` is a top-level `finish` state, not a content item; `content` is
   // exactly the Text | Reasoning | Tool union.
@@ -769,9 +782,7 @@ function projectHistoryMessage(
   for (const item of content) {
     const part = asRecord(item);
     const partType = stringField(part, 'type');
-    if (partType === 'text') {
-      text += stringField(part, 'text');
-    } else if (partType === 'reasoning') {
+    if (partType === 'reasoning') {
       thinking += stringField(part, 'text');
     } else if (partType === 'tool') {
       const state = asRecord(part.state);
@@ -817,40 +828,141 @@ function projectHistoryMessage(
   }
   if (tools.length > 0 && detail >= 1) message.tools = tools.slice(0, 8);
   // A failed turn can be empty except for `error`; surface it so the device
-  // does not render an empty bubble with no explanation. It outranks the brief
-  // tier's digest: a turn that failed should say why, not how long it ran.
-  const error =
-    stringField(asRecord(record.error), 'message') ||
-    stringField(record, 'error');
+  // does not render an empty bubble with no explanation.
+  const error = messageError(record);
   if (error && !text) {
     message.text = clampText(error, OPENCODE_HISTORY_TEXT_CHARS);
-  } else if (!text && detail < 1 && tools.length > 0) {
-    // Brief tier: a turn that only ran tools would otherwise project to nothing
-    // and vanish from the transcript. Plain text because the schema is
-    // `additionalProperties: false` -- a dedicated field would cost the full
-    // contract ceremony, and the device renders this as ordinary body text.
-    message.text = digestText(tools.length, record);
   }
   if (!message.text && !message.thinking && !message.tools) return null;
   return message;
 }
 
 /**
- * One-line stand-in for a tool-only assistant turn in the brief tier. Duration
- * is bucketed because raw seconds are noise (measured turns run 20-90 s, with
- * one multi-hour outlier in the sample): sub-minute in seconds, sub-hour in
+ * [detail] Brief tier: one entry per TURN, not per message.
+ *
+ * Upstream splits a turn into one assistant message per model round-trip, and a
+ * round that only ran tools carries no text at all. Projecting per message
+ * turned a single question into a stack of "调用了 1 次工具" lines -- one per
+ * round -- with the model's between-round lead-ins ("让我看看：") sitting
+ * between them, every one of which read as a separate reply. A brief user wants
+ * the answer, so a turn collapses to:
+ *   - its last text, when any round produced text (the answer);
+ *   - otherwise the failure reason, when a round failed -- a turn that produced
+ *     nothing should say why, not how long it ran;
+ *   - otherwise one digest over every tool the turn ran, so a turn that only
+ *     executed does not vanish from the transcript.
+ * A turn with no text, no tools and no error projects to nothing.
+ */
+function projectBriefTurns(
+  rows: Record<string, unknown>[]
+): OpenCodeHistoryMessage[] {
+  const messages: OpenCodeHistoryMessage[] = [];
+  let rounds: Record<string, unknown>[] = [];
+  const flush = () => {
+    const turn = projectBriefTurn(rounds);
+    if (turn) messages.push(turn);
+    rounds = [];
+  };
+  for (const row of rows) {
+    const type = stringField(row, 'type');
+    if (type === 'user') {
+      // The turn's rounds belong to the user message above them.
+      flush();
+      const text = stringField(row, 'text');
+      if (text) {
+        messages.push({
+          role: 'user',
+          text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS),
+        });
+      }
+    } else if (type === 'assistant') {
+      rounds.push(row);
+    }
+  }
+  flush();
+  return messages;
+}
+
+function projectBriefTurn(
+  rounds: Record<string, unknown>[]
+): OpenCodeHistoryMessage | null {
+  let answer = '';
+  let error = '';
+  let toolCount = 0;
+  let firstCreated = 0;
+  let lastCompleted = 0;
+  for (const round of rounds) {
+    const text = textOfContent(round);
+    // Last text wins: the final round is the answer, and a later round without
+    // text does not take it back.
+    if (text) answer = text;
+    if (!error) error = messageError(round);
+    const content = Array.isArray(round.content) ? round.content : [];
+    for (const item of content) {
+      if (stringField(asRecord(item), 'type') === 'tool') toolCount += 1;
+    }
+    const time = asRecord(round.time);
+    const created = typeof time.created === 'number' ? time.created : 0;
+    const completed = typeof time.completed === 'number' ? time.completed : 0;
+    if (created > 0 && (firstCreated === 0 || created < firstCreated)) {
+      firstCreated = created;
+    }
+    if (completed > lastCompleted) lastCompleted = completed;
+  }
+  if (answer) {
+    return {
+      role: 'assistant',
+      text: clampText(answer, OPENCODE_HISTORY_TEXT_CHARS),
+    };
+  }
+  if (error) {
+    return {
+      role: 'assistant',
+      text: clampText(error, OPENCODE_HISTORY_TEXT_CHARS),
+    };
+  }
+  if (toolCount > 0) {
+    // One duration for the whole turn -- first round started to last round
+    // finished -- so the number reads as "how long this question took".
+    const seconds =
+      firstCreated > 0 && lastCompleted > firstCreated
+        ? (lastCompleted - firstCreated) / 1000
+        : null;
+    return { role: 'assistant', text: digestText(toolCount, seconds) };
+  }
+  return null;
+}
+
+/** Concatenated `text` parts of an assistant row: the reply body. */
+function textOfContent(record: Record<string, unknown>): string {
+  let text = '';
+  const content = Array.isArray(record.content) ? record.content : [];
+  for (const item of content) {
+    const part = asRecord(item);
+    if (stringField(part, 'type') === 'text') {
+      text += stringField(part, 'text');
+    }
+  }
+  return text;
+}
+
+/** A failed turn's reason: `error.message`, or the bare `error` string. */
+function messageError(record: Record<string, unknown>): string {
+  return (
+    stringField(asRecord(record.error), 'message') ||
+    stringField(record, 'error')
+  );
+}
+
+/**
+ * One-line stand-in for a brief-tier turn that ran tools but produced no text.
+ * Duration is bucketed because raw seconds are noise (measured turns run 20-90 s,
+ * with one multi-hour outlier in the sample): sub-minute in seconds, sub-hour in
  * minutes, and beyond that no duration at all.
  */
-function digestText(
-  toolCount: number,
-  record: Record<string, unknown>
-): string {
-  const time = asRecord(record.time);
-  const created = typeof time.created === 'number' ? time.created : 0;
-  const completed = typeof time.completed === 'number' ? time.completed : 0;
+function digestText(toolCount: number, seconds: number | null): string {
   let duration = '';
-  if (created > 0 && completed > created) {
-    const seconds = (completed - created) / 1000;
+  if (seconds !== null) {
     if (seconds < 60) {
       duration = `${Math.max(1, Math.round(seconds))} 秒`;
     } else if (seconds < 3600) {

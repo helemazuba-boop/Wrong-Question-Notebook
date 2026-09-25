@@ -473,7 +473,7 @@ describe('OpenCode Agent gateway', () => {
       expect(messages[messages.length - 1].text).toBe('汉'.repeat(2000));
     });
 
-    it('projects the brief tier down to text plus a digest for tool-only turns', async () => {
+    it('collapses a turn to its answer at the brief tier', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           data: [
@@ -522,10 +522,160 @@ describe('OpenCode Agent gateway', () => {
         0
       );
 
+      // One question, one entry: the turn's last text is the answer, and the
+      // rounds that only ran tools are not replies of their own.
       expect(messages).toEqual([
         { role: 'user', text: 'hello' },
         { role: 'assistant', text: 'the answer' },
-        { role: 'assistant', text: '调用了 2 次工具 · 工作了 45 秒' },
+      ]);
+    });
+
+    it('keeps only the last text of a turn, dropping between-round lead-ins', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            // Newest first, like upstream.
+            {
+              id: 'msg_final',
+              type: 'assistant',
+              content: [{ type: 'text', text: '答案在此' }],
+            },
+            {
+              id: 'msg_lead_in',
+              type: 'assistant',
+              content: [
+                { type: 'text', text: '让我看看：' },
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls' } },
+                },
+              ],
+            },
+            { id: 'msg_user', type: 'user', text: '这是什么？' },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      expect(messages).toEqual([
+        { role: 'user', text: '这是什么？' },
+        { role: 'assistant', text: '答案在此' },
+      ]);
+    });
+
+    it('aggregates a turn with no text into one digest over every tool', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            // Newest first: three tool-only rounds, no answer at all.
+            {
+              id: 'msg_round_3',
+              type: 'assistant',
+              time: { created: 21_000, completed: 26_000 },
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_3',
+                  name: 'grep',
+                  state: { status: 'completed', input: { pattern: 'x' } },
+                },
+              ],
+            },
+            {
+              id: 'msg_round_2',
+              type: 'assistant',
+              time: { created: 11_000, completed: 14_000 },
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_2',
+                  name: 'read',
+                  state: { status: 'completed', input: { path: 'a.ts' } },
+                },
+              ],
+            },
+            {
+              id: 'msg_round_1',
+              type: 'assistant',
+              time: { created: 1_000, completed: 5_000 },
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls' } },
+                },
+              ],
+            },
+            { id: 'msg_user', type: 'user', text: 'ping' },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      // Three rounds of one tool each, one question: a single digest, counted
+      // over the turn and timed from the first round's start to the last
+      // round's end (1s -> 26s).
+      expect(messages).toEqual([
+        { role: 'user', text: 'ping' },
+        { role: 'assistant', text: '调用了 3 次工具 · 工作了 25 秒' },
+      ]);
+    });
+
+    it('keeps every round as its own entry at the standard tier', async () => {
+      // The brief tier's turn collapse must not leak into the tiers that show
+      // the machinery: standard keeps one entry per round, tools attached.
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_round_2',
+              type: 'assistant',
+              content: [{ type: 'text', text: '答案在此' }],
+            },
+            {
+              id: 'msg_round_1',
+              type: 'assistant',
+              content: [
+                { type: 'text', text: '让我看看：' },
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls' } },
+                },
+              ],
+            },
+            { id: 'msg_user', type: 'user', text: '这是什么？' },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        1
+      );
+
+      expect(messages.map(message => message.text)).toEqual([
+        '这是什么？',
+        '让我看看：',
+        '答案在此',
+      ]);
+      expect(messages[1].tools).toEqual([
+        { name: 'bash', status: 'done', preview: 'ls' },
       ]);
     });
 

@@ -115,6 +115,14 @@ export interface OpenCodeRelayState {
    */
   toolNames: Map<string, string>;
   /**
+   * [detail] Assistant round whose text the device's live bubble is currently
+   * showing. Brief tier only: one turn is several rounds and only the last one
+   * is the answer, so a new round's first text frame clears the device buffer
+   * (see applyDelta) instead of letting every round's lead-in pile up in front
+   * of the answer. Empty until the first text frame of the attach.
+   */
+  textRoundKey: string;
+  /**
    * The device holds one pending-ask string, period -- permission and question
    * share a single option bar. A live ask of either kind therefore blocks a new
    * ask of the other: the firmware drops what does not fit, and the poller
@@ -144,6 +152,7 @@ export function createOpenCodeRelayState(
     textDeltas: new Map<string, number>(),
     reasoningDeltas: new Map<string, number>(),
     toolNames: new Map<string, string>(),
+    textRoundKey: '',
     pendingPermission: null,
     pendingQuestion: null,
     detail,
@@ -227,6 +236,22 @@ function applyDelta(
   if (!delta) return;
   const clipped = delta.slice(0, MAX_DELTA_EVENT_CHARS);
   const key = streamKey(data);
+  const round = stringField(data, 'assistantMessageID');
+  // [detail] Brief tier: rounds are model round-trips, and only the last one is
+  // the answer. The device appends deltas into one buffer, so a new round's
+  // first text frame clears it -- otherwise every round's lead-in ("让我看看：")
+  // stays glued in front of the answer. An empty `agent.text` is the device's
+  // existing "replace the buffer with this text" frame, and it never blanks an
+  // already-mirrored block, so nothing flickers between rounds.
+  if (
+    state.detail < 1 &&
+    round &&
+    state.textRoundKey &&
+    round !== state.textRoundKey
+  ) {
+    writer.emit('agent.text', { session_id: sessionId, text: '' });
+  }
+  if (round) state.textRoundKey = round;
   if (key) {
     state.textDeltas.set(
       key,
@@ -234,6 +259,14 @@ function applyDelta(
     );
   }
   writer.emit('agent.text.delta', { session_id: sessionId, delta: clipped });
+}
+
+/** True when any text part of `round` already streamed deltas to the device. */
+function roundHasDeltas(state: OpenCodeRelayState, round: string): boolean {
+  for (const key of state.textDeltas.keys()) {
+    if (key.startsWith(`${round}#`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -252,6 +285,21 @@ function endText(
   const text = stringField(data, 'text');
   if (!text) return;
   const key = streamKey(data);
+  const round = stringField(data, 'assistantMessageID');
+  if (
+    state.detail < 1 &&
+    round &&
+    state.textRoundKey &&
+    round !== state.textRoundKey
+  ) {
+    // [detail] Brief tier: the bubble shows the newest round only. A round whose
+    // deltas already went out has been superseded, so replaying its full text
+    // would glue it back in front of the answer. A round whose deltas never
+    // arrived is still the best thing to show: it becomes the current round.
+    if (roundHasDeltas(state, round)) return;
+    state.textRoundKey = round;
+    writer.emit('agent.text', { session_id: sessionId, text: '' });
+  }
   const sent = key ? (state.textDeltas.get(key) ?? 0) : 0;
   if (key && sent >= text.length) return;
   writer.emit('agent.text', {
