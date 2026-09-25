@@ -858,10 +858,14 @@ describe('OpenCode v2 event projection', () => {
       'session.execution.interrupted',
       'global.disposed',
     ]) {
-      emitNormalizedOpenCodeEvent(writer, { type, data: { sessionID: SESSION } }, SESSION);
+      emitNormalizedOpenCodeEvent(
+        writer,
+        { type, data: { sessionID: SESSION } },
+        SESSION
+      );
     }
     const terminalErrors = writer.frames.filter(
-      (frame) => frame.event === 'agent.error'
+      frame => frame.event === 'agent.error'
     );
     expect(terminalErrors).toHaveLength(3);
     for (const frame of terminalErrors) {
