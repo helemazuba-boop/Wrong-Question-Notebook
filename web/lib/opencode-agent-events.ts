@@ -1,4 +1,8 @@
 import type { SseWriter } from '@/lib/ai-stream';
+import {
+  OPENCODE_HISTORY_DETAIL_FULL,
+  type OpenCodeHistoryDetail,
+} from '@/lib/opencode-agent-detail';
 
 /** The permission shape this projection needs; the gateway produces it. */
 export interface OpenCodePendingAsk {
@@ -122,9 +126,18 @@ export interface OpenCodeRelayState {
    */
   pendingPermission: OpenCodePendingSlot | null;
   pendingQuestion: OpenCodePendingSlot | null;
+  /**
+   * Device-requested detail tier. The live stream is the half of the tier the
+   * history projection cannot cover: a run must not stream thinking the device
+   * asked not to see, and the brief tier drops tool frames too, so the live
+   * transcript matches what the same tier will later backfill.
+   */
+  detail: OpenCodeHistoryDetail;
 }
 
-export function createOpenCodeRelayState(): OpenCodeRelayState {
+export function createOpenCodeRelayState(
+  detail: OpenCodeHistoryDetail = OPENCODE_HISTORY_DETAIL_FULL
+): OpenCodeRelayState {
   return {
     seenPermissions: new Set<string>(),
     seenQuestions: new Set<string>(),
@@ -133,6 +146,7 @@ export function createOpenCodeRelayState(): OpenCodeRelayState {
     toolNames: new Map<string, string>(),
     pendingPermission: null,
     pendingQuestion: null,
+    detail,
   };
 }
 
@@ -445,12 +459,20 @@ export function emitNormalizedOpenCodeEvent(
       endText(writer, sessionId, data, state);
       return 'activity';
     }
+    // [detail] Below full, thinking is not the device's to see -- and both
+    // halves must be skipped together: `endReasoning` self-heals a stream it
+    // believes was truncated, so leaving it on would replay the whole reasoning
+    // text as a single `agent.reasoning` frame.
     case 'session.reasoning.delta': {
-      applyReasoningDelta(writer, sessionId, data, state);
+      if (state.detail >= 2) {
+        applyReasoningDelta(writer, sessionId, data, state);
+      }
       return 'activity';
     }
     case 'session.reasoning.ended': {
-      endReasoning(writer, sessionId, data, state);
+      if (state.detail >= 2) {
+        endReasoning(writer, sessionId, data, state);
+      }
       return 'activity';
     }
 
@@ -468,35 +490,44 @@ export function emitNormalizedOpenCodeEvent(
 
     // The name of a tool call, falling back to a stable placeholder when the
     // `input.started` frame was never seen (a capture that starts mid-run).
+    // [detail] The brief tier suppresses the three terminal frames: they would
+    // draw tool blocks that the next history load drops in favour of a digest.
+    // `activity` is still returned -- the raw frame proves the run is alive,
+    // and the device's own status label is the only feedback brief users get.
     case 'session.tool.called': {
-      const id = stringField(data, 'id');
-      writer.emit('agent.tool', {
-        session_id: sessionId,
-        tool: toolName(state, data),
-        call_id: id || undefined,
-        status: 'running',
-        preview: toolPreview(data),
-      });
+      if (state.detail >= 1) {
+        writer.emit('agent.tool', {
+          session_id: sessionId,
+          tool: toolName(state, data),
+          call_id: stringField(data, 'id') || undefined,
+          status: 'running',
+          preview: toolPreview(data),
+        });
+      }
       return 'activity';
     }
     case 'session.tool.success': {
-      writer.emit('agent.tool', {
-        session_id: sessionId,
-        tool: toolName(state, data),
-        call_id: stringField(data, 'id') || undefined,
-        status: 'done',
-        preview: toolSuccessPreview(data),
-      });
+      if (state.detail >= 1) {
+        writer.emit('agent.tool', {
+          session_id: sessionId,
+          tool: toolName(state, data),
+          call_id: stringField(data, 'id') || undefined,
+          status: 'done',
+          preview: toolSuccessPreview(data),
+        });
+      }
       return 'activity';
     }
     case 'session.tool.failed': {
-      writer.emit('agent.tool', {
-        session_id: sessionId,
-        tool: toolName(state, data),
-        call_id: stringField(data, 'id') || undefined,
-        status: 'error',
-        preview: errorMessage(data.error, '工具执行失败'),
-      });
+      if (state.detail >= 1) {
+        writer.emit('agent.tool', {
+          session_id: sessionId,
+          tool: toolName(state, data),
+          call_id: stringField(data, 'id') || undefined,
+          status: 'error',
+          preview: errorMessage(data.error, '工具执行失败'),
+        });
+      }
       return 'activity';
     }
 
@@ -754,6 +785,8 @@ export async function relayOpenCodeEvents(input: {
   writer: SseWriter;
   sessionId: string;
   mode?: OpenCodeRelayMode;
+  /** Device-requested tier; absent = full, so every old caller is unchanged. */
+  detail?: OpenCodeHistoryDetail;
   probe?: OpenCodePendingProbe;
 }): Promise<void> {
   const observe = input.mode === 'observe';
@@ -762,7 +795,7 @@ export async function relayOpenCodeEvents(input: {
   const reader = input.upstream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  const state = createOpenCodeRelayState();
+  const state = createOpenCodeRelayState(input.detail);
   // The read promise must survive poll iterations: re-issuing reader.read()
   // would queue a second consumption and lose the chunk the first one yields.
   let pendingRead = reader.read();

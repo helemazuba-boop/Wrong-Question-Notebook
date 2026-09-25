@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
+import { parseOpenCodeDetail } from '@/lib/opencode-agent-detail';
 import {
   assertOpenCodeSessionAccess,
   loadOpenCodeMessages,
@@ -38,12 +39,16 @@ export async function GET(
     );
   }
 
+  // `?detail=N` selects the projection tier; anything unrecognised -- including
+  // an absent parameter from pre-tier firmware -- stays at full.
+  const detail = parseOpenCodeDetail(req.nextUrl.searchParams.get('detail'));
+
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
     // Truncated cloud-side to the device's fixed JSON response ceiling; see
-    // OPENCODE_HISTORY_JSON_BUDGET_CHARS for why this is not the device's job.
-    const messages = await loadOpenCodeMessages(binding, id);
+    // OPENCODE_HISTORY_JSON_BUDGET_BYTES for why this is not the device's job.
+    const messages = await loadOpenCodeMessages(binding, id, detail);
     return NextResponse.json({ success: true, data: { messages } });
   } catch (error) {
     if (error instanceof OpenCodeSessionAccessError) {

@@ -600,6 +600,113 @@ describe('OpenCode v2 event projection', () => {
     expect(writer.frames[1].data.text).toBe('abcd');
   });
 
+  it('drops reasoning entirely below the full tier', () => {
+    // Both halves are skipped together on purpose: leaving `reasoning.ended`
+    // on would let its self-heal replay the whole thinking text as a single
+    // `agent.reasoning` frame -- exactly what the tier exists to prevent.
+    for (const detail of [0, 1] as const) {
+      const state = createOpenCodeRelayState(detail);
+      const writer = createWriter();
+      const base = { assistantMessageID: 'msg_1', ordinal: 0 };
+
+      emitNormalizedOpenCodeEvent(
+        writer,
+        {
+          type: 'session.reasoning.delta',
+          data: { sessionID: SESSION, ...base, delta: '先想' },
+        },
+        SESSION,
+        state
+      );
+      emitNormalizedOpenCodeEvent(
+        writer,
+        {
+          type: 'session.reasoning.ended',
+          data: { sessionID: SESSION, ...base, text: '先想清楚' },
+        },
+        SESSION,
+        state
+      );
+
+      expect(writer.names()).toEqual([]);
+    }
+  });
+
+  it('keeps tool frames at the standard tier and drops them in brief', () => {
+    const standard = createOpenCodeRelayState(1);
+    const standardWriter = createWriter();
+    emitNormalizedOpenCodeEvent(
+      standardWriter,
+      {
+        type: 'session.tool.called',
+        data: {
+          sessionID: SESSION,
+          name: 'bash',
+          input: { command: 'ls -la' },
+        },
+      },
+      SESSION,
+      standard
+    );
+    expect(standardWriter.names()).toEqual(['agent.tool']);
+
+    const brief = createOpenCodeRelayState(0);
+    const briefWriter = createWriter();
+    for (const type of [
+      'session.tool.called',
+      'session.tool.success',
+      'session.tool.failed',
+    ]) {
+      emitNormalizedOpenCodeEvent(
+        briefWriter,
+        {
+          type,
+          data: {
+            sessionID: SESSION,
+            name: 'bash',
+            input: { command: 'ls -la' },
+            content: [{ type: 'text', text: 'a.txt' }],
+            error: { message: 'exit 1' },
+          },
+        },
+        SESSION,
+        brief
+      );
+    }
+    expect(briefWriter.names()).toEqual([]);
+  });
+
+  it('streams the answer at every tier', () => {
+    // The tier shapes the machinery, never the answer: deltas and the final
+    // text must survive brief and standard untouched.
+    for (const detail of [0, 1, 2] as const) {
+      const state = createOpenCodeRelayState(detail);
+      const writer = createWriter();
+      const base = { assistantMessageID: 'msg_1', ordinal: 0 };
+
+      emitNormalizedOpenCodeEvent(
+        writer,
+        {
+          type: 'session.text.delta',
+          data: { sessionID: SESSION, ...base, delta: '结论' },
+        },
+        SESSION,
+        state
+      );
+      emitNormalizedOpenCodeEvent(
+        writer,
+        {
+          type: 'session.text.ended',
+          data: { sessionID: SESSION, ...base, text: '结论。' },
+        },
+        SESSION,
+        state
+      );
+
+      expect(writer.names()).toEqual(['agent.text.delta', 'agent.text']);
+    }
+  });
+
   it('clips a single delta to the device budget', () => {
     const writer = createWriter();
 

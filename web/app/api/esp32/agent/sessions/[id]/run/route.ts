@@ -5,6 +5,7 @@ import { createSseResponse } from '@/lib/ai-stream';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { relayOpenCodeEvents } from '@/lib/opencode-agent-events';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
+import { parseOpenCodeDetail } from '@/lib/opencode-agent-detail';
 import {
   assertOpenCodeSessionAccess,
   createOpenCodePendingProbe,
@@ -60,6 +61,10 @@ export async function POST(
     );
   }
 
+  // The tier this run's stream should be projected at; an absent or malformed
+  // parameter stays at full (pre-tier firmware).
+  const detail = parseOpenCodeDetail(req.nextUrl.searchParams.get('detail'));
+
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
@@ -91,6 +96,7 @@ export async function POST(
           writer,
           sessionId: id,
           mode: 'run',
+          detail,
           // v2 has no permission or question events: the only way an ask
           // reaches the device is this poll. Run mode must not use the probe's
           // outcome read — a running agent can be silent for minutes.

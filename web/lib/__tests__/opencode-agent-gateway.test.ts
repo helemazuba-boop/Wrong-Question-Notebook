@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { parseOpenCodeDetail } from '@/lib/opencode-agent-detail';
 import {
   assertOpenCodeSessionAccess,
   createOpenCodeSession,
@@ -449,6 +450,181 @@ describe('OpenCode Agent gateway', () => {
       expect(messages[messages.length - 1].text).toBe('x'.repeat(2000));
     });
 
+    it('trims by UTF-8 bytes, not JS string length', async () => {
+      const rows = Array.from({ length: 40 }, (_, index) => ({
+        id: `msg_${index}`,
+        type: 'user',
+        text: '汉'.repeat(2000),
+      }));
+      fetchMock.mockResolvedValue(jsonResponse({ data: rows }));
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123'
+      );
+
+      // 2000 CJK characters cost ~6 KB of UTF-8 but only ~2 KB of string
+      // length; a character budget would keep six of these messages, while the
+      // device's byte ceiling leaves room for two.
+      expect(messages.length).toBe(2);
+      expect(
+        Buffer.byteLength(JSON.stringify(messages), 'utf8')
+      ).toBeLessThanOrEqual(12 * 1024);
+      expect(messages[messages.length - 1].text).toBe('汉'.repeat(2000));
+    });
+
+    it('projects the brief tier down to text plus a digest for tool-only turns', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_tools_only',
+              type: 'assistant',
+              time: { created: 1_000, completed: 46_000 },
+              content: [
+                { type: 'reasoning', text: 'should not surface' },
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls' } },
+                },
+                {
+                  type: 'tool',
+                  id: 'call_2',
+                  name: 'read',
+                  state: { status: 'completed', input: { path: 'a.ts' } },
+                },
+              ],
+            },
+            {
+              id: 'msg_asst',
+              type: 'assistant',
+              content: [
+                { type: 'reasoning', text: 'thinking out loud' },
+                { type: 'text', text: 'the answer' },
+                {
+                  type: 'tool',
+                  id: 'call_3',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls -al' } },
+                },
+              ],
+            },
+            { id: 'msg_user', type: 'user', text: 'hello' },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      expect(messages).toEqual([
+        { role: 'user', text: 'hello' },
+        { role: 'assistant', text: 'the answer' },
+        { role: 'assistant', text: '调用了 2 次工具 · 工作了 45 秒' },
+      ]);
+    });
+
+    it('keeps tools but drops thinking at the standard tier', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_asst',
+              type: 'assistant',
+              content: [
+                { type: 'reasoning', text: 'thinking out loud' },
+                { type: 'text', text: 'the answer' },
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls -al' } },
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        1
+      );
+
+      expect(messages[0].thinking).toBeUndefined();
+      expect(messages[0].tools).toEqual([
+        { name: 'bash', status: 'done', preview: 'ls -al' },
+      ]);
+    });
+
+    it('drops the duration from the brief digest when the turn has no timing', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_asst',
+              type: 'assistant',
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'completed', input: { command: 'ls' } },
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      expect(messages).toEqual([
+        { role: 'assistant', text: '调用了 1 次工具' },
+      ]);
+    });
+
+    it('lets a failed turn say why instead of how long it ran', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_asst',
+              type: 'assistant',
+              time: { created: 1_000, completed: 46_000 },
+              error: { message: 'provider unavailable' },
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'bash',
+                  state: { status: 'error', input: { command: 'ls' } },
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      expect(messages[0].text).toBe('provider unavailable');
+    });
+
     it('clamps a tool text payload to the contract preview length', async () => {
       // A `read` tool answers with the file content in `state.content`; that
       // path used to skip the preview clamp and projected a single message to
@@ -743,5 +919,20 @@ describe('OpenCode Agent gateway', () => {
         loadOpenCodeSessionOutcome(resolveOpenCodeBinding('user-1'), 'ses_123')
       ).resolves.toBe('');
     });
+  });
+});
+
+describe('parseOpenCodeDetail', () => {
+  it('accepts the three tiers and falls back to full for anything else', () => {
+    expect(parseOpenCodeDetail('0')).toBe(0);
+    expect(parseOpenCodeDetail('1')).toBe(1);
+    expect(parseOpenCodeDetail('2')).toBe(2);
+    // Pre-tier firmware sends no parameter at all; a malformed one must not
+    // quietly downgrade what the device sees.
+    expect(parseOpenCodeDetail(null)).toBe(2);
+    expect(parseOpenCodeDetail(undefined)).toBe(2);
+    expect(parseOpenCodeDetail('')).toBe(2);
+    expect(parseOpenCodeDetail('9')).toBe(2);
+    expect(parseOpenCodeDetail('brief')).toBe(2);
   });
 });

@@ -4,6 +4,10 @@ import 'server-only';
 // edge stays type-checked in both directions without either module importing
 // the other at runtime.
 import type { OpenCodePendingProbe } from '@/lib/opencode-agent-events';
+import {
+  OPENCODE_HISTORY_DETAIL_FULL,
+  type OpenCodeHistoryDetail,
+} from '@/lib/opencode-agent-detail';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 // OpenCode's /event stream emits nothing during a long tool run (tests,
@@ -21,9 +25,14 @@ export const OPENCODE_SESSION_LIST_LIMIT = 12;
 // tool calls blows past that, so history is truncated here — cloud side, where
 // the full upstream payload is available — instead of failing on the device.
 export const OPENCODE_HISTORY_MESSAGE_LIMIT = 24;
-// Budget for the serialized response body. Kept well under the device's 16 KiB
-// hard ceiling so the HTTP envelope and JSON escaping stay inside it too.
-export const OPENCODE_HISTORY_JSON_BUDGET_CHARS = 12 * 1024;
+// Budget for the serialized response body, in UTF-8 BYTES. Kept well under the
+// device's 16 KiB hard ceiling (`kMaxJsonResponseBytes` in opencode_client.cpp,
+// mirrored by this contract's `history_response_bytes: 12288`) so the HTTP
+// envelope and JSON escaping stay inside it too. Bytes and not characters: a
+// CJK-heavy body costs up to three bytes per character, so a character count
+// understates it by that factor -- and a response this function calls "fits"
+// can still be rejected by the device.
+export const OPENCODE_HISTORY_JSON_BUDGET_BYTES = 12 * 1024;
 export const OPENCODE_HISTORY_TEXT_CHARS = 2 * 1024;
 export const OPENCODE_HISTORY_THINKING_CHARS = 2 * 1024;
 // Pinned by the frozen device contract: `historyTool.preview`, `agent.tool.preview`
@@ -708,6 +717,7 @@ export async function openOpenCodeEventStream(
 export async function loadOpenCodeMessages(
   binding: OpenCodeAgentBinding,
   sessionId: string,
+  detail: OpenCodeHistoryDetail = OPENCODE_HISTORY_DETAIL_FULL,
   limit = OPENCODE_HISTORY_MESSAGE_LIMIT
 ): Promise<OpenCodeHistoryMessage[]> {
   const url = upstreamUrl(
@@ -724,7 +734,7 @@ export async function loadOpenCodeMessages(
 
   const messages: OpenCodeHistoryMessage[] = [];
   for (const row of [...rows].reverse()) {
-    const message = projectHistoryMessage(row);
+    const message = projectHistoryMessage(row, detail);
     if (message) messages.push(message);
   }
   return trimHistoryToBudget(messages);
@@ -737,7 +747,8 @@ export async function loadOpenCodeMessages(
  * provider-state) are upstream bookkeeping with no device representation.
  */
 function projectHistoryMessage(
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
+  detail: OpenCodeHistoryDetail
 ): OpenCodeHistoryMessage | null {
   const type = stringField(record, 'type');
   if (type === 'user') {
@@ -799,20 +810,55 @@ function projectHistoryMessage(
     role: 'assistant',
     text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS),
   };
-  if (thinking) {
+  // Tiered omission is the whole point of `detail`, and both fields are
+  // optional in the frozen schema -- dropping them needs no contract work.
+  if (thinking && detail >= 2) {
     message.thinking = clampText(thinking, OPENCODE_HISTORY_THINKING_CHARS);
   }
-  if (tools.length > 0) message.tools = tools.slice(0, 8);
+  if (tools.length > 0 && detail >= 1) message.tools = tools.slice(0, 8);
   // A failed turn can be empty except for `error`; surface it so the device
-  // does not render an empty bubble with no explanation.
+  // does not render an empty bubble with no explanation. It outranks the brief
+  // tier's digest: a turn that failed should say why, not how long it ran.
   const error =
     stringField(asRecord(record.error), 'message') ||
     stringField(record, 'error');
   if (error && !text) {
     message.text = clampText(error, OPENCODE_HISTORY_TEXT_CHARS);
+  } else if (!text && detail < 1 && tools.length > 0) {
+    // Brief tier: a turn that only ran tools would otherwise project to nothing
+    // and vanish from the transcript. Plain text because the schema is
+    // `additionalProperties: false` -- a dedicated field would cost the full
+    // contract ceremony, and the device renders this as ordinary body text.
+    message.text = digestText(tools.length, record);
   }
   if (!message.text && !message.thinking && !message.tools) return null;
   return message;
+}
+
+/**
+ * One-line stand-in for a tool-only assistant turn in the brief tier. Duration
+ * is bucketed because raw seconds are noise (measured turns run 20-90 s, with
+ * one multi-hour outlier in the sample): sub-minute in seconds, sub-hour in
+ * minutes, and beyond that no duration at all.
+ */
+function digestText(
+  toolCount: number,
+  record: Record<string, unknown>
+): string {
+  const time = asRecord(record.time);
+  const created = typeof time.created === 'number' ? time.created : 0;
+  const completed = typeof time.completed === 'number' ? time.completed : 0;
+  let duration = '';
+  if (created > 0 && completed > created) {
+    const seconds = (completed - created) / 1000;
+    if (seconds < 60) {
+      duration = `${Math.max(1, Math.round(seconds))} 秒`;
+    } else if (seconds < 3600) {
+      duration = `${Math.round(seconds / 60)} 分`;
+    }
+  }
+  const tools = `调用了 ${toolCount} 次工具`;
+  return duration ? `${tools} · 工作了 ${duration}` : tools;
 }
 
 function firstTextContent(value: unknown): string {
@@ -827,14 +873,15 @@ function firstTextContent(value: unknown): string {
   return '';
 }
 
-/** Drop oldest messages until the response fits the device budget. */
+/** Drop oldest messages until the response fits the device byte budget. */
 function trimHistoryToBudget(
   messages: OpenCodeHistoryMessage[]
 ): OpenCodeHistoryMessage[] {
   const trimmed = [...messages];
   while (
     trimmed.length > 1 &&
-    JSON.stringify(trimmed).length > OPENCODE_HISTORY_JSON_BUDGET_CHARS
+    Buffer.byteLength(JSON.stringify(trimmed), 'utf8') >
+      OPENCODE_HISTORY_JSON_BUDGET_BYTES
   ) {
     trimmed.shift();
   }

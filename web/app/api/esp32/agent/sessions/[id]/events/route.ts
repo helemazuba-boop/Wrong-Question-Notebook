@@ -4,6 +4,7 @@ import { createSseResponse } from '@/lib/ai-stream';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { relayOpenCodeEvents } from '@/lib/opencode-agent-events';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
+import { parseOpenCodeDetail } from '@/lib/opencode-agent-detail';
 import {
   assertOpenCodeSessionAccess,
   createOpenCodePendingProbe,
@@ -41,6 +42,10 @@ export async function GET(
     );
   }
 
+  // Same tier as the run that produced these events; an absent or malformed
+  // parameter stays at full (pre-tier firmware).
+  const detail = parseOpenCodeDetail(req.nextUrl.searchParams.get('detail'));
+
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
@@ -53,6 +58,7 @@ export async function GET(
           writer,
           sessionId: id,
           mode: 'observe',
+          detail,
           // v2's event stream is live-only: an idle session sends nothing at
           // all. The probe is what ends this attach when the run it watches is
           // over, and what delivers asks the upstream never sends as events.
