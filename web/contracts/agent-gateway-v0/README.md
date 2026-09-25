@@ -143,6 +143,17 @@ every later tool block must not be closed as an error.
 the answer text: the device renders it as a thinking block, so a gateway bug
 cannot make chain-of-thought look like the answer.
 
+`session_id` on `agent.permission` and `agent.question` is the session that
+**raised** the ask, which is not necessarily the session the device attached to:
+a subagent has its own id and raises its asks against it. Both reply routes are
+session-scoped upstream, so the device answers on whichever session this names —
+answering on the attached session is a 404, which is what made a subagent's ask
+discoverable but never answerable. It is required. The device still tolerates its
+absence and then answers on the attached session, which is what a relay that
+predates the field wants; the same fallback covers a value that is not a session
+id. A dropped ask is worse than a mis-routed one, because a drop is silent, so
+the fallback lives at the reply POST rather than in the frame parser.
+
 `agent.text` is deliberately conditional. It is emitted only when a delta was
 lost (the bytes actually sent are shorter than the upstream part's accumulated
 text), which is the only self-healing channel for a dropped delta and avoids
@@ -200,6 +211,14 @@ through `POST /sessions/{id}/permission` with
 rejection, and offering a third value it can never send is a dead surface. A
 `reject` is forwarded with a fixed corrective message (`Rejected from WQN Note4`)
 so the session continues instead of hard-failing with a rejection error.
+
+The `{id}` in the path is the session that **raised** the ask, carried from the
+`session_id` on the frame that delivered it — not the session in the URL of the
+stream request, which the route layer cannot see anyway. The route accepts a
+child of an owned root session for the same reason: the ask is scoped to whichever
+session raised it. A reply that arrives on the wrong session is a 404, which
+leaves the run blocked behind an ask the user believes they answered. The same
+holds for `POST /sessions/{id}/question` below.
 
 ## Gateway timing
 

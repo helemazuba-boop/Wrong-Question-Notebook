@@ -22,6 +22,7 @@
   {
     "event": "agent.permission",
     "data": {
+      "session_id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
       "permission_id": "prm_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
       "type": "notebook.write",
       "title": "写入错题本",

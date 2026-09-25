@@ -74,6 +74,19 @@ interface OpenCodeEvent {
 }
 
 /**
+ * An ask the relay has armed on the device, and the watched session it came
+ * from. The session matters as much as the id: the device has one option bar,
+ * so whichever ask holds it is the one the next reply answers, and an ask
+ * raised by a subagent session belongs to that session rather than to the one
+ * the device attached to. Replying on the attached session is a 404 against a
+ * binding-scoped ownership check, which is why both halves travel together.
+ */
+export interface OpenCodePendingSlot {
+  sessionId: string;
+  id: string;
+}
+
+/**
  * Per-attach relay state. Passing it in (rather than keeping it in module
  * scope) keeps two concurrent attaches from sharing dedupe sets, which would
  * silently drop an ask on one of them.
@@ -102,9 +115,13 @@ export interface OpenCodeRelayState {
    * share a single option bar. A live ask of either kind therefore blocks a new
    * ask of the other: the firmware drops what does not fit, and the poller
    * re-discovers it once the running one is answered.
+   *
+   * At most one of the two is ever set at a time -- the poll only fills a slot
+   * when both are empty -- so "which slot is held" is also "what the option bar
+   * is showing".
    */
-  pendingPermissionId: string | null;
-  pendingQuestionId: string | null;
+  pendingPermission: OpenCodePendingSlot | null;
+  pendingQuestion: OpenCodePendingSlot | null;
 }
 
 export function createOpenCodeRelayState(): OpenCodeRelayState {
@@ -114,8 +131,8 @@ export function createOpenCodeRelayState(): OpenCodeRelayState {
     textDeltas: new Map<string, number>(),
     reasoningDeltas: new Map<string, number>(),
     toolNames: new Map<string, string>(),
-    pendingPermissionId: null,
-    pendingQuestionId: null,
+    pendingPermission: null,
+    pendingQuestion: null,
   };
 }
 
@@ -492,6 +509,21 @@ export function emitNormalizedOpenCodeEvent(
  * Ask the upstream for pending asks and project the ones the device can still
  * answer. Nothing here may throw: a failed poll round only costs one interval,
  * and a thrown poll would tear down a healthy event stream.
+ *
+ * The order of the two phases is the whole design, and both halves of it are
+ * load-bearing:
+ *
+ *   1. Read every watched session's permission queue.
+ *   2. Settle the permission slot against the queue it came from.
+ *   3. Only if that leaves the bar free, read the form queues.
+ *   4. Settle the question slot, then decide what to arm.
+ *
+ * A round that stops after step 2 because a permission is live cannot check a
+ * question's liveness -- and so must not. The bar is taken; a question could
+ * not be delivered while a permission is pending anyway. The trap this replaces
+ * is the mirror image: stopping *before* step 4 made a live question skip its
+ * own release check, so the first question of a run held the bar forever and
+ * every later ask in that run was dropped.
  */
 async function pollPendingAsks(input: {
   probe: OpenCodePendingProbe;
@@ -510,74 +542,99 @@ async function pollPendingAsks(input: {
   } catch {
     return;
   }
+  if (!active.includes(sessionId)) {
+    return;
+  }
+  // Gate 2: subagents get their own session ids and can raise asks against
+  // them, and a subagent may spawn mid-run — so re-read the child list every
+  // round instead of caching it.
   const watch = [sessionId];
-  if (active.includes(sessionId)) {
-    // Gate 2: subagents get their own session ids and can raise asks against
-    // them, and a subagent may spawn mid-run — so re-read the child list every
-    // round instead of caching it.
-    try {
-      for (const child of await probe.childSessions(sessionId)) {
-        if (child && child !== sessionId && !watch.includes(child)) {
-          watch.push(child);
-        }
+  try {
+    for (const child of await probe.childSessions(sessionId)) {
+      if (child && child !== sessionId && !watch.includes(child)) {
+        watch.push(child);
       }
-    } catch {
-      // A missing child list only narrows the watch list; keep going.
     }
-  } else {
+  } catch {
+    // A missing child list only narrows the watch list; keep going.
+  }
+
+  // Snapshot every watched session's permission queue before judging anything.
+  // The pending ask is attributed to the session that raised it, so the only
+  // correct liveness test reads that session's queue -- not whichever target the
+  // loop happens to be on. Judging a subagent's live permission against the
+  // parent's queue freed the bar while the ask was still pending, and the next
+  // ask landed on top of a permission nobody had answered.
+  //
+  // A queue that failed to read is recorded as absent rather than empty: an
+  // unreadable queue is not evidence that the ask left it, and treating it as
+  // such would drop a live ask on a flaky round.
+  const permissions = new Map<string, OpenCodePendingAsk[] | undefined>();
+  for (const target of watch) {
+    try {
+      permissions.set(target, await probe.permissions(target));
+    } catch {
+      permissions.set(target, undefined);
+    }
+  }
+  // Both upstream queues are out-only: an ask leaves them the moment it is
+  // answered, on the device or in OpenCode. That disappearance is the ONLY
+  // signal the relay gets that the slot is free again -- nothing in the event
+  // stream reports it. Without this check the first ask of a run occupies the
+  // device's single slot forever, and every later ask in the same run is
+  // silently dropped: the run blocks until it hits the stream timeout.
+  if (
+    state.pendingPermission !== null &&
+    permissions
+      .get(state.pendingPermission.sessionId)
+      ?.some(request => request?.id === state.pendingPermission?.id) === false
+  ) {
+    state.pendingPermission = null;
+  }
+  // The bar is taken for the rest of this round, and nothing could be delivered
+  // while it is: a question cannot be shown on top of a permission, so the form
+  // queues are not even worth reading.
+  if (state.pendingPermission !== null) {
     return;
   }
 
+  const forms = new Map<string, OpenCodePendingQuestion[] | undefined>();
   for (const target of watch) {
-    let permissions: OpenCodePendingAsk[] = [];
     try {
-      permissions = await probe.permissions(target);
+      forms.set(target, await probe.questions(target));
     } catch {
-      permissions = [];
+      forms.set(target, undefined);
     }
-    // Both upstream queues are out-only: an ask leaves them the moment it is
-    // answered, on the device or in OpenCode. That disappearance is the ONLY
-    // signal the relay gets that the slot is free again -- nothing in the event
-    // stream reports it. Without this check the first ask of a run occupies the
-    // device's single slot forever, and every later ask in the same run is
-    // silently dropped: the run blocks until it hits the stream timeout.
-    if (
-      state.pendingPermissionId &&
-      !permissions.some(request => request?.id === state.pendingPermissionId)
-    ) {
-      state.pendingPermissionId = null;
-    }
+  }
+  // The question's own release check, reached only once the permission slot is
+  // known free. This has to run before the "arm a new ask" decision below: an
+  // answered question that is never released here would block the bar for the
+  // rest of the run.
+  if (
+    state.pendingQuestion !== null &&
+    forms
+      .get(state.pendingQuestion.sessionId)
+      ?.some(summary => summary?.id === state.pendingQuestion?.id) === false
+  ) {
+    state.pendingQuestion = null;
+  }
+  if (state.pendingQuestion !== null) {
+    return;
+  }
 
-    // One live ask at a time, across both kinds: the device has a single option
-    // bar, and a permission and a question cannot be pending together. Emitting
-    // both would have the device drop the question -- and a dropped question is
-    // a run that never finishes.
-    if (!state.pendingPermissionId && !state.pendingQuestionId) {
-      for (const request of permissions) {
-        if (!request?.id || state.seenPermissions.has(request.id)) continue;
-        state.seenPermissions.add(request.id);
-        state.pendingPermissionId = request.id;
-        emitAgentPermission(writer, target, request);
-        break;
-      }
+  // Both slots are free, so at most one ask can be armed. Permission first: it
+  // blocks the run, while a question only waits on the user.
+  for (const target of watch) {
+    for (const request of permissions.get(target) ?? []) {
+      if (!request?.id || state.seenPermissions.has(request.id)) continue;
+      state.seenPermissions.add(request.id);
+      state.pendingPermission = { sessionId: target, id: request.id };
+      emitAgentPermission(writer, target, request);
+      return;
     }
-    // The option bar is taken for the rest of this round.
-    if (state.pendingPermissionId || state.pendingQuestionId) return;
-
-    let forms: OpenCodePendingQuestion[] = [];
-    try {
-      forms = await probe.questions(target);
-    } catch {
-      forms = [];
-    }
-    if (
-      state.pendingQuestionId &&
-      !forms.some(summary => summary?.id === state.pendingQuestionId)
-    ) {
-      state.pendingQuestionId = null;
-    }
-    if (state.pendingQuestionId) return;
-    for (const summary of forms) {
+  }
+  for (const target of watch) {
+    for (const summary of forms.get(target) ?? []) {
       if (!summary?.id) continue;
       // Form.Info carries no state, so an id seen before is not enough to
       // know whether it was answered: re-attach must not re-arm a form the
@@ -596,7 +653,7 @@ async function pollPendingAsks(input: {
       }
       if (state.seenQuestions.has(summary.id)) continue;
       state.seenQuestions.add(summary.id);
-      state.pendingQuestionId = form.id;
+      state.pendingQuestion = { sessionId: target, id: form.id };
       emitAgentQuestion(writer, target, form);
       return;
     }
@@ -681,8 +738,11 @@ async function observeRunEnded(input: {
     return false;
   }
   if (!outcome) return false;
-  state.pendingPermissionId = null;
-  state.pendingQuestionId = null;
+  // The attach is over, so nothing it armed can be answered any more. Both
+  // slots go: one kind's ask left armed on a finished attach would hold the bar
+  // against a run that is already done.
+  state.pendingPermission = null;
+  state.pendingQuestion = null;
   writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
   return true;
 }
@@ -743,18 +803,24 @@ export async function relayOpenCodeEvents(input: {
       // closes, so it still has to be capped -- but the cap used to abort the
       // whole run, and one oversized frame (a tool that dumped a huge file into
       // `content`) is not a run failure: the device loses that event and the
-      // run keeps going. Discard through the end of the frame instead.
-      while (buffer.length > MAX_UPSTREAM_FRAME_CHARS) {
-        const boundary = buffer.search(/\r?\n\r?\n/);
-        if (boundary < 0) {
-          // Frame still opening: drop what we have and wait for its end. The
-          // remainder is bounded by the next chunk, which the loop re-checks.
-          buffer = '';
-          break;
-        }
-        const separator =
-          buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] || '';
-        buffer = buffer.slice(boundary + separator.length);
+      // run keeps going.
+      //
+      // So the cap only applies to a frame that is still opening. A buffer that
+      // is over the cap but already holds complete frames is left to the drain
+      // loop below, which drops the one frame that is too big and emits the
+      // rest. Discarding from the front instead threw away the good frames in
+      // front of it: a small frame that shared a chunk -- or was left over from
+      // the previous round -- with a >64 KiB frame was dropped without ever
+      // being parsed, which loses a real event while the run carries on.
+      if (
+        buffer.length > MAX_UPSTREAM_FRAME_CHARS &&
+        buffer.search(/\r?\n\r?\n/) < 0
+      ) {
+        // No frame has closed yet and the buffer is already past the cap, so
+        // the opening frame can never be one the relay accepts: drop what we
+        // have and keep reading. The remainder is bounded by the next chunk,
+        // which the loop re-checks.
+        buffer = '';
       }
       let boundary = buffer.search(/\r?\n\r?\n/);
       while (boundary >= 0) {

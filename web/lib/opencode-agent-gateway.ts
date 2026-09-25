@@ -543,15 +543,62 @@ export class OpenCodeSessionAccessError extends Error {
  * time against the binding-scoped authoritative list instead of trusting the
  * id or the OpenCode directory header/query alone. This deliberately lists only
  * root sessions, matching the device selector.
+ *
+ * A session that is not a root is still owned when its parent is: the relay
+ * arms an ask against the subagent session that raised it, so the device
+ * replies on that session's id, and answering it needs the gate to accept it.
+ * The tenancy boundary is unchanged -- the parent must still be in the
+ * binding-scoped list.
+ *
+ * That second case costs exactly one extra upstream read, not one per owned
+ * session: the candidate's own record names its `parentID`, and the parent is
+ * already in the list above, so the comparison is free. Enumerating children
+ * instead walks every owned session (up to the 12 the device is shown) on every
+ * route, and worst of all on the reject path, where it spends all of them to
+ * reach the same refusal.
  */
 export async function assertOpenCodeSessionAccess(
   binding: OpenCodeAgentBinding,
   sessionId: string
 ): Promise<void> {
   const ownedSessions = await listOpenCodeSessions(binding);
-  if (!ownedSessions.some(session => session.id === sessionId)) {
-    throw new OpenCodeSessionAccessError(sessionId);
+  if (ownedSessions.some(session => session.id === sessionId)) {
+    return;
   }
+  if (await isChildOfOwnedSession(binding, sessionId, ownedSessions)) {
+    return;
+  }
+  throw new OpenCodeSessionAccessError(sessionId);
+}
+
+/**
+ * True when `sessionId` is a subagent of a session in `owned`. Reads the
+ * candidate directly and compares its `parentID` against the set the caller
+ * already holds.
+ *
+ * A read that fails is a refusal, never a pass: an upstream that cannot answer
+ * for the session is the same evidence as a session that does not exist, and
+ * both mean this device has no claim on it. Distinguishing them would only
+ * decide which error code to send, and the device surfaces `session_not_found`
+ * for either.
+ */
+async function isChildOfOwnedSession(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  owned: OpenCodeSessionSummary[]
+): Promise<boolean> {
+  let row: Record<string, unknown>;
+  try {
+    row = await readDataEnvelope(
+      binding,
+      `/api/session/${encodeURIComponent(sessionId)}`,
+      'session ownership'
+    );
+  } catch {
+    return false;
+  }
+  const parentId = stringField(row, 'parentID');
+  return parentId !== '' && owned.some(session => session.id === parentId);
 }
 
 function positiveEnvNumber(name: string, fallback: number): number {

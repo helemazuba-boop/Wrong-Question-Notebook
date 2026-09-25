@@ -126,6 +126,62 @@ describe('OpenCode Agent gateway', () => {
     ).rejects.toThrow(OpenCodeSessionAccessError);
   });
 
+  it('accepts an ask raised by a subagent of an owned session', async () => {
+    // The relay arms a subagent's ask against the subagent's own session id,
+    // because that is the session the reply has to be addressed to. The device
+    // selector deliberately lists only root sessions, so without this the ask
+    // was delivered to the device and then answered into a 404 -- the one
+    // combination where an ask is both shown and unusable.
+    //
+    // The ownership is read from the candidate's own record, not by enumerating
+    // children: the relay polls children every round anyway, and re-deriving the
+    // same fact here on every action route costs one request per owned session.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/api/session/ses_child')) {
+        return jsonResponse({
+          data: {
+            id: 'ses_child',
+            parentID: 'ses_owned',
+            time: { updated: 2 },
+          },
+        });
+      }
+      return jsonResponse({
+        data: [{ id: 'ses_owned', time: { updated: 1 } }],
+      });
+    });
+
+    await expect(
+      assertOpenCodeSessionAccess(resolveOpenCodeBinding('user-1'), 'ses_child')
+    ).resolves.toBeUndefined();
+    // A child of a session this binding does not own is still refused: the
+    // tenancy boundary is the parent's membership in the binding list.
+    await expect(
+      assertOpenCodeSessionAccess(resolveOpenCodeBinding('user-1'), 'ses_other')
+    ).rejects.toThrow(OpenCodeSessionAccessError);
+  });
+
+  it('refuses a subagent whose parent it cannot read', async () => {
+    // The parent comparison needs the candidate's record. An upstream that will
+    // not hand it over is the same evidence as a session that does not exist:
+    // this device has no claim on it. Passing here would turn one unreadable
+    // session into an open door on every subagent id.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/api/session/ses_child')) {
+        return new Response('nope', { status: 404 });
+      }
+      return jsonResponse({
+        data: [{ id: 'ses_owned', time: { updated: 1 } }],
+      });
+    });
+
+    await expect(
+      assertOpenCodeSessionAccess(resolveOpenCodeBinding('user-1'), 'ses_child')
+    ).rejects.toThrow(OpenCodeSessionAccessError);
+  });
+
   it('submits the prompt text with steer delivery and no agent or model', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

@@ -247,8 +247,12 @@
     "questionData": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["question_id", "title", "options"],
+      "required": ["session_id", "question_id", "title", "options"],
       "properties": {
+        "session_id": {
+          "$ref": "#/$defs/sessionId",
+          "description": "The session that raised the ask, which is not always the session the device attached to: a subagent has its own id and raises its asks against it. Both reply routes are session-scoped upstream, so the device answers on whichever session this names. Without it the device falls back to the attached session, which is a 404 for a subagent's ask -- discoverable, never answerable."
+        },
         "question_id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "title": { "type": "string", "maxLength": 160 },
         "options": {
@@ -384,8 +388,9 @@
               "data": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["permission_id"],
+                "required": ["session_id", "permission_id"],
                 "properties": {
+                  "session_id": { "$ref": "#/$defs/sessionId" },
                   "permission_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                   "type": { "type": "string", "maxLength": 80 },
                   "title": { "type": "string", "maxLength": 160 },

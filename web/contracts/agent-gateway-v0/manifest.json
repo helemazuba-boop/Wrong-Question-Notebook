@@ -2,7 +2,7 @@
   "contract": "agent-gateway-v0",
   "version": "2.0",
   "schema": "agent-gateway-v0.schema.json",
-  "schema_sha256": "7dcd6a9bccf1c50c6a9a34f2c5732d399712f5139b2a32735f9f8aa22039ef7c",
+  "schema_sha256": "777034053df4d6fc95bd5daff00fa5947b854432b2417e2458fa3208d5cb8465",
   "api_base": "https://wqn.helema.cn/api/esp32",
   "routes_prefix": "/agent",
   "auth": "Authorization: Bearer <device pairing token>",
@@ -65,7 +65,13 @@
     ],
     "additive_fields": {
       "agent.tool.call_id": "upstream call id echoed on every frame of one call, so two calls of the same tool are two blocks rather than one; absent only on a mid-run attach, where the device merges by tool name",
-      "agent.error.fatal": "false marks a retryable upstream step failure: the device records the error and keeps running. Absent or true means the run is over, which is what every gateway that predates the field sends"
+      "agent.error.fatal": "false marks a retryable upstream step failure: the device records the error and keeps running. Absent or true means the run is over, which is what every gateway that predates the field sends",
+      "agent.permission.session_id and agent.question.session_id": "the session that raised the ask, which is not always the session the device attached to: a subagent has its own id and raises its asks against it. Required, because both reply routes are session-scoped upstream -- without it a subagent's ask is discoverable but never answerable (the reply 404s on the attached session). The device still tolerates an absent field and answers on the attached session, which is what a relay that predates it wants"
+    },
+    "ask_attribution": {
+      "why": "the relay watches the attached session and every child of it, so an ask can arrive for a session the device never attached to",
+      "device_rule": "answer on the session the ask names; fall back to the attached session only when the field is absent or is not a session id",
+      "gateway_rule": "emit the session that actually raised the ask, never the attached one. assertOpenCodeSessionAccess accepts a child of an owned root session for the same reason"
     }
   },
   "replaces": "X-WQN-Ai-Tier: pro (retired Pro tier)"

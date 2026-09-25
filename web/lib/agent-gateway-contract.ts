@@ -14,7 +14,7 @@
  * exists to catch.
  */
 export const AGENT_GATEWAY_SCHEMA_SHA256 =
-  '7dcd6a9bccf1c50c6a9a34f2c5732d399712f5139b2a32735f9f8aa22039ef7c';
+  '777034053df4d6fc95bd5daff00fa5947b854432b2417e2458fa3208d5cb8465';
 
 /** Contract-relative path fragments, so the test reads from one place. */
 export const AGENT_GATEWAY_CONTRACT_DIR = 'contracts/agent-gateway-v0';

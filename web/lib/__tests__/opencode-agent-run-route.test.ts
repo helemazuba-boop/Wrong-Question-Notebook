@@ -67,8 +67,24 @@ describe('OpenCode Agent run route', () => {
     // belonging to another binding is simply absent from it and the action
     // fails closed. (v1 compared a row's own directory against the binding,
     // which matched nothing and silently dropped every row.)
-    fetchMock.mockResolvedValueOnce(
-      new Response(
+    //
+    // Two upstream calls, not one: the id is not a root we own, so it is read
+    // directly to learn its `parentID` -- a subagent's ask is answered on the
+    // subagent's own id, so "not a root I own" must not end the check. The
+    // tenancy boundary is unchanged; only the number of requests to evaluate it
+    // went up, and only on a session this binding does not hold.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/session/ses_owned_by_b') {
+        // A root with no parent: nothing in this binding can own it.
+        return new Response(
+          JSON.stringify({ data: { id: 'ses_owned_by_b' } }),
+          {
+            status: 200,
+          }
+        );
+      }
+      return new Response(
         JSON.stringify({
           data: [
             {
@@ -79,8 +95,8 @@ describe('OpenCode Agent run route', () => {
           ],
         }),
         { status: 200 }
-      )
-    );
+      );
+    });
     const request = new NextRequest(
       'http://localhost/api/esp32/agent/sessions/ses_owned_by_b/run',
       {
@@ -101,12 +117,14 @@ describe('OpenCode Agent run route', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: 'session_not_found' },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.origin).toBe('https://agent-a.example.test');
     expect(url.pathname).toBe('/api/session');
     expect(url.searchParams.get('directory')).toBe('/workspaces/a');
     expect(init.method).toBe('GET');
+    const [candidateUrl] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(candidateUrl.pathname).toBe('/api/session/ses_owned_by_b');
   });
 
   it('subscribes to the event stream and writes agent.accepted before the prompt is submitted', async () => {

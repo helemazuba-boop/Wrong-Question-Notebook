@@ -335,7 +335,20 @@ describe('OpenCode Agent observe events route', () => {
   });
 
   it('cannot observe a session owned by another binding', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(OWNED_LIST, { status: 200 }));
+    // Two upstream calls, not one: the id is not a root this binding owns, so it
+    // is read directly to learn its `parentID` -- a subagent's ask is answered
+    // on the subagent's own id, so "not a root I own" must not end the check.
+    // The tenancy boundary is unchanged; only the request count went up, and only
+    // for a session this binding does not hold.
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/session/ses_other') {
+        return new Response(JSON.stringify({ data: { id: 'ses_other' } }), {
+          status: 200,
+        });
+      }
+      return new Response(OWNED_LIST, { status: 200 });
+    });
 
     const response = await streamEvents(
       new NextRequest(
@@ -348,6 +361,8 @@ describe('OpenCode Agent observe events route', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: 'session_not_found' },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [candidateUrl] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(candidateUrl.pathname).toBe('/api/session/ses_other');
   });
 });

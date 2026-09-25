@@ -3,6 +3,7 @@
   {
     "event": "agent.question",
     "data": {
+      "session_id": "ses_01J8ZQ4K7V2N9X0M3B6C5SUBA1",
       "question_id": "frm_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
       "title": "要写入哪个错题本？",
       "options": []

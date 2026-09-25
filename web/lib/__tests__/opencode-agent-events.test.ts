@@ -87,10 +87,14 @@ function payloadOfAt(text: string, event: string, index: number): string {
   return matches[index]?.[1]?.trim() ?? '';
 }
 
-function permission(id: string, action: string): OpenCodePermissionRequest {
+function permission(
+  id: string,
+  action: string,
+  sessionId: string = SESSION
+): OpenCodePermissionRequest {
   return {
     id,
-    sessionId: SESSION,
+    sessionId,
     action,
     title: `${action} title`,
     preview: `${action} preview`,
@@ -100,11 +104,12 @@ function permission(id: string, action: string): OpenCodePermissionRequest {
 function form(
   id: string,
   options: Array<{ value: string; label: string }>,
-  status: OpenCodeFormState['status'] = ''
+  status: OpenCodeFormState['status'] = '',
+  sessionId: string = SESSION
 ): OpenCodeFormState {
   return {
     id,
-    sessionId: SESSION,
+    sessionId,
     title: `${id} title`,
     status,
     fieldKey: id,
@@ -338,6 +343,36 @@ describe('OpenCode v2 event projection', () => {
 
     expect(eventsOf(text)).toEqual(['agent.text.delta', 'agent.status']);
     expect(payloadOfAt(text, 'agent.text.delta', 0)).toContain('still here');
+    expect(payloadOf(text, 'agent.status')).toContain('"idle"');
+  });
+
+  it('keeps a good frame that shares a chunk with an oversized one', async () => {
+    // The cap must discard the frame that broke it, not the frames in front of
+    // it. The trim used to run before anything was parsed, so a small frame
+    // that shared a chunk -- or was left over from the previous round -- with a
+    // >64 KiB frame was dropped unemitted. The run survives either way, which
+    // is why the loss is invisible: the device just never sees the event.
+    const before = `data: {"type":"session.text.delta","data":{"sessionID":"${SESSION}","delta":"before the flood"}}\n\n`;
+    const huge = `data: ${JSON.stringify({
+      type: 'session.tool.success',
+      data: {
+        sessionID: SESSION,
+        id: 'call_huge',
+        content: [{ type: 'text', text: 'x'.repeat(70 * 1024) }],
+      },
+    })}\n\n`;
+
+    const text = await relayText([
+      before + huge,
+      'data: {"type":"session.execution.succeeded","data":{"sessionID":"' +
+        SESSION +
+        '"}}\n\n',
+    ]);
+
+    expect(eventsOf(text)).toEqual(['agent.text.delta', 'agent.status']);
+    expect(payloadOfAt(text, 'agent.text.delta', 0)).toContain(
+      'before the flood'
+    );
     expect(payloadOf(text, 'agent.status')).toContain('"idle"');
   });
 
@@ -1062,6 +1097,35 @@ describe('OpenCode v2 pending-ask delivery', () => {
     );
   });
 
+  it('carries the subagent session on a subagent question too', async () => {
+    const childOption = [{ value: 'a', label: '甲' }];
+    const { text, log } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        children: async () => ['ses_child'],
+        questions: async sessionId =>
+          sessionId === 'ses_child' ? [form('frm_child', childOption)] : [],
+        formDetail: async (_sessionId, formId) =>
+          form(formId, childOption, 'pending'),
+      },
+    });
+
+    expect(log).toContain('questions:ses_child');
+    expect(log).toContain('formDetail:frm_child');
+    // The permission and question routes are both session-scoped upstream, so
+    // an ask is answered on the session that raised it. Attributing only the
+    // permission left a subagent's question discoverable but never answerable:
+    // the reply landed on the attached session and 404'd.
+    expect(payloadOf(text, 'agent.question')).toBe(
+      JSON.stringify({
+        session_id: 'ses_child',
+        question_id: 'frm_child',
+        title: 'frm_child title',
+        options: [{ value: 'a', label: '甲' }],
+      })
+    );
+  });
+
   it('does not re-arm a form the user already answered (gate 3)', async () => {
     const { text, log } = await runProbe({
       handlers: {
@@ -1185,6 +1249,67 @@ describe('OpenCode v2 pending-ask delivery', () => {
 
     expect(payloadOf(text, 'agent.permission')).toContain('"prm_1"');
     expect(payloadOf(text, 'agent.question')).toContain('"frm_1"');
+  });
+
+  it('frees the bar for a later ask once a QUESTION is answered', async () => {
+    // The permission half of the single slot had its own release check; the
+    // question half sat behind an early return that a live question always
+    // took, so the very first question of a run held the bar for the rest of
+    // it and every ask after it was dropped -- the run stalled until the stream
+    // timed out. Same slot, same rule, both directions.
+    let round = 0;
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => {
+          round += 1;
+          return [SESSION];
+        },
+        children: async () => [],
+        permissions: async () =>
+          round > 3 ? [permission('prm_late', 'bash')] : [],
+        questions: async () =>
+          round <= 3
+            ? [form('frm_1', [{ value: 'a', label: 'A' }], 'pending')]
+            : [],
+      },
+    });
+
+    expect(payloadOf(text, 'agent.question')).toContain('"frm_1"');
+    // The later permission only reaches the device if answering the question
+    // released the bar, so this is the whole assertion.
+    expect(payloadOf(text, 'agent.permission')).toContain('"prm_late"');
+  });
+
+  it('does not clear a subagent permission against the parent queue', async () => {
+    // A pending ask belongs to the session that raised it, so its liveness is
+    // that session's queue and nothing else. Judging it against whichever
+    // target the loop happened to be on freed the bar while a subagent's
+    // permission was still live, and the next ask landed on top of a permission
+    // nobody had answered -- the duplicate of the bug above, from the other
+    // direction.
+    let round = 0;
+    const child = 'ses_child';
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => {
+          round += 1;
+          return [SESSION, child];
+        },
+        children: async () => [child],
+        permissions: async sessionId =>
+          sessionId === child ? [permission('prm_child', 'bash', child)] : [],
+        // Only offered once the permission is armed, so this is exactly the
+        // round in which a wrongly-cleared slot would let it through.
+        questions: async () =>
+          round >= 3
+            ? [form('frm_1', [{ value: 'a', label: 'A' }], 'pending')]
+            : [],
+      },
+    });
+
+    expect(payloadOf(text, 'agent.permission')).toContain('"prm_child"');
+    expect(payloadOf(text, 'agent.permission')).toContain(`"${child}"`);
+    expect(text).not.toContain('agent.question');
   });
 
   it('ends an observe attach once a finished run reports its outcome', async () => {

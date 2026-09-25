@@ -1,0 +1,13 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  {
+    "event": "agent.permission",
+    "data": {
+      "session_id": "../someone-elses-session",
+      "permission_id": "prm_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "type": "notebook.write",
+      "title": "写入错题本"
+    }
+  },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]
