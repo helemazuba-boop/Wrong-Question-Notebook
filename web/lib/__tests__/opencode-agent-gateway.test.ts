@@ -448,6 +448,45 @@ describe('OpenCode Agent gateway', () => {
       // Newest survive: the last row is the newest.
       expect(messages[messages.length - 1].text).toBe('x'.repeat(2000));
     });
+
+    it('clamps a tool text payload to the contract preview length', async () => {
+      // A `read` tool answers with the file content in `state.content`; that
+      // path used to skip the preview clamp and projected a single message to
+      // 56 KB, over the device's 16 KiB ceiling.
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_asst',
+              type: 'assistant',
+              content: [
+                {
+                  type: 'tool',
+                  id: 'call_1',
+                  name: 'read',
+                  state: {
+                    status: 'completed',
+                    content: [{ type: 'text', text: 'x'.repeat(4000) }],
+                  },
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123'
+      );
+
+      // The contract pins `historyTool.preview` at 160, and the trimmer keeps at
+      // least one message, so this clamp is the only thing between a huge read
+      // output and an oversized response.
+      expect(messages).toHaveLength(1);
+      expect(messages[0].tools?.[0].preview).toBe('x'.repeat(160));
+      expect(JSON.stringify(messages).length).toBeLessThan(1024);
+    });
   });
 
   describe('pending asks (v2 only)', () => {

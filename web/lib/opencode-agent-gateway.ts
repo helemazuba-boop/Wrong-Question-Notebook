@@ -26,7 +26,10 @@ export const OPENCODE_HISTORY_MESSAGE_LIMIT = 24;
 export const OPENCODE_HISTORY_JSON_BUDGET_CHARS = 12 * 1024;
 export const OPENCODE_HISTORY_TEXT_CHARS = 2 * 1024;
 export const OPENCODE_HISTORY_THINKING_CHARS = 2 * 1024;
-export const OPENCODE_HISTORY_PREVIEW_CHARS = 240;
+// Pinned by the frozen device contract: `historyTool.preview`, `agent.tool.preview`
+// and `permission.preview` are all `maxLength: 160` in the schema. Nothing
+// enforces that at runtime, so this constant is the only clamp.
+export const OPENCODE_HISTORY_PREVIEW_CHARS = 160;
 // The device option bar renders exactly two slots; a third collides with the
 // key-hint strip. More options than this degrade to status text on device.
 export const OPENCODE_QUESTION_OPTION_LIMIT = 2;
@@ -778,9 +781,15 @@ function projectHistoryMessage(
           'tool'
         ).slice(0, 80),
         status,
+        // `firstTextContent` hands back a tool's raw text payload, so it needs
+        // the same clamp as `previewValue`: unclamped, one `read` output
+        // projected a single message to 56 KB, over the device's 16 KiB ceiling.
         preview:
           previewValue(state.input) ||
-          firstTextContent(state.content) ||
+          clampText(
+            firstTextContent(state.content),
+            OPENCODE_HISTORY_PREVIEW_CHARS
+          ) ||
           previewValue(state.error) ||
           previewValue(state.metadata),
       });
