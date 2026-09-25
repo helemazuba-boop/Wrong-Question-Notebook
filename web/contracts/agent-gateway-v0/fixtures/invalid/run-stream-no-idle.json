@@ -1,0 +1,5 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  { "event": "agent.status", "data": { "status": "running", "message": "已接取任务" } },
+  { "event": "agent.text.delta", "data": { "delta": "整理到一半。" } }
+]

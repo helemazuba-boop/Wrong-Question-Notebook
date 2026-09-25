@@ -1,0 +1,23 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  { "event": "agent.status", "data": { "status": "running", "message": "已接取任务" } },
+  {
+    "event": "agent.error",
+    "data": {
+      "message": "上游步骤失败，正在重试",
+      "fatal": false
+    }
+  },
+  { "event": "agent.status", "data": { "status": "retry", "message": "第 1 次重试" } },
+  {
+    "event": "agent.tool",
+    "data": {
+      "tool": "notebook.search",
+      "call_id": "call_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "status": "done",
+      "preview": "3 条结果"
+    }
+  },
+  { "event": "agent.text.delta", "data": { "delta": "重试后已找到 3 道同类题。" } },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]

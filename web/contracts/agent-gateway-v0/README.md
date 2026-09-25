@@ -21,9 +21,32 @@ upstream). Its `manifest.json` records the event list and the `schema_sha256` of
 every configure — so a schema change that is not mirrored here fails the
 firmware build rather than drifting silently.
 
-This file is the cloud's mirror: same routes, same events, plus the upstream
-mapping that only the cloud knows. If the two disagree, the firmware copy wins
-and this one is a bug.
+This directory is the cloud's mirror: the same schema, the same manifest, the
+same `fixtures/`, plus the upstream mapping that only the cloud knows. If the
+two disagree, the firmware copy wins and this one is a bug.
+
+## Validation status
+
+`lib/__tests__/agent-gateway-contract.test.ts` runs in CI and holds this mirror
+honest:
+
+- The schema digest is pinned in code and must equal `manifest.json`'s
+  `schema_sha256`, which is the digest the firmware build enforces against its
+  own copy. Editing the schema here without re-deriving both fails that test.
+- Every file in `fixtures/valid/` must satisfy the root schema, and every file
+  in `fixtures/invalid/` must not — so a fixture that starts passing for the
+  wrong reason (say, because a shared envelope field went missing) is caught
+  rather than silently vacuous.
+- The envelopes these routes really send are validated against the schema, with
+  the payloads typed against the gateway's own TypeScript interfaces. A route
+  that answers a shape the schema does not describe is the failure mode this
+  replaces: a schema that rejects a body the route really sends is worse than no
+  schema, because it tells the next reader the contract is tighter than the wire.
+
+`internal-error-response.json` is the fixture that keeps that last point
+concrete — the `createApiErrorResponse` body `authenticateEsp32Device` answers
+when device lookup throws, which has no `code` and so is not an
+`{success: false, error}` envelope at all.
 
 ## Endpoints (device → WQN)
 
@@ -37,7 +60,7 @@ breaking change.
 | ------ | --------------------------- | ------------------------------------------------------------------------ |
 | `GET`  | `/sessions`                 | List the binding's recent OpenCode sessions.                             |
 | `POST` | `/sessions`                 | Create a new OpenCode session in the binding directory.                  |
-| `POST` | `/agent/transcribe`         | Raw-PCM ASR, shared with the voice AI pipeline.                          |
+| `POST` | `/transcribe`               | Raw-PCM ASR, shared with the voice AI pipeline.                          |
 | `POST` | `/sessions/{id}/run`        | Submit a prompt and stream the run (SSE).                                |
 | `GET`  | `/sessions/{id}/events`     | Re-attach to a session's event stream without submitting a prompt (SSE). |
 | `POST` | `/sessions/{id}/permission` | Reply to a pending permission ask.                                       |
@@ -52,6 +75,26 @@ session_not_found`. Session lists are bounded to the most recent
 
 ### Responses
 
+Every non-streaming route answers `{"success": true, "data": …}`, and every
+failure it recognises answers `{"success": false, "error": {code, message}}`
+with `code` as the machine-readable part. The device reads `data` / `error` and
+ignores `success`. **One response sits outside the pair**: when device lookup
+itself throws, `authenticateEsp32Device` answers through the app's shared
+`createApiErrorResponse` helper — `{error, status, timestamp}` with no `code` at
+all. That body carries no machine-readable code, so the device degrades it to
+`upstream_error` with a generic detail instead of inventing one.
+
+- `POST /sessions` → `{data: {session}}`, where the session is
+  `{id: "ses_…", title, updatedAt: <epoch ms>}`.
+- `GET /sessions` → `{data: {sessions: […]}}`, at most 12, newest first. Rows
+  are filtered upstream by `?directory=`; the device drops any row whose id
+  lacks the `ses_` prefix rather than failing the whole list, and a fresh
+  session whose id would fail that check is `invalid_response` instead.
+- `POST /transcribe` → `{data: {transcript, latency_ms, asr}}`.
+  `latency_ms` is what the ASR call measured and `asr` the provider id it used;
+  the mock path omits `asr`. The device discards both.
+- Both reply routes → `{data: {replied: true}}`. The device checks the HTTP
+  status, not the body.
 - `GET /sessions/{id}/history` → `{data: {messages}}`, oldest-first, where each
   message is `{role: "user" | "assistant", text, thinking?, tools?}` and each
   tool is `{name, status: "running" | "done" | "error", preview?}`. Only the two
@@ -62,6 +105,10 @@ session_not_found`. Session lists are bounded to the most recent
   answer a question it did not render.
 - `POST /sessions/{id}/interrupt` → `{data: {interrupted}}`. A run that had
   already finished is a **success** with `interrupted: false`, not an error.
+
+The upstream answers interrupt with a bare `{interrupted}` and everything else
+wrapped in `{data}`, so the gateway tolerates both shapes on that one route
+rather than trusting the one it happened to see.
 
 ## Device SSE events (WQN → device)
 
@@ -74,10 +121,23 @@ session_not_found`. Session lists are bounded to the most recent
 | `agent.text`            | `{session_id, text}`                                 | Full assistant text snapshot (≤ 8 KiB; repair frames only).   |
 | `agent.reasoning.delta` | `{session_id, delta}`                                | Incremental model reasoning (≤ 2 KiB per frame).              |
 | `agent.reasoning`       | `{session_id, text}`                                 | Full reasoning snapshot (≤ 2 KiB; repair frames only).        |
-| `agent.tool`            | `{session_id, tool, status, preview?}`               | Tool activity preview; `status` ∈ `running`, `done`, `error`. |
+| `agent.tool`            | `{session_id, tool, call_id?, status, preview?}`     | Tool activity; `status` ∈ `running`, `done`, `error`.         |
 | `agent.permission`      | `{session_id, permission_id, type, title, preview?}` | OpenCode is waiting for approval.                             |
 | `agent.question`        | `{session_id, question_id, title, options[]}`        | A form the device can answer; `options` ≤ 2 `{value, label}`. |
-| `agent.error`           | `{session_id, message}`                              | Session-level failure.                                        |
+| `agent.error`           | `{session_id, message, fatal?}`                      | Failure; see `fatal` below.                                   |
+
+`call_id` is the upstream call id, echoed on every frame of one call. It is what
+lets the device keep two calls of the _same_ tool as two blocks: without it the
+device merges by tool name, so two `notebook.search` calls collapsed into one
+block whose detail was the second call's. It is omitted only when the gateway
+could not learn it — a capture that starts mid-run — and the device falls back
+to merging by name.
+
+`fatal` marks whether the error ends the run. Absent **or true** is terminal:
+the device shows 失败 and closes the turn. `false` means the upstream step
+failed but will be retried, so the device records the message and keeps running
+— a step that retried and then succeeded must not be shown as a failed run, and
+every later tool block must not be closed as an error.
 
 `agent.reasoning*` is a **separate channel** from `agent.text*` and never feeds
 the answer text: the device renders it as a thinking block, so a gateway bug
@@ -89,9 +149,12 @@ text), which is the only self-healing channel for a dropped delta and avoids
 overwriting newer text the device already has. The same rule governs
 `agent.reasoning`.
 
-Stream termination is `agent.status {status: "idle"}` in every mode. Failures
-emit `agent.error` **before** the idle so a failed run is not reported as a
-success; an interrupted run never emits a success frame.
+Stream termination is `agent.status {status: "idle"}` in every mode. The three
+errors that really end the run emit `agent.error` **before** the idle so a failed
+run is not reported as a success; an interrupted run never emits a success frame.
+The one error that does _not_ end the run — a failed step that the upstream will
+retry — carries `fatal: false` and is followed by no terminator, so the stream
+stays open.
 
 ## How pending asks reach the device
 
@@ -167,9 +230,26 @@ ceiling and a 400×300 panel.
 | Single thinking block                        | 2 KiB                                 |
 | `agent.text`                                 | 8 KiB                                 |
 | `agent.text.delta` / `agent.reasoning.delta` | 2 KiB per frame                       |
+| SSE frame (single line and accumulated)      | 16 KiB                                |
 | Question options                             | ≤ 2                                   |
 | Sessions listed                              | 12                                    |
+| Tools per history message                    | 8                                     |
 | Prompt per run                               | 4 KiB                                 |
+| Stream socket timeout                        | 5 min                                 |
+
+The device reads a response body under a hard 16 KiB cap and **rejects** one
+that does not fit rather than rendering half of it: a history response it cannot
+accept is `invalid_response`. The gateway is therefore what trims — at most 24
+messages, oldest first, each text and thinking field capped at 2 KiB, at most 8
+tools per message — and `trimHistoryToBudget` drops from the front until the
+whole response fits.
+
+One SSE frame must also fit that cap, and the relay enforces it in both
+directions: an oversized _outbound_ frame is clipped to the field limits above,
+and an oversized _upstream_ frame is dropped with the run left alive. An upstream
+frame that threw used to end a healthy run — the device saw 「事件流断开」 for a
+run that was still working — which is why this is a documented bound and not an
+implementation detail.
 
 ## Rate limits (per device id)
 

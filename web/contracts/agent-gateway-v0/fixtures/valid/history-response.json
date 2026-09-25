@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "data": {
+    "messages": [
+      { "role": "user", "text": "帮我把这道极限题的步骤整理成错题本" },
+      {
+        "role": "assistant",
+        "text": "",
+        "thinking": "先确认题目给出的条件是否足以使用洛必达法则，再决定是否需要分情况讨论。",
+        "tools": [
+          { "name": "notebook.search", "status": "done", "preview": "query=极限" }
+        ]
+      },
+      {
+        "role": "assistant",
+        "text": "已找到 3 道同类题，并写入错题本。",
+        "tools": [
+          { "name": "notebook.search", "status": "done", "preview": "query=极限" },
+          { "name": "notebook.write", "status": "running", "preview": "题目 128" }
+        ]
+      },
+      { "role": "user", "text": "第二题也用同样的步骤" },
+      { "role": "assistant", "text": "好的，第二题是 1 的无穷次幂型，先取对数再求极限。" }
+    ]
+  }
+}

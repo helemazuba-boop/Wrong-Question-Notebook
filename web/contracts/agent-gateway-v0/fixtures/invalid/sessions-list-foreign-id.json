@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      { "id": "sess_01J8ZQ4K7V2N9X0M3B6C5D4E7F", "title": "错别字前缀", "updatedAt": 1758432000000 },
+      { "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E8A", "title": "合法行", "updatedAt": 1758345600000 }
+    ]
+  }
+}

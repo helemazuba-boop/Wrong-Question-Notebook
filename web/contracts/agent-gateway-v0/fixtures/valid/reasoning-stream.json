@@ -1,0 +1,15 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  { "event": "agent.status", "data": { "status": "running", "message": "已接取任务" } },
+  { "event": "agent.reasoning.delta", "data": { "delta": "先判断极限类型：" } },
+  { "event": "agent.reasoning.delta", "data": { "delta": "属于 0/0 型。" } },
+  { "event": "agent.text.delta", "data": { "delta": "用洛必达法则，" } },
+  { "event": "agent.reasoning.delta", "data": { "delta": "再检查分母导数。" } },
+  { "event": "agent.text.delta", "data": { "delta": "分子分母同时求导。" } },
+  {
+    "event": "agent.reasoning",
+    "data": { "text": "先判断极限类型：属于 0/0 型。再检查分母导数。" }
+  },
+  { "event": "agent.text", "data": { "text": "用洛必达法则，分子分母同时求导。" } },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]

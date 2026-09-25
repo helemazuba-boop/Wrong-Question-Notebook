@@ -1,0 +1,12 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  {
+    "event": "agent.question",
+    "data": {
+      "question_id": "frm_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "title": "要写入哪个错题本？",
+      "options": []
+    }
+  },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]
