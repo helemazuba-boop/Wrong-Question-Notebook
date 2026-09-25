@@ -55,13 +55,13 @@ function streamOf(frames: string[]): ReadableStream<Uint8Array> {
 
 async function relayText(
   frames: string[],
-  options: { mode?: 'run' | 'observe' } = {}
+  options: { mode?: 'run' | 'observe'; session?: string } = {}
 ): Promise<string> {
   const response = createSseResponse(writer =>
     relayOpenCodeEvents({
       upstream: streamOf(frames),
       writer,
-      sessionId: SESSION,
+      sessionId: options.session ?? SESSION,
       mode: options.mode,
     })
   );
@@ -73,10 +73,18 @@ function eventsOf(text: string): string[] {
 }
 
 function payloadOf(text: string, event: string): string {
-  const frame = text
-    .split(/(?=event: )/)
-    .find(chunk => chunk.startsWith(`event: ${event}\n`));
-  return frame?.match(/^data: (.+)$/m)?.[1].trim() ?? '';
+  return payloadOfAt(text, event, 0);
+}
+
+/** The payload of the nth frame named `event` (0-based). */
+function payloadOfAt(text: string, event: string, index: number): string {
+  // Each SSE frame is `event:`, an `id:` line, then `data:`.
+  const matches = [
+    ...text.matchAll(
+      new RegExp(`^event: ${event}\\r?\\n(?:id: .*\\r?\\n)?data: (.+)$`, 'gm')
+    ),
+  ];
+  return matches[index]?.[1]?.trim() ?? '';
 }
 
 function permission(id: string, action: string): OpenCodePermissionRequest {
@@ -207,17 +215,134 @@ afterEach(() => {
 });
 
 describe('OpenCode v2 event projection', () => {
-  it('projects a real captured frame stream into nothing', async () => {
-    // The only v2 bytes ever captured from a live server are a
-    // server.connected event plus a heartbeat comment. Both must survive
-    // parsing and produce no device event: the relay reads `data:` lines, the
-    // ':' comment is skipped, and a session-less event fails closed.
-    const raw = readFileSync(
+  // Captured from the live self-hosted server (v2.0.16) during a real run:
+  // one prompt that ran a shell tool and then answered. This is the only
+  // end-to-end v2 stream in hand, so it is the fixture that pins the shapes
+  // everything else used to guess at -- including the tool-name finding below.
+  const CAPTURE_SESSION = 'ses_f28f1a3f8ffeH52sTm7T7VFOZA';
+  const CAPTURE_CALL = 'call_df0222084d9b466b919a9791';
+
+  function capture(): string {
+    return readFileSync(
       join(__dirname, '__fixtures__/opencode-v2-sse-raw.txt'),
       'utf8'
     );
+  }
 
-    await expect(relayText([raw])).resolves.not.toContain('event: agent');
+  it('projects a real captured run into exactly the frames the device needs', async () => {
+    const text = await relayText([capture()], {
+      mode: 'run',
+      session: CAPTURE_SESSION,
+    });
+
+    expect(eventsOf(text)).toEqual([
+      'agent.status', // session.step.started
+      'agent.reasoning.delta', // "Run the shell command."
+      'agent.tool', // session.tool.called, named from tool.input.started
+      'agent.tool', // session.tool.success
+      'agent.status', // the second step
+      'agent.reasoning.delta', // "Output: wqn-tool-probe"
+      'agent.text.delta', // the reply
+      'agent.status', // session.execution.succeeded, the terminator
+    ]);
+  });
+
+  it('names the shell tool in the real capture and blocks it by call id', async () => {
+    const text = await relayText([capture()], {
+      mode: 'run',
+      session: CAPTURE_SESSION,
+    });
+
+    expect(payloadOfAt(text, 'agent.tool', 0)).toBe(
+      JSON.stringify({
+        session_id: CAPTURE_SESSION,
+        tool: 'shell',
+        call_id: CAPTURE_CALL,
+        status: 'running',
+        preview: 'echo wqn-tool-probe',
+      })
+    );
+    expect(payloadOfAt(text, 'agent.tool', 1)).toBe(
+      JSON.stringify({
+        session_id: CAPTURE_SESSION,
+        tool: 'shell',
+        call_id: CAPTURE_CALL,
+        status: 'done',
+        preview: 'wqn-tool-probe\r\n',
+      })
+    );
+  });
+
+  it('keeps reasoning out of the answer in the real capture', async () => {
+    const text = await relayText([capture()], {
+      mode: 'run',
+      session: CAPTURE_SESSION,
+    });
+
+    // The reasoning delta is "Run the shell command."; the answer is
+    // "wqn-tool-probe". Neither may appear in the other's channel.
+    expect(
+      JSON.parse(payloadOfAt(text, 'agent.reasoning.delta', 0)).delta
+    ).toBe('Run the shell command.');
+    expect(payloadOfAt(text, 'agent.text.delta', 0)).toContain(
+      'wqn-tool-probe'
+    );
+    expect(text).not.toContain('Run the shell command.\n}');
+    // The capture's text.ended carries exactly the delta it already sent, so
+    // no `agent.text` repair frame may follow it.
+    expect(text).not.toContain('event: agent.text\n');
+  });
+
+  it('drops the server-wide events the capture carries', async () => {
+    const text = await relayText([capture()], {
+      mode: 'run',
+      session: CAPTURE_SESSION,
+    });
+
+    // project/provider/model/shell/inbox/usage/tool.input frames are all in the
+    // capture and none is session-scoped or in the device vocabulary, so they
+    // must survive parsing without producing a frame.
+    for (const event of [
+      'agent.permission',
+      'agent.question',
+      'agent.error',
+      'agent.accepted',
+    ]) {
+      expect(text).not.toContain(`event: ${event}`);
+    }
+  });
+
+  it('survives an upstream frame larger than the relay buffer', async () => {
+    // `session.tool.success` carries the tool's whole output, and a tool that
+    // dumped a file produces a frame well past the buffer cap. Throwing here
+    // used to end a healthy run: the device saw "事件流断开" for a run that was
+    // still working.
+    const huge = `data: ${JSON.stringify({
+      type: 'session.tool.success',
+      data: {
+        sessionID: SESSION,
+        id: 'call_huge',
+        content: [{ type: 'text', text: 'x'.repeat(70 * 1024) }],
+      },
+    })}\n\n`;
+
+    const text = await relayText([
+      huge,
+      'data: {"type":"session.text.delta","data":{"sessionID":"' +
+        SESSION +
+        '","delta":"still here"}}\n\n',
+      'data: {"type":"session.execution.succeeded","data":{"sessionID":"' +
+        SESSION +
+        '"}}\n\n',
+    ]);
+
+    expect(eventsOf(text)).toEqual(['agent.text.delta', 'agent.status']);
+    expect(payloadOfAt(text, 'agent.text.delta', 0)).toContain('still here');
+    expect(payloadOf(text, 'agent.status')).toContain('"idle"');
+  });
+
+  it('projects a stream whose session is not the attached one into nothing', async () => {
+    await expect(relayText([capture()])).resolves.not.toContain('event: agent');
   });
 
   it('drops an event whose session is not the attached one', () => {
@@ -535,24 +660,73 @@ describe('OpenCode v2 event projection', () => {
     ]);
   });
 
-  it('projects shell start/end onto a single tool block', () => {
+  it('drops the shell events, which are not session-scoped', () => {
+    // The upstream names are `shell.created` / `shell.exited`, and neither
+    // carries a session id (`shell.exited` has only {id, exit, status}), so
+    // neither can be projected onto one device's stream without inventing a
+    // correlation. The shell tool already shows up as `session.tool.*` under
+    // its real name, so these frames add nothing. Asserted so a future rename
+    // of the upstream names cannot silently resurrect the old fake mapping.
     const writer = createWriter();
 
     emitNormalizedOpenCodeEvent(
       writer,
       {
-        type: 'session.shell.started',
-        data: { sessionID: SESSION, command: 'make' },
+        type: 'shell.created',
+        data: {
+          info: {
+            id: 'sh_1',
+            command: 'make',
+            metadata: { sessionID: SESSION },
+          },
+        },
       },
       SESSION
     );
     emitNormalizedOpenCodeEvent(
       writer,
-      {
-        type: 'session.shell.ended',
-        data: { sessionID: SESSION, exitCode: 1, output: 'boom' },
-      },
+      { type: 'shell.exited', data: { id: 'sh_1', exit: 1, status: 'exited' } },
       SESSION
+    );
+
+    expect(writer.frames).toEqual([]);
+  });
+
+  it('labels a tool from the call id, since only input.started carries a name', () => {
+    // Real shape: `called`/`success`/`failed` carry `{id}` and no `name`.
+    const writer = createWriter();
+    const state = createOpenCodeRelayState();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.tool.input.started',
+        data: { sessionID: SESSION, id: 'call_1', name: 'shell' },
+      },
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.tool.called',
+        data: { sessionID: SESSION, id: 'call_1', input: { command: 'make' } },
+      },
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.tool.success',
+        data: {
+          sessionID: SESSION,
+          id: 'call_1',
+          content: [{ type: 'text', text: 'ok' }],
+        },
+      },
+      SESSION,
+      state
     );
 
     expect(writer.frames).toEqual([
@@ -561,6 +735,7 @@ describe('OpenCode v2 event projection', () => {
         data: {
           session_id: SESSION,
           tool: 'shell',
+          call_id: 'call_1',
           status: 'running',
           preview: 'make',
         },
@@ -570,11 +745,28 @@ describe('OpenCode v2 event projection', () => {
         data: {
           session_id: SESSION,
           tool: 'shell',
-          status: 'error',
-          preview: 'boom',
+          call_id: 'call_1',
+          status: 'done',
+          preview: 'ok',
         },
       },
     ]);
+  });
+
+  it('keeps a name it never learned from labelling every tool "tool"', () => {
+    const writer = createWriter();
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.tool.called',
+        data: { sessionID: SESSION, id: 'call_9' },
+      },
+      SESSION
+    );
+    expect(writer.frames[0].data).toMatchObject({
+      tool: 'tool',
+      call_id: 'call_9',
+    });
   });
 
   it('maps a successful run to the idle terminator and closes', () => {
@@ -915,6 +1107,46 @@ describe('OpenCode v2 pending-ask delivery', () => {
     expect(text).not.toContain('agent.question');
     expect(payloadOf(text, 'agent.status')).toContain('检测到提问');
     expect(payloadOf(text, 'agent.status')).toContain('OpenCode 端回答');
+  });
+
+  it('arms only one ask, so a form never lands on top of a permission', async () => {
+    // The device has one option bar and one pending-ask string, so a question
+    // delivered while a permission is live is dropped by the firmware and the
+    // run blocks behind it. The relay must not emit both in the first place.
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        permissions: async () => [permission('prm_1', 'write file')],
+        questions: async () => [
+          form('frm_1', [{ value: 'math', label: '数学错题本' }], 'pending'),
+        ],
+      },
+    });
+
+    expect(text).toContain('agent.permission');
+    expect(text).not.toContain('agent.question');
+    expect(payloadOf(text, 'agent.permission')).toContain('prm_1');
+  });
+
+  it('frees the slot for the next ask once one is answered', async () => {
+    // A run raises one permission after another. The ask leaves the upstream
+    // queue when it is answered, and that has to release the device's slot --
+    // otherwise every ask after the first is dropped and the run stalls.
+    let rounds = 0;
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        permissions: async () =>
+          rounds++ < 2 ? [permission('prm_1', 'bash')] : [],
+        questions: async () =>
+          rounds < 4
+            ? []
+            : [form('frm_1', [{ value: 'a', label: 'A' }], 'pending')],
+      },
+    });
+
+    expect(payloadOf(text, 'agent.permission')).toContain('"prm_1"');
+    expect(payloadOf(text, 'agent.question')).toContain('"frm_1"');
   });
 
   it('ends an observe attach once a finished run reports its outcome', async () => {

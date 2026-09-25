@@ -34,9 +34,11 @@ export interface OpenCodePendingQuestion {
  *    user's own prompt back as the answer) structurally impossible.
  *
  * Everything below is a whitelist: an upstream event that is not named here is
- * dropped, never passed through. The event shape for the delta/execution
- * families has not been captured from a live run yet, so those branches are
- * marked `[v2-unverified]`.
+ * dropped, never passed through. Shapes come from `__fixtures__/
+ * opencode-v2-sse-raw.txt`, a complete run captured from the live server: it
+ * pins the tool, text, reasoning, step and execution families. Branches it does
+ * not cover (permission, form, interrupt, step failure, compaction) stay marked
+ * `[v2-unverified]` until a capture reaches them.
  */
 
 const MAX_UPSTREAM_FRAME_CHARS = 64 * 1024;
@@ -90,9 +92,16 @@ export interface OpenCodeRelayState {
   /** Same accounting for `agent.reasoning.delta`. */
   reasoningDeltas: Map<string, number>;
   /**
-   * The device holds exactly one pending-ask string per kind, so a second ask
-   * would overwrite the first instead of stacking. A new ask is only armed once
-   * the running one is answered.
+   * Tool call id -> tool name. Upstream `session.tool.called/.success/.failed`
+   * carry only the call id; the name lives in `session.tool.input.started`.
+   * Without this the device would label every block "tool" and merge them all.
+   */
+  toolNames: Map<string, string>;
+  /**
+   * The device holds one pending-ask string, period -- permission and question
+   * share a single option bar. A live ask of either kind therefore blocks a new
+   * ask of the other: the firmware drops what does not fit, and the poller
+   * re-discovers it once the running one is answered.
    */
   pendingPermissionId: string | null;
   pendingQuestionId: string | null;
@@ -104,6 +113,7 @@ export function createOpenCodeRelayState(): OpenCodeRelayState {
     seenQuestions: new Set<string>(),
     textDeltas: new Map<string, number>(),
     reasoningDeltas: new Map<string, number>(),
+    toolNames: new Map<string, string>(),
     pendingPermissionId: null,
     pendingQuestionId: null,
   };
@@ -268,6 +278,23 @@ function endReasoning(
  * prefer the first text entry so the device shows what the tool produced rather
  * than another copy of its input.
  */
+/**
+ * The name of the tool behind a call id, or a fixed placeholder when the
+ * `input.started` frame that carried it was not seen. Upstream omits `name`
+ * from `session.tool.called/.success/.failed` (verified against a real run
+ * capture), so a relay that read it there labelled every block "tool" -- and
+ * the device merges blocks by name, so every tool in a run collapsed into one.
+ */
+function toolName(
+  state: OpenCodeRelayState,
+  data: Record<string, unknown>
+): string {
+  const id = stringField(data, 'id');
+  const known = id ? state.toolNames.get(id) : undefined;
+  const name = known || stringField(data, 'name');
+  return (name || 'tool').slice(0, 80);
+}
+
 function toolSuccessPreview(data: Record<string, unknown>): string {
   const content = Array.isArray(data.content) ? data.content : [];
   for (const entry of content) {
@@ -407,10 +434,26 @@ export function emitNormalizedOpenCodeEvent(
       return 'activity';
     }
 
+    case 'session.tool.input.started': {
+      // Not projected, but the only place the tool's *name* appears: the three
+      // terminal tool events carry just the call id (verified against a real
+      // run capture). Learn it here so those events can label the block.
+      const id = stringField(data, 'id');
+      const name = stringField(data, 'name');
+      if (id && name) {
+        state.toolNames.set(id, name.slice(0, 80));
+      }
+      return 'continue';
+    }
+
+    // The name of a tool call, falling back to a stable placeholder when the
+    // `input.started` frame was never seen (a capture that starts mid-run).
     case 'session.tool.called': {
+      const id = stringField(data, 'id');
       writer.emit('agent.tool', {
         session_id: sessionId,
-        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        tool: toolName(state, data),
+        call_id: id || undefined,
         status: 'running',
         preview: toolPreview(data),
       });
@@ -419,7 +462,8 @@ export function emitNormalizedOpenCodeEvent(
     case 'session.tool.success': {
       writer.emit('agent.tool', {
         session_id: sessionId,
-        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        tool: toolName(state, data),
+        call_id: stringField(data, 'id') || undefined,
         status: 'done',
         preview: toolSuccessPreview(data),
       });
@@ -428,29 +472,10 @@ export function emitNormalizedOpenCodeEvent(
     case 'session.tool.failed': {
       writer.emit('agent.tool', {
         session_id: sessionId,
-        tool: (stringField(data, 'name') || 'tool').slice(0, 80),
+        tool: toolName(state, data),
+        call_id: stringField(data, 'id') || undefined,
         status: 'error',
         preview: errorMessage(data.error, '工具执行失败'),
-      });
-      return 'activity';
-    }
-
-    case 'session.shell.started': {
-      writer.emit('agent.tool', {
-        session_id: sessionId,
-        tool: 'shell',
-        status: 'running',
-        preview: stringField(data, 'command').slice(0, 160),
-      });
-      return 'activity';
-    }
-    case 'session.shell.ended': {
-      const code = numberField(data, 'exitCode');
-      writer.emit('agent.tool', {
-        session_id: sessionId,
-        tool: 'shell',
-        status: code === 0 ? 'done' : 'error',
-        preview: stringField(data, 'output').slice(0, 160),
       });
       return 'activity';
     }
@@ -501,51 +526,76 @@ async function pollPendingAsks(input: {
   }
 
   for (const target of watch) {
-    if (!state.pendingPermissionId) {
-      let permissions: OpenCodePendingAsk[] = [];
-      try {
-        permissions = await probe.permissions(target);
-      } catch {
-        permissions = [];
-      }
+    let permissions: OpenCodePendingAsk[] = [];
+    try {
+      permissions = await probe.permissions(target);
+    } catch {
+      permissions = [];
+    }
+    // Both upstream queues are out-only: an ask leaves them the moment it is
+    // answered, on the device or in OpenCode. That disappearance is the ONLY
+    // signal the relay gets that the slot is free again -- nothing in the event
+    // stream reports it. Without this check the first ask of a run occupies the
+    // device's single slot forever, and every later ask in the same run is
+    // silently dropped: the run blocks until it hits the stream timeout.
+    if (
+      state.pendingPermissionId &&
+      !permissions.some(request => request?.id === state.pendingPermissionId)
+    ) {
+      state.pendingPermissionId = null;
+    }
+
+    // One live ask at a time, across both kinds: the device has a single option
+    // bar, and a permission and a question cannot be pending together. Emitting
+    // both would have the device drop the question -- and a dropped question is
+    // a run that never finishes.
+    if (!state.pendingPermissionId && !state.pendingQuestionId) {
       for (const request of permissions) {
         if (!request?.id || state.seenPermissions.has(request.id)) continue;
-        if (state.pendingPermissionId) break;
         state.seenPermissions.add(request.id);
         state.pendingPermissionId = request.id;
         emitAgentPermission(writer, target, request);
+        break;
       }
     }
-    if (!state.pendingQuestionId) {
-      let forms: OpenCodePendingQuestion[] = [];
-      try {
-        forms = await probe.questions(target);
-      } catch {
-        forms = [];
+    // The option bar is taken for the rest of this round.
+    if (state.pendingPermissionId || state.pendingQuestionId) return;
+
+    let forms: OpenCodePendingQuestion[] = [];
+    try {
+      forms = await probe.questions(target);
+    } catch {
+      forms = [];
+    }
+    if (
+      state.pendingQuestionId &&
+      !forms.some(summary => summary?.id === state.pendingQuestionId)
+    ) {
+      state.pendingQuestionId = null;
+    }
+    if (state.pendingQuestionId) return;
+    for (const summary of forms) {
+      if (!summary?.id) continue;
+      // Form.Info carries no state, so an id seen before is not enough to
+      // know whether it was answered: re-attach must not re-arm a form the
+      // user already answered in OpenCode. Pay for the detail read.
+      let form = summary;
+      if (!summary.status) {
+        try {
+          form = (await probe.formDetail(target, summary.id)) ?? summary;
+        } catch {
+          form = summary;
+        }
       }
-      for (const summary of forms) {
-        if (!summary?.id) continue;
-        // Form.Info carries no state, so an id seen before is not enough to
-        // know whether it was answered: re-attach must not re-arm a form the
-        // user already answered in OpenCode. Pay for the detail read.
-        let form = summary;
-        if (!summary.status) {
-          try {
-            form = (await probe.formDetail(target, summary.id)) ?? summary;
-          } catch {
-            form = summary;
-          }
-        }
-        if (form.status === 'answered' || form.status === 'cancelled') {
-          state.seenQuestions.add(summary.id);
-          continue;
-        }
-        if (state.seenQuestions.has(summary.id)) continue;
-        if (state.pendingQuestionId) break;
+      if (form.status === 'answered' || form.status === 'cancelled') {
         state.seenQuestions.add(summary.id);
-        state.pendingQuestionId = form.id;
-        emitAgentQuestion(writer, target, form);
+        continue;
       }
+      if (state.seenQuestions.has(summary.id)) continue;
+      state.seenQuestions.add(summary.id);
+      state.pendingQuestionId = form.id;
+      emitAgentQuestion(writer, target, form);
+      return;
     }
   }
 }
@@ -686,8 +736,22 @@ export async function relayOpenCodeEvents(input: {
       }
       pendingRead = reader.read();
       buffer += decoder.decode(chunk.value, { stream: !chunk.done });
-      if (buffer.length > MAX_UPSTREAM_FRAME_CHARS) {
-        throw new Error('OpenCode SSE frame exceeded the relay limit');
+      // An unbounded buffer is a memory leak waiting for a frame that never
+      // closes, so it still has to be capped -- but the cap used to abort the
+      // whole run, and one oversized frame (a tool that dumped a huge file into
+      // `content`) is not a run failure: the device loses that event and the
+      // run keeps going. Discard through the end of the frame instead.
+      while (buffer.length > MAX_UPSTREAM_FRAME_CHARS) {
+        const boundary = buffer.search(/\r?\n\r?\n/);
+        if (boundary < 0) {
+          // Frame still opening: drop what we have and wait for its end. The
+          // remainder is bounded by the next chunk, which the loop re-checks.
+          buffer = '';
+          break;
+        }
+        const separator =
+          buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] || '';
+        buffer = buffer.slice(boundary + separator.length);
       }
       let boundary = buffer.search(/\r?\n\r?\n/);
       while (boundary >= 0) {
@@ -695,6 +759,12 @@ export async function relayOpenCodeEvents(input: {
         const separator =
           buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] || '';
         buffer = buffer.slice(boundary + separator.length);
+        if (frame.length > MAX_UPSTREAM_FRAME_CHARS) {
+          // Already projected past: nothing to emit, and nothing to end the
+          // stream for either.
+          boundary = buffer.search(/\r?\n\r?\n/);
+          continue;
+        }
         const data = frame
           .split(/\r?\n/)
           .filter(line => line.startsWith('data:'))

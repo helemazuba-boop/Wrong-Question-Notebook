@@ -619,6 +619,18 @@ describe('OpenCode Agent gateway', () => {
       expect(init.method).toBe('POST');
     });
 
+    it('reads the unwrapped interrupt response upstream actually sends', async () => {
+      // SessionInterruptResponse is bare `{interrupted}`, unlike the `{data}`
+      // every other v2 route wraps its body in. Reading `.data.interrupted`
+      // made a successful stop of an already-finished run (interrupted:false)
+      // report as delivered.
+      fetchMock.mockResolvedValue(jsonResponse({ interrupted: false }));
+
+      await expect(
+        interruptOpenCodeSession(resolveOpenCodeBinding('user-1'), 'ses_123')
+      ).resolves.toBe(false);
+    });
+
     it('reads the run outcome that only exists on a finished session', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({ data: { id: 'ses_123', outcome: 'succeeded' } })

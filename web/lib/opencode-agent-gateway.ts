@@ -975,12 +975,16 @@ export async function interruptOpenCodeSession(
       cache: 'no-store',
     }
   );
-  // Upstream answers `{data:{interrupted:bool}}`; treat any non-false value
-  // (including an empty body) as interrupted so the device can stop waiting.
+  // Upstream answers a BARE `{interrupted:bool}` (SessionInterruptResponse) --
+  // no `data` wrapper, unlike every other v2 route. Reading `.data.interrupted`
+  // yields undefined for both values, so `!== false` reported every stop as
+  // delivered. Tolerate both shapes rather than trusting the one we saw.
   const body = (await response.json().catch(() => null)) as {
     data?: { interrupted?: unknown };
+    interrupted?: unknown;
   } | null;
-  return body?.data?.interrupted !== false;
+  const reported = body?.data?.interrupted ?? body?.interrupted;
+  return reported !== false;
 }
 
 /**
