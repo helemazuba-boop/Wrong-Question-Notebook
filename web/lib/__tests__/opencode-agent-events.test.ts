@@ -832,7 +832,41 @@ describe('OpenCode v2 event projection', () => {
         SESSION
       )
     ).toBe('activity');
-    expect(writer.names()).toEqual(['agent.error']);
+    expect(writer.frames).toEqual([
+      {
+        event: 'agent.error',
+        data: {
+          session_id: SESSION,
+          message: 'step blew up',
+          // Without this the device treats the step failure as terminal, marks
+          // the run failed and closes every later tool block as an error.
+          fatal: false,
+        },
+      },
+    ]);
+  });
+
+  it('marks retryable step failures and leaves terminal errors unmarked', () => {
+    // `agent.error.fatal` is absent-or-true. The three errors that really end
+    // the run therefore stay unmarked, and only the one the upstream will retry
+    // carries `fatal: false` -- the distinction is the whole point of the field,
+    // so pin both sides rather than only the retryable one.
+    const writer = createWriter();
+
+    for (const type of [
+      'session.execution.failed',
+      'session.execution.interrupted',
+      'global.disposed',
+    ]) {
+      emitNormalizedOpenCodeEvent(writer, { type, data: { sessionID: SESSION } }, SESSION);
+    }
+    const terminalErrors = writer.frames.filter(
+      (frame) => frame.event === 'agent.error'
+    );
+    expect(terminalErrors).toHaveLength(3);
+    for (const frame of terminalErrors) {
+      expect(frame.data).not.toHaveProperty('fatal');
+    }
   });
 
   it('fills the long tool gap and the retry/compaction windows with status', () => {

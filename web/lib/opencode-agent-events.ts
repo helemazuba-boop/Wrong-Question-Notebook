@@ -382,11 +382,14 @@ export function emitNormalizedOpenCodeEvent(
     }
 
     // A failed step is not a failed run: the agent retries, so report the error
-    // but keep the stream open.
+    // but keep the stream open. `fatal: false` is what tells the device to keep
+    // running -- an unmarked `agent.error` ends the turn as a failure on the
+    // device, so a step that retried successfully still ended up shown as one.
     case 'session.step.failed': {
       writer.emit('agent.error', {
         session_id: sessionId,
         message: errorMessage(data.error, 'Agent 执行步骤失败'),
+        fatal: false,
       });
       return 'activity';
     }
