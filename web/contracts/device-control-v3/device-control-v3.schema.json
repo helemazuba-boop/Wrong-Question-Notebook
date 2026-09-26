@@ -346,7 +346,7 @@
         "summaries": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["due_problem_ids", "todo_count", "word_due_count"],
+          "required": ["due_problem_ids", "todo_count", "word_due_count", "word_mistake_count"],
           "properties": {
             "due_problem_ids": {
               "type": "array",
@@ -354,7 +354,8 @@
               "items": { "type": "string", "format": "uuid" }
             },
             "todo_count": { "type": "integer", "minimum": 0 },
-            "word_due_count": { "type": "integer", "minimum": 0 }
+            "word_due_count": { "type": "integer", "minimum": 0 },
+            "word_mistake_count": { "type": "integer", "minimum": 0 }
           }
         },
         "content_manifest": {
