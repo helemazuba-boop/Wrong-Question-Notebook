@@ -56,6 +56,15 @@
         "essay"
       ]
     },
+    "packChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 10 },
+        "text": { "type": "string", "maxLength": 500 }
+      }
+    },
     "packPart": {
       "type": "object",
       "additionalProperties": false,
@@ -73,7 +82,13 @@
         "type": { "$ref": "#/$defs/partType" },
         "full_marks": { "type": "integer", "minimum": 0, "maximum": 200 },
         "content_text": { "type": "string" },
-        "answer_text": { "type": "string" }
+        "answer_text": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/packChoice" }
+        }
       }
     },
     "packRow": {

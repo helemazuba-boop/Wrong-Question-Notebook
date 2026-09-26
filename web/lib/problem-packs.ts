@@ -3,10 +3,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 import type { FilterConfig } from './types';
 import { getFilteredProblems } from './review-utils';
-import { htmlToEsp32Content } from './esp32-content';
+import { htmlToEsp32Content, latexToEsp32Text } from './esp32-content';
 import { StoredProblemPartsSchema } from './schemas';
+import { ANSWER_CONFIG_CONSTANTS } from './constants';
 import {
+  PROBLEM_PACK_MAX_BYTES,
   PROBLEM_PACK_MAX_ENTRIES,
+  PROBLEM_PACK_MAX_LINE_BYTES,
   PROBLEM_PACK_SCHEMA_VERSION,
 } from './problem-study-v1';
 import {
@@ -137,11 +140,70 @@ function partAnswerText(
   return correctAnswer ?? '';
 }
 
+interface ProblemPackChoice {
+  id: string;
+  text: string;
+}
+
+/**
+ * Choice text is plain text that may embed $...$ LaTeX (rendered by MathText
+ * on the web). Flatten each math segment with latexToEsp32Text and collapse
+ * every whitespace run so a single option can never inject extra markdown
+ * blocks (headings, tables, ...) into the device's composed body text.
+ */
+function mathTextToEsp32Text(text: string): string {
+  return text
+    .replace(/\$([^$\n]+?)\$/g, (_match, latex: string) =>
+      latexToEsp32Text(latex)
+    )
+    .replace(/[ \t\r\n]+/g, ' ')
+    .trim();
+}
+
+function clampChoiceId(id: string): string {
+  return Array.from(id).slice(0, 10).join('');
+}
+
+function clampChoiceText(text: string): string {
+  const chars = Array.from(text);
+  const maxChars = ANSWER_CONFIG_CONSTANTS.MCQ.MAX_CHOICE_TEXT_LENGTH;
+  if (chars.length <= maxChars) return text;
+  return `${chars.slice(0, maxChars - 1).join('')}…`;
+}
+
+/**
+ * Projects parts[].answer_config.choices into the pack's display-ready
+ * option list. answer_config is unvalidated jsonb at rest, so every entry is
+ * checked defensively and clamped to the contract bounds.
+ */
+function partChoicesOf(
+  answerConfig: Record<string, unknown> | null | undefined
+): ProblemPackChoice[] {
+  if (!answerConfig || typeof answerConfig !== 'object') return [];
+  const raw = (answerConfig as { choices?: unknown }).choices;
+  if (!Array.isArray(raw)) return [];
+  const choices: ProblemPackChoice[] = [];
+  for (const value of raw) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const { id, text } = value as { id?: unknown; text?: unknown };
+    if (typeof id !== 'string' || id.length === 0) continue;
+    choices.push({
+      id: clampChoiceId(id),
+      text: clampChoiceText(
+        mathTextToEsp32Text(typeof text === 'string' ? text : '')
+      ),
+    });
+    if (choices.length >= ANSWER_CONFIG_CONSTANTS.MCQ.MAX_CHOICES) break;
+  }
+  return choices;
+}
+
 /**
  * Serialises one problem row into its pack JSONL record, or null when the
  * stored parts do not parse (a corrupt row must not 500 the whole pack).
  * Every key is emitted even when empty so the row layout stays uniform for
- * the device parser.
+ * the device parser; `choices` is the one optional key (omitted unless the
+ * part actually has options).
  */
 function packRowOf(
   row: ProblemRowSource,
@@ -152,17 +214,21 @@ function packRowOf(
     console.warn(`[problem-pack] skipping problem ${row.id}: bad parts`);
     return null;
   }
-  const parts = parsedParts.data.map(part => ({
-    index: part.index,
-    label: part.label ?? '',
-    type: part.type,
-    full_marks: part.full_marks ?? 0,
-    content_text: htmlToEsp32Content(part.content).text,
-    answer_text: partAnswerText(part.answer_config, part.correct_answer),
-  }));
+  const parts = parsedParts.data.map(part => {
+    const choices = partChoicesOf(part.answer_config);
+    return {
+      index: part.index,
+      label: part.label ?? '',
+      type: part.type,
+      full_marks: part.full_marks ?? 0,
+      content_text: htmlToEsp32Content(part.content).text,
+      answer_text: partAnswerText(part.answer_config, part.correct_answer),
+      ...(choices.length > 0 ? { choices } : {}),
+    };
+  });
   const problemImages = imagePairsOf(row.assets, availableImageIds);
   const solutionImages = imagePairsOf(row.solution_assets, availableImageIds);
-  return JSON.stringify({
+  const record = {
     problem_id: row.id,
     title: row.title,
     content_text: htmlToEsp32Content(row.content).text,
@@ -177,7 +243,31 @@ function packRowOf(
     gray4_image_ids: problemImages.gray4ImageIds,
     solution_image_ids: solutionImages.imageIds,
     solution_gray4_image_ids: solutionImages.gray4ImageIds,
+  };
+  const line = JSON.stringify(record);
+  if (Buffer.byteLength(line, 'utf8') <= PROBLEM_PACK_MAX_LINE_BYTES) {
+    return line;
+  }
+  // The device rejects the whole pack when a single JSONL row exceeds its
+  // line bound (kMaxPackLineBytes), so drop the optional options rather than
+  // break the set; only skip the row when the pre-existing fields alone are
+  // already over the bound.
+  const withoutChoices = JSON.stringify({
+    ...record,
+    parts: parts.map(part => ({ ...part, choices: undefined })),
   });
+  if (
+    Buffer.byteLength(withoutChoices, 'utf8') <= PROBLEM_PACK_MAX_LINE_BYTES
+  ) {
+    console.warn(
+      `[problem-pack] dropping choices for problem ${row.id}: row exceeds ${PROBLEM_PACK_MAX_LINE_BYTES} bytes`
+    );
+    return withoutChoices;
+  }
+  console.warn(
+    `[problem-pack] skipping problem ${row.id}: row exceeds ${PROBLEM_PACK_MAX_LINE_BYTES} bytes`
+  );
+  return null;
 }
 
 function epochSecondsOf(timestamp: string | null | undefined): number {
@@ -307,9 +397,25 @@ export async function buildProblemPack(
     );
   }
 
-  const rowLines = members
-    .map(row => packRowOf(row, availableImageIds))
-    .filter((line): line is string => line !== null);
+  // The device caps a pack at PROBLEM_PACK_MAX_BYTES and the manifest zod
+  // schema rejects anything larger, so stop adding rows before the budget is
+  // spent rather than 500 the whole manifest for every set.
+  const rowLines: string[] = [];
+  let packBytes = 0;
+  const packBudget = PROBLEM_PACK_MAX_BYTES - 1024; // meta line + LF slack
+  for (const member of members) {
+    const line = packRowOf(member, availableImageIds);
+    if (line === null) continue;
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
+    if (packBytes + lineBytes > packBudget) {
+      console.warn(
+        `[problem-pack] set ${problemSetId}: stopping at ${rowLines.length} rows (pack byte budget)`
+      );
+      break;
+    }
+    rowLines.push(line);
+    packBytes += lineBytes;
+  }
 
   // pack_revision advances whenever the set or any member problem changes;
   // freshness detection itself rides on the sha256 (manifest compare).
