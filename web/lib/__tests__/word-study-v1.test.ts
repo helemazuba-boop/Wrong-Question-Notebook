@@ -37,6 +37,12 @@ describe('word study v1 contract', () => {
 
   it.each([
     ['session-request.json', createWordStudySessionRequestSchema],
+    ['session-request-review.json', createWordStudySessionRequestSchema],
+    ['session-request-intake.json', createWordStudySessionRequestSchema],
+    [
+      'session-request-sequential-cursor.json',
+      createWordStudySessionRequestSchema,
+    ],
     ['session-response.json', createWordStudySessionSuccessSchema],
     ['candidate-page-request.json', wordCandidatePageRequestSchema],
     ['candidate-page-response.json', wordCandidatePageSuccessSchema],
@@ -90,6 +96,22 @@ describe('word study v1 contract', () => {
     expect(semanticsForWordMode('dictionary')).toEqual({
       purpose: 'lookup',
       ordering: 'lexicographic',
+    });
+    expect(semanticsForWordMode('review')).toEqual({
+      purpose: 'study',
+      ordering: 'due_queue_v1',
+    });
+    expect(semanticsForWordMode('intake')).toEqual({
+      purpose: 'study',
+      ordering: 'new_intake_v1',
+    });
+    expect(semanticsForWordMode('shuffle')).toEqual({
+      purpose: 'study',
+      ordering: 'pure_random_v1',
+    });
+    expect(semanticsForWordMode('mistakes')).toEqual({
+      purpose: 'study',
+      ordering: 'mistake_words_v1',
     });
   });
 

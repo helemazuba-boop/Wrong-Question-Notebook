@@ -50,11 +50,39 @@
         }
       }
     },
-    "mode": { "enum": ["sequential", "random", "dictionary"] },
+    "mode": {
+      "enum": [
+        "sequential",
+        "random",
+        "dictionary",
+        "review",
+        "intake",
+        "shuffle",
+        "mistakes"
+      ]
+    },
     "purpose": { "enum": ["study", "lookup"] },
-    "ordering": { "enum": ["sequential", "guided_random_v1", "lexicographic"] },
+    "ordering": {
+      "enum": [
+        "sequential",
+        "guided_random_v1",
+        "lexicographic",
+        "due_queue_v1",
+        "new_intake_v1",
+        "pure_random_v1",
+        "mistake_words_v1"
+      ]
+    },
     "candidatePolicyVersion": {
-      "enum": ["sequential_v1", "guided_random_v1", "lexicographic_v1"]
+      "enum": [
+        "sequential_v1",
+        "guided_random_v1",
+        "lexicographic_v1",
+        "due_queue_v1",
+        "new_intake_v1",
+        "pure_random_v1",
+        "mistake_words_v1"
+      ]
     },
     "scope": {
       "type": "object",
@@ -129,6 +157,16 @@
               "minLength": 1,
               "maxLength": 64,
               "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "start_index": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "new_word_limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         }

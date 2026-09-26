@@ -80,6 +80,65 @@ describe('word study ordering', () => {
     ).toEqual(fixture.expected_sequential);
   });
 
+  it('orders the review queue as a list: learning, then due review by due_at', () => {
+    expect(
+      orderWordStudyCandidates(
+        candidates,
+        'due_queue_v1',
+        fixture.seed,
+        Date.parse(fixture.now)
+      ).map(candidate => candidate.item_id)
+    ).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000006',
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000004',
+      '00000000-0000-4000-8000-000000000003',
+      '00000000-0000-4000-8000-000000000007',
+      '00000000-0000-4000-8000-000000000005',
+    ]);
+  });
+
+  it('walks the deck order for new-word intake', () => {
+    expect(
+      orderWordStudyCandidates(
+        candidates,
+        'new_intake_v1',
+        fixture.seed,
+        Date.parse(fixture.now)
+      ).map(candidate => candidate.item_id)
+    ).toEqual(fixture.expected_sequential);
+  });
+
+  it('shuffles pure random and mistakes stably by the pinned hashes', () => {
+    const expected = [...candidates]
+      .sort((left, right) => {
+        const leftHash = fixture.expected_hashes[left.item_id];
+        const rightHash = fixture.expected_hashes[right.item_id];
+        if (leftHash !== rightHash) return leftHash < rightHash ? -1 : 1;
+        return left.item_id < right.item_id ? -1 : 1;
+      })
+      .map(candidate => candidate.item_id);
+
+    for (const ordering of ['pure_random_v1', 'mistake_words_v1'] as const) {
+      const forward = orderWordStudyCandidates(
+        candidates,
+        ordering,
+        fixture.seed,
+        Date.parse(fixture.now)
+      ).map(candidate => candidate.item_id);
+      const reversed = orderWordStudyCandidates(
+        [...candidates].reverse(),
+        ordering,
+        fixture.seed,
+        Date.parse(fixture.now)
+      ).map(candidate => candidate.item_id);
+
+      expect(forward).toEqual(expected);
+      expect(reversed).toEqual(expected);
+    }
+  });
+
   it('produces the stable guided-random order without exposing reasons', () => {
     const first = orderWordStudyCandidates(
       candidates,

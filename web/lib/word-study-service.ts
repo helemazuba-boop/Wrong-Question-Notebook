@@ -9,6 +9,7 @@ import {
   loadVisibleWordPackDecksByIds,
 } from './word-packs';
 import { wakeWordProgressProjection } from './word-progress-wake';
+import { getLocalMidnightAfterDays } from './timezone-utils';
 import {
   capDueNowCandidates,
   orderWordStudyCandidates,
@@ -28,11 +29,17 @@ import {
   type CreateWordStudySessionRequest,
   type WordObservationRequest,
   type WordSkipObservationRequest,
+  type WordStudyOrdering,
   type WordStudySessionData,
 } from './word-study-v1';
 
 const CANDIDATE_PAGE_SIZE = 500;
 const MAX_SESSION_CANDIDATES = 500;
+const WORD_MISTAKE_LINK_PAGE_SIZE = 1000;
+
+// The word-study day boundary is fixed server-side so the review queue and the
+// daily new-word budget do not depend on the device clock.
+export const WORD_STUDY_DAY_TIMEZONE = 'Asia/Shanghai';
 
 type StudySessionTransportRow = Pick<
   Database['public']['Tables']['study_sessions']['Row'],
@@ -138,16 +145,55 @@ function normalizeStatus(value: unknown): CandidateProgressStatus {
     : 'new';
 }
 
+interface CollectCandidatesOptions {
+  // Sequential continuation: skip the first N candidates of the ordered scope.
+  startIndex?: number;
+  // Review queue: keep only words due before this instant (end of the local
+  // day). `undefined` disables the filter.
+  dueBeforeMs?: number;
+  // Mistakes mode: restrict the pool to these word entries. `undefined` keeps
+  // the whole scope; an empty set matches nothing.
+  restrictToEntryIds?: ReadonlySet<string>;
+}
+
+function isCandidateSelected(
+  ordering: WordStudyOrdering,
+  status: CandidateProgressStatus,
+  dueAt: string | null,
+  entryId: string,
+  options: CollectCandidatesOptions
+): boolean {
+  if (ordering === 'due_queue_v1') {
+    if (status !== 'learning' && status !== 'review') return false;
+    if (status === 'learning') return true;
+    const dueMs = dueAt ? Date.parse(dueAt) : Number.NaN;
+    return (
+      !Number.isFinite(dueMs) ||
+      options.dueBeforeMs === undefined ||
+      dueMs <= options.dueBeforeMs
+    );
+  }
+  if (ordering === 'new_intake_v1') return status === 'new';
+  if (ordering === 'mistake_words_v1') {
+    return options.restrictToEntryIds?.has(entryId) ?? false;
+  }
+  return true;
+}
+
 async function collectCandidates(
   supabase: SupabaseClient<Database>,
   userId: string,
   decks: Array<{ id: string }>,
-  ordering: 'sequential' | 'guided_random_v1' | 'lexicographic',
+  ordering: WordStudyOrdering,
   seed: string,
   includeMastered: boolean,
   outputLimit: number,
-  nowMs: number
+  nowMs: number,
+  options: CollectCandidatesOptions = {}
 ): Promise<{ candidates: WordStudyCandidate[]; eligibleCount: number }> {
+  const startIndex = options.startIndex ?? 0;
+  // Keep enough of the ordered prefix to slice the requested window out of it.
+  const poolLimit = startIndex + outputLimit;
   let pool: WordStudyCandidate[] = [];
   let eligibleCount = 0;
   const deckOrderById = new Map(decks.map((deck, index) => [deck.id, index]));
@@ -180,6 +226,17 @@ async function collectCandidates(
         : entry.word_progress;
       const status = normalizeStatus(progress?.status);
       if (!includeMastered && status === 'mastered') continue;
+      if (
+        !isCandidateSelected(
+          ordering,
+          status,
+          progress?.due_at || null,
+          entry.id,
+          options
+        )
+      ) {
+        continue;
+      }
       eligibleCount += 1;
       pageCandidates.push({
         item_id: entry.id,
@@ -200,15 +257,20 @@ async function collectCandidates(
       ordering,
       seed,
       nowMs,
-      outputLimit
+      poolLimit
     );
-    // Only guided random mixes by urgency; sequential/lexicographic are
-    // explicit browse choices and must stay a faithful walk of the scope.
+    // Only guided random mixes by urgency; the other orderings are explicit
+    // walks of the scope and must stay faithful.
     if (ordering === 'guided_random_v1') {
       pool = capDueNowCandidates(pool, nowMs, outputLimit);
     }
 
     if (entries.length < CANDIDATE_PAGE_SIZE) break;
+  }
+
+  // Sequential continuation: return the window after the persisted cursor.
+  if (startIndex > 0) {
+    pool = pool.slice(startIndex, startIndex + outputLimit);
   }
 
   return { candidates: pool, eligibleCount };
@@ -217,7 +279,7 @@ async function collectCandidates(
 export function mergeWordStudyCandidatePage(
   pool: readonly WordStudyCandidate[],
   pageCandidates: readonly WordStudyCandidate[],
-  ordering: 'sequential' | 'guided_random_v1' | 'lexicographic',
+  ordering: WordStudyOrdering,
   seed: string,
   nowMs: number,
   outputLimit: number
@@ -228,6 +290,41 @@ export function mergeWordStudyCandidatePage(
     seed,
     nowMs
   ).slice(0, outputLimit);
+}
+
+async function loadWordMistakeEntryIds(
+  supabase: SupabaseClient<Database>,
+  userId: string
+): Promise<Set<string>> {
+  const entryIds = new Set<string>();
+  for (let offset = 0; ; offset += WORD_MISTAKE_LINK_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('word_mistake_links')
+      .select('word_entry_id')
+      .eq('user_id', userId)
+      .order('word_entry_id', { ascending: true })
+      .range(offset, offset + WORD_MISTAKE_LINK_PAGE_SIZE - 1);
+    if (error) databaseError('loadWordMistakeEntryIds', error);
+    if (!data?.length) break;
+    for (const row of data) entryIds.add(row.word_entry_id);
+    if (data.length < WORD_MISTAKE_LINK_PAGE_SIZE) break;
+  }
+  return entryIds;
+}
+
+async function countWordsIntroducedToday(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  timezone: string
+): Promise<number> {
+  const dayStart = getLocalMidnightAfterDays(0, timezone).toISOString();
+  const { count, error } = await supabase
+    .from('word_progress')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', dayStart);
+  if (error) databaseError('countWordsIntroducedToday', error);
+  return count ?? 0;
 }
 
 export async function createWordStudySession(
@@ -257,6 +354,27 @@ export async function createWordStudySession(
   }
 
   const semantics = semanticsForWordMode(input.mode);
+  if (input.start_index !== undefined && input.mode !== 'sequential') {
+    throw new WordStudyServiceError(
+      'WORD_START_INDEX_UNSUPPORTED',
+      'start_index is only valid for sequential sessions',
+      400
+    );
+  }
+  if (input.new_word_limit !== undefined && input.mode !== 'intake') {
+    throw new WordStudyServiceError(
+      'WORD_NEW_LIMIT_UNSUPPORTED',
+      'new_word_limit is only valid for intake sessions',
+      400
+    );
+  }
+  if (input.mode === 'intake' && input.new_word_limit === undefined) {
+    throw new WordStudyServiceError(
+      'WORD_NEW_LIMIT_REQUIRED',
+      'new_word_limit is required for intake sessions',
+      400
+    );
+  }
   const seed = input.seed || randomBytes(16).toString('hex');
   const visibleDecks = input.scope.deck_ids.length
     ? await loadVisibleWordPackDecksByIds(
@@ -281,10 +399,14 @@ export async function createWordStudySession(
   );
   const decksLoadedAt = Date.now();
   // Sequential and dictionary are explicit browse choices and therefore show
-  // the complete scope.  Only guided random may omit mastered words unless
-  // the caller explicitly includes them.
+  // the complete scope. Guided random and shuffle respect the caller's flag.
+  // Review, intake, and mistakes never show mastered words.
   const includeMastered =
-    input.mode === 'random' ? input.scope.include_mastered : true;
+    input.mode === 'sequential' || input.mode === 'dictionary'
+      ? true
+      : input.mode === 'random' || input.mode === 'shuffle'
+        ? input.scope.include_mastered
+        : false;
   const scope = {
     deck_ids: decks.map(deck => deck.id),
     include_mastered: includeMastered,
@@ -333,6 +455,27 @@ export async function createWordStudySession(
     );
   }
 
+  const dueBeforeMs =
+    semantics.ordering === 'due_queue_v1'
+      ? getLocalMidnightAfterDays(1, WORD_STUDY_DAY_TIMEZONE).getTime()
+      : undefined;
+  const restrictToEntryIds =
+    semantics.ordering === 'mistake_words_v1'
+      ? await loadWordMistakeEntryIds(supabase, userId)
+      : undefined;
+  let candidateLimit = outputLimit;
+  if (semantics.ordering === 'new_intake_v1') {
+    const introducedToday = await countWordsIntroducedToday(
+      supabase,
+      userId,
+      WORD_STUDY_DAY_TIMEZONE
+    );
+    const remaining = Math.max(
+      0,
+      (input.new_word_limit ?? 0) - introducedToday
+    );
+    candidateLimit = Math.min(outputLimit, remaining);
+  }
   const { candidates, eligibleCount } = await collectCandidates(
     supabase,
     userId,
@@ -340,8 +483,13 @@ export async function createWordStudySession(
     semantics.ordering,
     seed,
     includeMastered,
-    outputLimit,
-    nowMs
+    candidateLimit,
+    nowMs,
+    {
+      startIndex: input.start_index ?? 0,
+      dueBeforeMs,
+      restrictToEntryIds,
+    }
   );
   const candidatesReadyAt = Date.now();
 
