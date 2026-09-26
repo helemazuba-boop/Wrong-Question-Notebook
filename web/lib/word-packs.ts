@@ -215,21 +215,35 @@ export async function loadVisibleWordPackDecksByIds(
   return data || [];
 }
 
+// PostgREST caps a response at `max_rows` (1000 in this deployment), so a
+// single unbounded select silently truncates: the 3536-entry preset deck
+// produced a 1000-entry pack and every device synced just that first page.
+// Page explicitly; (sort_index, normalized_word) is a total order because
+// normalized_word is unique per deck, so pages cannot skip or duplicate rows.
+const DECK_ENTRY_PAGE_SIZE = 500;
+
 async function loadDeckEntries(
   supabase: SupabaseClient<any>,
   deckId: string
 ): Promise<WordEntryPackRow[]> {
-  const { data, error } = await supabase
-    .from('word_entries')
-    .select(
-      'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at'
-    )
-    .eq('deck_id', deckId)
-    .order('sort_index', { ascending: true })
-    .order('normalized_word', { ascending: true });
+  const entries: WordEntryPackRow[] = [];
+  for (let offset = 0; ; offset += DECK_ENTRY_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('word_entries')
+      .select(
+        'id, deck_id, word, normalized_word, phonetic, meaning, example, example_translation, part_of_speech, tags, sort_index, revision, updated_at'
+      )
+      .eq('deck_id', deckId)
+      .order('sort_index', { ascending: true })
+      .order('normalized_word', { ascending: true })
+      .range(offset, offset + DECK_ENTRY_PAGE_SIZE - 1);
 
-  if (error) databaseError('loadDeckEntries', error);
-  return data || [];
+    if (error) databaseError('loadDeckEntries', error);
+    if (!data?.length) break;
+    entries.push(...data);
+    if (data.length < DECK_ENTRY_PAGE_SIZE) break;
+  }
+  return entries;
 }
 
 async function loadReadyPack(
