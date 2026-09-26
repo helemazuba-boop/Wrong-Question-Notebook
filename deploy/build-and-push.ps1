@@ -84,7 +84,7 @@ function Read-DotEnvFile {
     $vars = @{}
     $lineNumber = 0
 
-    foreach ($rawLine in Get-Content -LiteralPath $Path) {
+    foreach ($rawLine in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $lineNumber++
         $line = $rawLine.Trim()
 

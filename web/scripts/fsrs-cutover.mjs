@@ -30,6 +30,10 @@ const DOMAINS = {
     endpoint: '/api/internal/problem-reviews/authority',
     countField: 'problem_count',
     restoredCountField: 'restored_problem_count',
+    // The cutover RPC promotes and counts only initialized cards, so a problem
+    // that has a projection row but no FSRS card yet must stay out of the
+    // payload or the expectation count can never match.
+    extraQuery: { card_initialized: 'eq.true' },
   },
   word: {
     label: 'word',
