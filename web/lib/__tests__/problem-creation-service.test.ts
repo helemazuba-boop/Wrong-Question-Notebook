@@ -383,6 +383,17 @@ describe('createProblemFromImages', () => {
     expect(mocks.extractProblemFromImages).toHaveBeenCalledTimes(1);
   });
 
+  it('persists solution text supplied with image imports', async () => {
+    const { supabase, state } = makeSupabase();
+    await createProblemFromImages(supabase, USER_ID, {
+      request_id: 'create_problem_solution_images_0001',
+      images: [IMAGE],
+      subject_id: SUBJECT_ID,
+      solution_text: 'By inspection.',
+    });
+    expect(state.problem.solution_text).toBe('By inspection.');
+  });
+
   it('uses the uncategorized subject when subject is omitted', async () => {
     const { supabase, state } = makeSupabase();
     const result = await createProblemFromImages(supabase, USER_ID, {
@@ -731,5 +742,84 @@ describe('createProblem', () => {
     });
     expect(mocks.ensurePresetSubjects).toHaveBeenCalledWith(supabase, USER_ID);
     expect(result.problem.subject_id).toBe(state.subjectId);
+  });
+
+  it('persists caller solution text and replays the same request', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0010',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+      solution_text: '配方得 $(x-y/2)^2$，故 $x^2 \\le 4/3$。',
+    };
+    const first = await createProblem(supabase, USER_ID, input);
+    const replay = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.solution_text).toBe(
+      '配方得 $(x-y/2)^2$，故 $x^2 \\le 4/3$。'
+    );
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+  });
+
+  it('rejects request_id reuse when only the solution text changed', async () => {
+    const { supabase } = makeSupabase();
+    const base = {
+      request_id: 'create_structured_problem_0011',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+      solution_text: 'First solution.',
+    };
+    await createProblem(supabase, USER_ID, base);
+    await expect(
+      createProblem(supabase, USER_ID, {
+        ...base,
+        solution_text: 'Second solution.',
+      })
+    ).rejects.toMatchObject({ code: 'request_id_reused', status: 409 });
+  });
+
+  it('warns when extended_working cannot be stored but keeps the answer', async () => {
+    const { supabase, state } = makeSupabase();
+    const result = await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0012',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+              { id: 'C', text: 'c' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'BC',
+              extended_working: '思路：先配方再比较。',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    });
+
+    expect(state.problem.parts[0]).toMatchObject({
+      correct_answer: 'BC',
+      answer_config: expect.objectContaining({
+        type: 'multi_mcq',
+        correct_choice_ids: ['B', 'C'],
+      }),
+    });
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('extended_working'),
+    ]);
+    expect(result.extraction.warnings[0]).toContain('multi_choice');
+    expect(state.problem.source.mcp_creation_warnings).toEqual(
+      result.extraction.warnings
+    );
   });
 });

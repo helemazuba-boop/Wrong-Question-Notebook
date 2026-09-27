@@ -1,9 +1,14 @@
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
-import { CONTENT_LIMIT_CONSTANTS, FILE_CONSTANTS } from '@/lib/constants';
+import {
+  CONTENT_LIMIT_CONSTANTS,
+  FILE_CONSTANTS,
+  VALIDATION_CONSTANTS,
+} from '@/lib/constants';
 import { checkContentLimit } from '@/lib/content-limits';
 import { convertMathTextToTipTapHtml } from '@/lib/math-to-tiptap';
+import { sanitizeHtmlContent } from '@/lib/html-sanitizer';
 import {
   extractProblemFromImages,
   type ProblemExtractionImage,
@@ -29,6 +34,8 @@ interface CreateProblemInputBase {
   request_id: string;
   subject_id?: string | null;
   problem_set_id?: string | null;
+  /** Optional caller-authored solution/explanation, stored as the problem's 解答. */
+  solution_text?: string | null;
 }
 
 export interface CreateProblemFromImagesInput extends CreateProblemInputBase {
@@ -102,10 +109,28 @@ function imageFingerprint(images: ProblemExtractionImage[]): string[] {
   );
 }
 
+/**
+ * Callers submit the solution as plain text with optional $...$ / $$...$$
+ * math, the same convention as the problem content, so it goes through the
+ * same math converter and sanitizer as every other write path.
+ */
+function normaliseSolutionText(value: string | null | undefined): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  return sanitizeHtmlContent(convertMathTextToTipTapHtml(text)).slice(
+    0,
+    VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX
+  );
+}
+
 function requestFingerprint(
   input: CreateProblemSourceInput,
-  structuredProblem?: ParsedExtraction
+  structuredProblem: ParsedExtraction | undefined,
+  solutionText: string
 ): string {
+  // The solution key is only added when it carries content: requests created
+  // before this field existed must keep replaying with the same fingerprint.
+  const solutionKey = solutionText ? { solution_text: solutionText } : {};
   const payload =
     input.source_kind === 'images'
       ? {
@@ -115,6 +140,7 @@ function requestFingerprint(
           problem_set_id: input.problem_set_id ?? null,
           save_source_images: input.save_source_images ?? null,
           images: imageFingerprint(input.images),
+          ...solutionKey,
         }
       : {
           source_kind: 'structured',
@@ -128,6 +154,7 @@ function requestFingerprint(
             new_tag_names: structuredProblem?.new_tag_names,
             confidence: structuredProblem?.confidence ?? null,
           },
+          ...solutionKey,
         };
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
@@ -269,12 +296,20 @@ function answerHintWarnings(
 ): string[] {
   const warnings: string[] = [];
   rawParts.forEach((part, position) => {
-    const { droppedReason } = cleanHintWithReason(part);
-    if (!droppedReason) return;
+    const { droppedReason, droppedFields } = cleanHintWithReason(part);
     const reference = normalizedParts[position] ?? part;
-    warnings.push(
-      `Part ${reference.index} (${reference.type}): the supplied answer was not saved as a correct answer — ${droppedReason}`
-    );
+    if (droppedReason) {
+      warnings.push(
+        `Part ${reference.index} (${reference.type}): the supplied answer was not saved as a correct answer — ${droppedReason}`
+      );
+      return;
+    }
+    if (droppedFields.length > 0) {
+      const list = droppedFields.join(', ');
+      warnings.push(
+        `Part ${reference.index} (${reference.type}): the supplied ${list} ${droppedFields.length > 1 ? 'were' : 'was'} not saved — a ${reference.type} part cannot store ${droppedFields.length > 1 ? 'them' : 'it'}`
+      );
+    }
   });
   return warnings;
 }
@@ -717,7 +752,12 @@ async function createProblemFromSource(
       ? prepareStructuredProblem(input)
       : undefined;
   const problemId = deterministicProblemId(userId, input.request_id);
-  const fingerprint = requestFingerprint(input, structuredProblem);
+  const solutionText = normaliseSolutionText(input.solution_text);
+  const fingerprint = requestFingerprint(
+    input,
+    structuredProblem,
+    solutionText
+  );
   const replay = await loadExistingProblem(
     supabase,
     userId,
@@ -853,7 +893,7 @@ async function createProblemFromSource(
       is_optional: false,
       status: 'needs_review',
       assets: assets as Json,
-      solution_text: '',
+      solution_text: solutionText,
       solution_assets: [],
     })
     .select('id, subject_id, title, content, parts, status, assets, created_at')

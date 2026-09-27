@@ -238,15 +238,17 @@ export function parseChoiceIds(
 /**
  * Mirrors the server-side answer_hint post-processing: zero out fields that
  * don't match the part type, canonicalise choice ids, drop empty hints.
- * `droppedReason` is set whenever the caller supplied answer data that did
- * not survive — the silent-loss case callers must be told about.
+ * `droppedReason` is set whenever the whole hint did not survive, and
+ * `droppedFields` lists supplied fields that were not stored even when the
+ * hint did survive — both are silent-loss cases callers must be told about.
  */
 export function cleanHintWithReason(part: ExtractedPart): {
   hint: ExtractedPart['answer_hint'] | null;
   droppedReason: string | null;
+  droppedFields: string[];
 } {
   const hint = part.answer_hint;
-  if (!hint) return { hint: null, droppedReason: null };
+  if (!hint) return { hint: null, droppedReason: null, droppedFields: [] };
   const isChoice =
     part.type === 'single_choice' || part.type === 'multi_choice';
   const isShortLike =
@@ -271,19 +273,29 @@ export function cleanHintWithReason(part: ExtractedPart): {
       : null,
     extended_working: working ?? null,
   };
-  const hasData = Boolean(
-    cleaned.mcq_correct_choice_id ||
-    cleaned.short_answer_value ||
-    cleaned.extended_working
-  );
-  if (hasData && !lowConfidence) return { hint: cleaned, droppedReason: null };
-
   const supplied = [
     providedChoice && 'mcq_correct_choice_id',
     hint.short_answer_value && 'short_answer_value',
     hint.extended_working && 'extended_working',
   ].filter((field): field is string => Boolean(field));
-  if (supplied.length === 0) return { hint: null, droppedReason: null };
+  const stored: Record<string, string | null> = {
+    mcq_correct_choice_id: cleaned.mcq_correct_choice_id,
+    short_answer_value: cleaned.short_answer_value,
+    extended_working: cleaned.extended_working,
+  };
+  const droppedFields = supplied.filter(field => !stored[field]);
+  const hasData = Boolean(
+    cleaned.mcq_correct_choice_id ||
+    cleaned.short_answer_value ||
+    cleaned.extended_working
+  );
+  if (hasData && !lowConfidence) {
+    return { hint: cleaned, droppedReason: null, droppedFields };
+  }
+
+  if (supplied.length === 0) {
+    return { hint: null, droppedReason: null, droppedFields: [] };
+  }
 
   let droppedReason: string;
   if (lowConfidence) {
@@ -295,7 +307,7 @@ export function cleanHintWithReason(part: ExtractedPart): {
   } else {
     droppedReason = `a ${part.type} part cannot store ${supplied.join(', ')}`;
   }
-  return { hint: null, droppedReason };
+  return { hint: null, droppedReason, droppedFields: supplied };
 }
 
 /** The hint that survives post-processing, or null when nothing applies. */

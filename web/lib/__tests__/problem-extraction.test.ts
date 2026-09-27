@@ -243,6 +243,7 @@ describe('cleanHint', () => {
     });
     expect(wrongId.hint).toBeNull();
     expect(wrongId.droppedReason).toContain('no id in "E" matches');
+    expect(wrongId.droppedFields).toEqual(['mcq_correct_choice_id']);
 
     const singleOverflow = cleanHintWithReason({
       ...base,
@@ -253,6 +254,7 @@ describe('cleanHint', () => {
     });
     expect(singleOverflow.hint).toBeNull();
     expect(singleOverflow.droppedReason).toContain('exactly one choice id');
+    expect(singleOverflow.droppedFields).toEqual(['mcq_correct_choice_id']);
 
     const unstoreable = cleanHintWithReason({
       ...base,
@@ -266,22 +268,38 @@ describe('cleanHint', () => {
     expect(unstoreable.droppedReason).toContain(
       'cannot store extended_working'
     );
+    expect(unstoreable.droppedFields).toEqual(['extended_working']);
+  });
+
+  it('reports fields dropped while the hint itself survives', () => {
+    const partial = cleanHintWithReason({
+      ...base,
+      type: 'multi_choice',
+      answer_hint: {
+        mcq_correct_choice_id: 'AB',
+        extended_working: 'printed working',
+        answer_confidence: 'high',
+      },
+    });
+    expect(partial.hint?.mcq_correct_choice_id).toBe('AB');
+    expect(partial.droppedReason).toBeNull();
+    expect(partial.droppedFields).toEqual(['extended_working']);
   });
 
   it('stays quiet when the hint carries no answer at all', () => {
-    expect(
-      cleanHintWithReason({ ...base, answer_hint: null }).droppedReason
-    ).toBeNull();
-    expect(
-      cleanHintWithReason({
-        ...base,
-        answer_hint: { answer_confidence: 'medium' },
-      }).droppedReason
-    ).toBeNull();
+    const missing = cleanHintWithReason({ ...base, answer_hint: null });
+    expect(missing.droppedReason).toBeNull();
+    expect(missing.droppedFields).toEqual([]);
+    const empty = cleanHintWithReason({
+      ...base,
+      answer_hint: { answer_confidence: 'medium' },
+    });
+    expect(empty.droppedReason).toBeNull();
+    expect(empty.droppedFields).toEqual([]);
   });
 
   it('zeroes out fields that mismatch the part type', () => {
-    const hint = cleanHint({
+    const { hint, droppedFields } = cleanHintWithReason({
       ...base,
       type: 'fill_blank',
       answer_hint: {
@@ -295,6 +313,10 @@ describe('cleanHint', () => {
     expect(hint?.mcq_correct_choice_id).toBeNull();
     expect(hint?.short_answer_value).toBe('42');
     expect(hint?.extended_working).toBeNull();
+    expect(droppedFields).toEqual([
+      'mcq_correct_choice_id',
+      'extended_working',
+    ]);
   });
 
   it('keeps essay working even at low confidence', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { McpToolContext } from '@/lib/mcp/tool-registry';
 import { findMcpTool } from '@/lib/mcp/tool-registry';
+import { createProblemFromImages } from '@/lib/problem-creation-service';
 
 vi.mock('@/lib/problem-creation-service', async importOriginal => {
   const original =
@@ -179,6 +180,26 @@ describe('MCP initial idea challenge', () => {
       exact_text: IDEA,
       confirm_url: expect.stringContaining('#token='),
     });
+  });
+
+  it('forwards solution_text on image imports without an idea challenge', async () => {
+    const tool = findMcpTool('create_problem_from_images')!;
+    const properties = tool.inputSchema.properties as Record<string, unknown>;
+    expect(properties).toHaveProperty('solution_text');
+
+    const { ctx } = challengeContext();
+    const result = (await tool.handler(ctx, {
+      request_id: 'create_problem_image_solution_0001',
+      images: [{ data: 'eA==', mime_type: 'image/png' }],
+      solution_text: '配方后比较。',
+    })) as any;
+
+    expect(result.idea_confirmation).toBeUndefined();
+    expect(createProblemFromImages).toHaveBeenCalledWith(
+      expect.anything(),
+      USER_ID,
+      expect.objectContaining({ solution_text: '配方后比较。' })
+    );
   });
 
   it('rejects request id reuse with a different exact idea', async () => {

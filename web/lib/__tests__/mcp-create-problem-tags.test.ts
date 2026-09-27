@@ -138,3 +138,40 @@ describe('MCP create_problem tag alias', () => {
     expect(hintSchema.mcq_correct_choice_id.description).toContain('"BC"');
   });
 });
+
+describe('MCP create_problem solution_text', () => {
+  it('forwards top-level solution_text to the service', async () => {
+    const tool = findMcpTool('create_problem')!;
+    const parsed = tool.argsSchema.safeParse(
+      validArgs({ solution_text: '思路：先配方再比较。' })
+    );
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    await tool.handler(toolContext(), parsed.data as Record<string, unknown>);
+
+    const input = createProblemMock.mock.lastCall?.[2] as {
+      solution_text: string;
+    };
+    expect(input.solution_text).toBe('思路：先配方再比较。');
+  });
+
+  it('rejects a blank or oversized solution_text instead of stripping it', () => {
+    const tool = findMcpTool('create_problem')!;
+    expect(
+      tool.argsSchema.safeParse(validArgs({ solution_text: '   ' })).success
+    ).toBe(false);
+    expect(
+      tool.argsSchema.safeParse(validArgs({ solution_text: 'x'.repeat(5001) }))
+        .success
+    ).toBe(false);
+  });
+
+  it('advertises solution_text as the persisted 解答 field', () => {
+    const tool = findMcpTool('create_problem')!;
+    const properties = tool.inputSchema.properties as Record<string, any>;
+    expect(properties.solution_text.type).toBe('string');
+    expect(properties.solution_text.description).toContain('解答');
+    expect(properties.solution_text.description).toContain('$$');
+  });
+});

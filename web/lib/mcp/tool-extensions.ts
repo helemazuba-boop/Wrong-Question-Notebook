@@ -60,6 +60,7 @@ import {
 import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import { ProblemInitialIdeaSchema } from '@/lib/schemas';
 import { PROBLEM_IMAGE_MAX_BASE64_CHARS } from '@/lib/image-input-normalization';
+import { VALIDATION_CONSTANTS } from '@/lib/constants';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -88,6 +89,15 @@ const CreateProblemToolArgsSchema = z.union([
     // Adapter alias: callers read the description as "标签" and send a plain
     // name list; without this key zod would strip it silently.
     tags: z.array(z.string().trim().min(1).max(30)).max(20).nullish(),
+    // Caller-authored solution/explanation. Stored as the problem's 解答; it
+    // is objective content about the problem, so it needs no idea-challenge
+    // confirmation (unlike initial_idea_draft).
+    solution_text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
+      .nullish(),
   }),
 ]);
 
@@ -866,7 +876,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem',
     description:
-      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签（tags 或 suggested_tags.new_tag_names，二者合并）和置信度。选择题答案只写选项 id：单选 "B"，多选按选项顺序拼接成 "BC"。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。响应里的 extraction.warnings 会列出未被保存的答案或标签。',
+      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签（tags 或 suggested_tags.new_tag_names，二者合并）、可选解答（solution_text）和置信度。选择题答案只写选项 id：单选 "B"，多选按选项顺序拼接成 "BC"。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。响应里的 extraction.warnings 会列出未被保存的答案、解题过程或标签。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -891,6 +901,13 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        solution_text: {
+          type: 'string',
+          minLength: 1,
+          maxLength: VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX,
+          description:
+            '可选解答/解析，纯文本（不要 HTML）：行内公式用 $...$，块级公式用 $$...$$。写入题目的「解答」区，供复习页与设备展示，不参与自动判分。',
+        },
         tags: {
           type: 'array',
           items: { type: 'string' },
@@ -941,6 +958,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
           : {}),
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
+        solution_text: optionalString(args.solution_text) ?? null,
       } satisfies CreateProblemInput);
       const initialIdeaDraft = optionalString(args.initial_idea_draft);
       if (!initialIdeaDraft) return result;
@@ -957,7 +975,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem_from_images',
     description:
-      '从 1-4 张仅包含同一道（可跨页）题目的试卷、练习或手写图片中识别并新增错题。不会求解；若检测到多道独立题目会拒绝猜选，应改用 Web ingestion 选择流程。可选科目和错题集，写入按 request_id 幂等。',
+      '从 1-4 张仅包含同一道（可跨页）题目的试卷、练习或手写图片中识别并新增错题。不会求解；若检测到多道独立题目会拒绝猜选，应改用 Web ingestion 选择流程。可选科目和错题集，可用 solution_text 附带解答/解析（纯文本，支持 $公式$），写入按 request_id 幂等。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -986,6 +1004,13 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        solution_text: {
+          type: 'string',
+          minLength: 1,
+          maxLength: VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX,
+          description:
+            '可选解答/解析，纯文本（不要 HTML）：行内公式用 $...$，块级公式用 $$...$$。写入题目的「解答」区，供复习页与设备展示，不参与自动判分。',
+        },
         initial_idea_draft: {
           type: 'string',
           minLength: 1,
@@ -1016,6 +1041,12 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
       problem_set_id: UuidSchema.nullish(),
       initial_idea_draft: ProblemInitialIdeaSchema.optional(),
       save_source_images: z.boolean().nullish(),
+      solution_text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
+        .nullish(),
     }),
     annotations: IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
@@ -1027,6 +1058,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         }>,
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
+        solution_text: optionalString(args.solution_text) ?? null,
         ...(typeof args.save_source_images === 'boolean'
           ? { save_source_images: args.save_source_images }
           : {}),
