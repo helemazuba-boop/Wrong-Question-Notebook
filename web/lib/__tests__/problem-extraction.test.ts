@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parsePastedExtraction,
   cleanHint,
+  cleanHintWithReason,
   type ExtractedPart,
 } from '../problem-extraction';
 
@@ -130,6 +131,35 @@ describe('parsePastedExtraction', () => {
     const result = parsePastedExtraction(JSON.stringify(tooMany));
     expect(result.ok).toBe(false);
   });
+
+  it('accepts an array multi-choice answer and stores the compact form', () => {
+    const shell = {
+      ...validShell,
+      parts: [
+        {
+          index: 1,
+          label: null,
+          type: 'multi_choice',
+          content: 'Pick all that apply.',
+          full_marks: 5,
+          mcq_choices: [
+            { id: 'A', text: 'a' },
+            { id: 'B', text: 'b' },
+            { id: 'C', text: 'c' },
+            { id: 'D', text: 'd' },
+          ],
+          answer_hint: {
+            mcq_correct_choice_id: ['C', 'B'],
+            answer_confidence: 'high',
+          },
+        },
+      ],
+    };
+    const result = parsePastedExtraction(JSON.stringify(shell));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.parts[0].answer_hint?.mcq_correct_choice_id).toBe('BC');
+  });
 });
 
 describe('cleanHint', () => {
@@ -180,6 +210,74 @@ describe('cleanHint', () => {
       },
     });
     expect(hint?.mcq_correct_choice_id).toBe('AB');
+  });
+
+  it('canonicalises separated multi-choice ids into choice order', () => {
+    const choices = [
+      { id: 'A', text: 'a' },
+      { id: 'B', text: 'b' },
+      { id: 'C', text: 'c' },
+    ];
+    for (const raw of ['BC', 'B,C', 'B、C', 'c b', 'C/B', 'B/C']) {
+      const hint = cleanHint({
+        ...base,
+        type: 'multi_choice',
+        mcq_choices: choices,
+        answer_hint: {
+          mcq_correct_choice_id: raw,
+          answer_confidence: 'high',
+        },
+      });
+      expect(hint?.mcq_correct_choice_id, raw).toBe('BC');
+    }
+  });
+
+  it('reports why an unusable answer was dropped', () => {
+    const wrongId = cleanHintWithReason({
+      ...base,
+      type: 'multi_choice',
+      answer_hint: {
+        mcq_correct_choice_id: 'E',
+        answer_confidence: 'high',
+      },
+    });
+    expect(wrongId.hint).toBeNull();
+    expect(wrongId.droppedReason).toContain('no id in "E" matches');
+
+    const singleOverflow = cleanHintWithReason({
+      ...base,
+      answer_hint: {
+        mcq_correct_choice_id: 'AB',
+        answer_confidence: 'high',
+      },
+    });
+    expect(singleOverflow.hint).toBeNull();
+    expect(singleOverflow.droppedReason).toContain('exactly one choice id');
+
+    const unstoreable = cleanHintWithReason({
+      ...base,
+      type: 'multi_choice',
+      answer_hint: {
+        extended_working: 'printed working',
+        answer_confidence: 'high',
+      },
+    });
+    expect(unstoreable.hint).toBeNull();
+    expect(unstoreable.droppedReason).toContain(
+      'cannot store extended_working'
+    );
+  });
+
+  it('stays quiet when the hint carries no answer at all', () => {
+    expect(
+      cleanHintWithReason({ ...base, answer_hint: null }).droppedReason
+    ).toBeNull();
+    expect(
+      cleanHintWithReason({
+        ...base,
+        answer_hint: { answer_confidence: 'medium' },
+      }).droppedReason
+    ).toBeNull();
   });
 
   it('zeroes out fields that mismatch the part type', () => {

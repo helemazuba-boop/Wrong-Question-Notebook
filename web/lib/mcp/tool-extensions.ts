@@ -85,6 +85,9 @@ const CreateProblemToolArgsSchema = z.union([
     subject_id: UuidSchema.nullish(),
     problem_set_id: UuidSchema.nullish(),
     initial_idea_draft: ProblemInitialIdeaSchema.optional(),
+    // Adapter alias: callers read the description as "标签" and send a plain
+    // name list; without this key zod would strip it silently.
+    tags: z.array(z.string().trim().min(1).max(30)).max(20).nullish(),
   }),
 ]);
 
@@ -863,7 +866,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem',
     description:
-      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签和置信度。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。',
+      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签（tags 或 suggested_tags.new_tag_names，二者合并）和置信度。选择题答案只写选项 id：单选 "B"，多选按选项顺序拼接成 "BC"。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。响应里的 extraction.warnings 会列出未被保存的答案或标签。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -877,6 +880,10 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
           description: '16-64 位 URL-safe 幂等 ID；重试必须复用',
         },
         ...PROBLEM_DRAFT_JSON_SCHEMA.properties,
+        suggested_tags: {
+          ...PROBLEM_DRAFT_JSON_SCHEMA.properties.suggested_tags,
+          description: '建议标签（与顶层 tags 等价，二者合并）',
+        },
         title: {
           ...PROBLEM_DRAFT_JSON_SCHEMA.properties.title,
           minLength: 1,
@@ -884,6 +891,12 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '可选标签名列表，与 suggested_tags.new_tag_names 等价，二者合并；已存在的同名标签直接复用，不存在的按科目上限新建',
+        },
         initial_idea_draft: {
           type: 'string',
           minLength: 1,
@@ -914,9 +927,18 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         };
       }
       const extraction = ProblemExtractionSchema.parse(args);
+      const tagNames = [
+        ...(extraction.suggested_tags?.new_tag_names ?? []),
+        ...(Array.isArray(args.tags) ? (args.tags as string[]) : []),
+      ];
       const result = await createProblem(ctx.supabase, ctx.userId, {
         request_id: str(args.request_id),
         ...extraction,
+        // Only override when the alias actually carries names: the request
+        // fingerprint must stay stable for callers that never used it.
+        ...(tagNames.length > 0
+          ? { suggested_tags: { new_tag_names: tagNames } }
+          : {}),
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
       } satisfies CreateProblemInput);

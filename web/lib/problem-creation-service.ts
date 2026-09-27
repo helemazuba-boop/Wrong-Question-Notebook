@@ -10,6 +10,8 @@ import {
   type ProblemExtractionResult,
 } from '@/lib/problem-extraction-service';
 import {
+  cleanHintWithReason,
+  parseChoiceIds,
   parsePastedExtraction,
   type ExtractedPart,
   type ParsedExtraction,
@@ -250,11 +252,31 @@ async function resolveSubject(
 }
 
 function validChoiceIds(part: ExtractedPart): string[] {
-  const available = new Set((part.mcq_choices ?? []).map(choice => choice.id));
   const raw = part.answer_hint?.mcq_correct_choice_id || '';
-  const candidates =
-    part.type === 'multi_choice' ? raw.split('') : raw ? [raw] : [];
-  return [...new Set(candidates)].filter(id => available.has(id));
+  if (!raw) return [];
+  return parseChoiceIds(raw, part.mcq_choices);
+}
+
+/**
+ * Names every part whose supplied answer data did not survive normalisation,
+ * so a create response can say what was actually persisted instead of
+ * silently dropping the answer. `normalizedParts` is positionally aligned with
+ * `rawParts` and supplies the index the response will use.
+ */
+function answerHintWarnings(
+  rawParts: ExtractedPart[],
+  normalizedParts: ExtractedPart[]
+): string[] {
+  const warnings: string[] = [];
+  rawParts.forEach((part, position) => {
+    const { droppedReason } = cleanHintWithReason(part);
+    if (!droppedReason) return;
+    const reference = normalizedParts[position] ?? part;
+    warnings.push(
+      `Part ${reference.index} (${reference.type}): the supplied answer was not saved as a correct answer — ${droppedReason}`
+    );
+  });
+  return warnings;
 }
 
 export function storedPart(part: ExtractedPart, partCount: number) {
@@ -777,6 +799,17 @@ async function createProblemFromSource(
     prepared.extraction
   );
   const { tags } = tagMaterialization;
+  // Answers are validated/normalised away from the caller's view, so the
+  // response (and the replay payload) must carry what did not survive.
+  const creationWarnings = [
+    ...tagMaterialization.warnings,
+    ...answerHintWarnings(
+      input.source_kind === 'structured'
+        ? input.parts
+        : prepared.extraction.parts,
+      prepared.extraction.parts
+    ),
+  ];
   const assets =
     input.source_kind === 'images' && shouldSaveImages
       ? await uploadSourceImages(supabase, userId, problemId, input.images)
@@ -791,7 +824,7 @@ async function createProblemFromSource(
     mcp_request_fingerprint: fingerprint,
     mcp_problem_set_id: resolved.problemSetId,
     mcp_tag_ids: tags.map(tag => tag.id),
-    mcp_creation_warnings: tagMaterialization.warnings,
+    mcp_creation_warnings: creationWarnings,
     suggest_image_asset: prepared.extraction.suggest_image_asset,
     extraction_confidence: prepared.extraction.confidence ?? null,
     ...(prepared.ingestion
@@ -858,7 +891,7 @@ async function createProblemFromSource(
       confidence: prepared.extraction.confidence,
       warnings: [
         ...(prepared.extraction.confidence?.warnings ?? []),
-        ...tagMaterialization.warnings,
+        ...creationWarnings,
       ],
     },
     problem_set_id: resolved.problemSetId,

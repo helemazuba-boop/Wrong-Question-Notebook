@@ -550,6 +550,88 @@ describe('createProblem', () => {
     expect(result.problem.content.indexOf('First part.')).toBeLessThan(
       result.problem.content.indexOf('Second part.')
     );
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('low-confidence'),
+    ]);
+  });
+
+  it('persists a separated multi-choice answer instead of dropping it', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0007',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+              { id: 'C', text: 'c' },
+              { id: 'D', text: 'd' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'C、B',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    };
+    const result = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.parts).toEqual([
+      expect.objectContaining({
+        type: 'multi_choice',
+        correct_answer: 'BC',
+        answer_config: expect.objectContaining({
+          type: 'multi_mcq',
+          correct_choice_ids: ['B', 'C'],
+        }),
+      }),
+    ]);
+    expect(result.extraction.warnings).toEqual([]);
+    expect(result.problem.content).not.toContain('A. a');
+  });
+
+  it('reports an unsaveable answer instead of dropping it silently', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0008',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'E',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    };
+    const result = await createProblem(supabase, USER_ID, input);
+    const replay = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.parts[0]).not.toHaveProperty('correct_answer');
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('no id in "E" matches'),
+    ]);
+    expect(replay.replayed).toBe(true);
+    expect(replay.extraction.warnings).toEqual(result.extraction.warnings);
   });
 
   it('rejects structured input that depends on missing visual content', async () => {

@@ -124,10 +124,27 @@ const DRAFT_ANSWER_HINT_SCHEMA = {
   type: 'object' as const,
   nullable: true,
   properties: {
-    mcq_correct_choice_id: { type: 'string' as const, nullable: true },
-    short_answer_value: { type: 'string' as const, nullable: true },
-    short_answer_is_numeric: { type: 'boolean' as const, nullable: true },
-    extended_working: { type: 'string' as const, nullable: true },
+    mcq_correct_choice_id: {
+      type: 'string' as const,
+      nullable: true,
+      description:
+        'Choice answer, printed answers only. single_choice: one choice id like "B". multi_choice: the correct ids in choice order with no separator, like "BC" (not "B,C"). null for other part types.',
+    },
+    short_answer_value: {
+      type: 'string' as const,
+      nullable: true,
+      description: 'fill_blank/short_answer answer text; null otherwise',
+    },
+    short_answer_is_numeric: {
+      type: 'boolean' as const,
+      nullable: true,
+    },
+    extended_working: {
+      type: 'string' as const,
+      nullable: true,
+      description:
+        'Printed solution working; stored for essay parts only, so leave null elsewhere',
+    },
     answer_confidence: {
       type: 'string' as const,
       enum: ['high', 'medium', 'low'],
@@ -231,7 +248,7 @@ export const PROBLEM_DRAFT_JSON_SCHEMA = {
 
 export const PROBLEM_DRAFT_SYSTEM_PROMPT = `You are given exactly one already-selected question. Produce one WQN Problem draft using the supplied JSON schema. Do not split a page or choose among independent questions in this adapter.
 
-Preserve the printed question faithfully and do not solve it. A Problem is a shared-stem content string plus 1-10 typed parts. Classify each part from the printed structure only. Student handwriting and shown working never change the printed type and never become answer_hint. answer_hint is only for a visibly printed official answer or solution. Use [] for non-choice mcq_choices and null for an absent answer_hint. Return strict JSON only.`;
+Preserve the printed question faithfully and do not solve it. A Problem is a shared-stem content string plus 1-10 typed parts. Classify each part from the printed structure only. Student handwriting and shown working never change the printed type and never become answer_hint. answer_hint is only for a visibly printed official answer or solution. For choice parts put the printed choice ids in mcq_correct_choice_id: one id like "B" for single_choice, and the correct ids concatenated in choice order like "BC" for multi_choice (no commas, slashes or spaces). Use [] for non-choice mcq_choices and null for an absent answer_hint. Return strict JSON only.`;
 
 export async function persistProblemIngestion(
   supabase: SupabaseClient<Database>,

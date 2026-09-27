@@ -15,8 +15,17 @@ import { PROBLEM_CONSTANTS } from './constants';
 
 const AnswerConfidenceSchema = z.enum(['high', 'medium', 'low']);
 
+// Callers hand in the compact pipeline form ("BC"), the separator forms
+// external models naturally emit ("B,C", "B、C") and plain arrays
+// (["B", "C"]). Normalise arrays here so every reader keeps seeing a string;
+// cleanHint is what turns any of these into the canonical compact form.
+const ChoiceIdInputSchema = z
+  .union([z.string(), z.array(z.string())])
+  .nullish()
+  .transform(value => (Array.isArray(value) ? value.join('') : value));
+
 export const ExtractedAnswerHintSchema = z.object({
-  mcq_correct_choice_id: z.string().nullish(),
+  mcq_correct_choice_id: ChoiceIdInputSchema,
   short_answer_value: z.string().nullish(),
   short_answer_is_numeric: z.boolean().nullish(),
   extended_working: z.string().nullish(),
@@ -193,45 +202,105 @@ function dedupeTagNames(names: string[]): string[] {
 }
 
 /**
- * Mirrors the server-side answer_hint post-processing: zero out fields that
- * don't match the part type, validate choice ids, drop empty hints.
+ * Canonicalises a compact choice-answer string against the part's declared
+ * choices. Accepts the pipeline's concatenated form ("BC"), human/model
+ * separators (",", "、", "/", spaces) and any letter case, and returns the
+ * matching ids in declared-choice order with duplicates removed. The result
+ * is what both `cleanHint` and the storage mapping must agree on.
  */
-export function cleanHint(
-  part: ExtractedPart
-): ExtractedPart['answer_hint'] | null {
+export function parseChoiceIds(
+  raw: string,
+  choices: { id: string }[] | undefined
+): string[] {
+  const declared = choices ?? [];
+  const text = raw.toUpperCase();
+  const matched = new Set<string>();
+  // Longest ids first so "A1A2" tokenises even when "A" is also a choice.
+  const candidates = [...declared].sort((a, b) => b.id.length - a.id.length);
+  let cursor = 0;
+  while (cursor < text.length) {
+    const hit = candidates.find(
+      choice =>
+        choice.id.length > 0 &&
+        !matched.has(choice.id) &&
+        text.startsWith(choice.id.toUpperCase(), cursor)
+    );
+    if (hit) {
+      matched.add(hit.id);
+      cursor += hit.id.length;
+      continue;
+    }
+    cursor += 1;
+  }
+  return declared.map(choice => choice.id).filter(id => matched.has(id));
+}
+
+/**
+ * Mirrors the server-side answer_hint post-processing: zero out fields that
+ * don't match the part type, canonicalise choice ids, drop empty hints.
+ * `droppedReason` is set whenever the caller supplied answer data that did
+ * not survive — the silent-loss case callers must be told about.
+ */
+export function cleanHintWithReason(part: ExtractedPart): {
+  hint: ExtractedPart['answer_hint'] | null;
+  droppedReason: string | null;
+} {
   const hint = part.answer_hint;
-  if (!hint) return null;
+  if (!hint) return { hint: null, droppedReason: null };
   const isChoice =
     part.type === 'single_choice' || part.type === 'multi_choice';
   const isShortLike =
     part.type === 'fill_blank' || part.type === 'short_answer';
+  const providedChoice = hint.mcq_correct_choice_id ?? '';
+  const rawChoiceId = isChoice ? providedChoice : '';
+  const choiceIds =
+    rawChoiceId.length > 0 ? parseChoiceIds(rawChoiceId, part.mcq_choices) : [];
+  const singleOverflow = part.type === 'single_choice' && choiceIds.length > 1;
+  const shortValue = isShortLike ? hint.short_answer_value : null;
+  const working = part.type === 'essay' ? hint.extended_working : null;
+  const lowConfidence =
+    hint.answer_confidence === 'low' && part.type !== 'essay';
 
-  if (hint.answer_confidence === 'low' && part.type !== 'essay') {
-    return null;
-  }
-
-  const cleaned = { ...hint };
-  if (!isChoice) cleaned.mcq_correct_choice_id = null;
-  if (!isShortLike) {
-    cleaned.short_answer_value = null;
-    cleaned.short_answer_is_numeric = null;
-  }
-  if (part.type !== 'essay') cleaned.extended_working = null;
-
-  if (isChoice && cleaned.mcq_correct_choice_id) {
-    const validIds = new Set((part.mcq_choices ?? []).map(c => c.id));
-    const ids =
-      part.type === 'multi_choice'
-        ? cleaned.mcq_correct_choice_id.split('')
-        : [cleaned.mcq_correct_choice_id];
-    if (!ids.every(id => validIds.has(id))) {
-      cleaned.mcq_correct_choice_id = null;
-    }
-  }
-
-  const hasData =
+  const cleaned = {
+    ...hint,
+    mcq_correct_choice_id:
+      !singleOverflow && choiceIds.length > 0 ? choiceIds.join('') : null,
+    short_answer_value: shortValue ?? null,
+    short_answer_is_numeric: shortValue
+      ? (hint.short_answer_is_numeric ?? null)
+      : null,
+    extended_working: working ?? null,
+  };
+  const hasData = Boolean(
     cleaned.mcq_correct_choice_id ||
     cleaned.short_answer_value ||
-    cleaned.extended_working;
-  return hasData ? cleaned : null;
+    cleaned.extended_working
+  );
+  if (hasData && !lowConfidence) return { hint: cleaned, droppedReason: null };
+
+  const supplied = [
+    providedChoice && 'mcq_correct_choice_id',
+    hint.short_answer_value && 'short_answer_value',
+    hint.extended_working && 'extended_working',
+  ].filter((field): field is string => Boolean(field));
+  if (supplied.length === 0) return { hint: null, droppedReason: null };
+
+  let droppedReason: string;
+  if (lowConfidence) {
+    droppedReason = `its answer confidence is "${hint.answer_confidence}", and low-confidence answers are not auto-applied to a ${part.type} part`;
+  } else if (singleOverflow) {
+    droppedReason = `a single_choice part takes exactly one choice id, but ${JSON.stringify(rawChoiceId)} matched ${choiceIds.length}`;
+  } else if (isChoice && providedChoice) {
+    droppedReason = `no id in ${JSON.stringify(providedChoice)} matches this part's mcq_choices`;
+  } else {
+    droppedReason = `a ${part.type} part cannot store ${supplied.join(', ')}`;
+  }
+  return { hint: null, droppedReason };
+}
+
+/** The hint that survives post-processing, or null when nothing applies. */
+export function cleanHint(
+  part: ExtractedPart
+): ExtractedPart['answer_hint'] | null {
+  return cleanHintWithReason(part).hint;
 }
