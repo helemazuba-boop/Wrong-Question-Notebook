@@ -125,6 +125,7 @@ interface FakeState {
   failReviewOnce: boolean;
   uploads: string[];
   removed: string[];
+  upserts: Array<{ table: string; payload: unknown; options: unknown }>;
 }
 
 function makeSupabase(
@@ -142,6 +143,7 @@ function makeSupabase(
     failReviewOnce: options.failReviewOnce ?? false,
     uploads: [],
     removed: [],
+    upserts: [],
   };
   const tag = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', name: 'motion' };
 
@@ -170,9 +172,10 @@ function makeSupabase(
       this.payload = payload;
       return this;
     }
-    upsert(payload: any) {
+    upsert(payload: any, options?: unknown) {
       this.operation = 'upsert';
       this.payload = payload;
+      state.upserts.push({ table: this.table, payload, options });
       return this;
     }
 
@@ -632,6 +635,27 @@ describe('createProblem', () => {
     ]);
     expect(replay.replayed).toBe(true);
     expect(replay.extraction.warnings).toEqual(result.extraction.warnings);
+  });
+
+  it('links tags against the problem_tag primary key, not a missing unique key', async () => {
+    const { supabase, state } = makeSupabase();
+    await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0009',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+    });
+
+    // problem_tag's only unique index is (problem_id, tag_id); asking
+    // PostgREST for (user_id, problem_id, tag_id) fails with 42P10.
+    const tagUpsert = state.upserts.find(
+      entry => entry.table === 'problem_tag'
+    );
+    expect(tagUpsert).toBeDefined();
+    expect(tagUpsert?.options).toEqual({
+      onConflict: 'problem_id,tag_id',
+      ignoreDuplicates: true,
+    });
+    expect(state.tagLinks.size).toBe(1);
   });
 
   it('rejects structured input that depends on missing visual content', async () => {

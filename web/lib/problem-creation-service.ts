@@ -539,13 +539,16 @@ async function ensureProblemCompletion(
 ): Promise<void> {
   const tagIds = stringArray(source.mcp_tag_ids);
   if (tagIds.length > 0) {
+    // The conflict target must match problem_tag's primary key
+    // (problem_id, tag_id) — there is no (user_id, problem_id, tag_id) unique
+    // constraint, and asking for one makes PostgREST fail with 42P10.
     const { error } = await supabase.from('problem_tag').upsert(
       tagIds.map(tagId => ({
         user_id: userId,
         problem_id: problemId,
         tag_id: tagId,
       })),
-      { onConflict: 'user_id,problem_id,tag_id' }
+      { onConflict: 'problem_id,tag_id', ignoreDuplicates: true }
     );
     if (error) {
       throw new ProblemCreationServiceError(
