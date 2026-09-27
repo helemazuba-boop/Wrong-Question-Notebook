@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **OpenCode v2 upstream support**
-  - New gateway reads for the capabilities that only exist in OpenCode v2: session message history (projected from the 11-way message union, oldest first, and trimmed cloud-side to the device's 16 KiB response ceiling), the pending permission list, the form/question list and its per-form state, the active-session map, spawned subagent sessions, session outcome, and run interruption.
+  - New gateway reads for the capabilities that only exist in OpenCode v2: session message history (projected from the 11-way message union, oldest first, and trimmed cloud-side to the device's 12 KiB history ceiling), the pending permission list, the form/question list and its per-form state, the active-session map, spawned subagent sessions, session outcome, and run interruption.
   - Freeze the v2 upstream contract as test fixtures captured from a live server (OpenAPI excerpt plus raw SSE bytes) so the relay regression tests replay real envelopes instead of hand-written ones.
   - `web/scripts/opencode-gateway-smoke.mjs` now probes the six v2 endpoints and asserts every response is a `{data}` envelope rather than an error envelope.
 - **ESP32 agent capability routes**

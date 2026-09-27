@@ -6,7 +6,7 @@
 //   WQN_OPENCODE_SERVER_URL=https://opencode.example.local:49374 \
 //   WQN_OPENCODE_DIRECTORY=/srv/workspaces/project \
 //   WQN_OPENCODE_SERVER_USERNAME=opencode \
-//   WQN_OPENCODE_PASSWORD=... \
+//   WQN_OPENCODE_SERVER_PASSWORD=... \
 //   node scripts/opencode-gateway-smoke.mjs
 //
 // Optional: --prompt submits a real prompt on the created session (needs a

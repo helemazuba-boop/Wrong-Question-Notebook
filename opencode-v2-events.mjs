@@ -2,10 +2,28 @@
 /**
  * OpenCode v2 Event Stream Probe
  * Captures first 10 events to document v2 event types
+ *
+ * Credentials come from the environment; nothing is hardcoded:
+ *
+ *   WQN_OPENCODE_SERVER_PASSWORD=... node opencode-v2-events.mjs
+ *
+ * Optional overrides: WQN_OPENCODE_SERVER_URL (default http://localhost:49374)
+ * and WQN_OPENCODE_SERVER_USERNAME (default opencode).
  */
 
-const BASE_URL = 'http://localhost:49374';
-const AUTH = 'Basic ' + Buffer.from('opencode:1gMsI-CWPEvzTDKwzA4ewK0uQYbgXGBzYUQygtzBf9Y').toString('base64');
+const BASE_URL = (
+  process.env.WQN_OPENCODE_SERVER_URL || 'http://localhost:49374'
+).replace(/\/+$/, '');
+const USERNAME = process.env.WQN_OPENCODE_SERVER_USERNAME || 'opencode';
+const PASSWORD = process.env.WQN_OPENCODE_SERVER_PASSWORD || '';
+
+if (!PASSWORD) {
+  console.error('Set WQN_OPENCODE_SERVER_PASSWORD first.');
+  process.exit(2);
+}
+
+const AUTH =
+  'Basic ' + Buffer.from(`${USERNAME}:${PASSWORD}`).toString('base64');
 
 async function probeEventStream() {
   console.log('🔍 Probing OpenCode v2 Event Stream\n');

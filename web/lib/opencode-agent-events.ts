@@ -3,6 +3,7 @@ import {
   OPENCODE_HISTORY_DETAIL_FULL,
   type OpenCodeHistoryDetail,
 } from '@/lib/opencode-agent-detail';
+import { clampCodePoints, clampUtf8Bytes } from '@/lib/utf8-clamp';
 
 /** The permission shape this projection needs; the gateway produces it. */
 export interface OpenCodePendingAsk {
@@ -46,9 +47,14 @@ export interface OpenCodePendingQuestion {
  */
 
 const MAX_UPSTREAM_FRAME_CHARS = 64 * 1024;
-const MAX_TEXT_EVENT_CHARS = 8 * 1024;
-const MAX_DELTA_EVENT_CHARS = 2 * 1024;
-const MAX_REASONING_EVENT_CHARS = 2 * 1024;
+// The manifest bounds these in UTF-8 bytes (`text_event_bytes`,
+// `delta_event_bytes`, `thinking_bytes`): the device copies them into fixed
+// byte buffers, so a `.slice` on UTF-16 units would let a Chinese answer run
+// ~3x over the buffer. `MAX_STATUS_MESSAGE_CHARS` is different -- the schema
+// bounds `message` in code points, and 240 code points always fit the frame.
+const MAX_TEXT_EVENT_BYTES = 8 * 1024;
+const MAX_DELTA_EVENT_BYTES = 2 * 1024;
+const MAX_REASONING_EVENT_BYTES = 2 * 1024;
 const MAX_STATUS_MESSAGE_CHARS = 240;
 
 /**
@@ -199,12 +205,12 @@ function numberField(object: Record<string, unknown>, key: string): number {
 }
 
 function previewValue(value: unknown, max = 160): string {
-  if (typeof value === 'string') return value.slice(0, max);
+  if (typeof value === 'string') return clampCodePoints(value, max);
   if (!value || typeof value !== 'object') return '';
   const object = value as Record<string, unknown>;
   for (const key of ['command', 'path', 'file', 'description', 'pattern']) {
     const field = object[key];
-    if (typeof field === 'string' && field) return field.slice(0, max);
+    if (typeof field === 'string' && field) return clampCodePoints(field, max);
   }
   return '';
 }
@@ -234,7 +240,7 @@ function applyDelta(
 ): void {
   const delta = stringField(data, 'delta');
   if (!delta) return;
-  const clipped = delta.slice(0, MAX_DELTA_EVENT_CHARS);
+  const clipped = clampUtf8Bytes(delta, MAX_DELTA_EVENT_BYTES);
   const key = streamKey(data);
   const round = stringField(data, 'assistantMessageID');
   // [detail] Brief tier: rounds are model round-trips, and only the last one is
@@ -304,7 +310,7 @@ function endText(
   if (key && sent >= text.length) return;
   writer.emit('agent.text', {
     session_id: sessionId,
-    text: text.slice(0, MAX_TEXT_EVENT_CHARS),
+    text: clampUtf8Bytes(text, MAX_TEXT_EVENT_BYTES),
   });
 }
 
@@ -316,7 +322,7 @@ function applyReasoningDelta(
 ): void {
   const delta = stringField(data, 'delta');
   if (!delta) return;
-  const clipped = delta.slice(0, MAX_REASONING_EVENT_CHARS);
+  const clipped = clampUtf8Bytes(delta, MAX_REASONING_EVENT_BYTES);
   const key = streamKey(data);
   if (key) {
     state.reasoningDeltas.set(
@@ -348,7 +354,7 @@ function endReasoning(
   if (key && sent >= text.length) return;
   writer.emit('agent.reasoning', {
     session_id: sessionId,
-    text: text.slice(0, MAX_REASONING_EVENT_CHARS),
+    text: clampUtf8Bytes(text, MAX_REASONING_EVENT_BYTES),
   });
 }
 
@@ -371,7 +377,7 @@ function toolName(
   const id = stringField(data, 'id');
   const known = id ? state.toolNames.get(id) : undefined;
   const name = known || stringField(data, 'name');
-  return (name || 'tool').slice(0, 80);
+  return clampCodePoints(name || 'tool', 80);
 }
 
 function toolSuccessPreview(data: Record<string, unknown>): string {
@@ -380,7 +386,7 @@ function toolSuccessPreview(data: Record<string, unknown>): string {
     const record = asRecord(entry);
     if (stringField(record, 'type') === 'text') {
       const text = stringField(record, 'text');
-      if (text) return text.slice(0, 160);
+      if (text) return clampCodePoints(text, 160);
     }
   }
   return (
@@ -403,11 +409,12 @@ function toolPreview(data: Record<string, unknown>): string {
 
 function errorMessage(source: unknown, fallback: string): string {
   const record = asRecord(source);
-  return (
+  return clampCodePoints(
     stringField(record, 'message') ||
-    stringField(record, 'name') ||
-    fallback
-  ).slice(0, MAX_STATUS_MESSAGE_CHARS);
+      stringField(record, 'name') ||
+      fallback,
+    MAX_STATUS_MESSAGE_CHARS
+  );
 }
 
 export function emitNormalizedOpenCodeEvent(
@@ -419,6 +426,19 @@ export function emitNormalizedOpenCodeEvent(
   const event = asRecord(raw) as OpenCodeEvent;
   const type = typeof event.type === 'string' ? event.type : '';
   const data = asRecord(event.data);
+  // `global.disposed` is server-wide by definition and carries no session id,
+  // so it must be handled before the session filter below -- which is what used
+  // to swallow it, leaving the device to wait out its 30-minute cap against a
+  // server that no longer exists. Error first, then the idle terminator, then
+  // close: the same shape as a failed run.
+  if (type === 'global.disposed') {
+    writer.emit('agent.error', {
+      session_id: sessionId,
+      message: 'OpenCode 服务已断开',
+    });
+    writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
+    return 'complete';
+  }
   // /event is server-wide: every attached session receives every run's events.
   // Fail closed when an event cannot be tied to the selected session — never
   // project another run onto this device.
@@ -451,13 +471,6 @@ export function emitNormalizedOpenCodeEvent(
       });
       writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
       return 'complete';
-    }
-    case 'global.disposed': {
-      writer.emit('agent.error', {
-        session_id: sessionId,
-        message: 'OpenCode 服务已断开',
-      });
-      return 'activity';
     }
 
     // A failed step is not a failed run: the agent retries, so report the error
@@ -531,7 +544,7 @@ export function emitNormalizedOpenCodeEvent(
       const id = stringField(data, 'id');
       const name = stringField(data, 'name');
       if (id && name) {
-        state.toolNames.set(id, name.slice(0, 80));
+        state.toolNames.set(id, clampCodePoints(name, 80));
       }
       return 'continue';
     }
@@ -747,8 +760,8 @@ function emitAgentPermission(
   writer.emit('agent.permission', {
     session_id: sessionId,
     permission_id: request.id,
-    type: (request.action || 'tool').slice(0, 80),
-    title: (request.title || 'OpenCode 请求权限').slice(0, 160),
+    type: clampCodePoints(request.action || 'tool', 80),
+    title: clampCodePoints(request.title || 'OpenCode 请求权限', 160),
     preview: request.preview,
   });
 }
@@ -784,7 +797,7 @@ function emitAgentQuestion(
   writer.emit('agent.question', {
     session_id: sessionId,
     question_id: form.id,
-    title: form.title || 'OpenCode 提问',
+    title: clampCodePoints(form.title || 'OpenCode 提问', 160),
     options: form.options.slice(0, MAX_QUESTION_OPTIONS),
   });
 }

@@ -74,14 +74,15 @@ export async function POST(
     const response = createSseResponse(async writer => {
       // The accepted frame is written before the prompt request is issued, and
       // the prompt is submitted inside the SSE body rather than before the
-      // response is returned. v2's /prompt is not fire-and-forget: it can block
-      // until the run finishes. Submitting it before the response would leave
-      // the device waiting in esp_http_client_fetch_headers until its own socket
-      // timeout cut the connection, and a successful run would surface as
-      // stream_incomplete.
+      // response is returned, so a rejected submit reaches the device as an
+      // agent.error frame instead of an HTTP error the firmware would have to
+      // translate. v2's /prompt is a fire-and-forget submit -- measured
+      // against the live server it answers in milliseconds to ~2s with a
+      // `{data: user message}` envelope while the run streams on /api/event --
+      // so the relay starts right after it either way.
       writer.emit('agent.accepted', { session_id: id });
       try {
-        await submitOpenCodePrompt(binding, id, parsed.text);
+        await submitOpenCodePrompt(binding, id, parsed.text, req.signal);
       } catch {
         await upstream.body?.cancel().catch(() => undefined);
         writer.emit('agent.error', {

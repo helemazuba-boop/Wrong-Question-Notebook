@@ -227,6 +227,108 @@ describe('OpenCode Agent gateway', () => {
     ).rejects.toThrow('not an accepted user message');
   });
 
+  it('does not abort a prompt response that outlives the generic 15s timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      let observedSignal: AbortSignal | undefined;
+      fetchMock.mockImplementation(
+        (_url: URL, init: RequestInit) =>
+          new Promise<Response>(resolve => {
+            observedSignal = init.signal ?? undefined;
+            // 20s: past the generic DEFAULT_TIMEOUT_MS, inside the prompt
+            // budget. The live server answers in ~2s, but a slower submit must
+            // not be cut off at the generic bound.
+            setTimeout(
+              () =>
+                resolve(
+                  jsonResponse({
+                    data: {
+                      id: 'msg_1',
+                      sessionID: 'ses_123',
+                      time: {},
+                      type: 'user',
+                    },
+                  })
+                ),
+              20_000
+            );
+          })
+      );
+
+      const pending = submitOpenCodePrompt(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        'slow submit'
+      );
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(pending).resolves.toBeUndefined();
+      expect(observedSignal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('honors WQN_OPENCODE_PROMPT_TIMEOUT_MS for a stalled prompt submit', async () => {
+    vi.useFakeTimers();
+    const previous = process.env.WQN_OPENCODE_PROMPT_TIMEOUT_MS;
+    process.env.WQN_OPENCODE_PROMPT_TIMEOUT_MS = '5000';
+    try {
+      fetchMock.mockImplementation(
+        (_url: URL, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError'))
+            );
+          })
+      );
+
+      const pending = submitOpenCodePrompt(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        'stalled'
+      );
+      const assertion = expect(pending).rejects.toMatchObject({
+        code: 'upstream_timeout',
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+      if (previous === undefined) {
+        delete process.env.WQN_OPENCODE_PROMPT_TIMEOUT_MS;
+      } else {
+        process.env.WQN_OPENCODE_PROMPT_TIMEOUT_MS = previous;
+      }
+    }
+  });
+
+  it('aborts the prompt fetch when the caller signal aborts', async () => {
+    let observedSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (_url: URL, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          observedSignal = init.signal ?? undefined;
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError'))
+          );
+        })
+    );
+
+    const caller = new AbortController();
+    const pending = submitOpenCodePrompt(
+      resolveOpenCodeBinding('user-1'),
+      'ses_123',
+      'x',
+      caller.signal
+    );
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: 'upstream_timeout',
+    });
+    caller.abort();
+    await assertion;
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
   it('creates a session in the binding directory and verifies it', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: { id: 'ses_new1' } }));
     fetchMock.mockResolvedValue(
@@ -937,6 +1039,37 @@ describe('OpenCode Agent gateway', () => {
         { value: 'a', label: 'Alpha' },
         { value: 'b', label: 'Beta' },
       ]);
+    });
+
+    it('clamps an over-long option value to the 256-code-point schema bound', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'frm_1',
+              sessionID: 'ses_123',
+              fields: [
+                {
+                  key: 'branch',
+                  type: 'string',
+                  options: [{ value: '😀'.repeat(300), label: 'Long' }],
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const forms = await listOpenCodeQuestions(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123'
+      );
+
+      // The device echoes `value` back as the answer, and both the schema and
+      // the reply route cap it at 256 code points -- an unclamped projection
+      // would be rejected on the way back in.
+      expect(forms[0].options[0].value).toBe('😀'.repeat(256));
+      expect(forms[0].options[0].label).toBe('Long');
     });
 
     it('reads form state from the detail endpoint only', async () => {

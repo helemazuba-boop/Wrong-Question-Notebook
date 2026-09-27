@@ -1,5 +1,12 @@
 # OpenCode v2 完整探测报告
 
+> **ARCHIVED (2026-09-27).** 这是迁移前的探测记录，其中的凭据、端点猜测与
+> 事件形状都已被实际实现与活体复验取代。当前权威来源是
+> `web/contracts/agent-gateway-v0/`（契约与上游映射）和
+> `web/lib/opencode-agent-events.ts`（事件投影）。文中提到的
+> `opencode-v2-probe-auth.mjs` / `opencode-v2-probe-report.md` 是当时的临时
+> 产物，已不存在；可复现的入口是 `opencode-v2-events.mjs`（凭据取自环境变量）。
+
 ## 执行摘要
 
 通过实际探测 + 官方 API 文档分析，**强烈建议直接迁移到 v2**：
@@ -14,7 +21,8 @@
 - **服务地址**: `http://localhost:49374`
 - **OpenCode CLI**: v1.18.25
 - **OpenCode Desktop**: v2.0.16 (提供认证凭据)
-- **认证**: Basic Auth (`opencode` / `1gMsI-CWPEvzTDKwzA4ewK0uQYbgXGBzYUQygtzBf9Y`)
+- **认证**: Basic Auth (`opencode` / `<redacted>`；真实口令只存在于本地服务的
+  凭据存储与运行环境变量中，本文件不再记录)
 
 ---
 
@@ -270,5 +278,7 @@ case kStatus: {
 
 - **OpenCode v2 API 官方文档**: `https://github.com/anomalyco/opencode/blob/dev/specs/v2/api.html`
 - **OpenCode v2 Session 规范**: `https://github.com/anomalyco/opencode/blob/dev/specs/v2/session.md`
-- **本地探测脚本**: `/home/unknow/projects/WQN/opencode-v2-probe-auth.mjs`
-- **本地探测结果**: `/home/unknow/projects/WQN/opencode-v2-probe-report.md`
+- **本地探测脚本**（历史，已不存在）: `/home/unknow/projects/WQN/opencode-v2-probe-auth.mjs`
+- **本地探测结果**（历史，已不存在）: `/home/unknow/projects/WQN/opencode-v2-probe-report.md`
+- **可复现的当前入口**: `opencode-v2-events.mjs`（凭据取自
+  `WQN_OPENCODE_SERVER_PASSWORD`）与 `web/scripts/opencode-gateway-smoke.mjs`

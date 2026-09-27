@@ -101,6 +101,21 @@ function permission(
   };
 }
 
+/** True when a string contains an unpaired surrogate (what `.slice` produces). */
+function hasLoneSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      i += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function form(
   id: string,
   options: Array<{ value: string; label: string }>,
@@ -899,6 +914,122 @@ describe('OpenCode v2 event projection', () => {
     expect(String(writer.frames[0].data.delta)).toHaveLength(2048);
   });
 
+  it('bounds CJK text and deltas by UTF-8 bytes, not UTF-16 units', () => {
+    // One Chinese character is three UTF-8 bytes but one UTF-16 unit, so a
+    // `.slice(0, 8192)` sent 3x the firmware's `text_event_bytes` buffer. The
+    // projected text must fit the manifest bound in bytes instead.
+    const state = createOpenCodeRelayState();
+    const writer = createWriter();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.ended',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          text: '汉'.repeat(4000),
+        },
+      },
+      SESSION,
+      state
+    );
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          delta: '汉'.repeat(2000),
+        },
+      },
+      SESSION,
+      state
+    );
+
+    const text = String(writer.frames[0].data.text);
+    const delta = String(writer.frames[1].data.delta);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(8 * 1024);
+    expect(text).toHaveLength(2730); // floor(8192 / 3) whole characters
+    expect(Buffer.byteLength(delta, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+    expect(delta).toHaveLength(682); // floor(2048 / 3)
+  });
+
+  it('never emits a lone surrogate when a byte bound cuts an emoji', () => {
+    const writer = createWriter();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.text.delta',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          delta: '😀'.repeat(600), // 2400 bytes, over the 2048 delta budget
+        },
+      },
+      SESSION
+    );
+
+    const delta = String(writer.frames[0].data.delta);
+    expect(delta).toBe('😀'.repeat(512)); // 2048 / 4, no partial pair
+    expect(hasLoneSurrogate(delta)).toBe(false);
+  });
+
+  it('bounds reasoning by bytes at the full tier', () => {
+    const state = createOpenCodeRelayState(2);
+    const writer = createWriter();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.reasoning.ended',
+        data: {
+          sessionID: SESSION,
+          assistantMessageID: 'msg_1',
+          ordinal: 0,
+          text: '汉'.repeat(2000),
+        },
+      },
+      SESSION,
+      state
+    );
+
+    const frame = writer.frames[0];
+    expect(frame.event).toBe('agent.reasoning');
+    expect(Buffer.byteLength(String(frame.data.text), 'utf8')).toBeLessThanOrEqual(
+      2 * 1024
+    );
+  });
+
+  it('clamps short projected fields by code points, never splitting a pair', () => {
+    const writer = createWriter();
+
+    emitNormalizedOpenCodeEvent(
+      writer,
+      {
+        type: 'session.tool.called',
+        data: {
+          sessionID: SESSION,
+          id: 'call_1',
+          name: '😀'.repeat(100),
+          input: { command: '😀'.repeat(200) },
+        },
+      },
+      SESSION
+    );
+
+    const frame = writer.frames[0];
+    expect(frame.data.tool).toBe('😀'.repeat(80));
+    expect(frame.data.preview).toBe('😀'.repeat(160));
+    expect(hasLoneSurrogate(String(frame.data.tool))).toBe(false);
+    expect(hasLoneSurrogate(String(frame.data.preview))).toBe(false);
+  });
+
   it('projects tool called/success/failed with their own previews', () => {
     const state = createOpenCodeRelayState();
     const writer = createWriter();
@@ -1161,16 +1292,15 @@ describe('OpenCode v2 event projection', () => {
   });
 
   it('marks retryable step failures and leaves terminal errors unmarked', () => {
-    // `agent.error.fatal` is absent-or-true. The three errors that really end
-    // the run therefore stay unmarked, and only the one the upstream will retry
-    // carries `fatal: false` -- the distinction is the whole point of the field,
-    // so pin both sides rather than only the retryable one.
+    // `agent.error.fatal` is absent-or-true. The two session-scoped errors that
+    // really end the run therefore stay unmarked, and only the one the upstream
+    // will retry carries `fatal: false` -- the distinction is the whole point of
+    // the field, so pin both sides rather than only the retryable one.
     const writer = createWriter();
 
     for (const type of [
       'session.execution.failed',
       'session.execution.interrupted',
-      'global.disposed',
     ]) {
       emitNormalizedOpenCodeEvent(
         writer,
@@ -1181,10 +1311,47 @@ describe('OpenCode v2 event projection', () => {
     const terminalErrors = writer.frames.filter(
       frame => frame.event === 'agent.error'
     );
-    expect(terminalErrors).toHaveLength(3);
+    expect(terminalErrors).toHaveLength(2);
     for (const frame of terminalErrors) {
       expect(frame.data).not.toHaveProperty('fatal');
     }
+  });
+
+  it('ends the stream when the server disposes, even without a session id', () => {
+    // `global.disposed` is the one event that is server-wide by definition: it
+    // carries no session id, so the session filter would drop it and the device
+    // would sit out its absolute cap against a server that no longer exists.
+    const writer = createWriter();
+
+    expect(
+      emitNormalizedOpenCodeEvent(
+        writer,
+        { type: 'global.disposed', data: {} },
+        SESSION
+      )
+    ).toBe('complete');
+    expect(writer.frames).toEqual([
+      {
+        event: 'agent.error',
+        data: { session_id: SESSION, message: 'OpenCode 服务已断开' },
+      },
+      { event: 'agent.status', data: { session_id: SESSION, status: 'idle' } },
+    ]);
+  });
+
+  it('stops projecting a disposed server instead of reading on', async () => {
+    const text = await relayText([
+      'data: {"id":"evt_d","type":"global.disposed","data":{}}\n\n',
+      // A frame after the disposal must never reach the device: the relay has
+      // already returned, so the device stream is closed with the terminator.
+      v2('session.text.delta', {
+        assistantMessageID: 'msg_1',
+        ordinal: 0,
+        delta: 'too late',
+      }),
+    ]);
+
+    expect(eventsOf(text)).toEqual(['agent.error', 'agent.status']);
   });
 
   it('fills the long tool gap and the retry/compaction windows with status', () => {
@@ -1301,6 +1468,50 @@ describe('OpenCode v2 pending-ask delivery', () => {
         preview: 'bash preview',
       })
     );
+  });
+
+  it('clamps an over-long astral permission to the schema bounds', async () => {
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        permissions: async () => [
+          {
+            ...permission('per_1', 'bash'),
+            action: '😀'.repeat(100), // schema: 80 code points
+            title: '😀'.repeat(200), // schema: 160 code points
+          },
+        ],
+      },
+    });
+
+    const payload = JSON.parse(payloadOf(text, 'agent.permission')) as {
+      type: string;
+      title: string;
+    };
+    expect(payload.type).toBe('😀'.repeat(80));
+    expect(payload.title).toBe('😀'.repeat(160));
+    expect(hasLoneSurrogate(payload.type)).toBe(false);
+    expect(hasLoneSurrogate(payload.title)).toBe(false);
+  });
+
+  it('clamps an over-long astral question title to the schema bound', async () => {
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        questions: async () => [
+          {
+            ...form('frm_1', [{ value: 'yes', label: 'Yes' }]),
+            title: '😀'.repeat(200), // schema: 160 code points
+          },
+        ],
+      },
+    });
+
+    const payload = JSON.parse(payloadOf(text, 'agent.question')) as {
+      title: string;
+    };
+    expect(payload.title).toBe('😀'.repeat(160));
+    expect(hasLoneSurrogate(payload.title)).toBe(false);
   });
 
   it('emits the same ask once across many poll rounds', async () => {

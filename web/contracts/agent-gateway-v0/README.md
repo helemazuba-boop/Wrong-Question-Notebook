@@ -116,7 +116,7 @@ rather than trusting the one it happened to see.
 | ----------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
 | `agent.accepted`        | `{session_id}`                                       | The prompt was accepted by the upstream server.               |
 | `agent.attached`        | `{session_id}`                                       | Observe stream connected; no prompt was sent.                 |
-| `agent.status`          | `{session_id, status, attempt?, message?}`           | `busy`, `retry`, or `idle`. `idle` ends the stream.           |
+| `agent.status`          | `{session_id, status, attempt?, message?}`           | `busy`, `retry`, `idle`, or `error`. `idle` ends the stream; `error` is a terminal failure the device also stops on. |
 | `agent.text.delta`      | `{session_id, delta}`                                | Incremental assistant text (≤ 2 KiB per frame).               |
 | `agent.text`            | `{session_id, text}`                                 | Full assistant text snapshot (≤ 8 KiB; repair frames only).   |
 | `agent.reasoning.delta` | `{session_id, delta}`                                | Incremental model reasoning (≤ 2 KiB per frame).              |
@@ -160,12 +160,15 @@ text), which is the only self-healing channel for a dropped delta and avoids
 overwriting newer text the device already has. The same rule governs
 `agent.reasoning`.
 
-Stream termination is `agent.status {status: "idle"}` in every mode. The three
-errors that really end the run emit `agent.error` **before** the idle so a failed
-run is not reported as a success; an interrupted run never emits a success frame.
-The one error that does _not_ end the run — a failed step that the upstream will
-retry — carries `fatal: false` and is followed by no terminator, so the stream
-stays open.
+Stream termination is `agent.status {status: "idle"}` in every mode; a terminal
+`status: "error"` is the same signal with a failure verdict and the device stops
+on it too (the gateway does not emit it today — failures arrive as
+`agent.error` + `idle` — but the schema allows it and the device must not
+relabel it as "executing"). The three errors that really end the run emit
+`agent.error` **before** the idle so a failed run is not reported as a success;
+an interrupted run never emits a success frame. The one error that does _not_
+end the run — a failed step that the upstream will retry — carries `fatal: false`
+and is followed by no terminator, so the stream stays open.
 
 ## How pending asks reach the device
 
@@ -257,18 +260,22 @@ ceiling and a 400×300 panel.
 | Stream socket timeout                        | 5 min                                 |
 
 The device reads a response body under a hard 16 KiB cap and **rejects** one
-that does not fit rather than rendering half of it: a history response it cannot
-accept is `invalid_response`. The gateway is therefore what trims — at most 24
-messages, oldest first, each text and thinking field capped at 2 KiB, at most 8
-tools per message — and `trimHistoryToBudget` drops from the front until the
-whole response fits.
+that does not fit rather than rendering half of it. History has its own, tighter
+12 KiB bound (`history_response_bytes`): a body over it is `invalid_size`. The
+gateway is therefore what trims — at most 24 messages, oldest first, each text
+and thinking field capped at 2 KiB, at most 8 tools per message — and
+`trimHistoryToBudget` drops from the front until the whole response fits. The
+device keeps the **newest** 24 rows when a gateway sends more than that, since
+the tail is the part the user was looking at.
 
 One SSE frame must also fit that cap, and the relay enforces it in both
 directions: an oversized _outbound_ frame is clipped to the field limits above,
 and an oversized _upstream_ frame is dropped with the run left alive. An upstream
 frame that threw used to end a healthy run — the device saw 「事件流断开」 for a
 run that was still working — which is why this is a documented bound and not an
-implementation detail.
+implementation detail. The device is the backstop: a frame it cannot accumulate
+inside its own cap fails the stream with `frame_overflow`, because the dropped
+frame's remainder is gone and anything parsed after it may be a splice.
 
 ## Rate limits (per device id)
 

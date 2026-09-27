@@ -8,8 +8,16 @@ import {
   OPENCODE_HISTORY_DETAIL_FULL,
   type OpenCodeHistoryDetail,
 } from '@/lib/opencode-agent-detail';
+import { clampCodePoints } from '@/lib/utf8-clamp';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+// v2's /prompt is a fire-and-forget submit: measured against the live server
+// it answers in milliseconds to ~2s with a `{data: user message}` envelope
+// while the run keeps streaming on /api/event. This dedicated budget exists
+// for a pathological slow submit -- and it is also what bounds the response
+// body read, which the generic timeout does not (its timer ends at the
+// headers). WQN_OPENCODE_PROMPT_TIMEOUT_MS overrides it.
+const DEFAULT_PROMPT_TIMEOUT_MS = 60_000;
 // OpenCode's /event stream emits nothing during a long tool run (tests,
 // installs), so the idle window must outlast the longest plausible silent
 // stretch; the absolute cap below still bounds every attach.
@@ -250,10 +258,20 @@ async function fetchUpstream(
   binding: OpenCodeAgentBinding,
   path: string,
   init: RequestInit,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // A caller-owned signal (a device disconnect, a whole-submit deadline)
+  // aborts the same controller, so the catch below maps it exactly like the
+  // internal timer. The listener lives only for this call: callers that need
+  // to cover the body read own a controller that outlives the headers.
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     const response = await fetch(upstreamUrl(binding, path), {
       ...init,
@@ -283,6 +301,7 @@ async function fetchUpstream(
     );
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -360,10 +379,6 @@ function stringField(
   return '';
 }
 
-function clampText(value: string, maxChars: number): string {
-  return value.length > maxChars ? value.slice(0, maxChars) : value;
-}
-
 /**
  * First human-readable field of a tool payload. The key order matters: a bash
  * call carries `command`, an edit/patch carries `path`, a search carries
@@ -373,12 +388,12 @@ function previewValue(
   value: unknown,
   max = OPENCODE_HISTORY_PREVIEW_CHARS
 ): string {
-  if (typeof value === 'string') return value.slice(0, max);
+  if (typeof value === 'string') return clampCodePoints(value, max);
   if (!value || typeof value !== 'object') return '';
   const object = value as Record<string, unknown>;
   for (const key of ['command', 'path', 'file', 'description', 'pattern']) {
     const field = object[key];
-    if (typeof field === 'string' && field) return field.slice(0, max);
+    if (typeof field === 'string' && field) return clampCodePoints(field, max);
   }
   return '';
 }
@@ -392,7 +407,7 @@ function sessionRow(row: unknown): OpenCodeSessionSummary | null {
   // sessions; the device must render a placeholder rather than a blank row.
   return {
     id,
-    title: clampText(stringField(record, 'title').trim() || '新 Session', 120),
+    title: clampCodePoints(stringField(record, 'title').trim() || '新 Session', 120),
     updatedAt: finiteTimestamp(time.updated),
   };
 }
@@ -481,36 +496,79 @@ export async function createOpenCodeSession(
 export async function submitOpenCodePrompt(
   binding: OpenCodeAgentBinding,
   sessionId: string,
-  text: string
+  text: string,
+  signal?: AbortSignal
 ): Promise<void> {
-  const response = await fetchUpstream(
-    binding,
-    `/api/session/${encodeURIComponent(sessionId)}/prompt`,
-    {
-      method: 'POST',
-      headers: requestHeaders(binding, true),
-      // `delivery: 'steer'` hands the text to a run already in flight instead
-      // of queueing behind it; 'queue' is the alternative. The agent and model
-      // were fixed at session-creation time and are not accepted here.
-      body: JSON.stringify({ text, delivery: 'steer' }),
-      cache: 'no-store',
-    }
+  // The submit owns a controller that spans the whole request -- headers AND
+  // the body read -- because fetchUpstream's own timer stops at the headers,
+  // and a stalled body would otherwise hold the run route open with no bound.
+  // The device's disconnect signal (route `req.signal`) aborts the same
+  // controller, so a device that goes away does not leave the submit running.
+  const controller = new AbortController();
+  const timeoutMs = positiveEnvNumber(
+    'WQN_OPENCODE_PROMPT_TIMEOUT_MS',
+    DEFAULT_PROMPT_TIMEOUT_MS
   );
-  // 204 (or an empty body) is an accepted fire-and-forget submit.
-  if (response.status === 204) return;
-  const body = (await response.json().catch(() => null)) as {
-    data?: Record<string, unknown>;
-  } | null;
-  if (!body?.data) return;
-  if (
-    stringField(body.data, 'sessionID') !== sessionId ||
-    stringField(body.data, 'type') !== 'user'
-  ) {
-    throw new OpenCodeGatewayError(
-      'invalid_response',
-      'OpenCode prompt response is not an accepted user message',
-      502
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    const response = await fetchUpstream(
+      binding,
+      `/api/session/${encodeURIComponent(sessionId)}/prompt`,
+      {
+        method: 'POST',
+        headers: requestHeaders(binding, true),
+        // `delivery: 'steer'` hands the text to a run already in flight instead
+        // of queueing behind it; 'queue' is the alternative. The agent and model
+        // were fixed at session-creation time and are not accepted here.
+        body: JSON.stringify({ text, delivery: 'steer' }),
+        cache: 'no-store',
+      },
+      timeoutMs,
+      controller.signal
     );
+    // 204 (or an empty body) is an accepted fire-and-forget submit.
+    if (response.status === 204) return;
+    const body = (await response.json().catch(() => null)) as {
+      data?: Record<string, unknown>;
+    } | null;
+    // The json() catch above also swallows an abort raised mid-body, so the
+    // deadline has to be re-checked before treating a null body as accepted.
+    if (controller.signal.aborted) {
+      throw new OpenCodeGatewayError(
+        'upstream_timeout',
+        'OpenCode prompt submission timed out',
+        504
+      );
+    }
+    if (!body?.data) return;
+    if (
+      stringField(body.data, 'sessionID') !== sessionId ||
+      stringField(body.data, 'type') !== 'user'
+    ) {
+      throw new OpenCodeGatewayError(
+        'invalid_response',
+        'OpenCode prompt response is not an accepted user message',
+        502
+      );
+    }
+  } catch (error) {
+    if (error instanceof OpenCodeGatewayError) throw error;
+    if (controller.signal.aborted) {
+      throw new OpenCodeGatewayError(
+        'upstream_timeout',
+        'OpenCode prompt submission timed out',
+        504
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 
@@ -768,7 +826,7 @@ function projectHistoryMessage(
     // The user text is a top-level field on the message, not a content part.
     const text = stringField(record, 'text');
     return text
-      ? { role: 'user', text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS) }
+      ? { role: 'user', text: clampCodePoints(text, OPENCODE_HISTORY_TEXT_CHARS) }
       : null;
   }
   if (type !== 'assistant') return null;
@@ -797,18 +855,17 @@ function projectHistoryMessage(
             ? 'error'
             : 'running';
       tools.push({
-        name: (
-          stringField(part, 'tool') ||
-          stringField(part, 'name') ||
-          'tool'
-        ).slice(0, 80),
+        name: clampCodePoints(
+          stringField(part, 'tool') || stringField(part, 'name') || 'tool',
+          80
+        ),
         status,
         // `firstTextContent` hands back a tool's raw text payload, so it needs
         // the same clamp as `previewValue`: unclamped, one `read` output
         // projected a single message to 56 KB, over the device's 16 KiB ceiling.
         preview:
           previewValue(state.input) ||
-          clampText(
+          clampCodePoints(
             firstTextContent(state.content),
             OPENCODE_HISTORY_PREVIEW_CHARS
           ) ||
@@ -819,19 +876,19 @@ function projectHistoryMessage(
   }
   const message: OpenCodeHistoryMessage = {
     role: 'assistant',
-    text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS),
+    text: clampCodePoints(text, OPENCODE_HISTORY_TEXT_CHARS),
   };
   // Tiered omission is the whole point of `detail`, and both fields are
   // optional in the frozen schema -- dropping them needs no contract work.
   if (thinking && detail >= 2) {
-    message.thinking = clampText(thinking, OPENCODE_HISTORY_THINKING_CHARS);
+    message.thinking = clampCodePoints(thinking, OPENCODE_HISTORY_THINKING_CHARS);
   }
   if (tools.length > 0 && detail >= 1) message.tools = tools.slice(0, 8);
   // A failed turn can be empty except for `error`; surface it so the device
   // does not render an empty bubble with no explanation.
   const error = messageError(record);
   if (error && !text) {
-    message.text = clampText(error, OPENCODE_HISTORY_TEXT_CHARS);
+    message.text = clampCodePoints(error, OPENCODE_HISTORY_TEXT_CHARS);
   }
   if (!message.text && !message.thinking && !message.tools) return null;
   return message;
@@ -872,7 +929,7 @@ function projectBriefTurns(
       if (text) {
         messages.push({
           role: 'user',
-          text: clampText(text, OPENCODE_HISTORY_TEXT_CHARS),
+          text: clampCodePoints(text, OPENCODE_HISTORY_TEXT_CHARS),
         });
       }
     } else if (type === 'assistant') {
@@ -912,13 +969,13 @@ function projectBriefTurn(
   if (answer) {
     return {
       role: 'assistant',
-      text: clampText(answer, OPENCODE_HISTORY_TEXT_CHARS),
+      text: clampCodePoints(answer, OPENCODE_HISTORY_TEXT_CHARS),
     };
   }
   if (error) {
     return {
       role: 'assistant',
-      text: clampText(error, OPENCODE_HISTORY_TEXT_CHARS),
+      text: clampCodePoints(error, OPENCODE_HISTORY_TEXT_CHARS),
     };
   }
   if (toolCount > 0) {
@@ -1026,16 +1083,16 @@ export async function listOpenCodePermissions(
     requests.push({
       id,
       sessionId: stringField(record, 'sessionID') || sessionId,
-      action: action.slice(0, 80),
+      action: clampCodePoints(action, 80),
       // Permission.Request.message is the human sentence upstream already
       // wrote; only compose one when it is absent.
-      title: clampText(
+      title: clampCodePoints(
         stringField(record, 'message') ||
           [action, ...resources].join(' ').trim() ||
           'OpenCode permission required',
         160
       ),
-      preview: clampText(
+      preview: clampCodePoints(
         previewValue(asRecord(record.metadata)) || resources[0] || action,
         OPENCODE_HISTORY_PREVIEW_CHARS
       ),
@@ -1130,21 +1187,26 @@ function projectForm(
     const options: OpenCodeQuestionOption[] = [];
     for (const rawOption of rawOptions) {
       const option = asRecord(rawOption);
-      const value =
+      const rawValue =
         stringField(option, 'value') ||
         stringField(option, 'id') ||
         stringField(option, 'label');
-      if (!value) continue;
+      if (!rawValue) continue;
+      // The device echoes this value back as the answer, and both the schema
+      // (`questionOption.value`) and the reply route cap it at 256 code points.
+      // Clamping here keeps the projection sendable; an option whose value is
+      // longer than that cannot be answered through the device at all.
+      const value = clampCodePoints(rawValue, 256);
       options.push({
         value,
-        label: clampText(stringField(option, 'label') || value, 80),
+        label: clampCodePoints(stringField(option, 'label') || value, 80),
       });
     }
     if (options.length === 0) continue;
     return {
       id,
       sessionId: stringField(form, 'sessionID') || sessionId,
-      title: clampText(stringField(form, 'title') || 'OpenCode 提问', 160),
+      title: clampCodePoints(stringField(form, 'title') || 'OpenCode 提问', 160),
       status,
       fieldKey: stringField(field, 'key') || id,
       // Two slots is the device's hard geometry limit (a third collides with
