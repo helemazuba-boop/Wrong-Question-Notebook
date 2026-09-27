@@ -575,7 +575,7 @@ describe('OpenCode Agent gateway', () => {
       expect(messages[messages.length - 1].text).toBe('汉'.repeat(2000));
     });
 
-    it('collapses a turn to its answer at the brief tier', async () => {
+    it('collapses a turn to one digest ahead of its answer at the brief tier', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           data: [
@@ -624,10 +624,12 @@ describe('OpenCode Agent gateway', () => {
         0
       );
 
-      // One question, one entry: the turn's last text is the answer, and the
-      // rounds that only ran tools are not replies of their own.
+      // One question, one turn: the tool work collapses into a single digest
+      // ahead of the answer (three calls, 1s -> 46s), and the rounds that only
+      // ran tools are not replies of their own.
       expect(messages).toEqual([
         { role: 'user', text: 'hello' },
+        { role: 'assistant', text: '调用了 3 次工具 · 工作了 45 秒' },
         { role: 'assistant', text: 'the answer' },
       ]);
     });
@@ -668,7 +670,40 @@ describe('OpenCode Agent gateway', () => {
 
       expect(messages).toEqual([
         { role: 'user', text: '这是什么？' },
+        { role: 'assistant', text: '调用了 1 次工具' },
         { role: 'assistant', text: '答案在此' },
+      ]);
+    });
+
+    it('leaves a turn with no tools as its answer alone at the brief tier', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'msg_final',
+              type: 'assistant',
+              content: [{ type: 'text', text: '只有正文' }],
+            },
+            {
+              id: 'msg_lead_in',
+              type: 'assistant',
+              content: [{ type: 'text', text: '让我看看：' }],
+            },
+            { id: 'msg_user', type: 'user', text: '问题' },
+          ],
+        })
+      );
+
+      const messages = await loadOpenCodeMessages(
+        resolveOpenCodeBinding('user-1'),
+        'ses_123',
+        0
+      );
+
+      // No tools, no digest: the answer alone, with the lead-in dropped.
+      expect(messages).toEqual([
+        { role: 'user', text: '问题' },
+        { role: 'assistant', text: '只有正文' },
       ]);
     });
 

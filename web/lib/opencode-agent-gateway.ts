@@ -903,12 +903,13 @@ function projectHistoryMessage(
  * round -- with the model's between-round lead-ins ("让我看看：") sitting
  * between them, every one of which read as a separate reply. A brief user wants
  * the answer, so a turn collapses to:
- *   - its last text, when any round produced text (the answer);
+ *   - one digest over every tool the turn ran, when it ran any -- the tier
+ *     never ships tool blocks, so this line is the only trace of the work;
+ *   - its last text, when any round produced text (the answer), right after
+ *     the digest;
  *   - otherwise the failure reason, when a round failed -- a turn that produced
  *     nothing should say why, not how long it ran;
- *   - otherwise one digest over every tool the turn ran, so a turn that only
- *     executed does not vanish from the transcript.
- * A turn with no text, no tools and no error projects to nothing.
+ *   - otherwise nothing.
  */
 function projectBriefTurns(
   rows: Record<string, unknown>[]
@@ -916,8 +917,7 @@ function projectBriefTurns(
   const messages: OpenCodeHistoryMessage[] = [];
   let rounds: Record<string, unknown>[] = [];
   const flush = () => {
-    const turn = projectBriefTurn(rounds);
-    if (turn) messages.push(turn);
+    for (const entry of projectBriefTurn(rounds)) messages.push(entry);
     rounds = [];
   };
   for (const row of rows) {
@@ -942,7 +942,7 @@ function projectBriefTurns(
 
 function projectBriefTurn(
   rounds: Record<string, unknown>[]
-): OpenCodeHistoryMessage | null {
+): OpenCodeHistoryMessage[] {
   let answer = '';
   let error = '';
   let toolCount = 0;
@@ -966,28 +966,38 @@ function projectBriefTurn(
     }
     if (completed > lastCompleted) lastCompleted = completed;
   }
+  // One duration for the whole turn -- first round started to last round
+  // finished -- so the number reads as "how long this question took".
+  const seconds =
+    firstCreated > 0 && lastCompleted > firstCreated
+      ? (lastCompleted - firstCreated) / 1000
+      : null;
   if (answer) {
-    return {
+    // The digest precedes the answer rather than replacing it: a turn that ran
+    // tools and then answered used to drop the tool count and duration
+    // entirely, which left the brief tier with no trace of the work at all.
+    const entries: OpenCodeHistoryMessage[] = [];
+    if (toolCount > 0) {
+      entries.push({ role: 'assistant', text: digestText(toolCount, seconds) });
+    }
+    entries.push({
       role: 'assistant',
       text: clampCodePoints(answer, OPENCODE_HISTORY_TEXT_CHARS),
-    };
+    });
+    return entries;
   }
   if (error) {
-    return {
-      role: 'assistant',
-      text: clampCodePoints(error, OPENCODE_HISTORY_TEXT_CHARS),
-    };
+    return [
+      {
+        role: 'assistant',
+        text: clampCodePoints(error, OPENCODE_HISTORY_TEXT_CHARS),
+      },
+    ];
   }
   if (toolCount > 0) {
-    // One duration for the whole turn -- first round started to last round
-    // finished -- so the number reads as "how long this question took".
-    const seconds =
-      firstCreated > 0 && lastCompleted > firstCreated
-        ? (lastCompleted - firstCreated) / 1000
-        : null;
-    return { role: 'assistant', text: digestText(toolCount, seconds) };
+    return [{ role: 'assistant', text: digestText(toolCount, seconds) }];
   }
-  return null;
+  return [];
 }
 
 /** Concatenated `text` parts of an assistant row: the reply body. */
