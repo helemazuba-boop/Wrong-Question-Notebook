@@ -1,0 +1,98 @@
+name: Web CI
+
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  checks:
+    name: Type-check, lint, format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+  test:
+    name: Run vitest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    env:
+      # Placeholders only. next.config.ts refuses to build without a public
+      # Supabase URL and key and, under NODE_ENV=production, an expected host.
+      # This mirrors the build arguments the Dockerfile passes; server
+      # credentials are runtime-only and are never needed to build.
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: sb_publishable_ci_placeholder
+      WQN_SUPABASE_EXPECTED_HOST: ci.invalid
+      SITE_URL: https://ci.invalid
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check client bundle for server secrets
+        run: npm run check:client-bundle-secrets
