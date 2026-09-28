@@ -410,9 +410,7 @@ function toolPreview(data: Record<string, unknown>): string {
 function errorMessage(source: unknown, fallback: string): string {
   const record = asRecord(source);
   return clampCodePoints(
-    stringField(record, 'message') ||
-      stringField(record, 'name') ||
-      fallback,
+    stringField(record, 'message') || stringField(record, 'name') || fallback,
     MAX_STATUS_MESSAGE_CHARS
   );
 }

@@ -97,9 +97,10 @@ yarn.lock
 vendor/
 
 # Mirrored contract artifacts with pinned checksums.
-# The cloud copy of the agent gateway contract must stay byte-identical to the
-# firmware copy, which is the authority: `manifest.json` pins `schema_sha256`
-# against it and the firmware build fails a configure on a mismatch. Prettier
-# reflows this schema inline-object style, which would silently break the pin
-# while looking like a formatting change.
-contracts/agent-gateway-v0/
+# Every contract directory mirrors the firmware-side copy, which is the
+# authority: `manifest.json` pins `schema_sha256` against the schema, and the
+# firmware build fails a configure on a mismatch. Prettier reflows JSON
+# inline-object style and repads Markdown tables, so a reformat here would
+# either break the pin or drift the two copies apart while looking like a
+# formatting change.
+contracts/

@@ -270,7 +270,8 @@ async function fetchUpstream(
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    else
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
   try {
     const response = await fetch(upstreamUrl(binding, path), {
@@ -407,7 +408,10 @@ function sessionRow(row: unknown): OpenCodeSessionSummary | null {
   // sessions; the device must render a placeholder rather than a blank row.
   return {
     id,
-    title: clampCodePoints(stringField(record, 'title').trim() || '新 Session', 120),
+    title: clampCodePoints(
+      stringField(record, 'title').trim() || '新 Session',
+      120
+    ),
     updatedAt: finiteTimestamp(time.updated),
   };
 }
@@ -826,7 +830,10 @@ function projectHistoryMessage(
     // The user text is a top-level field on the message, not a content part.
     const text = stringField(record, 'text');
     return text
-      ? { role: 'user', text: clampCodePoints(text, OPENCODE_HISTORY_TEXT_CHARS) }
+      ? {
+          role: 'user',
+          text: clampCodePoints(text, OPENCODE_HISTORY_TEXT_CHARS),
+        }
       : null;
   }
   if (type !== 'assistant') return null;
@@ -881,7 +888,10 @@ function projectHistoryMessage(
   // Tiered omission is the whole point of `detail`, and both fields are
   // optional in the frozen schema -- dropping them needs no contract work.
   if (thinking && detail >= 2) {
-    message.thinking = clampCodePoints(thinking, OPENCODE_HISTORY_THINKING_CHARS);
+    message.thinking = clampCodePoints(
+      thinking,
+      OPENCODE_HISTORY_THINKING_CHARS
+    );
   }
   if (tools.length > 0 && detail >= 1) message.tools = tools.slice(0, 8);
   // A failed turn can be empty except for `error`; surface it so the device
@@ -1216,7 +1226,10 @@ function projectForm(
     return {
       id,
       sessionId: stringField(form, 'sessionID') || sessionId,
-      title: clampCodePoints(stringField(form, 'title') || 'OpenCode 提问', 160),
+      title: clampCodePoints(
+        stringField(form, 'title') || 'OpenCode 提问',
+        160
+      ),
       status,
       fieldKey: stringField(field, 'key') || id,
       // Two slots is the device's hard geometry limit (a third collides with

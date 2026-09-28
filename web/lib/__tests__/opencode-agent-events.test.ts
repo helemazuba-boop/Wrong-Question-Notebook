@@ -1001,9 +1001,9 @@ describe('OpenCode v2 event projection', () => {
 
     const frame = writer.frames[0];
     expect(frame.event).toBe('agent.reasoning');
-    expect(Buffer.byteLength(String(frame.data.text), 'utf8')).toBeLessThanOrEqual(
-      2 * 1024
-    );
+    expect(
+      Buffer.byteLength(String(frame.data.text), 'utf8')
+    ).toBeLessThanOrEqual(2 * 1024);
   });
 
   it('clamps short projected fields by code points, never splitting a pair', () => {
