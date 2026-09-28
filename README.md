@@ -989,9 +989,12 @@ Wrong-Question-Notebook/
 │   │   └── api/               # Web / AI / Device API
 │   │
 │   ├── components/            # UI and business components
-│   ├── contracts/
+│   ├── contracts/             # Device contracts: schema, manifest, fixtures
+│   │   ├── agent-gateway-v0/
 │   │   ├── device-control-v3/
 │   │   ├── note-study-v1/
+│   │   ├── problem-ingestion-v1/
+│   │   ├── problem-study-v1/
 │   │   └── word-study-v1/
 │   │
 │   ├── lib/                   # Core logic
