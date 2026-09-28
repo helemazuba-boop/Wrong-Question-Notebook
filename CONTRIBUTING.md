@@ -121,7 +121,7 @@ The project enforces consistent code quality through automated tooling:
 - **Linting:** ESLint with TypeScript and Prettier plugins
 - **Type checking:** TypeScript in strict mode
 - **Testing:** Vitest with coverage via `@vitest/coverage-v8`
-- **Pre-push hook:** Husky runs the full check suite before `git push`
+- **Pre-commit hook:** Husky runs ESLint and the Prettier check before each commit (`npm install` installs it)
 
 ### Before every push
 
@@ -129,7 +129,7 @@ The project enforces consistent code quality through automated tooling:
 npm run prepush
 ```
 
-This runs, in order: auto-fix formatting → type-check → lint → format-check → tests → production build. If any step fails, fix the issue before pushing.
+This runs, in order: auto-fix formatting → type-check → lint → format-check → tests → production build. If any step fails, fix the issue before pushing. CI runs the same checks (plus the client-bundle secret scan) on every pull request.
 
 
 ## Available Scripts

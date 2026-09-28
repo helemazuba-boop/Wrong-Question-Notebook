@@ -1,7 +1,11 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
+# Installed as the pre-commit hook by `npm install` in this directory (the
+# `prepare` script runs husky from the repository root). Husky runs this file
+# with `sh -e`, so the first failing command aborts the commit.
 
-# Run linting and formatting checks
+# git runs hooks from the repository root; the checks below belong to web/.
+cd "$(dirname "$0")/.." || exit 1
+
 echo "🔍 Running ESLint..."
 npm run lint
 
