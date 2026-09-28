@@ -25,7 +25,7 @@
 --      users' reads then trusted. WITH CHECK applies only to rows being
 --      written, so existing data is not re-validated here.
 --
--- Per the audit in doc/0928-authz-fix-plan.md: the subject_id-keyed writes
+-- Per the audit in authz-hardening-2026-09.md: the subject_id-keyed writes
 -- (problems, and the metadata reads of get_subjects_with_metadata) are
 -- reachable with zero guessing because problem_sets exposes subject_id for
 -- every public/limited set, while the problem_id/attempt_id-keyed items

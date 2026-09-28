@@ -117,3 +117,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Report upstream service failures consistently as `provider_unavailable` with HTTP 502.
 - **Streaming request safety**
   - Apply authentication, rate limits, audio validation, and body-size limits to the v2 path.
+
+### Security
+
+- **Authorization hardening for SECURITY DEFINER joins and RLS write policies**
+  - Pin the `problems` side of the three SECURITY DEFINER reads that join through a caller-writable row — `get_due_problems_for_subject`, `get_due_problems_count` and `get_subjects_with_metadata` — to the caller, so a `review_schedule` row planted against another user's problem, or a foreign problem planted in the caller's own subject, can no longer surface that user's problem content, subject ids or counts. The three RPCs now pin `search_path` too.
+  - Require ownership of every referenced row in the write policies that only constrained `user_id`: a Problem can only be created in, or moved into, the caller's own Subject; a status-history row must reference the caller's own Problem, which also closes the `ON CONFLICT (problem_id, changed_date)` upsert that could capture a victim's real status change; and a categorisation update must keep its attempt, problem and subject inside the caller's own rows.
+  - Gate attempt writes on the referenced Problem being visible to the caller, so an attempt can no longer be planted on a problem the writer cannot see while practising a shared problem set still records one. Drop the redundant `Users can update own attempts` policy, which would otherwise OR past the new check, and narrow the two altered policies that were still declared `to public` to `authenticated`.
+  - Reject a Problem create whose `subject_id` the caller does not own with an explicit 404 instead of letting the database's row-level-security error surface as a 500.
+  - The migration ends with a self-check that aborts the push if any SECURITY DEFINER function in `public` lacks a fixed `search_path` or is still executable by PUBLIC.
