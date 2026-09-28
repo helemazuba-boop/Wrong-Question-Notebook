@@ -95,12 +95,14 @@ describe('Problem POST initial idea', () => {
       error: null,
     });
     const tags = builder({ data: [], error: null });
+    const ownedSubject = builder({ data: { id: SUBJECT_ID }, error: null });
     let problemCalls = 0;
     const from = vi.fn((table: string) => {
       if (table === 'problems') {
         problemCalls += 1;
         return problemCalls === 1 ? existing : inserted;
       }
+      if (table === 'subjects') return ownedSubject;
       return tags;
     });
     mocks.requireUser.mockResolvedValue({
@@ -140,9 +142,12 @@ describe('Problem POST initial idea', () => {
       error: null,
     });
     const tags = builder({ data: [], error: null });
-    const from = vi.fn((table: string) =>
-      table === 'problems' ? existing : tags
-    );
+    const ownedSubject = builder({ data: { id: SUBJECT_ID }, error: null });
+    const from = vi.fn((table: string) => {
+      if (table === 'problems') return existing;
+      if (table === 'subjects') return ownedSubject;
+      return tags;
+    });
     mocks.requireUser.mockResolvedValue({
       user: { id: USER_ID },
       supabase: { from },
@@ -171,7 +176,10 @@ describe('Problem POST initial idea', () => {
       },
       error: null,
     });
-    const from = vi.fn(() => existing);
+    const ownedSubject = builder({ data: { id: SUBJECT_ID }, error: null });
+    const from = vi.fn((table: string) =>
+      table === 'subjects' ? ownedSubject : existing
+    );
     mocks.requireUser.mockResolvedValue({
       user: { id: USER_ID },
       supabase: { from },
@@ -187,5 +195,48 @@ describe('Problem POST initial idea', () => {
 
     expect(response.status).toBe(409);
     expect(mocks.setProblemInitialIdea).not.toHaveBeenCalled();
+  });
+});
+
+describe('Problem POST subject ownership', () => {
+  it('rejects a subject the caller does not own without attempting an insert', async () => {
+    const subjects = builder({ data: null, error: null });
+    const problems = builder({ data: null, error: null });
+    const from = vi.fn((table: string) =>
+      table === 'subjects' ? subjects : problems
+    );
+    mocks.requireUser.mockResolvedValue({
+      user: { id: USER_ID },
+      supabase: { from },
+    });
+
+    const response = await POST(request() as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error).toBe('Subject not found');
+    expect(problems.insert).not.toHaveBeenCalled();
+  });
+
+  it('answers a subject lookup failure as a database error', async () => {
+    const subjects = builder({
+      data: null,
+      error: { message: 'SUBJECT_LOOKUP_FAILED' },
+    });
+    const problems = builder({ data: null, error: null });
+    const from = vi.fn((table: string) =>
+      table === 'subjects' ? subjects : problems
+    );
+    mocks.requireUser.mockResolvedValue({
+      user: { id: USER_ID },
+      supabase: { from },
+    });
+
+    const response = await POST(request() as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.details).toBe('SUBJECT_LOOKUP_FAILED');
+    expect(problems.insert).not.toHaveBeenCalled();
   });
 });

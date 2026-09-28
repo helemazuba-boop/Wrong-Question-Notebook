@@ -404,6 +404,33 @@ async function createProblem(req: Request) {
     }
   }
 
+  // Reject a subject the caller does not own. The write policies enforce this
+  // at insert time, but checking here answers an explicit 404 instead of
+  // surfacing the database's 42501 as a 500.
+  const { data: ownedSubject, error: subjectError } = await supabase
+    .from('subjects')
+    .select('id')
+    .eq('id', problem.subject_id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (subjectError) {
+    return NextResponse.json(
+      createApiErrorResponse(
+        ERROR_MESSAGES.DATABASE_ERROR,
+        500,
+        subjectError.message
+      ),
+      { status: 500 }
+    );
+  }
+
+  if (!ownedSubject) {
+    return NextResponse.json(createApiErrorResponse('Subject not found', 404), {
+      status: 404,
+    });
+  }
+
   // Check problem count limit
   const problemLimit = await checkContentLimit(
     user.id,
