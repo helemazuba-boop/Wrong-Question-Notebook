@@ -41,6 +41,9 @@ function readConfig(): RelayConfig {
   const transcribeChatUrl = internalBase
     ? `${internalBase}/api/esp32/ai/transcribe-chat?protocol=v2-streaming`
     : '';
+  const agentTranscribeUrl = internalBase
+    ? `${internalBase}/api/esp32/agent/transcribe?protocol=v2-streaming`
+    : '';
   if (!endpoint) {
     log.warn('WQN_INTERNAL_API_BASE not set — tool calls will be skipped', {});
   }
@@ -56,6 +59,7 @@ function readConfig(): RelayConfig {
     },
     executeToolUrl: endpoint,
     transcribeChatUrl,
+    agentTranscribeUrl,
     proxySecret: secret,
     realtimeEnabled,
   };
