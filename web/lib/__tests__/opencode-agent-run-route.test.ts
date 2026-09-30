@@ -4,14 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/esp32/agent/sessions/[id]/run/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 
-const { authenticate, fetchMock } = vi.hoisted(() => ({
+const { authenticate, fetchMock, claimMock, completeMock } = vi.hoisted(() => ({
   authenticate: vi.fn(),
   fetchMock: vi.fn(),
+  claimMock: vi.fn(),
+  completeMock: vi.fn(),
 }));
 
 vi.mock('@/lib/esp32-device-auth', () => ({
   authenticateEsp32Device: authenticate,
 }));
+
+vi.mock('@/lib/opencode-agent-run-idempotency', () => ({
+  claimAgentRunRequest: claimMock,
+  completeAgentRunRequest: completeMock,
+  fingerprintAgentRunRequest: (input: {
+    sessionId: string;
+    text: string;
+    detail: number;
+  }) => `fp:${input.sessionId}:${input.text}:${input.detail}`,
+}));
+
+const REQUEST_ID = '0123456789abcdef';
 
 describe('OpenCode Agent run route', () => {
   beforeEach(() => {
@@ -180,5 +194,331 @@ describe('OpenCode Agent run route', () => {
 
     releasePrompt?.();
     await reader.cancel().catch(() => undefined);
+  });
+
+  describe('run idempotency', () => {
+    beforeEach(() => {
+      completeMock.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      delete process.env.WQN_OPENCODE_PENDING_POLL_MS;
+    });
+
+    function runRequest(body: Record<string, unknown>): NextRequest {
+      return new NextRequest(
+        'http://localhost/api/esp32/agent/sessions/ses_123/run',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+    }
+
+    function params() {
+      return { params: Promise.resolve({ id: 'ses_123' }) };
+    }
+
+    /** A run whose upstream answers the list, the event stream and the prompt. */
+    function mockRunUpstream(options: { eventFrames?: string[] } = {}) {
+      const encoder = new TextEncoder();
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/session') {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'ses_123', time: { updated: 1 } }] }),
+            { status: 200 }
+          );
+        }
+        if (url.pathname === '/api/event') {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                for (const frame of options.eventFrames ?? []) {
+                  controller.enqueue(encoder.encode(frame));
+                }
+                controller.close();
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ data: { sessionID: 'ses_123', type: 'user' } }),
+          { status: 200 }
+        );
+      });
+    }
+
+    function upstreamPaths(): string[] {
+      return fetchMock.mock.calls.map(
+        ([input]) => new URL(String(input)).pathname
+      );
+    }
+
+    const succeededFrame =
+      'data: {"type":"session.execution.succeeded","data":{"sessionID":"ses_123"}}\n\n';
+
+    it('claims a run, relays it to the terminator and writes completed back', async () => {
+      claimMock.mockResolvedValue({ kind: 'claimed' });
+      mockRunUpstream({ eventFrames: [succeededFrame] });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(200);
+      const body = new TextDecoder().decode(await response.arrayBuffer());
+      expect(body).toContain('event: agent.accepted');
+      expect(body).toContain('event: agent.status');
+      expect(claimMock).toHaveBeenCalledWith({
+        deviceId: 'device-1',
+        requestId: REQUEST_ID,
+        sessionId: 'ses_123',
+        fingerprint: 'fp:ses_123:go:2',
+      });
+      expect(completeMock).toHaveBeenCalledWith({
+        deviceId: 'device-1',
+        requestId: REQUEST_ID,
+        state: 'completed',
+        errorCode: null,
+      });
+    });
+
+    it('runs a stale re-claim through the full new flow', async () => {
+      claimMock.mockResolvedValue({ kind: 'stale' });
+      mockRunUpstream({ eventFrames: [succeededFrame] });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
+      expect(upstreamPaths()).toContain('/api/session/ses_123/prompt');
+      expect(completeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'completed' })
+      );
+    });
+
+    it('answers a conflicting reuse of the request id with 409', async () => {
+      claimMock.mockResolvedValue({ kind: 'conflict' });
+      mockRunUpstream();
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'request_id_conflict' },
+      });
+      expect(upstreamPaths()).toEqual(['/api/session']);
+      expect(completeMock).not.toHaveBeenCalled();
+    });
+
+    it('answers a second in-flight run with 409', async () => {
+      claimMock.mockResolvedValue({ kind: 'busy' });
+      mockRunUpstream();
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'run_in_progress' },
+      });
+      expect(completeMock).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the ledger itself is unavailable', async () => {
+      claimMock.mockResolvedValue({ kind: 'unavailable' });
+      mockRunUpstream();
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'run_idempotency_unavailable' },
+      });
+      expect(upstreamPaths()).toEqual(['/api/session']);
+    });
+
+    it('replays a completed run as attached + idle without submitting', async () => {
+      claimMock.mockResolvedValue({ kind: 'completed' });
+      mockRunUpstream();
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      expect(response.status).toBe(200);
+      const body = new TextDecoder().decode(await response.arrayBuffer());
+      expect(body).toContain('event: agent.attached');
+      expect(body).toContain('"status":"idle"');
+      expect(upstreamPaths()).toEqual(['/api/session']);
+      expect(completeMock).not.toHaveBeenCalled();
+    });
+
+    it('replays a failed run as attached + error + idle', async () => {
+      claimMock.mockResolvedValue({ kind: 'failed', errorCode: 'interrupted' });
+      mockRunUpstream();
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      const body = new TextDecoder().decode(await response.arrayBuffer());
+      expect(body).toContain('event: agent.attached');
+      expect(body).toContain('event: agent.error');
+      expect(body).toContain('interrupted');
+      expect(body).toContain('"status":"idle"');
+      expect(upstreamPaths()).toEqual(['/api/session']);
+      expect(completeMock).not.toHaveBeenCalled();
+    });
+
+    it('attaches a same-id retry to the live stream without resubmitting', async () => {
+      claimMock.mockResolvedValue({ kind: 'attached' });
+      mockRunUpstream({ eventFrames: [succeededFrame] });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      const body = new TextDecoder().decode(await response.arrayBuffer());
+      expect(body).toContain('event: agent.attached');
+      expect(upstreamPaths()).not.toContain('/api/session/ses_123/prompt');
+      // The attach is read-only: the original attempt owns the terminal write.
+      expect(completeMock).not.toHaveBeenCalled();
+    });
+
+    it('writes failed back when the submit is rejected', async () => {
+      claimMock.mockResolvedValue({ kind: 'claimed' });
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/session') {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'ses_123', time: { updated: 1 } }] }),
+            { status: 200 }
+          );
+        }
+        if (url.pathname === '/api/event') {
+          return new Response(new ReadableStream({ start: c => c.close() }), {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        }
+        return new Response('rejected', { status: 500 });
+      });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      const body = new TextDecoder().decode(await response.arrayBuffer());
+      expect(body).toContain('OpenCode rejected the prompt');
+      expect(completeMock).toHaveBeenCalledWith({
+        deviceId: 'device-1',
+        requestId: REQUEST_ID,
+        state: 'failed',
+        errorCode: 'submit_rejected',
+      });
+    });
+
+    it('writes failed back when the relay throws', async () => {
+      claimMock.mockResolvedValue({ kind: 'claimed' });
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/session') {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'ses_123', time: { updated: 1 } }] }),
+            { status: 200 }
+          );
+        }
+        if (url.pathname === '/api/event') {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error('upstream exploded'));
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ data: { sessionID: 'ses_123', type: 'user' } }),
+          { status: 200 }
+        );
+      });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      await response.arrayBuffer();
+      expect(completeMock).toHaveBeenCalledWith({
+        deviceId: 'device-1',
+        requestId: REQUEST_ID,
+        state: 'failed',
+        errorCode: 'stream_disconnected',
+      });
+    });
+
+    it('leaves the row in flight when the device disconnects mid-run', async () => {
+      // A client disconnect is not a run ending: the run may still be
+      // executing upstream, so a terminal write here would make the next
+      // same-id retry skip a live run. Only the lease retires the row.
+      process.env.WQN_OPENCODE_PENDING_POLL_MS = '20';
+      claimMock.mockResolvedValue({ kind: 'claimed' });
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/session') {
+          return new Response(
+            JSON.stringify({ data: [{ id: 'ses_123', time: { updated: 1 } }] }),
+            { status: 200 }
+          );
+        }
+        if (url.pathname === '/api/event') {
+          return new Response(new ReadableStream({ start() {} }), {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        }
+        return new Response(
+          JSON.stringify({ data: { sessionID: 'ses_123', type: 'user' } }),
+          { status: 200 }
+        );
+      });
+
+      const response = await POST(
+        runRequest({ text: 'go', confirmed: true, request_id: REQUEST_ID }),
+        params()
+      );
+
+      const reader = response.body!.getReader();
+      const { value } = await reader.read();
+      expect(new TextDecoder().decode(value)).toContain(
+        'event: agent.accepted'
+      );
+      await reader.cancel().catch(() => undefined);
+
+      // Give the relay's poll window time to notice the closed writer.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(completeMock).not.toHaveBeenCalled();
+    });
   });
 });

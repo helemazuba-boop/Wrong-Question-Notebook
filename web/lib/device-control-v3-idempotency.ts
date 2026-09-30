@@ -1,6 +1,8 @@
 import { createHash } from 'crypto';
 
-function canonicalJson(value: unknown): string {
+// Exported for the agent run ledger: one canonicalisation implementation, so
+// the two idempotency fingerprints cannot drift apart.
+export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
 

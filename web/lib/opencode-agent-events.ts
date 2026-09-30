@@ -839,6 +839,37 @@ async function observeRunEnded(input: {
 
 export type OpenCodeRelayMode = 'run' | 'observe';
 
+/**
+ * How a relay ended. The run route maps this onto the idempotency ledger; the
+ * observe route ignores it. `client_closed` and `observe_ended` both mean no
+ * terminator was seen -- the upstream run may still be executing.
+ */
+export type OpenCodeRelayOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted'
+  | 'disposed'
+  | 'upstream_ended'
+  | 'observe_ended'
+  | 'client_closed';
+
+function terminalOutcomeFor(event: unknown): OpenCodeRelayOutcome {
+  switch (asRecord(event).type) {
+    case 'session.execution.succeeded':
+      return 'succeeded';
+    case 'session.execution.failed':
+      return 'failed';
+    case 'session.execution.interrupted':
+      return 'interrupted';
+    case 'global.disposed':
+      return 'disposed';
+    default:
+      // Only those four events make emitNormalizedOpenCodeEvent return
+      // 'complete', so this stays total without inventing a fifth terminator.
+      return 'upstream_ended';
+  }
+}
+
 export async function relayOpenCodeEvents(input: {
   upstream: ReadableStream<Uint8Array>;
   writer: SseWriter;
@@ -847,7 +878,7 @@ export async function relayOpenCodeEvents(input: {
   /** Device-requested tier; absent = full, so every old caller is unchanged. */
   detail?: OpenCodeHistoryDetail;
   probe?: OpenCodePendingProbe;
-}): Promise<void> {
+}): Promise<OpenCodeRelayOutcome> {
   const observe = input.mode === 'observe';
   const probe = input.probe;
   const pollIntervalMs = pendingPollIntervalMs();
@@ -885,7 +916,7 @@ export async function relayOpenCodeEvents(input: {
             sessionId: input.sessionId,
             state,
           });
-          if (ended) return;
+          if (ended) return 'observe_ended';
         }
         continue;
       }
@@ -933,21 +964,23 @@ export async function relayOpenCodeEvents(input: {
           .join('\n');
         if (data) {
           try {
+            const event: unknown = JSON.parse(data);
             const result = emitNormalizedOpenCodeEvent(
               input.writer,
-              JSON.parse(data),
+              event,
               input.sessionId,
               state
             );
-            if (result === 'complete') return;
+            if (result === 'complete') return terminalOutcomeFor(event);
           } catch {
             // One malformed upstream event must not tear down an active run.
           }
         }
         boundary = buffer.search(/\r?\n\r?\n/);
       }
-      if (chunk.done) return;
+      if (chunk.done) return 'upstream_ended';
     }
+    return 'client_closed';
   } finally {
     await reader.cancel().catch(() => undefined);
   }

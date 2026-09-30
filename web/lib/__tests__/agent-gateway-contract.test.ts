@@ -231,6 +231,11 @@ describe('agent gateway v0 contract mirror', () => {
         'rate_limited',
         'disabled',
         'forbidden',
+        // P2 run idempotency: a conflicting id reuse, a second in-flight run,
+        // and a ledger that is down. The device surfaces all three verbatim.
+        'request_id_conflict',
+        'run_in_progress',
+        'run_idempotency_unavailable',
       ]) {
         expect(
           validate({ success: false, error: { code, message: 'x' } }),

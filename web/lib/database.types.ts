@@ -413,6 +413,47 @@ export type Database = {
           },
         ];
       };
+      esp32_agent_run_requests: {
+        Row: {
+          created_at: string;
+          device_id: string;
+          error_code: string | null;
+          expires_at: string;
+          request_fingerprint: string;
+          request_id: string;
+          session_id: string;
+          state: string;
+        };
+        Insert: {
+          created_at?: string;
+          device_id: string;
+          error_code?: string | null;
+          expires_at?: string;
+          request_fingerprint: string;
+          request_id: string;
+          session_id: string;
+          state?: string;
+        };
+        Update: {
+          created_at?: string;
+          device_id?: string;
+          error_code?: string | null;
+          expires_at?: string;
+          request_fingerprint?: string;
+          request_id?: string;
+          session_id?: string;
+          state?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_agent_run_requests_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       esp32_ai_conversations: {
         Row: {
           conversation_id: string;
@@ -4550,6 +4591,19 @@ export type Database = {
         Args: { p_cutover_id: string; p_user_id: string };
         Returns: Json;
       };
+      claim_agent_run_request_v3: {
+        Args: {
+          p_device_id: string;
+          p_lease_seconds: number;
+          p_request_fingerprint: string;
+          p_request_id: string;
+          p_session_id: string;
+        };
+        Returns: {
+          error_code: string | null;
+          result: string;
+        }[];
+      };
       claim_problem_mark_annotation: {
         Args: { p_lease_seconds?: number; p_problem_id: string };
         Returns: Json;
@@ -4626,6 +4680,15 @@ export type Database = {
           p_run_id: string;
         };
         Returns: Json;
+      };
+      complete_agent_run_request_v3: {
+        Args: {
+          p_device_id: string;
+          p_error_code: string | null;
+          p_request_id: string;
+          p_state: string;
+        };
+        Returns: undefined;
       };
       compute_problem_set_count: {
         Args: { p_problem_set_id: string };

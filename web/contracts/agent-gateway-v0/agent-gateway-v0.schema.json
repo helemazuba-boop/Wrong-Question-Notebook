@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://wqn.helema.cn/contracts/agent-gateway-v0/agent-gateway-v0.schema.json",
   "title": "WQN ESP32 Agent Gateway Protocol v0",
-  "description": "Language-neutral contract for the /api/esp32/agent/* routes that proxy a bound self-hosted OpenCode server. The device-facing vocabulary is deliberately small and stable; the OpenCode v2 migration widened it (reasoning + question) without renaming or removing anything. Replaces the retired X-WQN-Ai-Tier: pro tier. Every non-streaming route answers {success: true, data} or {success: false, error}; the two streaming routes answer text/event-stream, whose body is `runStream` and carries no envelope. The device reads `data` / `error` and ignores `success`, so the flag is not load-bearing for the firmware -- it is what lets this schema describe what the routes actually return instead of an imagined shape the device would also tolerate.",
+  "description": "Language-neutral contract for the /api/esp32/agent/* routes that proxy a bound self-hosted OpenCode server. The device-facing vocabulary is deliberately small and stable; the OpenCode v2 migration widened it (reasoning + question) without renaming or removing anything. Replaces the retired X-WQN-Ai-Tier: pro tier. Every non-streaming route answers {success: true, data} or {success: false, error}; the two streaming routes answer text/event-stream, whose body is `runStream` and carries no envelope -- except that the run route answers a JSON error envelope instead of a stream when an idempotency claim rejects the submission (409 request_id_conflict/run_in_progress, 503 run_idempotency_unavailable), before any frame exists. The device reads `data` / `error` and ignores `success`, so the flag is not load-bearing for the firmware -- it is what lets this schema describe what the routes actually return instead of an imagined shape the device would also tolerate.",
   "$defs": {
     "sessionId": {
       "type": "string",
@@ -129,6 +129,11 @@
           "type": "boolean",
           "const": true,
           "description": "The device only ever sends a confirmed prompt; the option bar is where the user says yes."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Optional run idempotency key minted by the device. The cloud claims it before submitting: a same-id retry attaches to the live run or replays its recorded terminal outcome instead of running the prompt twice. Absent means no idempotency, which is what every device that predates the field sends."
         }
       }
     },
