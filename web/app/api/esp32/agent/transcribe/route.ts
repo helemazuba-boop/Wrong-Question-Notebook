@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { isV2StreamingRequest } from '@/app/api/esp32/ai/transcribe-chat/v2-handler';
 import {
   AUDIO_CHANNELS,
   AUDIO_SAMPLE_FORMAT,
@@ -15,6 +16,7 @@ import {
 } from '@/lib/esp32-ai-provider';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
+import { handleAgentTranscribeStreaming } from './streaming-handler';
 
 export const runtime = 'nodejs';
 
@@ -68,6 +70,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (limited) return limited;
   const headerError = validateAudioHeaders(req);
   if (headerError) return headerError;
+
+  // wqn-voice-v2 SSE branch (relay handoff): protocol detection mirrors
+  // isV2StreamingRequest — query param, x-wqn-protocol header (what the relay
+  // sends) or x-wqn-accept: text/event-stream.
+  if (isV2StreamingRequest(req)) {
+    return handleAgentTranscribeStreaming(req);
+  }
 
   const audio = await req.arrayBuffer();
   if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {

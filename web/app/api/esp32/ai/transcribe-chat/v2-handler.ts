@@ -63,7 +63,7 @@ const DEFAULT_TASK_STATUS_BASE_URL =
 const DEFAULT_STEPFUN_ASR_URL = 'https://api.stepfun.com/v1/audio/asr/sse';
 const DEFAULT_STEPFUN_ASR_MODEL = 'stepaudio-2.5-asr';
 
-function loadV2RuntimeConfig(): V2RuntimeConfig {
+export function loadV2RuntimeConfig(): V2RuntimeConfig {
   const asrSelection = getEsp32AiAsrSelection();
   if (!asrSelection) {
     throw new Error('Invalid ESP32 AI ASR provider selection');

@@ -130,7 +130,7 @@ export class PipelinePusher {
   emitReady(event: {
     turn_id: string;
     conversation_id: string | null;
-    ai_tier: 'std' | 'pro';
+    ai_tier: 'std' | 'pro' | 'agent';
     started_at_ms: number;
   }): void {
     this.writer.emit('ready', event);
