@@ -3,6 +3,13 @@ import {
   OPENCODE_HISTORY_DETAIL_FULL,
   type OpenCodeHistoryDetail,
 } from '@/lib/opencode-agent-detail';
+import {
+  beginOrGetQuestionSequence,
+  completeQuestionSequence,
+  currentQuestionStep,
+  getQuestionSequence,
+  type OpenCodeQuestionStep,
+} from '@/lib/opencode-agent-question-sequence';
 import { clampCodePoints, clampUtf8Bytes } from '@/lib/utf8-clamp';
 
 /** The permission shape this projection needs; the gateway produces it. */
@@ -14,15 +21,22 @@ export interface OpenCodePendingAsk {
   preview: string;
 }
 
+/** One visible field of the form shape this projection needs. */
+export interface OpenCodePendingQuestionField {
+  fieldKey: string;
+  title: string;
+  options: Array<{ value: string; label: string }>;
+  /** Raw option count, before the eight-option device cap. */
+  optionCount: number;
+}
+
 /** The form shape this projection needs; the gateway produces it. */
 export interface OpenCodePendingQuestion {
   id: string;
   /** Empty for `Form.Info`; only `Form.Detail` carries a resolved state. */
   status: string;
   title: string;
-  options: Array<{ value: string; label: string }>;
-  /** Raw option count, before the two-slot device cap. */
-  optionCount: number;
+  fields: OpenCodePendingQuestionField[];
 }
 
 /**
@@ -56,12 +70,6 @@ const MAX_TEXT_EVENT_BYTES = 8 * 1024;
 const MAX_DELTA_EVENT_BYTES = 2 * 1024;
 const MAX_REASONING_EVENT_BYTES = 2 * 1024;
 const MAX_STATUS_MESSAGE_CHARS = 240;
-
-/**
- * Device-visible option bar has exactly two slots; a third would collide with
- * the key-hint strip. The cloud caps the list, so more options never render.
- */
-const MAX_QUESTION_OPTIONS = 2;
 
 /** Pending-ask polling cadence. */
 const DEFAULT_PENDING_POLL_INTERVAL_MS = 2000;
@@ -141,6 +149,13 @@ export interface OpenCodeRelayState {
   pendingPermission: OpenCodePendingSlot | null;
   pendingQuestion: OpenCodePendingSlot | null;
   /**
+   * Form id -> highest step index this attach has already projected. A
+   * multi-field form advances when the reply route records an answer in the
+   * sequence store; the held-question branch re-emits only when the store
+   * moved past this, or the poll would re-send the same step.
+   */
+  questionSteps: Map<string, number>;
+  /**
    * Device-requested detail tier. The live stream is the half of the tier the
    * history projection cannot cover: a run must not stream thinking the device
    * asked not to see, and the brief tier drops tool frames too, so the live
@@ -161,6 +176,7 @@ export function createOpenCodeRelayState(
     textRoundKey: '',
     pendingPermission: null,
     pendingQuestion: null,
+    questionSteps: new Map<string, number>(),
     detail,
   };
 }
@@ -709,6 +725,20 @@ async function pollPendingAsks(input: {
     state.pendingQuestion = null;
   }
   if (state.pendingQuestion !== null) {
+    // A held multi-field ask advances between polls: the reply route recorded
+    // the answer in the sequence store, and the next field has to go out on
+    // this same stream. Re-emit only when the store moved past what this
+    // attach already projected, or the poll would re-send the same step.
+    const held = state.pendingQuestion;
+    const sequence = getQuestionSequence(held.sessionId, held.id);
+    const projected = state.questionSteps.get(held.id);
+    if (sequence && projected !== undefined && sequence.current > projected) {
+      const step = currentQuestionStep(sequence);
+      if (step) {
+        state.questionSteps.set(held.id, step.index);
+        emitAgentQuestion(writer, held.sessionId, step);
+      }
+    }
     return;
   }
 
@@ -739,12 +769,17 @@ async function pollPendingAsks(input: {
       }
       if (form.status === 'answered' || form.status === 'cancelled') {
         state.seenQuestions.add(summary.id);
+        completeQuestionSequence(target, summary.id);
         continue;
       }
       if (state.seenQuestions.has(summary.id)) continue;
       state.seenQuestions.add(summary.id);
+      const sequence = beginOrGetQuestionSequence(target, form);
+      const step = currentQuestionStep(sequence);
+      if (!step) continue;
       state.pendingQuestion = { sessionId: target, id: form.id };
-      emitAgentQuestion(writer, target, form);
+      state.questionSteps.set(form.id, step.index);
+      emitAgentQuestion(writer, target, step);
       return;
     }
   }
@@ -765,38 +800,22 @@ function emitAgentPermission(
 }
 
 /**
- * Project a form onto the device's single-field question. The device answers
- * with an option value only — the cloud is what knows how to turn that into an
- * `answer` record, so no answer shape is ever assembled on device.
+ * Project one step of a form onto the device's question ask. The device
+ * answers with an option value only — the cloud is what knows how to turn
+ * that into an `answer` record, so no answer shape is ever assembled on
+ * device. An empty option list is a real ask: the device shows it with its
+ * abort entry, which is the escape for a field it cannot answer.
  */
 function emitAgentQuestion(
   writer: SseWriter,
   sessionId: string,
-  form: OpenCodePendingQuestion
+  step: OpenCodeQuestionStep
 ): void {
-  if (form.options.length === 0) {
-    // Nothing the option bar can carry; the run would otherwise look stuck
-    // behind a question that cannot be answered here.
-    writer.emit('agent.status', {
-      session_id: sessionId,
-      status: 'busy',
-      message: '检测到提问，请在 OpenCode 端回答',
-    });
-    return;
-  }
-  if (form.optionCount > MAX_QUESTION_OPTIONS) {
-    writer.emit('agent.status', {
-      session_id: sessionId,
-      status: 'busy',
-      message: `检测到 ${form.optionCount} 选项提问，请在 OpenCode 端回答`,
-    });
-    return;
-  }
   writer.emit('agent.question', {
     session_id: sessionId,
-    question_id: form.id,
-    title: clampCodePoints(form.title || 'OpenCode 提问', 160),
-    options: form.options.slice(0, MAX_QUESTION_OPTIONS),
+    question_id: step.questionId,
+    title: clampCodePoints(step.title || 'OpenCode 提问', 160),
+    options: step.options,
   });
 }
 

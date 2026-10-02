@@ -10,6 +10,10 @@ import {
   relayOpenCodeEvents,
   type OpenCodePendingProbe,
 } from '@/lib/opencode-agent-events';
+import {
+  __resetQuestionSequencesForTest,
+  recordQuestionAnswer,
+} from '@/lib/opencode-agent-question-sequence';
 import type {
   OpenCodeFormState,
   OpenCodePermissionRequest,
@@ -127,9 +131,35 @@ function form(
     sessionId,
     title: `${id} title`,
     status,
-    fieldKey: id,
-    options,
-    optionCount: options.length,
+    fields: [
+      {
+        fieldKey: id,
+        title: `${id} title`,
+        options,
+        optionCount: options.length,
+      },
+    ],
+  };
+}
+
+function multiFieldForm(
+  id: string,
+  fields: Array<{
+    fieldKey: string;
+    title: string;
+    options: Array<{ value: string; label: string }>;
+  }>,
+  status: OpenCodeFormState['status'] = 'pending'
+): OpenCodeFormState {
+  return {
+    id,
+    sessionId: SESSION,
+    title: `${id} title`,
+    status,
+    fields: fields.map(field => ({
+      ...field,
+      optionCount: field.options.length,
+    })),
   };
 }
 
@@ -227,6 +257,9 @@ async function runProbe(input: {
 
 beforeEach(() => {
   delete process.env.WQN_OPENCODE_PENDING_POLL_MS;
+  // The sequence store is process-wide (the reply route and the relay share
+  // it), so a form id reused across tests must not inherit its steps.
+  __resetQuestionSequencesForTest();
 });
 
 afterEach(() => {
@@ -1495,15 +1528,14 @@ describe('OpenCode v2 pending-ask delivery', () => {
   });
 
   it('clamps an over-long astral question title to the schema bound', async () => {
+    const wide = form('frm_1', [{ value: 'yes', label: 'Yes' }]);
+    // The projected title is the FIELD title (the form title is a constant
+    // like "Questions"), so that is what the clamp has to hold for.
+    wide.fields[0].title = '😀'.repeat(200); // schema: 160 code points
     const { text } = await runProbe({
       handlers: {
         active: async () => [SESSION],
-        questions: async () => [
-          {
-            ...form('frm_1', [{ value: 'yes', label: 'Yes' }]),
-            title: '😀'.repeat(200), // schema: 160 code points
-          },
-        ],
+        questions: async () => [wide],
       },
     });
 
@@ -1609,7 +1641,7 @@ describe('OpenCode v2 pending-ask delivery', () => {
     expect(payloadOf(text, 'agent.question')).toBe(
       JSON.stringify({
         session_id: 'ses_child',
-        question_id: 'frm_child',
+        question_id: 'frm_child#0',
         title: 'frm_child title',
         options: [{ value: 'a', label: '甲' }],
       })
@@ -1632,7 +1664,7 @@ describe('OpenCode v2 pending-ask delivery', () => {
     expect(text).not.toContain('agent.question');
   });
 
-  it('projects a pending form onto a two-option question', async () => {
+  it('projects a pending form onto its options with a step id', async () => {
     const { text } = await runProbe({
       handlers: {
         active: async () => [SESSION],
@@ -1653,7 +1685,7 @@ describe('OpenCode v2 pending-ask delivery', () => {
     expect(payloadOf(text, 'agent.question')).toBe(
       JSON.stringify({
         session_id: SESSION,
-        question_id: 'frm_1',
+        question_id: 'frm_1#0',
         title: 'frm_1 title',
         options: [
           { value: 'a', label: '甲' },
@@ -1663,42 +1695,105 @@ describe('OpenCode v2 pending-ask delivery', () => {
     );
   });
 
-  it('falls back to status text when a form has too many options', async () => {
+  it('projects a wide form onto every option, up to the cap', async () => {
+    const options = Array.from({ length: 5 }, (_, i) => ({
+      value: `o${i}`,
+      label: `Option ${i}`,
+    }));
     const { text } = await runProbe({
       handlers: {
         active: async () => [SESSION],
-        // The cloud caps the projected list at two; the raw count is what makes
-        // the overflow visible here.
-        questions: async () => [
-          form(
-            'frm_wide',
-            [
-              { value: 'a', label: 'A' },
-              { value: 'b', label: 'B' },
-              { value: 'c', label: 'C' },
-            ],
-            'pending'
-          ),
-        ],
+        questions: async () => [form('frm_wide', options, 'pending')],
       },
     });
 
-    expect(text).not.toContain('agent.question');
-    expect(payloadOf(text, 'agent.status')).toContain('检测到 3 选项提问');
-    expect(payloadOf(text, 'agent.status')).toContain('OpenCode 端回答');
+    const payload = JSON.parse(payloadOf(text, 'agent.question')) as {
+      question_id: string;
+      options: unknown[];
+    };
+    expect(payload.question_id).toBe('frm_wide#0');
+    expect(payload.options).toHaveLength(5);
   });
 
-  it('asks the OpenCode side when a form cannot be answered on device', async () => {
+  it('degrades an over-cap form to an abort-only ask', async () => {
+    const options = Array.from({ length: 9 }, (_, i) => ({
+      value: `o${i}`,
+      label: `Option ${i}`,
+    }));
     const { text } = await runProbe({
       handlers: {
         active: async () => [SESSION],
-        questions: async () => [form('frm_text', [])],
+        questions: async () => [form('frm_huge', options, 'pending')],
       },
     });
 
-    expect(text).not.toContain('agent.question');
-    expect(payloadOf(text, 'agent.status')).toContain('检测到提问');
-    expect(payloadOf(text, 'agent.status')).toContain('OpenCode 端回答');
+    // Still an ask, never a silent status: the device shows the title with
+    // its abort entry, which is the only action such a field allows.
+    const payload = JSON.parse(payloadOf(text, 'agent.question')) as {
+      question_id: string;
+      options: unknown[];
+    };
+    expect(payload.question_id).toBe('frm_huge#0');
+    expect(payload.options).toEqual([]);
+  });
+
+  it('arms an unanswerable form as an abort-only ask', async () => {
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        questions: async () => [form('frm_text', [], 'pending')],
+      },
+    });
+
+    // The ask must reach the device even when no option can be projected:
+    // the device shows the title plus its abort entry, so the run is never
+    // blocked behind a prompt the user cannot see.
+    const payload = JSON.parse(payloadOf(text, 'agent.question')) as {
+      question_id: string;
+      options: unknown[];
+    };
+    expect(payload.question_id).toBe('frm_text#0');
+    expect(payload.options).toEqual([]);
+  });
+
+  it('advances a multi-field form one step per recorded answer', async () => {
+    const two = multiFieldForm('frm_seq', [
+      {
+        fieldKey: 'q0',
+        title: 'Pick a fruit',
+        options: [{ value: 'apple', label: 'Apple' }],
+      },
+      {
+        fieldKey: 'q1',
+        title: 'Pick a drink',
+        options: [{ value: 'water', label: 'Water' }],
+      },
+    ]);
+    let polls = 0;
+    const { text } = await runProbe({
+      handlers: {
+        active: async () => [SESSION],
+        questions: async () => {
+          polls += 1;
+          // The reply route records between polls; emulate it once the first
+          // step has certainly gone out.
+          if (polls === 3) {
+            recordQuestionAnswer({
+              sessionId: SESSION,
+              formId: 'frm_seq',
+              step: 0,
+              answer: 'apple',
+            });
+          }
+          return [two];
+        },
+      },
+    });
+
+    expect(payloadOfAt(text, 'agent.question', 0)).toContain('"frm_seq#0"');
+    expect(payloadOfAt(text, 'agent.question', 0)).toContain('Pick a fruit');
+    expect(payloadOfAt(text, 'agent.question', 1)).toContain('"frm_seq#1"');
+    expect(payloadOfAt(text, 'agent.question', 1)).toContain('Pick a drink');
   });
 
   it('arms only one ask, so a form never lands on top of a permission', async () => {
@@ -1738,7 +1833,7 @@ describe('OpenCode v2 pending-ask delivery', () => {
     });
 
     expect(payloadOf(text, 'agent.permission')).toContain('"prm_1"');
-    expect(payloadOf(text, 'agent.question')).toContain('"frm_1"');
+    expect(payloadOf(text, 'agent.question')).toContain('"frm_1#0"');
   });
 
   it('frees the bar for a later ask once a QUESTION is answered', async () => {
@@ -1764,7 +1859,7 @@ describe('OpenCode v2 pending-ask delivery', () => {
       },
     });
 
-    expect(payloadOf(text, 'agent.question')).toContain('"frm_1"');
+    expect(payloadOf(text, 'agent.question')).toContain('"frm_1#0"');
     // The later permission only reaches the device if answering the question
     // released the bar, so this is the whole assertion.
     expect(payloadOf(text, 'agent.permission')).toContain('"prm_late"');

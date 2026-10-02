@@ -123,7 +123,7 @@ rather than trusting the one it happened to see.
 | `agent.reasoning`       | `{session_id, text}`                                 | Full reasoning snapshot (≤ 2 KiB; repair frames only).        |
 | `agent.tool`            | `{session_id, tool, call_id?, status, preview?}`     | Tool activity; `status` ∈ `running`, `done`, `error`.         |
 | `agent.permission`      | `{session_id, permission_id, type, title, preview?}` | OpenCode is waiting for approval.                             |
-| `agent.question`        | `{session_id, question_id, title, options[]}`        | A form the device can answer; `options` ≤ 2 `{value, label}`. |
+| `agent.question`        | `{session_id, question_id, title, options[]}`        | A form field the device can answer; `options` ≤ 8 `{value, label}` (empty = abort-only ask). |
 | `agent.error`           | `{session_id, message, fatal?}`                      | Failure; see `fatal` below.                                   |
 
 `call_id` is the upstream call id, echoed on every frame of one call. It is what
@@ -190,9 +190,14 @@ precise:
    `pending` from `answered` / `cancelled`. Answered and cancelled forms are
    recorded as seen and never re-armed.
 
-A form whose single projectable field has more than two options — or none — is
-**not** armed on the device: the option bar has two slots, and an unanswerable
-prompt is worse than a clear instruction. Those degrade to
+A form is projected as a sequence of single-field asks: v2 settles a form on
+the first reply even when partial, so the cloud accumulates the device's answers
+and submits one reply after the last answerable field. `question_id` carries a
+`#{step}` suffix so a late or duplicate reply is recognised as stale. A field
+with more than eight options — or none — is skipped and left out of the
+submitted answer; when no field is answerable at all, the first field is still
+armed with `options: []` so the ask stays visible and can be aborted. A form
+with no visible field at all degrades to
 `agent.status {status: "busy", message: "…请在 OpenCode 端回答"}`.
 
 The device never builds the upstream `answer` record. It sends the option value
@@ -253,7 +258,8 @@ ceiling and a 400×300 panel.
 | `agent.text`                                 | 8 KiB                                 |
 | `agent.text.delta` / `agent.reasoning.delta` | 2 KiB per frame                       |
 | SSE frame (single line and accumulated)      | 16 KiB                                |
-| Question options                             | ≤ 2                                   |
+| Question options                             | ≤ 8                                   |
+| Question frame (options payload)             | 10 KiB (`question_frame_bytes`)       |
 | Sessions listed                              | 12                                    |
 | Tools per history message                    | 8                                     |
 | Prompt per run                               | 4 KiB                                 |

@@ -47,10 +47,6 @@ export const OPENCODE_HISTORY_THINKING_CHARS = 2 * 1024;
 // and `permission.preview` are all `maxLength: 160` in the schema. Nothing
 // enforces that at runtime, so this constant is the only clamp.
 export const OPENCODE_HISTORY_PREVIEW_CHARS = 160;
-// The device option bar renders exactly two slots; a third collides with the
-// key-hint strip. More options than this degrade to status text on device.
-export const OPENCODE_QUESTION_OPTION_LIMIT = 2;
-
 export interface OpenCodeSessionSummary {
   id: string;
   title: string;
@@ -87,20 +83,26 @@ export interface OpenCodeQuestionOption {
   label: string;
 }
 
+/** One visible field of a form, projected for the device. */
+export interface OpenCodeQuestionField {
+  fieldKey: string;
+  title: string;
+  options: OpenCodeQuestionOption[];
+  /** Raw option count before the eight-option device cap. */
+  optionCount: number;
+}
+
 /**
- * A form projected onto the single field the device can answer. `status` is
- * empty for `Form.Info` (upstream has no state on the list shape) and only
- * becomes pending/answered/cancelled through `loadOpenCodeFormDetail`.
+ * A form projected onto its visible fields. `status` is empty for `Form.Info`
+ * (upstream has no state on the list shape) and only becomes
+ * pending/answered/cancelled through `loadOpenCodeFormDetail`.
  */
 export interface OpenCodeFormState {
   id: string;
   sessionId: string;
   title: string;
   status: 'pending' | 'answered' | 'cancelled' | '';
-  fieldKey: string;
-  options: OpenCodeQuestionOption[];
-  /** Raw option count before the two-slot device cap. */
-  optionCount: number;
+  fields: OpenCodeQuestionField[];
 }
 
 export type OpenCodeQuestionAnswerValue = string | number | boolean | string[];
@@ -129,7 +131,14 @@ export class OpenCodeGatewayError extends Error {
       | 'upstream_error'
       | 'upstream_timeout',
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    /**
+     * The raw upstream HTTP status when the failure was one. Callers branch on
+     * it for semantics the generic `upstream_error` code erases: a 409 on a
+     * form reply means the form was already settled, which is a success for
+     * whoever tried to answer it.
+     */
+    public readonly upstreamStatus?: number
   ) {
     super(message);
     this.name = 'OpenCodeGatewayError';
@@ -282,7 +291,8 @@ async function fetchUpstream(
       throw new OpenCodeGatewayError(
         'upstream_error',
         `OpenCode request failed with HTTP ${response.status}`,
-        response.status >= 500 ? 502 : 424
+        response.status >= 500 ? 502 : 424,
+        response.status
       );
     }
     return response;
@@ -1183,10 +1193,15 @@ function formState(data: Record<string, unknown>): OpenCodeFormState['status'] {
 }
 
 /**
- * Project a form onto the one field the device can answer: skip hidden fields
- * and fields gated behind a `when[]` condition (the device has no other answers
- * to branch on), then take the first `string`/`multiselect` field that carries
- * options. Option labels fall back to the raw value when upstream omits them.
+ * Project a form onto its visible fields: skip hidden fields and fields gated
+ * behind a `when[]` condition (the device has no other answers to branch on).
+ * Only `string`/`multiselect` fields carry options; every other visible field
+ * is kept as a zero-option entry so the ask can still be shown and aborted
+ * instead of silently blocking the run. A form with no visible field at all
+ * still projects a single stub so it, too, is visible. Option labels fall back
+ * to the raw value when upstream omits them, and each field keeps its own
+ * title (the form title is a constant like "Questions") so a multi-field
+ * sequence is distinguishable on the device.
  */
 function projectForm(
   form: Record<string, unknown>,
@@ -1196,49 +1211,60 @@ function projectForm(
   const id = stringField(form, 'id');
   if (!id) return null;
   const fields = Array.isArray(form.fields) ? form.fields : [];
+  const formTitle = clampCodePoints(
+    stringField(form, 'title') || 'OpenCode 提问',
+    160
+  );
+  const projected: OpenCodeQuestionField[] = [];
   for (const rawField of fields) {
     const field = asRecord(rawField);
     if (field.hidden === true) continue;
     if (Array.isArray(field.when) && field.when.length > 0) continue;
     const fieldType = stringField(field, 'type');
-    if (fieldType !== 'string' && fieldType !== 'multiselect') continue;
     const rawOptions = Array.isArray(field.options) ? field.options : [];
-    if (rawOptions.length === 0) continue;
     const options: OpenCodeQuestionOption[] = [];
-    for (const rawOption of rawOptions) {
-      const option = asRecord(rawOption);
-      const rawValue =
-        stringField(option, 'value') ||
-        stringField(option, 'id') ||
-        stringField(option, 'label');
-      if (!rawValue) continue;
-      // The device echoes this value back as the answer, and both the schema
-      // (`questionOption.value`) and the reply route cap it at 256 code points.
-      // Clamping here keeps the projection sendable; an option whose value is
-      // longer than that cannot be answered through the device at all.
-      const value = clampCodePoints(rawValue, 256);
-      options.push({
-        value,
-        label: clampCodePoints(stringField(option, 'label') || value, 80),
-      });
+    if (fieldType === 'string' || fieldType === 'multiselect') {
+      for (const rawOption of rawOptions) {
+        const option = asRecord(rawOption);
+        const rawValue =
+          stringField(option, 'value') ||
+          stringField(option, 'id') ||
+          stringField(option, 'label');
+        if (!rawValue) continue;
+        // The device echoes this value back as the answer, and both the schema
+        // (`questionOption.value`) and the reply route cap it at 256 code
+        // points. Clamping here keeps the projection sendable; an option whose
+        // value is longer than that cannot be answered through the device at
+        // all.
+        const value = clampCodePoints(rawValue, 256);
+        options.push({
+          value,
+          label: clampCodePoints(stringField(option, 'label') || value, 80),
+        });
+      }
     }
-    if (options.length === 0) continue;
-    return {
-      id,
-      sessionId: stringField(form, 'sessionID') || sessionId,
-      title: clampCodePoints(
-        stringField(form, 'title') || 'OpenCode 提问',
-        160
-      ),
-      status,
+    projected.push({
       fieldKey: stringField(field, 'key') || id,
-      // Two slots is the device's hard geometry limit (a third collides with
-      // the key-hint strip); more options degrade to status text on device.
-      options: options.slice(0, OPENCODE_QUESTION_OPTION_LIMIT),
+      title: clampCodePoints(stringField(field, 'title') || formTitle, 160),
+      options,
       optionCount: options.length,
-    };
+    });
   }
-  return null;
+  if (projected.length === 0) {
+    projected.push({
+      fieldKey: id,
+      title: formTitle,
+      options: [],
+      optionCount: 0,
+    });
+  }
+  return {
+    id,
+    sessionId: stringField(form, 'sessionID') || sessionId,
+    title: formTitle,
+    status,
+    fields: projected,
+  };
 }
 
 export async function replyOpenCodeQuestion(

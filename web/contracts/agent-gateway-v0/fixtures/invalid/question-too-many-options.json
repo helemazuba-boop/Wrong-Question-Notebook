@@ -1,0 +1,23 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  {
+    "event": "agent.question",
+    "data": {
+      "session_id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
+      "question_id": "frm_01J8ZQ5R8W3P1Y4N7C0D2E6F9K#0",
+      "title": "选项过多的提问",
+      "options": [
+        { "value": "o1", "label": "选项一" },
+        { "value": "o2", "label": "选项二" },
+        { "value": "o3", "label": "选项三" },
+        { "value": "o4", "label": "选项四" },
+        { "value": "o5", "label": "选项五" },
+        { "value": "o6", "label": "选项六" },
+        { "value": "o7", "label": "选项七" },
+        { "value": "o8", "label": "选项八" },
+        { "value": "o9", "label": "选项九" }
+      ]
+    }
+  },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]

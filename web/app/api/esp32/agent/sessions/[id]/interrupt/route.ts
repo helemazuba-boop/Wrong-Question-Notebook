@@ -9,6 +9,7 @@ import {
   OpenCodeSessionAccessError,
   resolveOpenCodeBinding,
 } from '@/lib/opencode-agent-gateway';
+import { abandonQuestionSequences } from '@/lib/opencode-agent-question-sequence';
 
 export const runtime = 'nodejs';
 // Stop a submitted run. The device calls this from the interrupt key, which
@@ -41,6 +42,9 @@ export async function POST(
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
     const interrupted = await interruptOpenCodeSession(binding, id);
+    // Upstream cancels the pending form with the run, so the accumulated
+    // answers of a multi-field sequence die with it.
+    abandonQuestionSequences(id);
     return NextResponse.json({ success: true, data: { interrupted } });
   } catch (error) {
     if (error instanceof OpenCodeSessionAccessError) {

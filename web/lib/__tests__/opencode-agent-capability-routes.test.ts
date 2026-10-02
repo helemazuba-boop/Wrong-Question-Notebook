@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as loadHistory } from '@/app/api/esp32/agent/sessions/[id]/history/route';
 import { POST as interruptRun } from '@/app/api/esp32/agent/sessions/[id]/interrupt/route';
 import { POST as replyQuestion } from '@/app/api/esp32/agent/sessions/[id]/question/route';
+import { __resetQuestionSequencesForTest } from '@/lib/opencode-agent-question-sequence';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 
 const { authenticate, fetchMock } = vi.hoisted(() => ({
@@ -39,6 +40,9 @@ function ownedListResponse(): Response {
 describe('OpenCode Agent capability routes', () => {
   beforeEach(() => {
     _resetRateLimitStore();
+    // The sequence store is process-level and shared by the relay and this
+    // route; a leftover sequence would make a later test look answered.
+    __resetQuestionSequencesForTest();
     // `clearAllMocks` records but does not drain one-shot queues, so a test
     // that throws early would leak its unconsumed response into the next one.
     fetchMock.mockReset();
@@ -210,6 +214,141 @@ describe('OpenCode Agent capability routes', () => {
     expect(response.status).toBe(200);
     const [, init] = fetchMock.mock.calls[2] as [URL, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({ answer: { frm_1: 'yes' } });
+  });
+
+  it('collects a multi-field form one step at a time and submits once', async () => {
+    const detail = () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            id: 'frm_seq',
+            sessionID: 'ses_owned',
+            title: 'Questions',
+            state: { status: 'pending' },
+            fields: [
+              {
+                type: 'string',
+                key: 'fruit',
+                title: 'Pick a fruit',
+                options: [
+                  { value: 'apple', label: 'Apple' },
+                  { value: 'banana', label: 'Banana' },
+                ],
+              },
+              {
+                type: 'string',
+                key: 'drink',
+                title: 'Pick a drink',
+                options: [
+                  { value: 'water', label: 'Water' },
+                  { value: 'tea', label: 'Tea' },
+                ],
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      );
+    fetchMock.mockResolvedValueOnce(ownedListResponse());
+    fetchMock.mockResolvedValueOnce(detail());
+
+    const first = await replyQuestion(
+      request('http://localhost/api/esp32/agent/sessions/ses_owned/question', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question_id: 'frm_seq#0',
+          answer: 'apple',
+          confirmed: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'ses_owned' }) }
+    );
+
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      data: { replied: true },
+    });
+    // A non-final step is only accumulated: v2 settles a form on its first
+    // reply, so nothing may reach upstream until the last step.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Every POST re-asserts ownership, then re-reads the detail.
+    fetchMock.mockResolvedValueOnce(ownedListResponse());
+    fetchMock.mockResolvedValueOnce(detail());
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const second = await replyQuestion(
+      request('http://localhost/api/esp32/agent/sessions/ses_owned/question', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question_id: 'frm_seq#1',
+          answer: 'tea',
+          confirmed: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'ses_owned' }) }
+    );
+
+    expect(second.status).toBe(200);
+    const [url, init] = fetchMock.mock.calls[4] as [URL, RequestInit];
+    expect(url.pathname).toBe('/api/session/ses_owned/form/frm_seq/reply');
+    // One upstream reply carries every step's answer, keyed by field id.
+    expect(JSON.parse(String(init.body))).toEqual({
+      answer: { fruit: 'apple', drink: 'tea' },
+    });
+  });
+
+  it('treats a 409 on the final submit as already settled', async () => {
+    fetchMock.mockResolvedValueOnce(ownedListResponse());
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            id: 'frm_single',
+            sessionID: 'ses_owned',
+            state: { status: 'pending' },
+            fields: [
+              {
+                type: 'string',
+                key: 'confirm',
+                options: [
+                  { value: 'yes', label: '允许' },
+                  { value: 'no', label: '拒绝' },
+                ],
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ _tag: 'Conflict', message: 'settled' }), {
+        status: 409,
+      })
+    );
+
+    const response = await replyQuestion(
+      request('http://localhost/api/esp32/agent/sessions/ses_owned/question', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          question_id: 'frm_single#0',
+          answer: 'yes',
+          confirmed: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: 'ses_owned' }) }
+    );
+
+    // Upstream settled the form between the detail read and the reply. For a
+    // user who already picked an answer that is a success, not an error.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: { replied: true },
+    });
   });
 
   it('rejects a question reply without on-device confirmation', async () => {

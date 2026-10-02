@@ -1012,7 +1012,7 @@ describe('OpenCode Agent gateway', () => {
       ]);
     });
 
-    it('projects the first answerable form field and caps device options at two', async () => {
+    it('projects every visible form field without capping device options', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           data: [
@@ -1023,8 +1023,8 @@ describe('OpenCode Agent gateway', () => {
               fields: [
                 { key: 'note', type: 'string', options: [] },
                 { key: 'answer', type: 'string', options: [] },
-                // Hidden and conditionally-visible fields cannot be answered
-                // from a two-button device.
+                // Hidden and conditionally-visible fields are skipped: the
+                // device can neither see nor answer them.
                 {
                   key: 'branch',
                   type: 'string',
@@ -1060,20 +1060,62 @@ describe('OpenCode Agent gateway', () => {
         'ses_123'
       );
 
-      expect(forms).toHaveLength(1);
+      expect(forms).toHaveLength(2);
       expect(forms[0]).toMatchObject({
         id: 'frm_1',
         sessionId: 'ses_123',
         title: 'Pick a branch',
         // Form.Info has no state; only Form.Detail can answer pending/answered.
         status: '',
-        fieldKey: 'targets',
-        optionCount: 4,
       });
-      expect(forms[0].options).toEqual([
-        { value: 'a', label: 'Alpha' },
-        { value: 'b', label: 'Beta' },
+      // Every visible field keeps its order and its own title (the form title
+      // is a constant like "Questions"); non-option fields still project with
+      // zero options so the device can step past them.
+      expect(forms[0].fields).toEqual([
+        {
+          fieldKey: 'note',
+          title: 'Pick a branch',
+          options: [],
+          optionCount: 0,
+        },
+        {
+          fieldKey: 'answer',
+          title: 'Pick a branch',
+          options: [],
+          optionCount: 0,
+        },
+        {
+          fieldKey: 'target',
+          title: 'Pick a branch',
+          options: [],
+          optionCount: 0,
+        },
+        {
+          fieldKey: 'targets',
+          title: 'Pick a branch',
+          options: [
+            { value: 'a', label: 'Alpha' },
+            { value: 'b', label: 'Beta' },
+            { value: 'c', label: 'Gamma' },
+            { value: 'd', label: 'd' },
+          ],
+          optionCount: 4,
+        },
       ]);
+      // A form with no visible field still projects one stub field so it stays
+      // visible on the device instead of silently blocking the run.
+      expect(forms[1]).toMatchObject({
+        id: 'frm_nofields',
+        sessionId: 'ses_123',
+        fields: [
+          {
+            fieldKey: 'frm_nofields',
+            title: 'OpenCode 提问',
+            options: [],
+            optionCount: 0,
+          },
+        ],
+      });
     });
 
     it('clamps an over-long option value to the 256-code-point schema bound', async () => {
@@ -1103,8 +1145,8 @@ describe('OpenCode Agent gateway', () => {
       // The device echoes `value` back as the answer, and both the schema and
       // the reply route cap it at 256 code points -- an unclamped projection
       // would be rejected on the way back in.
-      expect(forms[0].options[0].value).toBe('😀'.repeat(256));
-      expect(forms[0].options[0].label).toBe('Long');
+      expect(forms[0].fields[0].options[0].value).toBe('😀'.repeat(256));
+      expect(forms[0].fields[0].options[0].label).toBe('Long');
     });
 
     it('reads form state from the detail endpoint only', async () => {
@@ -1133,7 +1175,8 @@ describe('OpenCode Agent gateway', () => {
       );
 
       expect(form?.status).toBe('answered');
-      expect(form?.fieldKey).toBe('targets');
+      expect(form?.fields).toHaveLength(1);
+      expect(form?.fields[0].fieldKey).toBe('targets');
       const [url] = fetchMock.mock.calls[0] as [URL, RequestInit];
       expect(url.pathname).toBe('/api/session/ses_123/form/frm_1');
     });

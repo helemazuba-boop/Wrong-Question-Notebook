@@ -258,13 +258,13 @@
           "$ref": "#/$defs/sessionId",
           "description": "The session that raised the ask, which is not always the session the device attached to: a subagent has its own id and raises its asks against it. Both reply routes are session-scoped upstream, so the device answers on whichever session this names. Without it the device falls back to the attached session, which is a 404 for a subagent's ask -- discoverable, never answerable."
         },
-        "question_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "question_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Opaque to the device, which echoes it back verbatim on the reply. A sequential projection appends `#{step}` (0-based) so the gateway can tell which field of a multi-field form an answer belongs to; a value without the suffix is answered as the form's only step." },
         "title": { "type": "string", "maxLength": 160 },
         "options": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 2,
-          "description": "At most two, because the device's option bar has exactly two slots. A form the gateway cannot project into them is delivered as `agent.status` instead.",
+          "minItems": 0,
+          "maxItems": 8,
+          "description": "Up to eight; the device walks them in a two-slot window. Empty means the field cannot be answered on the device (no options upstream, or more than eight) -- it is still armed so the user sees the ask and can abort it, rather than being left with no prompt at all.",
           "items": { "$ref": "#/$defs/questionOption" }
         }
       }

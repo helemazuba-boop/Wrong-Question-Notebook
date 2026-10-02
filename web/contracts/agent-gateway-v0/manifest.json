@@ -1,8 +1,8 @@
 {
   "contract": "agent-gateway-v0",
-  "version": "2.0",
+  "version": "2.1",
   "schema": "agent-gateway-v0.schema.json",
-  "schema_sha256": "8409050fbfa8d1452c9897f857ceba03c9e972f790bb710e9388fc041c1fd358",
+  "schema_sha256": "91173f1038115a42c24f59e95ae113da1dbca1cdb8966dbea7337523e384dc6e",
   "api_base": "https://wqn.helema.cn/api/esp32",
   "routes_prefix": "/agent",
   "auth": "Authorization: Bearer <device pairing token>",
@@ -44,7 +44,8 @@
     "prompt_bytes": 4096,
     "text_event_bytes": 8192,
     "delta_event_bytes": 2048,
-    "question_options": 2,
+    "question_options": 8,
+    "question_frame_bytes": 10240,
     "sse_frame_bytes": 16384,
     "sessions_listed": 12,
     "stream_socket_timeout_ms": 300000
@@ -62,7 +63,7 @@
     ],
     "device_visible_breaking_changes": [
       "agent.reasoning.delta and agent.reasoning are new device events (reasoning never enters agent.text)",
-      "agent.question is a new device event carrying at most two projected options",
+      "agent.question is a new device event carrying up to eight projected options; an empty list marks a field the device cannot answer, and a multi-field form is projected as sequential asks whose answers the gateway accumulates until the last step",
       "GET /agent/sessions/{id}/history is a new device route; it must fit the 16 KiB JSON ceiling, so the gateway trims from the front",
       "POST /agent/sessions/{id}/question and POST /agent/sessions/{id}/interrupt are new device routes"
     ],

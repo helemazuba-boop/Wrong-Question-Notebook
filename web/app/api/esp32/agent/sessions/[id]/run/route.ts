@@ -23,6 +23,7 @@ import {
   resolveOpenCodeBinding,
   submitOpenCodePrompt,
 } from '@/lib/opencode-agent-gateway';
+import { abandonQuestionSequences } from '@/lib/opencode-agent-question-sequence';
 
 export const runtime = 'nodejs';
 // Self-hosted `next start` ignores this hint; it documents the gateway's
@@ -259,6 +260,9 @@ export async function POST(
           terminal = { state: 'failed', errorCode: 'stream_disconnected' };
         }
       } finally {
+        // The run is over: any half-answered multi-field sequence belongs to
+        // a form upstream has already settled or cancelled.
+        if (terminal !== null) abandonQuestionSequences(id);
         if (ownsClaim && requestId !== null && terminal !== null) {
           await completeAgentRunRequest({
             deviceId: auth.deviceId,
