@@ -11,12 +11,13 @@ import { createSseResponse, SseWriter } from '@/lib/ai-stream';
 import { runStreamingPipeline } from '@/lib/sse-pipeline';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
 import { logger } from '@/lib/logger';
+import { Esp32AiProviderError } from '@/lib/esp32-ai-provider';
 import {
   getEsp32AiAsrSelection,
   type Esp32AiAsrProvider,
 } from '@/lib/esp32-ai-asr-selection';
 import { buildAiToolExecutor } from './v2-tools';
-import { appendAiToolPrompt } from '@/lib/esp32-ai-tool-definitions';
+import { appendAiToolPrompt } from '@/lib/ai-tools/voice-tools';
 
 export const RUNTIME_TAG = 'nodejs';
 
@@ -62,7 +63,7 @@ const DEFAULT_TASK_STATUS_BASE_URL =
 const DEFAULT_STEPFUN_ASR_URL = 'https://api.stepfun.com/v1/audio/asr/sse';
 const DEFAULT_STEPFUN_ASR_MODEL = 'stepaudio-2.5-asr';
 
-function loadV2RuntimeConfig(): V2RuntimeConfig {
+export function loadV2RuntimeConfig(): V2RuntimeConfig {
   const asrSelection = getEsp32AiAsrSelection();
   if (!asrSelection) {
     throw new Error('Invalid ESP32 AI ASR provider selection');
@@ -188,6 +189,7 @@ export async function handleV2Streaming(
     toolExecutor = buildAiToolExecutor(ctx);
   }
 
+  const pipelineStartedAtMs = Date.now();
   const sse = createSseResponse(async function (writer: SseWriter) {
     try {
       await runStreamingPipeline({
@@ -235,8 +237,27 @@ export async function handleV2Streaming(
         stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
       });
     } catch (error) {
-      logger.error('v2-streaming pipeline failed', error, {
+      if (error instanceof Esp32AiProviderError && error.code === 'no_speech') {
+        // Expected outcome for a button tap or near-silence, not a failure.
+        logger.warn('v2-streaming pipeline: no speech in audio', {
+          component: 'Esp32AiTranscribeChat',
+          code: error.code,
+          status: error.status,
+          message: error.message,
+        });
+      } else {
+        logger.error('v2-streaming pipeline failed', error, {
+          component: 'Esp32AiTranscribeChat',
+        });
+      }
+    }
+    if (writer.isClosed()) {
+      // The relay/device gave up before the pipeline finished (turn timeout,
+      // WS drop). Without this line a turn that completes into a closed
+      // stream is invisible: no failure log, no device output, no trace.
+      logger.warn('v2-streaming pipeline finished after client stream closed', {
         component: 'Esp32AiTranscribeChat',
+        elapsed_since_start_ms: Date.now() - pipelineStartedAtMs,
       });
     }
   });

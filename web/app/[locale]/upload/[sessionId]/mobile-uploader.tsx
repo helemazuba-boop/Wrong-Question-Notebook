@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import {
@@ -23,8 +23,14 @@ type UploadState = 'capture' | 'crop' | 'uploading' | 'success' | 'error';
 
 interface MobileUploaderProps {
   sessionId: string;
-  token: string;
 }
+
+const FILE_EXTENSION_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 
 /** Extract the cropped region from an <img> element and return it as a Blob. */
 function getCroppedBlob(
@@ -78,13 +84,14 @@ function getCroppedBlob(
   });
 }
 
-export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
+export function MobileUploader({ sessionId }: MobileUploaderProps) {
   const t = useTranslations('Upload');
   const tCommon = useTranslations('Common');
   const [state, setState] = useState<UploadState>('capture');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [token, setToken] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,6 +99,27 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    const storageKey = `wqn-qr-token:${sessionId}`;
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const fragmentToken =
+      fragment.get('token') ?? window.sessionStorage.getItem(storageKey) ?? '';
+    // Remove the credential from browser history and screenshots as soon as it
+    // has been copied into memory.
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${window.location.search}`
+    );
+    if (!fragmentToken) {
+      setErrorMessage(QR_SESSION_CONSTANTS.ERRORS.INVALID_TOKEN);
+      setState('error');
+      return;
+    }
+    window.sessionStorage.setItem(storageKey, fragmentToken);
+    setToken(fragmentToken);
+  }, [sessionId]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,6 +179,11 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
   const handleUpload = useCallback(
     async (skipCrop: boolean) => {
       if (!file || !preview) return;
+      if (!token) {
+        setErrorMessage(QR_SESSION_CONSTANTS.ERRORS.INVALID_TOKEN);
+        setState('error');
+        return;
+      }
 
       setState('uploading');
 
@@ -166,14 +199,17 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
         }
 
         const formData = new FormData();
-        formData.append('file', uploadBlob, file.name);
+        const extension = FILE_EXTENSION_BY_MIME[uploadBlob.type] ?? 'jpg';
+        formData.append('file', uploadBlob, `photo.${extension}`);
 
-        const res = await fetch(
-          `/api/qr-upload/${sessionId}?token=${encodeURIComponent(token)}`,
-          { method: 'POST', body: formData }
-        );
+        const res = await fetch(`/api/qr-upload/${sessionId}`, {
+          method: 'POST',
+          headers: { 'X-WQN-QR-Token': token },
+          body: formData,
+        });
 
         if (res.ok) {
+          window.sessionStorage.removeItem(`wqn-qr-token:${sessionId}`);
           setState('success');
           return;
         }
@@ -182,10 +218,13 @@ export function MobileUploader({ sessionId, token }: MobileUploaderProps) {
         const message = json?.error || t('somethingWrongTryAgain');
 
         if (res.status === 410) {
+          window.sessionStorage.removeItem(`wqn-qr-token:${sessionId}`);
           setErrorMessage(QR_SESSION_CONSTANTS.ERRORS.SESSION_EXPIRED);
         } else if (res.status === 409) {
+          window.sessionStorage.removeItem(`wqn-qr-token:${sessionId}`);
           setErrorMessage(QR_SESSION_CONSTANTS.ERRORS.SESSION_ALREADY_USED);
         } else if (res.status === 403) {
+          window.sessionStorage.removeItem(`wqn-qr-token:${sessionId}`);
           setErrorMessage(QR_SESSION_CONSTANTS.ERRORS.INVALID_TOKEN);
         } else {
           setErrorMessage(message);

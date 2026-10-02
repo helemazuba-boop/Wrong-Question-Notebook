@@ -61,4 +61,22 @@ describe('Skill retrieval statement-only query', () => {
       })
     ).toThrow();
   });
+
+  it('bounds the assembled query so long Problems cannot exceed the model limit', () => {
+    const long = '测'.repeat(20_000);
+    const query = buildSkillRetrievalQuery({
+      title: long,
+      content: long,
+      parts: [
+        {
+          index: 1,
+          content: long,
+          choices: Array.from({ length: 10 }, () => ({ text: long })),
+        },
+      ],
+    });
+    // Each field is individually valid (<= 20k), but the sum is not.
+    expect(query.text.length).toBeLessThanOrEqual(12_000);
+    expect(query.templateVersion).toBe('skill-question-instruction-v1');
+  });
 });

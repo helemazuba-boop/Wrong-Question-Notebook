@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "data": {
+    "transcript": "帮我把这道极限题的步骤整理成错题本",
+    "latency_ms": 820,
+    "asr": "dashscope"
+  }
+}

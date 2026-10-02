@@ -16,6 +16,7 @@ const MCP_TOOL_NAMES = [
   'create_problem',
   'create_problem_from_images',
   'create_todo',
+  'create_word_deck',
   'get_learning_overview',
   'get_note',
   'get_note_reading_overview',
@@ -39,6 +40,7 @@ const MCP_TOOL_NAMES = [
   'record_word_study_observation',
   'search_learning_content',
   'search_user_problems',
+  'search_words',
   'set_note_reading_session_status',
   'set_word_study_session_status',
   'start_note_reading_session',
@@ -302,9 +304,7 @@ describe('MCP_TOOLS registry shape', () => {
     const create = findMcpTool('create_problem')!;
     const result = await create.handler(ctx, { get_prompt: true });
     expect(result).toMatchObject({
-      prompt: expect.stringContaining(
-        'Extract faithfully. Do NOT solve the problem.'
-      ),
+      prompt: expect.stringContaining('exactly one already-selected question'),
       next_step: expect.stringContaining('call create_problem again'),
     });
     expect(ctx.supabase.from).not.toHaveBeenCalled();

@@ -1,7 +1,12 @@
 // Note: Caching is now handled at the call site level to prevent data leakage
 import { getFilteredProblems } from './review-utils';
 import { FilterConfig } from './types';
-import { createServiceClient } from './supabase-utils';
+import {
+  createServiceClient,
+  isRetryableAuthError,
+  retryOnAuthFailure,
+  toAuthUnavailableError,
+} from './supabase-utils';
 
 /**
  * Check if a user has limited access to a problem set
@@ -12,12 +17,21 @@ export async function checkLimitedAccess(
   userEmail: string
 ): Promise<boolean> {
   try {
-    const { data: share, error } = await supabase
-      .from('problem_set_shares')
-      .select('id')
-      .eq('problem_set_id', problemSetId)
-      .eq('shared_with_email', userEmail)
-      .single();
+    const { data: share, error } = await retryOnAuthFailure(() =>
+      supabase
+        .from('problem_set_shares')
+        .select('id')
+        .eq('problem_set_id', problemSetId)
+        .eq('shared_with_email', userEmail)
+        .single()
+    );
+
+    // A session-token rejection is not a verdict about this row. Returning
+    // `false` here would read as "not shared with you", and the page-level
+    // loader caches that verdict for its whole revalidate window.
+    if (isRetryableAuthError(error)) {
+      throw toAuthUnavailableError(error);
+    }
 
     if (error && error.code !== 'PGRST116') {
       console.error('Error checking limited access:', error);
@@ -26,6 +40,9 @@ export async function checkLimitedAccess(
 
     return !!share;
   } catch (error) {
+    if (isRetryableAuthError(error)) {
+      throw error;
+    }
     console.error('Error checking limited access:', error);
     return false;
   }
@@ -123,19 +140,30 @@ export async function getProblemSetWithFullData(
   userEmail: string | null
 ) {
   // Step 1: Fetch problem set metadata (lightweight — no problem joins)
-  const { data: problemSet, error: problemSetError } = await supabase
-    .from('problem_sets')
-    .select(
-      `
+  const { data: problemSet, error: problemSetError } = await retryOnAuthFailure(
+    () =>
+      supabase
+        .from('problem_sets')
+        .select(
+          `
       ${PROBLEM_SET_COLUMNS},
       subjects(name),
       problem_set_shares(id, shared_with_email)
     `
-    )
-    .eq('id', problemSetId)
-    .single();
+        )
+        .eq('id', problemSetId)
+        .single()
+  );
 
   if (problemSetError) {
+    // `null` means "no such problem set" to every caller, and page-level
+    // loaders memoise it with `unstable_cache`. A rejected session token says
+    // nothing about whether the row exists, so it must not travel down that
+    // path: throw, which caches nothing and retries on the next request.
+    if (isRetryableAuthError(problemSetError)) {
+      throw toAuthUnavailableError(problemSetError);
+    }
+
     console.error('Error loading problem set:', problemSetError);
     return null;
   }
@@ -247,13 +275,20 @@ export async function getProblemSetBasic(
   userEmail: string | null
 ) {
   // Get the basic problem set data
-  const { data: problemSet, error: problemSetError } = await supabase
-    .from('problem_sets')
-    .select('id, user_id, sharing_level')
-    .eq('id', problemSetId)
-    .single();
+  const { data: problemSet, error: problemSetError } = await retryOnAuthFailure(
+    () =>
+      supabase
+        .from('problem_sets')
+        .select('id, user_id, sharing_level')
+        .eq('id', problemSetId)
+        .single()
+  );
 
   if (problemSetError) {
+    if (isRetryableAuthError(problemSetError)) {
+      throw toAuthUnavailableError(problemSetError);
+    }
+
     console.error('Error loading problem set:', problemSetError);
     return null;
   }

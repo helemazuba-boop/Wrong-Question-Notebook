@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createDashScopeEmbeddingProvider,
+  createEmbeddingProvider,
+  createNvidiaEmbeddingProvider,
   EmbeddingProviderContractError,
   EmbeddingProviderTransientError,
 } from '@/lib/problem-marks/retrieval/embedding-provider';
@@ -126,5 +128,107 @@ describe('DashScope native embedding provider', () => {
       EmbeddingProviderTransientError
     );
     vi.unstubAllGlobals();
+  });
+});
+
+function nvidiaProfile(): SkillRetrievalProfile {
+  return {
+    profile_id: 'skill-rag-nvidia-v1',
+    provider_protocol: 'nvidia-query-passage-v1',
+    provider: 'nvidia',
+    endpoint: 'https://integrate.api.nvidia.com/v1/embeddings',
+    model: 'nvidia/nemotron-3-embed-1b',
+    model_identity_policy: 'hosted_alias',
+    model_identity: 'nvidia/nemotron-3-embed-1b',
+    dimension: 2,
+    encoding_format: 'float',
+    normalization: 'l2',
+    document_contract: { input_type: 'passage', truncate: 'NONE' },
+    query_contract: { input_type: 'query', truncate: 'NONE' },
+    document_template_version: 'doc-v1',
+    query_template_version: 'query-v1',
+    tokenizer: {
+      repository: 'nvidia/Nemotron-3-Embed-1B-BF16',
+      revision: 'f8801746',
+      max_tokens: 4096,
+    },
+  } as unknown as SkillRetrievalProfile;
+}
+
+describe('NVIDIA NIM embedding provider', () => {
+  it('sends the OpenAI-shaped body and reads data[] rows', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ data: [{ index: 0, embedding: [3, 4] }] })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const provider = createNvidiaEmbeddingProvider(nvidiaProfile(), {
+        endpoint: 'https://integrate.api.nvidia.com/v1/embeddings',
+        token: 'secret',
+      });
+      await expect(provider.embed(['题面'], 'query')).resolves.toEqual([
+        [0.6, 0.8],
+      ]);
+
+      const request = JSON.parse(
+        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+          .body as string
+      );
+      // Flat input array and input_type role, no DashScope `parameters`.
+      expect(request).toEqual({
+        model: 'nvidia/nemotron-3-embed-1b',
+        input: ['题面'],
+        input_type: 'query',
+        truncate: 'NONE',
+        encoding_format: 'float',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('uses the passage input type for documents', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ data: [{ index: 0, embedding: [1, 0] }] })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const provider = createEmbeddingProvider(nvidiaProfile(), {
+        endpoint: 'https://integrate.api.nvidia.com/v1/embeddings',
+        token: 'secret',
+      });
+      await provider.embed(['讲解'], 'document');
+      const request = JSON.parse(
+        (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+          .body as string
+      );
+      expect(request.input_type).toBe('passage');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('selects the NVIDIA provider from the locked protocol', () => {
+    const previous = process.env.NVIDIA_API_KEY;
+    process.env.NVIDIA_API_KEY = 'secret';
+    try {
+      // Resolves without a DashScope key, proving the protocol drove the choice.
+      expect(() => createEmbeddingProvider(nvidiaProfile())).not.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.NVIDIA_API_KEY;
+      else process.env.NVIDIA_API_KEY = previous;
+    }
+  });
+
+  it('fails closed when the NVIDIA key is not configured', () => {
+    const previous = process.env.NVIDIA_API_KEY;
+    delete process.env.NVIDIA_API_KEY;
+    try {
+      expect(() => createNvidiaEmbeddingProvider(nvidiaProfile())).toThrow(
+        EmbeddingProviderContractError
+      );
+    } finally {
+      if (previous !== undefined) process.env.NVIDIA_API_KEY = previous;
+    }
   });
 });

@@ -3,7 +3,16 @@
 
 import { ProblemType, ProblemStatus, ProblemSetSharingLevel } from './schemas';
 import type { ErrorBroadCategory } from './constants';
-import { ColumnDef } from '@tanstack/react-table';
+// TanStack Table v9 kept the v8 hook/column API as the documented `legacy`
+// compat surface; its "native" React API is a different model
+// (createTableHook + feature-bound generics). To keep the future migration
+// one-shot and small, every table file must use ONLY these aliases — the
+// actual /legacy imports live here and in problems/data-table.tsx.
+import type {
+  LegacyColumn,
+  LegacyColumnDef,
+} from '@tanstack/react-table/legacy';
+import type { RowData } from '@tanstack/table-core';
 
 // =====================================================
 // Core Entity Types (from database)
@@ -381,6 +390,16 @@ export interface ExtractedProblemData {
   suggested_tags?: SuggestedTags;
   /** @deprecated legacy single-part shape */
   answer_hint?: AnswerHint | null;
+  /** All independent questions found on the supplied page(s). */
+  candidates?: ExtractedProblemData[];
+  ingestion_id?: string;
+  ingestion_schema_version?: 'wqn.problem-ingestion.v1';
+  ingestion_question_id?: string;
+  question_number_label?: string | null;
+  source_region_ids?: string[];
+  visual_region_ids?: string[];
+  student_work_count?: number;
+  incomplete?: boolean;
 }
 
 // =====================================================
@@ -417,7 +436,6 @@ export interface QRUploadSession {
 
 export interface QRSessionCreateResponse {
   sessionId: string;
-  token: string;
   expiresAt: string;
   uploadUrl: string;
 }
@@ -574,8 +592,11 @@ export interface ConfirmationConfig {
   onConfirm: () => void;
 }
 
-export interface DataTableProps<TData, TValue> {
-  columns: ColumnDef<TData, TValue>[];
+export type ProblemColumnDef<TData extends RowData> = LegacyColumnDef<TData>;
+export type ProblemColumn<TData extends RowData> = LegacyColumn<TData>;
+
+export interface DataTableProps<TData extends RowData> {
+  columns: ProblemColumnDef<TData>[];
   data: TData[];
   onEdit?: (problem: Problem) => void;
   onDelete?: (problemId: string, problemTitle: string) => void;
@@ -732,6 +753,8 @@ export type ProblemFormProps = {
   onProblemUpdated?: ((updatedProblem: Problem) => void) | null;
   alwaysExpanded?: boolean;
   initialShowImageScan?: boolean;
+  /** When set, problems imported via the ingestion workspace are linked into this problem set. */
+  problemSetId?: string;
 };
 
 export type SubjectFormProps = {

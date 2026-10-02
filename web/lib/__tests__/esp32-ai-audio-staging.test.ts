@@ -12,7 +12,7 @@ function exactArrayBuffer(buffer: Buffer): ArrayBuffer {
 }
 
 describe('ESP32 AI PCM diagnostics', () => {
-  it('records bytes, duration, peak, RMS, and zero-sample ratio', () => {
+  it('records bytes, duration, peak, RMS, zero-sample ratio, DC offset, and clip ratio', () => {
     const pcm = Buffer.alloc(8);
     [0, -1000, 2000, 0].forEach((sample, index) => {
       pcm.writeInt16LE(sample, index * 2);
@@ -25,7 +25,20 @@ describe('ESP32 AI PCM diagnostics', () => {
       peak: 2000,
       rms: 1118,
       zeroSampleRatio: 0.5,
+      dcOffset: 250,
+      clipRatio: 0,
     });
+  });
+
+  it('flags near-full-scale samples in the clip ratio', () => {
+    const pcm = Buffer.alloc(8);
+    [32767, -32768, 100, -100].forEach((sample, index) => {
+      pcm.writeInt16LE(sample, index * 2);
+    });
+
+    const diagnostics = analyzePcmS16le(exactArrayBuffer(pcm), 16000, 1);
+    expect(diagnostics.clipRatio).toBe(0.5);
+    expect(diagnostics.peak).toBe(32768);
   });
 
   it('preserves the original PCM byte count in the WAV data chunk', () => {

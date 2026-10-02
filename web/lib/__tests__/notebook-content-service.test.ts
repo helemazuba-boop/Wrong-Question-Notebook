@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  attachNoteImageAsset,
   createNote,
+  detachNoteImageAsset,
   getNote,
   listNotes,
   updateNote,
@@ -12,6 +14,26 @@ const USER_ID = '22222222-2222-4222-8222-222222222222';
 const NOTEBOOK_ID = '44444444-4444-4444-8444-444444444444';
 const SUBJECT_ID = '33333333-3333-4333-8333-333333333333';
 const NOTE_ID = '55555555-5555-4555-8555-555555555555';
+const IMAGE_ID = 'a'.repeat(64);
+
+function noteRow(assets: unknown[] = [], revision = 2) {
+  return {
+    id: NOTE_ID,
+    notebook_id: NOTEBOOK_ID,
+    title: 'n',
+    content: 'c',
+    content_format: 'plain_text_v1',
+    source: 'user',
+    linked_problem_id: null,
+    metadata: {},
+    assets,
+    revision,
+    sort_index: 1,
+    created_at: 't',
+    updated_at: 't',
+    archived_at: null,
+  };
+}
 
 const ownerRow = {
   data: {
@@ -253,6 +275,79 @@ describe('NotebookContentService', () => {
         content: 'new',
       })
     ).rejects.toMatchObject({ code: 'revision_conflict', status: 409 });
+  });
+
+  it('does not bump revision for an idempotent image attach', async () => {
+    const asset = {
+      path: 'user/u/notes/n/original',
+      image_id: IMAGE_ID,
+      display_path: 'derived/a.wqni',
+      preview_path: 'derived/a.png',
+    };
+    const { supabase, created } = makeClient({
+      notebooks: [ownerRow],
+      notebook_notes: [{ data: noteRow([asset], 7), error: null }],
+    });
+
+    const note = await attachNoteImageAsset(
+      supabase,
+      USER_ID,
+      NOTEBOOK_ID,
+      NOTE_ID,
+      asset
+    );
+
+    expect(note.revision).toBe(7);
+    expect(created.notebook_notes[0].update).not.toHaveBeenCalled();
+  });
+
+  it('refreshes derivation metadata when the same BW1 image is reprocessed', async () => {
+    const legacy = {
+      path: 'user/u/notes/n/original',
+      image_id: IMAGE_ID,
+      display_path: 'derived/a.wqni',
+      preview_path: 'derived/a.png',
+    };
+    const refreshed = {
+      ...legacy,
+      pipeline_version: 'wqni-bw1-gray4-v2',
+      gray4_image_id: 'b'.repeat(64),
+      gray4_display_path: 'derived/b.gray4.wqni',
+      gray4_preview_path: 'derived/b.gray4.png',
+    };
+    const { supabase, created } = makeClient({
+      notebooks: [ownerRow],
+      notebook_notes: [
+        { data: noteRow([legacy], 7), error: null },
+        { data: noteRow([refreshed], 8), error: null },
+      ],
+    });
+
+    const note = await attachNoteImageAsset(
+      supabase,
+      USER_ID,
+      NOTEBOOK_ID,
+      NOTE_ID,
+      refreshed
+    );
+
+    expect(note.revision).toBe(8);
+    expect(created.notebook_notes[1].update).toHaveBeenCalledWith({
+      assets: [refreshed],
+      revision: 8,
+    });
+  });
+
+  it('does not bump revision when detaching a missing image', async () => {
+    const { supabase, created } = makeClient({
+      notebooks: [ownerRow],
+      notebook_notes: [{ data: noteRow([], 7), error: null }],
+    });
+
+    await expect(
+      detachNoteImageAsset(supabase, USER_ID, NOTEBOOK_ID, NOTE_ID, IMAGE_ID)
+    ).rejects.toMatchObject({ code: 'note_not_found', status: 404 });
+    expect(created.notebook_notes[0].update).not.toHaveBeenCalled();
   });
 
   it('surfaces NotebookToolError instances for invalid list order', async () => {

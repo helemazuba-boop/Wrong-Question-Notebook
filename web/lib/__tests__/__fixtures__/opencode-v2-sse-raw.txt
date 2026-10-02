@@ -1,0 +1,102 @@
+data: {"id":"evt_0d710c6c5001M7iZLy2bssqdzs","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_0d710ce97001vHlEAEqppv2EUM","created":1790314598039,"type":"session.inbox.enqueued","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"inboxID":"msg_0d710ce950011Ikh6UoYo9iMjv","sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","item":{"type":"user","payload":{"text":"Use the shell/bash tool to run exactly this command: echo wqn-tool-probe . Then reply with the output. Do not use any other tool."},"delivery":"steer"}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":15,"version":1}}
+
+data: {"id":"evt_0d710ce9b00194vubL5lU4oobO","created":1790314598043,"type":"project.updated","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"id":"007b44315b4ae0d36479fba34237b9b622e4c2e4","canonical":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe","time":{"created":1790314313062,"updated":1790314313062,"active":1790314598043},"sandboxes":[]}}
+
+data: {"id":"evt_0d710ce9d001DMsjc42SKw3fhO","created":1790314598045,"type":"session.execution.started","data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":16,"version":1}}
+
+data: {"id":"evt_0d710ceae001zDMhige04ReyAf","created":1790314598062,"type":"session.inbox.delivered","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","inboxID":"msg_0d710ce950011Ikh6UoYo9iMjv"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":17,"version":1}}
+
+: heartbeat
+
+data: {"id":"evt_0d7111880001hcZVpLl6yuJJOC","created":1790314616960,"type":"provider.updated","location":{"directory":"D:\\projects\\D\\Duty-Agent"},"data":{}}
+
+data: {"id":"evt_0d711188a001QvQjW1HksduIdt","created":1790314616970,"type":"model.updated","location":{"directory":"D:\\projects\\D\\Duty-Agent"},"data":{}}
+
+: heartbeat
+
+data: {"id":"evt_0d711662b001t6uuIj44wO4eY2","created":1790314636843,"type":"session.step.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","agent":"build","model":{"id":"mimo-v2.6-flash-free","providerID":"opencode","variant":"default"},"assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","started":1790314598088},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":18,"version":1}}
+
+data: {"id":"evt_0d711662f001501jQDcIB95UmN","created":1790314636847,"type":"session.reasoning.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","ordinal":0,"state":{"reasoningField":"reasoning_content"}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":19,"version":1}}
+
+data: {"id":"evt_0d7116637001tlZUo48JUmGDwl","created":1790314636855,"type":"session.tool.input.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","id":"call_df0222084d9b466b919a9791","name":"shell"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":20,"version":1}}
+
+data: {"id":"evt_0d711663d0014MwN24bDLRPSvM","created":1790314636861,"type":"session.reasoning.delta","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","ordinal":0,"delta":"Run the shell command."}}
+
+data: {"id":"evt_0d711663e001UA4e3aGCiwNTQG","created":1790314636862,"type":"session.reasoning.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","ordinal":0,"text":"Run the shell command.","state":{"reasoningField":"reasoning_content","reasoningDetails":[{"type":"reasoning.text","text":"Run the shell command.","format":"unknown","index":0}]}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":21,"version":1}}
+
+data: {"id":"evt_0d7116641001OsY6dg9HiU5Hbq","created":1790314636865,"type":"session.tool.input.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","id":"call_df0222084d9b466b919a9791","text":"{\"command\": \"echo wqn-tool-probe\"}"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":22,"version":1}}
+
+data: {"id":"evt_0d7116644001mbJdwa5SfIz8Xf","created":1790314636868,"type":"session.tool.called","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","id":"call_df0222084d9b466b919a9791","input":{"command":"echo wqn-tool-probe"},"executed":false},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":23,"version":1}}
+
+data: {"id":"evt_0d7116649001rJH09x76pLl94b","created":1790314636873,"type":"session.step.streamed","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":24,"version":1}}
+
+data: {"id":"evt_0d7116674001hyeDmN0NUnPPQn","created":1790314636916,"type":"shell.created","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"info":{"id":"sh_0d7116667001Hcc44CJ5GaWsqA","status":"running","command":"echo wqn-tool-probe","cwd":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe","shell":"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.EXE","file":"C:\\Users\\ZhuanZ\\.local\\share\\opencode\\shell\\007b44315b4ae0d36479fba34237b9b622e4c2e4\\sh_0d7116667001Hcc44CJ5GaWsqA.out","metadata":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA"},"time":{"started":1790314636903}}}}
+
+data: {"id":"evt_0d7116675001gbZX6sJjrx4Jn2","created":1790314636917,"type":"session.tool.progress","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","id":"call_df0222084d9b466b919a9791","metadata":{"shellID":"sh_0d7116667001Hcc44CJ5GaWsqA"}}}
+
+data: {"id":"evt_0d71167ae001nvx47gAprGiomj","created":1790314637230,"type":"shell.exited","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"id":"sh_0d7116667001Hcc44CJ5GaWsqA","exit":0,"status":"exited"}}
+
+data: {"id":"evt_0d71167b0001Faac7er1vAcuiV","created":1790314637232,"type":"session.tool.success","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","id":"call_df0222084d9b466b919a9791","content":[{"type":"text","text":"wqn-tool-probe\r\n"}],"metadata":{"status":"completed","truncated":false,"exit":0},"executed":false},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":25,"version":2}}
+
+data: {"id":"evt_0d71167b3001PGjhMwdqMayRpo","created":1790314637235,"type":"session.step.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d710ceb80017IOGBGYckSujT2","finish":"tool-calls","rawFinish":"tool_calls","cost":0,"tokens":{"input":76,"output":24,"reasoning":6,"cache":{"read":6464,"write":0}}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":26,"version":1}}
+
+data: {"id":"evt_0d71167b6001d0a60Z8TnSO3z5","created":1790314637238,"type":"session.usage.updated","data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","cost":0,"tokens":{"input":3578,"output":34,"reasoning":44,"cache":{"read":9984,"write":0}}}}
+
+: heartbeat
+
+: heartbeat
+
+data: {"id":"evt_0d711bd74001S6Cc5iaKMpZdbu","created":1790314659188,"type":"session.step.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","agent":"build","model":{"id":"mimo-v2.6-flash-free","providerID":"opencode","variant":"default"},"assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","started":1790314637264},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":27,"version":1}}
+
+data: {"id":"evt_0d711bd770014z9FgaZomEpucy","created":1790314659191,"type":"session.reasoning.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0,"state":{"reasoningField":"reasoning_content"}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":28,"version":1}}
+
+data: {"id":"evt_0d711bd7b001r5zjAmn6PbiJAj","created":1790314659195,"type":"project.updated","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"id":"007b44315b4ae0d36479fba34237b9b622e4c2e4","canonical":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe","time":{"created":1790314313062,"updated":1790314313062,"active":1790314659195},"sandboxes":[]}}
+
+data: {"id":"evt_0d711bdd90012bSBD68K5h6Rqn","created":1790314659289,"type":"session.text.started","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":29,"version":1}}
+
+data: {"id":"evt_0d711bde0001Xr1QmJam21afOf","created":1790314659296,"type":"session.reasoning.delta","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0,"delta":"Output: wqn-tool-probe"}}
+
+data: {"id":"evt_0d711bde4001bTFUMhdL2sE0nw","created":1790314659300,"type":"session.reasoning.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0,"text":"Output: wqn-tool-probe","state":{"reasoningField":"reasoning_content","reasoningDetails":[{"type":"reasoning.text","text":"Output: wqn-tool-probe","format":"unknown","index":0}]}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":30,"version":1}}
+
+data: {"id":"evt_0d711bde7001lyHCOolIEtkSIW","created":1790314659303,"type":"session.text.delta","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0,"delta":"wqn-tool-probe"}}
+
+data: {"id":"evt_0d711bde7002iBlppybC71UII0","created":1790314659303,"type":"session.text.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","ordinal":0,"text":"wqn-tool-probe"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":31,"version":1}}
+
+data: {"id":"evt_0d711bdea001DSxOubrpkb7qvY","created":1790314659306,"type":"session.step.streamed","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":32,"version":1}}
+
+data: {"id":"evt_0d711bded001q8qOxJaDre0Ut5","created":1790314659309,"type":"session.step.ended","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","assistantMessageID":"msg_0d71167c40012a8st6EVG6gEK4","finish":"stop","rawFinish":"stop","cost":0,"tokens":{"input":55,"output":7,"reasoning":8,"cache":{"read":6528,"write":0}}},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":33,"version":1}}
+
+data: {"id":"evt_0d711bdf0001SBX8MfniRRaXHm","created":1790314659312,"type":"session.usage.updated","data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","cost":0,"tokens":{"input":3633,"output":41,"reasoning":52,"cache":{"read":16512,"write":0}}}}
+
+data: {"id":"evt_0d711bdf20015TEu3RwX5BQs5o","created":1790314659314,"type":"session.execution.succeeded","data":{"sessionID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA"},"durable":{"aggregateID":"ses_f28f1a3f8ffeH52sTm7T7VFOZA","seq":34,"version":1}}
+
+: heartbeat
+
+data: {"id":"evt_0d711f547001AoU4zswjCKB77P","created":1790314673479,"type":"provider.updated","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{}}
+
+data: {"id":"evt_0d711f556001HOHqZIIgJ8pFTY","created":1790314673494,"type":"model.updated","location":{"directory":"C:\\Users\\ZhuanZ\\AppData\\Local\\Temp\\wqn-probe"},"data":{}}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+data: {"id":"evt_0d7131ed0001ltEwWIrzm6gpTl","created":1790314749648,"type":"provider.updated","location":{"directory":"C:\\Users\\ZhuanZ"},"data":{}}
+
+data: {"id":"evt_0d7131ede001eL2OQaTlghf3JU","created":1790314749662,"type":"model.updated","location":{"directory":"C:\\Users\\ZhuanZ"},"data":{}}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+

@@ -83,7 +83,7 @@ cp web\.env.production.template web\.env.production
 ACR_SERVER=crpi-xxxxxxxxxxxx.cn-hangzhou.personal.cr.aliyuncs.com
 ACR_NAMESPACE=your-namespace
 ACR_REPO=wqn
-ACR_USERNAME=nick2075099365          # 你的阿里云用户名
+ACR_USERNAME=your-username          # 你的阿里云用户名
 ACR_PASSWORD=your-acr-password       # 你在 ACR 里设置的固定密码
 ```
 
@@ -114,9 +114,9 @@ ACR_PASSWORD=your-acr-password       # 你在 ACR 里设置的固定密码
 
 ```sshconfig
 Host aliyun
-    HostName 121.43.145.73
+    HostName your-ecs-ip
     User root
-    IdentityFile C:\Users\ZhuanZ\.ssh\PC-LEGION.pem
+    IdentityFile ~/.ssh/your-key.pem
 ```
 
 带 `-DeployAliyun` 参数时（或直接运行 `deploy\build.bat` 时），脚本会在镜像推送成功后执行远程部署：

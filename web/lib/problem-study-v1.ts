@@ -13,10 +13,14 @@ import { PROBLEM_TYPE_VALUES } from './schemas';
 
 export const PROBLEM_STUDY_CONTRACT = 'problem-study-v1' as const;
 export const PROBLEM_STUDY_SCHEMA_SHA256 =
-  '320e8eb0595f41a3b7b214615da8fccb9881931c52cf564b8423ab4145afc0d7' as const;
+  'e7b3419f74c2e234b857ecbaf47519e09306ec9f37875a46eebc9a7fb61db87d' as const;
 export const PROBLEM_PACK_SCHEMA_VERSION = 1 as const;
 export const PROBLEM_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const PROBLEM_PACK_MAX_ENTRIES = 500;
+// Mirrors the firmware's kMaxPackLineBytes (device_protocol/problem_study.h):
+// a JSONL row longer than this makes the device reject the whole pack, so the
+// builder must keep every row (and the pack body) inside the bound.
+export const PROBLEM_PACK_MAX_LINE_BYTES = 65535;
 
 const uuidSchema = z.uuid();
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -29,9 +33,17 @@ export const problemReviewActionSchema = z.enum([
   'skip',
 ]);
 
+// One MCQ option, already flattened to display-ready device text.
+export const problemPackChoiceSchema = z.strictObject({
+  id: z.string().min(1).max(10),
+  text: z.string().max(500),
+});
+
 // Pack JSONL rows (validated in tests/fixtures; the device parses the same
-// shape). Every key is always present so the row layout stays uniform:
-// unset full_marks is 0, unset text fields are ''.
+// shape). Row-level keys are always present so the layout stays uniform
+// (unset full_marks is 0, unset text fields are ''); `choices` is the one
+// exception: it is omitted unless the part actually has options, and old
+// packs that predate it remain valid.
 export const problemPackPartSchema = z.strictObject({
   index: z.number().int().min(1).max(10),
   label: z.string().max(20),
@@ -41,6 +53,9 @@ export const problemPackPartSchema = z.strictObject({
   // Display-ready answer line (choice letters joined for MCQ parts); the
   // device never parses answer_config.
   answer_text: z.string(),
+  // Added after v1 shipped; the device renders them as a "- A. text" list
+  // under the part body and echoes the correct option on the answer face.
+  choices: z.array(problemPackChoiceSchema).min(1).max(10).optional(),
 });
 
 export const problemPackRowSchema = z.strictObject({

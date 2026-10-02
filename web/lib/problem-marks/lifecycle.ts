@@ -131,12 +131,14 @@ export async function failProblemMarkAnnotationRun(
   supabase: SupabaseClient<Database>,
   runId: string,
   leaseToken: string,
-  errorCode: string
+  errorCode: string,
+  terminal = false
 ): Promise<void> {
   const { error } = await supabase.rpc('fail_problem_mark_annotation_run', {
     p_run_id: runId,
     p_lease_token: leaseToken,
     p_error_code: errorCode,
+    p_terminal: terminal,
   });
   if (error) {
     throw new Error(`Unable to fail Problem Mark annotation: ${error.message}`);

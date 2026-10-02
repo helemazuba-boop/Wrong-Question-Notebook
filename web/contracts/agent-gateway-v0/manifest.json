@@ -1,0 +1,82 @@
+{
+  "contract": "agent-gateway-v0",
+  "version": "2.1",
+  "schema": "agent-gateway-v0.schema.json",
+  "schema_sha256": "91173f1038115a42c24f59e95ae113da1dbca1cdb8966dbea7337523e384dc6e",
+  "api_base": "https://wqn.helema.cn/api/esp32",
+  "routes_prefix": "/agent",
+  "auth": "Authorization: Bearer <device pairing token>",
+  "routes": [
+    { "method": "GET", "path": "/agent/sessions", "purpose": "List bound sessions (device shows at most 12)" },
+    { "method": "POST", "path": "/agent/sessions", "purpose": "Create a new session" },
+    { "method": "POST", "path": "/agent/transcribe", "purpose": "ASR for a held PTT recording" },
+    { "method": "POST", "path": "/agent/sessions/{id}/run", "purpose": "Submit a prompt and stream its run" },
+    { "method": "GET", "path": "/agent/sessions/{id}/events", "purpose": "Observe a run started elsewhere" },
+    { "method": "POST", "path": "/agent/sessions/{id}/permission", "purpose": "Answer a pending permission ask" },
+    { "method": "GET", "path": "/agent/sessions/{id}/history", "purpose": "Backfill a transcript not rendered yet" },
+    { "method": "POST", "path": "/agent/sessions/{id}/question", "purpose": "Answer a pending form ask with the chosen option value" },
+    { "method": "POST", "path": "/agent/sessions/{id}/interrupt", "purpose": "Stop a submitted run" }
+  ],
+  "stream_events": [
+    "agent.accepted",
+    "agent.attached",
+    "agent.status",
+    "agent.text.delta",
+    "agent.text",
+    "agent.reasoning.delta",
+    "agent.reasoning",
+    "agent.tool",
+    "agent.permission",
+    "agent.question",
+    "agent.error"
+  ],
+  "stream_terminator": "agent.status { status: \"idle\" }",
+  "additive_fields": {
+    "runRequest.request_id": "optional 16-lowercase-hex idempotency key minted by the device. The cloud claims it before submitting: a same-id retry attaches to the live run or replays its recorded terminal outcome instead of running the prompt twice, and a claim that rejects the submission answers a JSON error envelope (409/503) before the stream exists. Absent means no idempotency, which is what every device that predates the field sends"
+  },
+  "bounds": {
+    "json_response_bytes": 16384,
+    "history_response_bytes": 12288,
+    "history_messages": 24,
+    "history_tools_per_message": 8,
+    "assistant_text_bytes": 12288,
+    "thinking_bytes": 2048,
+    "prompt_bytes": 4096,
+    "text_event_bytes": 8192,
+    "delta_event_bytes": 2048,
+    "question_options": 8,
+    "question_frame_bytes": 10240,
+    "sse_frame_bytes": 16384,
+    "sessions_listed": 12,
+    "stream_socket_timeout_ms": 300000
+  },
+  "v2_migration": {
+    "upstream": "OpenCode Server API v2",
+    "upstream_base_path": "/api",
+    "tenant_boundary": "?directory= is the only tenant boundary; the client-side directory equality filter is gone",
+    "upstream_changes": [
+      "all upstream paths moved under /api and responses are wrapped in {data}",
+      "POST /session/{id}/prompt_async became POST /api/session/{id}/prompt with an explicit delivery",
+      "POST /permission/{id}/reply became session-scoped POST /api/session/{id}/permission/{requestID}/reply",
+      "permission, form (question), interrupt and message-history endpoints are new in v2",
+      "the v1 event vocabulary is gone: v2 splits session input, text and reasoning into separate event families"
+    ],
+    "device_visible_breaking_changes": [
+      "agent.reasoning.delta and agent.reasoning are new device events (reasoning never enters agent.text)",
+      "agent.question is a new device event carrying up to eight projected options; an empty list marks a field the device cannot answer, and a multi-field form is projected as sequential asks whose answers the gateway accumulates until the last step",
+      "GET /agent/sessions/{id}/history is a new device route; it must fit the 16 KiB JSON ceiling, so the gateway trims from the front",
+      "POST /agent/sessions/{id}/question and POST /agent/sessions/{id}/interrupt are new device routes"
+    ],
+    "additive_fields": {
+      "agent.tool.call_id": "upstream call id echoed on every frame of one call, so two calls of the same tool are two blocks rather than one; absent only on a mid-run attach, where the device merges by tool name",
+      "agent.error.fatal": "false marks a retryable upstream step failure: the device records the error and keeps running. Absent or true means the run is over, which is what every gateway that predates the field sends",
+      "agent.permission.session_id and agent.question.session_id": "the session that raised the ask, which is not always the session the device attached to: a subagent has its own id and raises its asks against it. Required, because both reply routes are session-scoped upstream -- without it a subagent's ask is discoverable but never answerable (the reply 404s on the attached session). The device still tolerates an absent field and answers on the attached session, which is what a relay that predates it wants"
+    },
+    "ask_attribution": {
+      "why": "the relay watches the attached session and every child of it, so an ask can arrive for a session the device never attached to",
+      "device_rule": "answer on the session the ask names; fall back to the attached session only when the field is absent or is not a session id",
+      "gateway_rule": "emit the session that actually raised the ask, never the attached one. assertOpenCodeSessionAccess accepts a child of an owned root session for the same reason"
+    }
+  },
+  "replaces": "X-WQN-Ai-Tier: pro (retired Pro tier)"
+}

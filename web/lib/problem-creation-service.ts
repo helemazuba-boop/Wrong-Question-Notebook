@@ -1,15 +1,22 @@
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
-import { CONTENT_LIMIT_CONSTANTS, FILE_CONSTANTS } from '@/lib/constants';
+import {
+  CONTENT_LIMIT_CONSTANTS,
+  FILE_CONSTANTS,
+  VALIDATION_CONSTANTS,
+} from '@/lib/constants';
 import { checkContentLimit } from '@/lib/content-limits';
 import { convertMathTextToTipTapHtml } from '@/lib/math-to-tiptap';
+import { sanitizeHtmlContent } from '@/lib/html-sanitizer';
 import {
   extractProblemFromImages,
   type ProblemExtractionImage,
   type ProblemExtractionResult,
 } from '@/lib/problem-extraction-service';
 import {
+  cleanHintWithReason,
+  parseChoiceIds,
   parsePastedExtraction,
   type ExtractedPart,
   type ParsedExtraction,
@@ -27,6 +34,8 @@ interface CreateProblemInputBase {
   request_id: string;
   subject_id?: string | null;
   problem_set_id?: string | null;
+  /** Optional caller-authored solution/explanation, stored as the problem's 解答. */
+  solution_text?: string | null;
 }
 
 export interface CreateProblemFromImagesInput extends CreateProblemInputBase {
@@ -100,10 +109,28 @@ function imageFingerprint(images: ProblemExtractionImage[]): string[] {
   );
 }
 
+/**
+ * Callers submit the solution as plain text with optional $...$ / $$...$$
+ * math, the same convention as the problem content, so it goes through the
+ * same math converter and sanitizer as every other write path.
+ */
+function normaliseSolutionText(value: string | null | undefined): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  return sanitizeHtmlContent(convertMathTextToTipTapHtml(text)).slice(
+    0,
+    VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX
+  );
+}
+
 function requestFingerprint(
   input: CreateProblemSourceInput,
-  structuredProblem?: ParsedExtraction
+  structuredProblem: ParsedExtraction | undefined,
+  solutionText: string
 ): string {
+  // The solution key is only added when it carries content: requests created
+  // before this field existed must keep replaying with the same fingerprint.
+  const solutionKey = solutionText ? { solution_text: solutionText } : {};
   const payload =
     input.source_kind === 'images'
       ? {
@@ -113,6 +140,7 @@ function requestFingerprint(
           problem_set_id: input.problem_set_id ?? null,
           save_source_images: input.save_source_images ?? null,
           images: imageFingerprint(input.images),
+          ...solutionKey,
         }
       : {
           source_kind: 'structured',
@@ -126,6 +154,7 @@ function requestFingerprint(
             new_tag_names: structuredProblem?.new_tag_names,
             confidence: structuredProblem?.confidence ?? null,
           },
+          ...solutionKey,
         };
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
@@ -250,14 +279,42 @@ async function resolveSubject(
 }
 
 function validChoiceIds(part: ExtractedPart): string[] {
-  const available = new Set((part.mcq_choices ?? []).map(choice => choice.id));
   const raw = part.answer_hint?.mcq_correct_choice_id || '';
-  const candidates =
-    part.type === 'multi_choice' ? raw.split('') : raw ? [raw] : [];
-  return [...new Set(candidates)].filter(id => available.has(id));
+  if (!raw) return [];
+  return parseChoiceIds(raw, part.mcq_choices);
 }
 
-function storedPart(part: ExtractedPart, partCount: number) {
+/**
+ * Names every part whose supplied answer data did not survive normalisation,
+ * so a create response can say what was actually persisted instead of
+ * silently dropping the answer. `normalizedParts` is positionally aligned with
+ * `rawParts` and supplies the index the response will use.
+ */
+function answerHintWarnings(
+  rawParts: ExtractedPart[],
+  normalizedParts: ExtractedPart[]
+): string[] {
+  const warnings: string[] = [];
+  rawParts.forEach((part, position) => {
+    const { droppedReason, droppedFields } = cleanHintWithReason(part);
+    const reference = normalizedParts[position] ?? part;
+    if (droppedReason) {
+      warnings.push(
+        `Part ${reference.index} (${reference.type}): the supplied answer was not saved as a correct answer — ${droppedReason}`
+      );
+      return;
+    }
+    if (droppedFields.length > 0) {
+      const list = droppedFields.join(', ');
+      warnings.push(
+        `Part ${reference.index} (${reference.type}): the supplied ${list} ${droppedFields.length > 1 ? 'were' : 'was'} not saved — a ${reference.type} part cannot store ${droppedFields.length > 1 ? 'them' : 'it'}`
+      );
+    }
+  });
+  return warnings;
+}
+
+export function storedPart(part: ExtractedPart, partCount: number) {
   const hint = part.answer_hint;
   const choiceIds = validChoiceIds(part);
   let correctAnswer = '';
@@ -329,7 +386,7 @@ function storedPart(part: ExtractedPart, partCount: number) {
   };
 }
 
-function extractionContent(extraction: ParsedExtraction): string {
+export function extractionContent(extraction: ParsedExtraction): string {
   const blocks: string[] = [];
   if (extraction.content.trim()) blocks.push(extraction.content.trim());
   for (const part of extraction.parts) {
@@ -517,13 +574,16 @@ async function ensureProblemCompletion(
 ): Promise<void> {
   const tagIds = stringArray(source.mcp_tag_ids);
   if (tagIds.length > 0) {
+    // The conflict target must match problem_tag's primary key
+    // (problem_id, tag_id) — there is no (user_id, problem_id, tag_id) unique
+    // constraint, and asking for one makes PostgREST fail with 42P10.
     const { error } = await supabase.from('problem_tag').upsert(
       tagIds.map(tagId => ({
         user_id: userId,
         problem_id: problemId,
         tag_id: tagId,
       })),
-      { onConflict: 'user_id,problem_id,tag_id' }
+      { onConflict: 'problem_id,tag_id', ignoreDuplicates: true }
     );
     if (error) {
       throw new ProblemCreationServiceError(
@@ -692,7 +752,12 @@ async function createProblemFromSource(
       ? prepareStructuredProblem(input)
       : undefined;
   const problemId = deterministicProblemId(userId, input.request_id);
-  const fingerprint = requestFingerprint(input, structuredProblem);
+  const solutionText = normaliseSolutionText(input.solution_text);
+  const fingerprint = requestFingerprint(
+    input,
+    structuredProblem,
+    solutionText
+  );
   const replay = await loadExistingProblem(
     supabase,
     userId,
@@ -725,6 +790,7 @@ async function createProblemFromSource(
   const prepared: {
     extraction: ParsedExtraction;
     quota: ProblemExtractionResult['quota'] | null;
+    ingestion?: ProblemExtractionResult['ingestion'];
   } =
     input.source_kind === 'images'
       ? await extractProblemFromImages(
@@ -776,6 +842,17 @@ async function createProblemFromSource(
     prepared.extraction
   );
   const { tags } = tagMaterialization;
+  // Answers are validated/normalised away from the caller's view, so the
+  // response (and the replay payload) must carry what did not survive.
+  const creationWarnings = [
+    ...tagMaterialization.warnings,
+    ...answerHintWarnings(
+      input.source_kind === 'structured'
+        ? input.parts
+        : prepared.extraction.parts,
+      prepared.extraction.parts
+    ),
+  ];
   const assets =
     input.source_kind === 'images' && shouldSaveImages
       ? await uploadSourceImages(supabase, userId, problemId, input.images)
@@ -790,9 +867,18 @@ async function createProblemFromSource(
     mcp_request_fingerprint: fingerprint,
     mcp_problem_set_id: resolved.problemSetId,
     mcp_tag_ids: tags.map(tag => tag.id),
-    mcp_creation_warnings: tagMaterialization.warnings,
+    mcp_creation_warnings: creationWarnings,
     suggest_image_asset: prepared.extraction.suggest_image_asset,
     extraction_confidence: prepared.extraction.confidence ?? null,
+    ...(prepared.ingestion
+      ? {
+          ingestion_id: prepared.ingestion.id,
+          ingestion_schema_version: prepared.ingestion.schema_version,
+          ingestion_question_id: prepared.ingestion.question_id,
+          source_region_ids: prepared.ingestion.source_region_ids,
+          visual_region_ids: prepared.ingestion.visual_region_ids,
+        }
+      : {}),
   } as Json;
   const { data: created, error } = await supabase
     .from('problems')
@@ -807,7 +893,7 @@ async function createProblemFromSource(
       is_optional: false,
       status: 'needs_review',
       assets: assets as Json,
-      solution_text: '',
+      solution_text: solutionText,
       solution_assets: [],
     })
     .select('id, subject_id, title, content, parts, status, assets, created_at')
@@ -848,7 +934,7 @@ async function createProblemFromSource(
       confidence: prepared.extraction.confidence,
       warnings: [
         ...(prepared.extraction.confidence?.warnings ?? []),
-        ...tagMaterialization.warnings,
+        ...creationWarnings,
       ],
     },
     problem_set_id: resolved.problemSetId,

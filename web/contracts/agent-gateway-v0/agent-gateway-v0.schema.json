@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/agent-gateway-v0/agent-gateway-v0.schema.json",
+  "title": "WQN ESP32 Agent Gateway Protocol v0",
+  "description": "Language-neutral contract for the /api/esp32/agent/* routes that proxy a bound self-hosted OpenCode server. The device-facing vocabulary is deliberately small and stable; the OpenCode v2 migration widened it (reasoning + question) without renaming or removing anything. Replaces the retired X-WQN-Ai-Tier: pro tier. Every non-streaming route answers {success: true, data} or {success: false, error}; the two streaming routes answer text/event-stream, whose body is `runStream` and carries no envelope -- except that the run route answers a JSON error envelope instead of a stream when an idempotency claim rejects the submission (409 request_id_conflict/run_in_progress, 503 run_idempotency_unavailable), before any frame exists. The device reads `data` / `error` and ignores `success`, so the flag is not load-bearing for the firmware -- it is what lets this schema describe what the routes actually return instead of an imagined shape the device would also tolerate.",
+  "$defs": {
+    "sessionId": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 128,
+      "pattern": "^ses_[A-Za-z0-9_-]+$",
+      "description": "Opaque to the device; the ses_ prefix is the only part it inspects."
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sessionId" },
+        "title": { "type": "string", "maxLength": 256 },
+        "updatedAt": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "message": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "sessionsListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessions"],
+          "properties": {
+            "sessions": {
+              "type": "array",
+              "maxItems": 12,
+              "items": { "$ref": "#/$defs/session" }
+            }
+          }
+        }
+      }
+    },
+    "sessionCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Empty object; the gateway derives the session from the binding."
+    },
+    "sessionCreateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session"],
+          "properties": {
+            "session": { "$ref": "#/$defs/session" }
+          }
+        }
+      }
+    },
+    "transcribeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transcript"],
+          "properties": {
+            "transcript": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "latency_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ASR latency the route measures. The device discards it; the schema names it so the shared fixture can carry what the route really returns."
+            },
+            "asr": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Provider id the route used, omitted on the mocked test path."
+            }
+          }
+        }
+      }
+    },
+    "replyResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "description": "Permission and question replies share one acknowledgement; the device only checks the HTTP status, but the routes do send this body.",
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["replied"],
+          "properties": {
+            "replied": { "type": "boolean", "const": true }
+          }
+        }
+      }
+    },
+    "runRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "confirmed"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "confirmed": {
+          "type": "boolean",
+          "const": true,
+          "description": "The device only ever sends a confirmed prompt; the option bar is where the user says yes."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Optional run idempotency key minted by the device. The cloud claims it before submitting: a same-id retry attaches to the live run or replays its recorded terminal outcome instead of running the prompt twice. Absent means no idempotency, which is what every device that predates the field sends."
+        }
+      }
+    },
+    "permissionReplyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["permission_id", "decision", "confirmed"],
+      "properties": {
+        "permission_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "decision": {
+          "enum": ["once", "reject"],
+          "description": "No `always`: the firmware can only express a one-shot approval or a rejection, so the third upstream value would be a dead surface."
+        },
+        "confirmed": { "type": "boolean", "const": true }
+      }
+    },
+    "questionReplyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_id", "answer", "confirmed"],
+      "properties": {
+        "question_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The `value` of the projected option the user chose. Never a field id: the gateway is what knows which upstream field the option came from."
+        },
+        "confirmed": { "type": "boolean", "const": true }
+      }
+    },
+    "historyTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "status": {
+          "enum": ["running", "done", "error"],
+          "description": "Projected from the upstream `state.status`; `completed` becomes `done`. `executed` is deliberately not consulted: it is false even for completed calls."
+        },
+        "preview": { "type": "string", "maxLength": 160 }
+      }
+    },
+    "historyMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "text"],
+      "properties": {
+        "role": {
+          "enum": ["user", "assistant"],
+          "description": "Upstream's turn-boundary and bookkeeping messages are dropped by the gateway, not by the device."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "May be empty for an assistant turn whose only content is tool calls."
+        },
+        "thinking": { "type": "string", "maxLength": 2048 },
+        "tools": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/historyTool" }
+        }
+      }
+    },
+    "historyResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "maxItems": 24,
+              "description": "Oldest first. The whole response must fit the device's 16 KiB JSON ceiling, which is why the gateway trims from the front and caps each field.",
+              "items": { "$ref": "#/$defs/historyMessage" }
+            }
+          }
+        }
+      }
+    },
+    "interruptResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "data"],
+      "properties": {
+        "success": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["interrupted"],
+          "properties": {
+            "interrupted": {
+              "type": "boolean",
+              "description": "`false` is a successful \"that run had already finished\", not an error."
+            }
+          }
+        }
+      }
+    },
+    "questionOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "label": { "type": "string", "maxLength": 120 }
+      }
+    },
+    "questionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "question_id", "title", "options"],
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/sessionId",
+          "description": "The session that raised the ask, which is not always the session the device attached to: a subagent has its own id and raises its asks against it. Both reply routes are session-scoped upstream, so the device answers on whichever session this names. Without it the device falls back to the attached session, which is a 404 for a subagent's ask -- discoverable, never answerable."
+        },
+        "question_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Opaque to the device, which echoes it back verbatim on the reply. A sequential projection appends `#{step}` (0-based) so the gateway can tell which field of a multi-field form an answer belongs to; a value without the suffix is answered as the form's only step." },
+        "title": { "type": "string", "maxLength": 160 },
+        "options": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "description": "Up to eight; the device walks them in a two-slot window. Empty means the field cannot be answered on the device (no options upstream, or more than eight) -- it is still armed so the user sees the ask and can abort it, rather than being left with no prompt at all.",
+          "items": { "$ref": "#/$defs/questionOption" }
+        }
+      }
+    },
+    "streamFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event"],
+      "properties": {
+        "event": {
+          "enum": [
+            "agent.accepted",
+            "agent.attached",
+            "agent.status",
+            "agent.text.delta",
+            "agent.text",
+            "agent.reasoning.delta",
+            "agent.reasoning",
+            "agent.tool",
+            "agent.permission",
+            "agent.question",
+            "agent.error"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "description": "JSON payload of the SSE data: line. Empty for the two acknowledgements; per-event shapes are constrained below."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "event": { "const": "agent.status" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["status"],
+                "properties": {
+                  "status": { "enum": ["running", "busy", "retry", "idle", "error"] },
+                  "message": { "type": "string", "maxLength": 240 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.text.delta" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["delta"],
+                "properties": { "delta": { "type": "string", "maxLength": 2048 } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.text" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["text"],
+                "properties": { "text": { "type": "string", "maxLength": 8192 } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.reasoning.delta" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["delta"],
+                "properties": { "delta": { "type": "string", "maxLength": 2048 } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.reasoning" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["text"],
+                "properties": { "text": { "type": "string", "maxLength": 2048 } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.tool" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["tool", "status"],
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "call_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Upstream call id, echoed on every frame of one call. Without it the device merges frames by tool name, so two calls of the same tool become one block whose detail is the last call's. Absent only when the gateway could not learn it (a mid-run attach); the device then falls back to merging by name."
+                  },
+                  "status": { "enum": ["running", "done", "error"] },
+                  "preview": { "type": "string", "maxLength": 160 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.permission" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["session_id", "permission_id"],
+                "properties": {
+                  "session_id": { "$ref": "#/$defs/sessionId" },
+                  "permission_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "type": { "type": "string", "maxLength": 80 },
+                  "title": { "type": "string", "maxLength": 160 },
+                  "preview": { "type": "string", "maxLength": 160 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.question" } }, "required": ["event"] },
+          "then": { "properties": { "data": { "$ref": "#/$defs/questionData" } } }
+        },
+        {
+          "if": { "properties": { "event": { "const": "agent.error" } }, "required": ["event"] },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["message"],
+                "properties": {
+                  "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+                  "fatal": {
+                    "type": "boolean",
+                    "description": "Whether this error ends the run. Absent or true is terminal -- the device shows 失败 and closes the turn. false means the upstream step failed but will be retried, so the device records the error and keeps running: treating a retryable failure as terminal showed a successful run as a failure and closed every later tool block as an error."
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "streamTerminator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "data"],
+      "properties": {
+        "event": { "const": "agent.status" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "idle" },
+            "message": { "type": "string", "maxLength": 240 }
+          }
+        }
+      }
+    },
+    "runStream": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/streamFrame" },
+      "description": "Ordered SSE frames of one run. It must terminate with agent.status {status: idle}, and that frame must be the last one; JSON Schema cannot express \"last\", so the schema requires that the terminator be present and the device reads to it.",
+      "contains": { "$ref": "#/$defs/streamTerminator" }
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "error"],
+      "description": "What every route returns on a failure it recognises. `code` is the machine-readable part the device surfaces; `success` is false so the envelope cannot be mistaken for a payload.",
+      "properties": {
+        "success": { "const": false },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "internalErrorEnvelope": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["error"],
+      "description": "The cloud's shared `createApiErrorResponse` shape, which is what `authenticateEsp32Device` returns when device lookup itself throws (HTTP 500). It carries no `code`, so the device degrades it to `upstream_error` with a generic detail rather than inventing one. It is part of the contract because a schema that only allowed `{code,message}` would reject a response the routes really send.",
+      "properties": {
+        "error": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Human-readable message only. The device cannot read a code out of it."
+        },
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "timestamp": { "type": "string", "maxLength": 40 }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/sessionsListResponse" },
+    { "$ref": "#/$defs/sessionCreateRequest" },
+    { "$ref": "#/$defs/sessionCreateResponse" },
+    { "$ref": "#/$defs/transcribeResponse" },
+    { "$ref": "#/$defs/runRequest" },
+    { "$ref": "#/$defs/permissionReplyRequest" },
+    { "$ref": "#/$defs/questionReplyRequest" },
+    { "$ref": "#/$defs/historyResponse" },
+    { "$ref": "#/$defs/interruptResponse" },
+    { "$ref": "#/$defs/replyResponse" },
+    { "$ref": "#/$defs/runStream" },
+    { "$ref": "#/$defs/errorEnvelope" },
+    { "$ref": "#/$defs/internalErrorEnvelope" }
+  ]
+}

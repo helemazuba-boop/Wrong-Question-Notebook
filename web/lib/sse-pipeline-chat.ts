@@ -11,6 +11,7 @@ import {
   loadTurns,
   mintConversationId,
 } from './esp32-ai-conversation-store';
+import { logger } from './logger';
 import {
   applyToolCallDelta,
   sealToolCalls,
@@ -19,7 +20,7 @@ import {
   type PipelinePusher,
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
-import { AI_TOOLS } from './esp32-ai-tool-definitions';
+import { AI_TOOLS } from './ai-tools/voice-tools';
 
 export interface ChatStreamConfig {
   apiKey: string;
@@ -43,6 +44,9 @@ export interface ChatStreamResult {
   replyText: string;
   conversationId: string;
   requestId: string | null;
+  model: string;
+  finishReason: string | null;
+  reasoningBytes: number;
   actions: unknown[];
   functionCalls: Array<{
     name: string;
@@ -60,6 +64,7 @@ export interface ToolExecutor {
     display: string;
     data?: unknown;
     action?: unknown;
+    error?: { code: string; message: string };
   }>;
 }
 
@@ -91,6 +96,8 @@ export async function runPipelineChat(
 
   let lastRequestId: string | null = null;
   let fullReply = '';
+  let lastFinishReason: string | null = null;
+  let lastReasoningBytes = 0;
   const allActions: unknown[] = [];
   const functionCalls: ChatStreamResult['functionCalls'] = [];
 
@@ -103,6 +110,8 @@ export async function runPipelineChat(
       pusher
     );
     lastRequestId = response.requestId || lastRequestId;
+    lastFinishReason = response.finishReason ?? lastFinishReason;
+    lastReasoningBytes = response.reasoningBytes;
     if (response.content) {
       fullReply += response.content;
     }
@@ -126,10 +135,24 @@ export async function runPipelineChat(
           ]
         );
       }
+      if (!fullReply) {
+        warnEmptyReply({
+          model: config.model,
+          finishReason: lastFinishReason,
+          reasoningBytes: lastReasoningBytes,
+          contentBytes: Buffer.byteLength(fullReply, 'utf8'),
+          toolRounds: round + 1,
+          transcriptBytes: Buffer.byteLength(input.transcript, 'utf8'),
+          requestId: lastRequestId,
+        });
+      }
       return {
         replyText: fullReply,
         conversationId,
         requestId: lastRequestId,
+        model: config.model,
+        finishReason: lastFinishReason,
+        reasoningBytes: lastReasoningBytes,
         actions: allActions,
         functionCalls,
       };
@@ -147,12 +170,7 @@ export async function runPipelineChat(
         response.toolCalls.indexOf(call)
       );
       const t0 = Date.now();
-      let result: {
-        ok: boolean;
-        display: string;
-        data?: unknown;
-        action?: unknown;
-      };
+      let result: Awaited<ReturnType<ToolExecutor>>;
       try {
         result = toolExecutor
           ? await toolExecutor(call.function.name, call.function.arguments)
@@ -190,6 +208,32 @@ export async function runPipelineChat(
   );
 }
 
+function warnEmptyReply(input: {
+  model: string;
+  finishReason: string | null;
+  reasoningBytes: number;
+  contentBytes: number;
+  toolRounds: number;
+  transcriptBytes: number;
+  requestId: string | null;
+}): void {
+  // A "successful" completion with zero content is the exact signature of the
+  // device complaint "transcription appeared, no answer". The reasoning length
+  // separates a thinking-only response (provider put everything into
+  // reasoning_content) from a genuinely empty choice (finish_reason=length on
+  // a bad max_tokens, or the provider returned nothing at all).
+  logger.warn('DashScope chat returned an empty reply', {
+    component: 'Esp32AiTranscribeChat',
+    model: input.model,
+    finish_reason: input.finishReason,
+    reasoning_bytes: input.reasoningBytes,
+    content_bytes: input.contentBytes,
+    tool_rounds: input.toolRounds,
+    transcript_bytes: input.transcriptBytes,
+    request_id: input.requestId,
+  });
+}
+
 async function fetchStreamingCompletion(
   config: ChatStreamConfig,
   messages: Array<Record<string, unknown>>,
@@ -198,6 +242,8 @@ async function fetchStreamingCompletion(
 ): Promise<{
   requestId: string | null;
   content: string | null;
+  finishReason: string | null;
+  reasoningBytes: number;
   toolCalls: Array<{
     id: string;
     type: 'function';
@@ -255,6 +301,8 @@ async function fetchStreamingCompletion(
 interface ConsumedStream {
   requestId: string | null;
   content: string | null;
+  finishReason: string | null;
+  reasoningBytes: number;
   toolCalls: ReturnType<typeof sealToolCalls>;
 }
 
@@ -268,6 +316,7 @@ async function consumeOpenAiSse(
   let buf = '';
   let content = '';
   let requestId: string | null = null;
+  let finishReason: string | null = null;
   const acc: AccumulatedToolCall[] = [];
   let firstDeltaEmitted = false;
   let reasoningStarted = false;
@@ -321,6 +370,7 @@ async function consumeOpenAiSse(
       applyToolCallDelta(acc, delta.tool_calls);
     }
     if (choice.finish_reason) {
+      finishReason = choice.finish_reason;
       finishReasoning();
       if (firstDeltaEmitted) pusher.closeSentence();
     }
@@ -339,6 +389,8 @@ async function consumeOpenAiSse(
   return {
     requestId,
     content: content || null,
+    finishReason,
+    reasoningBytes: Buffer.byteLength(reasoning, 'utf8'),
     toolCalls: hasTools ? sealToolCalls(acc) : [],
   };
 }

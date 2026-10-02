@@ -104,14 +104,31 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // RFC 8414 / RFC 9728 discovery documents live at fixed, non-localized
+  // paths. They must answer at exactly the URL the client requested: letting
+  // them reach intlMiddleware would redirect them under the locale prefix and
+  // break the metadata URL advertised in WWW-Authenticate.
+  if (originalPathname.startsWith('/.well-known/')) {
+    return NextResponse.next();
+  }
+
   // Step 0: API routes should NOT go through intlMiddleware at all
   if (originalPathname.startsWith('/api/')) {
     return NextResponse.next();
   }
 
   // Step 1: Handle i18n routing
+  //
+  // The OAuth consent page lives outside [locale]: the authorization endpoint
+  // advertised in the RFC 8414 metadata carries no locale prefix, and clients
+  // generally will not follow a redirect to discover it. It resolves its own
+  // locale from the NEXT_LOCALE cookie, but still runs the session check
+  // below so an unauthenticated user is sent to login first.
   let locale = routing.defaultLocale;
-  const intlResponse = await intlMiddleware(request);
+  const skipIntl = originalPathname.startsWith('/oauth/');
+  const intlResponse = skipIntl
+    ? NextResponse.next()
+    : await intlMiddleware(request);
 
   if (intlResponse.status === 307 || intlResponse.status === 308) {
     return intlResponse;
@@ -123,6 +140,13 @@ export async function proxy(request: NextRequest) {
   const localeHeader = intlResponse.headers.get('x-next-intl-locale');
   if (localeHeader && (localeHeader === 'en' || localeHeader === 'zh-CN')) {
     locale = localeHeader;
+  } else if (skipIntl) {
+    // Without intlMiddleware there is no locale header, so fall back to the
+    // cookie next-intl writes when the user switches language.
+    const cookieLocale = request.cookies.get('NEXT_LOCALE')?.value;
+    if (cookieLocale === 'en' || cookieLocale === 'zh-CN') {
+      locale = cookieLocale;
+    }
   } else {
     for (const l of routing.locales) {
       if (originalPathname.startsWith(`/${l}`)) {
@@ -200,7 +224,14 @@ export async function proxy(request: NextRequest) {
   if (!user) {
     const loginUrl = new URL(`/${locale}/auth/login`, request.url);
     if (contentPath !== '/') {
-      loginUrl.searchParams.set('redirect', contentPath);
+      // The query string has to survive the round trip: the OAuth consent
+      // page carries client_id, state and the PKCE challenge as query
+      // parameters, and dropping them would strand the user at a dead end
+      // after they log in.
+      loginUrl.searchParams.set(
+        'redirect',
+        `${contentPath}${request.nextUrl.search}`
+      );
     }
     return applyCookies(NextResponse.redirect(loginUrl));
   }

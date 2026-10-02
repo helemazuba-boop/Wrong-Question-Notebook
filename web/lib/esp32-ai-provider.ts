@@ -9,33 +9,25 @@ import {
 } from './esp32-ai-asr-selection';
 import { runStepFunAsrSse } from './stepfun-asr';
 import {
-  createNotebookNoteFromAi,
-  getProblemDetail,
   listAuthorizedNotebooks,
   NotebookToolError,
-  searchUserProblems,
   type NotebookAiAction,
   type NotebookToolContext,
 } from '@/lib/notebooks';
 import {
-  createTodoFromAi,
-  listTodosForAi,
   TodoToolError,
-  updateTodoStatusFromAi,
   type TodoAiAction,
-  type TodoPriority,
-  type TodoStatus,
   type TodoToolContext,
 } from '@/lib/todos';
 import {
-  addWordEntryToDeck,
-  createWordDeck,
-  listAuthorizedWordDecks,
-  searchWords,
   WordToolError,
   type WordAiAction,
   type WordToolContext,
 } from '@/lib/words';
+import { findMcpTool, type McpToolContext } from '@/lib/mcp/tool-registry';
+import { isVoiceToolName } from '@/lib/mcp/tool-catalog';
+import { AI_TOOLS, AI_TOOL_PROMPT } from './ai-tools/voice-tools';
+export { AI_TOOLS, AI_TOOL_PROMPT };
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   appendTurns,
@@ -89,6 +81,13 @@ export interface Esp32AiProviderResult {
   statusTrace: Esp32AiStatusTraceItem[];
   asr: Esp32AiAsrSummary;
   functionCalls: Esp32AiFunctionCallSummary[];
+}
+
+export interface Esp32VoiceTranscriptionResult {
+  transcript: string;
+  latencyMs: number;
+  statusTrace: Esp32AiStatusTraceItem[];
+  asr: Esp32AiAsrSummary;
 }
 
 export interface Esp32WordAiLookupResult {
@@ -305,6 +304,9 @@ function actionSummariesFrom(
   }));
 }
 
+// Tool schemas and prompts are no longer declared here: the v1 path shares
+// the projected definitions in ai-tools/voice-tools.ts (single source with
+// the MCP registry and the v2 streaming path).
 function safeToolCallDisplay(name: string): string {
   if (name === 'list_authorized_notebooks') return '读取授权笔记本';
   if (name === 'create_notebook_note') return '写入笔记';
@@ -313,242 +315,12 @@ function safeToolCallDisplay(name: string): string {
   if (name === 'list_todos') return '读取 Todo';
   if (name === 'create_todo') return '创建 Todo';
   if (name === 'update_todo_status') return '更新 Todo';
-  if (name === 'list_word_decks') return '读取词库';
+  if (name === 'list_authorized_word_decks') return '读取词库';
   if (name === 'create_word_deck') return '创建词库';
-  if (name === 'add_word_to_deck') return '添加单词';
+  if (name === 'add_word_entry') return '添加单词';
   if (name === 'search_words') return '查询单词';
   return name ? `调用工具：${name}` : '调用工具';
 }
-
-const NOTEBOOK_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_authorized_notebooks',
-      description: '列出当前用户授权给 AI 访问的空白笔记本及权限。',
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_notebook_note',
-      description: '在用户授权 AI 创建内容的空白笔记本中新增一条笔记。',
-      parameters: {
-        type: 'object',
-        properties: {
-          notebook_id: { type: 'string', description: '目标空白笔记本 ID' },
-          title: { type: 'string', description: '笔记标题，最多 120 字符' },
-          content: { type: 'string', description: '笔记正文，最多 4000 字符' },
-          linked_problem_id: {
-            type: 'string',
-            description: '可选，关联错题 ID',
-          },
-        },
-        required: ['notebook_id', 'title', 'content'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_user_problems',
-      description: '按标题、题干或解析搜索当前用户自己的错题。',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: '搜索关键词' },
-          subject_id: { type: 'string', description: '可选科目 ID' },
-          limit: { type: 'number', description: '返回数量，最多 5' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_problem_detail',
-      description: '读取当前用户某道错题的题干、解析、答案和状态。',
-      parameters: {
-        type: 'object',
-        properties: {
-          problem_id: { type: 'string', description: '错题 ID' },
-        },
-        required: ['problem_id'],
-      },
-    },
-  },
-] as const;
-
-export const AI_TOOL_PROMPT = [
-  '你可以在需要时调用工具读取当前用户的错题、写入用户明确授权给 AI 的空白笔记本，或管理用户的 Todo。',
-  '不要声称已经写入笔记或 Todo，除非 create_notebook_note、create_todo 或 update_todo_status 工具返回成功。',
-  '错题本只用于读取错题名称和详情；空白笔记本才允许创建笔记。',
-  'Todo 是顶层行动清单，不属于笔记本架。Todo 状态只允许 pending、completed、cancelled。',
-  '词库是笔记本架中的第三类内容，类型是 word_deck；它不是 Notebook。设备端仍通过 Word 顶层学习页复习词库。',
-  '单词学习进度只能由单词学习会话记录；AI 工具不得代写复习结果。',
-  '不要声称已经创建词库或添加单词，除非 create_word_deck 或 add_word_to_deck 工具返回成功。',
-  '如果没有合适授权或缺少 ID，直接说明需要用户先授权或选择目标。不要编造 notebook_id、problem_id 或 todo_id。',
-].join('\n');
-
-const TODO_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_todos',
-      description: '列出当前用户的 Todo。默认只列出 pending。',
-      parameters: {
-        type: 'object',
-        properties: {
-          status: {
-            type: 'string',
-            enum: ['pending', 'completed', 'cancelled', 'all'],
-            description: 'Todo 状态过滤，默认 pending',
-          },
-          limit: { type: 'number', description: '返回数量，最大 8' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_todo',
-      description: '为当前用户创建一个 Todo。',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: 'Todo 标题，最大 120 字符' },
-          description: {
-            type: 'string',
-            description: '可选说明，最大 2000 字符',
-          },
-          priority: {
-            type: 'string',
-            enum: ['low', 'normal', 'high'],
-            description: '优先级，默认 normal',
-          },
-          due_at: { type: 'string', description: '可选 ISO 时间' },
-          reminder_at: { type: 'string', description: '可选 ISO 时间' },
-          subject_id: { type: 'string', description: '可选科目 ID' },
-          problem_id: { type: 'string', description: '可选错题 ID' },
-          notebook_id: { type: 'string', description: '可选空白笔记本 ID' },
-        },
-        required: ['title'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_todo_status',
-      description: '更新当前用户某个 Todo 的状态。不能删除 Todo。',
-      parameters: {
-        type: 'object',
-        properties: {
-          todo_id: { type: 'string', description: 'Todo ID' },
-          status: {
-            type: 'string',
-            enum: ['pending', 'completed', 'cancelled'],
-            description: '目标状态',
-          },
-        },
-        required: ['todo_id', 'status'],
-      },
-    },
-  },
-] as const;
-
-const WORD_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_word_decks',
-      description: '列出当前用户可访问或授权给 AI 的词库。',
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'create_word_deck',
-      description:
-        '为当前用户创建一个空白词库。词库会出现在笔记本架中，类型是 word_deck，不是 Notebook。',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: '词库名称，最大 120 字符' },
-          description: {
-            type: 'string',
-            description: '可选说明，最大 1000 字符',
-          },
-          subject_id: { type: 'string', description: '可选科目/归档 ID' },
-          language: { type: 'string', description: '源语言，默认 en' },
-          target_language: {
-            type: 'string',
-            description: '目标语言，默认 zh-CN',
-          },
-          lexicon_type: {
-            type: 'string',
-            enum: ['english_word', 'classical_chinese_term'],
-            description:
-              '词库类型。本阶段默认 english_word；classical_chinese_term 仅作预留。',
-          },
-        },
-        required: ['title'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'add_word_to_deck',
-      description: '向用户拥有的非系统词库添加或更新一个单词。',
-      parameters: {
-        type: 'object',
-        properties: {
-          deck_id: { type: 'string', description: '目标词库 ID' },
-          word: { type: 'string', description: '英文单词或短语' },
-          phonetic: { type: 'string', description: '可选音标' },
-          meaning: { type: 'string', description: '中文释义' },
-          example: { type: 'string', description: '可选例句' },
-          example_translation: { type: 'string', description: '可选例句翻译' },
-          part_of_speech: { type: 'string', description: '可选词性' },
-        },
-        required: ['deck_id', 'word', 'meaning'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_words',
-      description: '按前缀或关键词查询当前用户可访问的词库单词。',
-      parameters: {
-        type: 'object',
-        properties: {
-          q: { type: 'string', description: '查询关键词' },
-          prefix: { type: 'string', description: '单词前缀' },
-          deck_id: { type: 'string', description: '可选词库 ID' },
-          limit: { type: 'number', description: '返回数量，最大 20' },
-        },
-      },
-    },
-  },
-] as const;
-
-export const AI_TOOLS = [
-  ...NOTEBOOK_TOOLS,
-  ...TODO_TOOLS,
-  ...WORD_TOOLS,
-] as const;
 
 function isDashScopeProviderConfigured(): boolean {
   // Chat always goes through DashScope (qwen). ASR may be DashScope
@@ -576,7 +348,7 @@ function getCommaSeparatedEnv(name: string): string[] {
     .filter(Boolean);
 }
 
-function getProviderConfig(): DashScopeProviderConfig | null {
+function getProviderConfig(requireChat = true): DashScopeProviderConfig | null {
   if (!isDashScopeProviderConfigured()) return null;
 
   const asrSelection = getEsp32AiAsrSelection();
@@ -602,7 +374,7 @@ function getProviderConfig(): DashScopeProviderConfig | null {
   )
     .trim()
     .replace(/\/+$/, '');
-  if (!chatApiKeyStd || !chatApiKeyPro) return null;
+  if (requireChat && (!chatApiKeyStd || !chatApiKeyPro)) return null;
 
   const configuredAsrProviders = [asrSelection.primary, asrSelection.fallback];
   if (configuredAsrProviders.includes('dashscope')) {
@@ -1214,64 +986,6 @@ function parseToolArguments(raw: string | undefined): Record<string, unknown> {
   }
 }
 
-function stringArg(
-  args: Record<string, unknown>,
-  key: string,
-  required = false
-): string | null {
-  const value = args[key];
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  if (required) {
-    throw new NotebookToolError(
-      'invalid_tool_arguments',
-      `Missing required argument: ${key}`,
-      400
-    );
-  }
-  return null;
-}
-
-function numberArg(
-  args: Record<string, unknown>,
-  key: string
-): number | undefined {
-  const value = args[key];
-  return typeof value === 'number' && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
-function todoStatusArg(
-  args: Record<string, unknown>,
-  key: string,
-  required = false
-): TodoStatus | 'all' | null {
-  const value = stringArg(args, key, required);
-  if (!value) return null;
-  if (['pending', 'completed', 'cancelled', 'all'].includes(value)) {
-    return value as TodoStatus | 'all';
-  }
-  throw new TodoToolError(
-    'invalid_tool_arguments',
-    `Invalid Todo status: ${value}`,
-    400
-  );
-}
-
-function todoPriorityArg(
-  args: Record<string, unknown>,
-  key: string
-): TodoPriority | undefined {
-  const value = stringArg(args, key);
-  if (!value) return undefined;
-  if (['low', 'normal', 'high'].includes(value)) return value as TodoPriority;
-  throw new TodoToolError(
-    'invalid_tool_arguments',
-    `Invalid Todo priority: ${value}`,
-    400
-  );
-}
-
 function safeToolErrorPayload(error: unknown) {
   if (error instanceof NotebookToolError) {
     return {
@@ -1306,6 +1020,11 @@ function safeToolErrorPayload(error: unknown) {
   };
 }
 
+// Executes one voice tool call through the shared MCP tool registry, keeping
+// the v1 response contract: {success, data} / {success, error} back to the
+// model, plus device-facing `actions` and `functionCalls` summaries. Tool
+// resolution, validation and the handler come from the registry; the Chinese
+// display vocabulary and the {success,data} envelope are v1 presentation.
 async function executeAiToolCall(
   ctx: Esp32AiToolContext | undefined,
   call: DashScopeToolCall,
@@ -1328,180 +1047,7 @@ async function executeAiToolCall(
     };
   }
 
-  try {
-    const args = parseToolArguments(call.function?.arguments);
-
-    if (name === 'list_authorized_notebooks') {
-      const data = await listAuthorizedNotebooks(ctx);
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return { success: true, data };
-    }
-
-    if (name === 'create_notebook_note') {
-      const beforeCount = actions.length;
-      const result = await createNotebookNoteFromAi(ctx, {
-        notebook_id: stringArg(args, 'notebook_id', true)!,
-        title: stringArg(args, 'title', true)!,
-        content: stringArg(args, 'content', true)!,
-        linked_problem_id: stringArg(args, 'linked_problem_id') || null,
-      });
-      actions.push(result.action);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return { success: true, data: result.note };
-    }
-
-    if (name === 'search_user_problems') {
-      const data = await searchUserProblems(ctx, {
-        query: stringArg(args, 'query', true)!,
-        subject_id: stringArg(args, 'subject_id'),
-        limit: numberArg(args, 'limit'),
-      });
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return {
-        success: true,
-        data,
-      };
-    }
-
-    if (name === 'get_problem_detail') {
-      const data = await getProblemDetail(ctx, {
-        problem_id: stringArg(args, 'problem_id', true)!,
-      });
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return {
-        success: true,
-        data,
-      };
-    }
-
-    if (name === 'list_todos') {
-      const data = await listTodosForAi(ctx, {
-        status: todoStatusArg(args, 'status') || 'pending',
-        limit: numberArg(args, 'limit'),
-      });
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return {
-        success: true,
-        data,
-      };
-    }
-
-    if (name === 'create_todo') {
-      const beforeCount = actions.length;
-      const result = await createTodoFromAi(ctx, {
-        title: stringArg(args, 'title', true)!,
-        description: stringArg(args, 'description'),
-        priority: todoPriorityArg(args, 'priority'),
-        due_at: stringArg(args, 'due_at'),
-        reminder_at: stringArg(args, 'reminder_at'),
-        subject_id: stringArg(args, 'subject_id'),
-        problem_id: stringArg(args, 'problem_id'),
-        notebook_id: stringArg(args, 'notebook_id'),
-      });
-      actions.push(result.action);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return { success: true, data: result.todo };
-    }
-
-    if (name === 'update_todo_status') {
-      const beforeCount = actions.length;
-      const status = todoStatusArg(args, 'status', true);
-      if (status === 'all') {
-        throw new TodoToolError(
-          'invalid_tool_arguments',
-          'Todo status cannot be all for update',
-          400
-        );
-      }
-      const result = await updateTodoStatusFromAi(ctx, {
-        todo_id: stringArg(args, 'todo_id', true)!,
-        status: status!,
-      });
-      actions.push(result.action);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return { success: true, data: result.todo };
-    }
-
-    if (name === 'list_word_decks') {
-      const data = await listAuthorizedWordDecks(ctx);
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return { success: true, data };
-    }
-
-    if (name === 'create_word_deck') {
-      const beforeCount = actions.length;
-      const result = await createWordDeck(ctx.supabase, ctx.userId, {
-        title: stringArg(args, 'title', true)!,
-        description: stringArg(args, 'description'),
-        subject_id: stringArg(args, 'subject_id'),
-        language: stringArg(args, 'language') || undefined,
-        target_language: stringArg(args, 'target_language') || undefined,
-        lexicon_type:
-          stringArg(args, 'lexicon_type') === 'classical_chinese_term'
-            ? 'classical_chinese_term'
-            : 'english_word',
-        source: 'ai',
-      });
-      actions.push(result.action);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return { success: true, data: result.deck };
-    }
-
-    if (name === 'add_word_to_deck') {
-      const beforeCount = actions.length;
-      const result = await addWordEntryToDeck(
-        ctx.supabase,
-        ctx.userId,
-        stringArg(args, 'deck_id', true)!,
-        {
-          word: stringArg(args, 'word', true)!,
-          phonetic: stringArg(args, 'phonetic'),
-          meaning: stringArg(args, 'meaning', true)!,
-          example: stringArg(args, 'example'),
-          example_translation: stringArg(args, 'example_translation'),
-          part_of_speech: stringArg(args, 'part_of_speech'),
-        }
-      );
-      actions.push(result.action);
-      functionCalls?.push(...actionSummariesFrom(beforeCount, actions));
-      return { success: true, data: result.entry };
-    }
-
-    if (name === 'search_words') {
-      const data = await searchWords(ctx.supabase, ctx.userId, {
-        q: stringArg(args, 'q'),
-        prefix: stringArg(args, 'prefix'),
-        deck_id: stringArg(args, 'deck_id'),
-        limit: numberArg(args, 'limit'),
-      });
-      functionCalls?.push({
-        name,
-        status: 'succeeded',
-        display: safeToolCallDisplay(name),
-      });
-      return { success: true, data: { words: data } };
-    }
-
+  if (!name || !isVoiceToolName(name)) {
     functionCalls?.push({
       name,
       status: 'failed',
@@ -1514,6 +1060,60 @@ async function executeAiToolCall(
         message: `Unknown tool: ${name || 'unnamed'}`,
       },
     };
+  }
+
+  const tool = findMcpTool(name);
+  if (!tool) {
+    functionCalls?.push({
+      name,
+      status: 'failed',
+      display: `未知工具：${name}`,
+    });
+    return {
+      success: false,
+      error: { code: 'unknown_tool', message: `Unknown tool: ${name}` },
+    };
+  }
+
+  try {
+    const args = parseToolArguments(call.function?.arguments);
+    const parsed = tool.argsSchema.safeParse(args);
+    if (!parsed.success) {
+      const details = parsed.error.issues
+        .slice(0, 3)
+        .map(
+          issue => `${issue.path.join('.') || 'arguments'}: ${issue.message}`
+        )
+        .join('; ');
+      throw new NotebookToolError(
+        'invalid_tool_arguments',
+        `Invalid tool arguments: ${details}`,
+        400
+      );
+    }
+    const toolCtx: McpToolContext = {
+      userId: ctx.userId,
+      conversationId: ctx.conversationId ?? null,
+      deviceId: ctx.deviceId ?? null,
+      supabase: ctx.supabase,
+    };
+    const result = await tool.handler(
+      toolCtx,
+      parsed.data as Record<string, unknown>
+    );
+
+    const action = extractAction(result);
+    if (action) {
+      actions.push(action);
+      functionCalls?.push(...actionSummariesFrom(actions.length - 1, actions));
+    } else {
+      functionCalls?.push({
+        name,
+        status: 'succeeded',
+        display: safeToolCallDisplay(name),
+      });
+    }
+    return { success: true, data: result };
   } catch (error) {
     functionCalls?.push({
       name,
@@ -1525,6 +1125,23 @@ async function executeAiToolCall(
       error: safeToolErrorPayload(error),
     };
   }
+}
+
+// Write handlers surface the device action object at the top level of their
+// result ({note, action} / {todo, action} / ...); read handlers do not.
+function extractAction(result: unknown): Esp32AiAction | undefined {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return undefined;
+  }
+  const candidate = (result as { action?: unknown }).action;
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    typeof (candidate as { type?: unknown }).type === 'string'
+  ) {
+    return candidate as Esp32AiAction;
+  }
+  return undefined;
 }
 
 async function runDashScopeChat(
@@ -1679,6 +1296,10 @@ export function isEsp32AiProviderConfigured(): boolean {
   return Boolean(getProviderConfig());
 }
 
+export function isEsp32VoiceTranscriptionConfigured(): boolean {
+  return Boolean(getProviderConfig(false));
+}
+
 async function runSelectedAsrProvider(
   config: DashScopeProviderConfig,
   input: Esp32AiProviderInput,
@@ -1707,6 +1328,95 @@ async function runSelectedAsrProvider(
   }
 
   return runDashScopeAsr(config, input, tracker);
+}
+
+async function runAsrWithFallback(
+  config: DashScopeProviderConfig,
+  input: Esp32AiProviderInput,
+  tracker: StatusTracker
+): Promise<{
+  transcript: string;
+  requestId: string | null;
+  elapsedMs: number;
+  provider: Esp32AiAsrProvider;
+}> {
+  tracker.mark('asr', 'started');
+  let provider = config.asrProvider;
+  try {
+    const result = await runSelectedAsrProvider(
+      config,
+      input,
+      provider,
+      tracker
+    );
+    tracker.mark(
+      'asr',
+      'succeeded',
+      `text_bytes=${Buffer.byteLength(result.transcript, 'utf8')}`
+    );
+    return { ...result, provider };
+  } catch (error) {
+    if (
+      !config.asrFallbackProvider ||
+      !(error instanceof Esp32AiProviderError) ||
+      !isAsrFallbackEligibleCode(error.code)
+    ) {
+      throw error;
+    }
+    tracker.mark(
+      'asr_fallback',
+      'started',
+      `from=${provider} to=${config.asrFallbackProvider} code=${error.code}`
+    );
+    provider = config.asrFallbackProvider;
+    const result = await runSelectedAsrProvider(
+      config,
+      input,
+      provider,
+      tracker
+    );
+    tracker.mark('asr_fallback', 'succeeded', `provider=${provider}`);
+    tracker.mark(
+      'asr',
+      'succeeded',
+      `text_bytes=${Buffer.byteLength(result.transcript, 'utf8')}`
+    );
+    return { ...result, provider };
+  }
+}
+
+export async function runEsp32VoiceTranscription(
+  input: Esp32AiProviderInput
+): Promise<Esp32VoiceTranscriptionResult> {
+  const config = getProviderConfig(false);
+  if (!config) {
+    throw new Esp32AiProviderError(
+      'disabled',
+      'ESP32 voice transcription is disabled',
+      503
+    );
+  }
+  const startedAt = Date.now();
+  const tracker = createStatusTracker(startedAt);
+  tracker.mark('request', 'started');
+  const result = await runAsrWithFallback(config, input, tracker);
+  tracker.mark('request', 'succeeded');
+  return {
+    transcript: result.transcript,
+    latencyMs: Date.now() - startedAt,
+    statusTrace: tracker.items,
+    asr: {
+      provider: result.provider,
+      model:
+        result.provider === 'stepfun'
+          ? config.stepfunAsrModel
+          : config.asrModel,
+      status: 'succeeded',
+      text: result.transcript,
+      request_id: result.requestId,
+      elapsed_ms: result.elapsedMs,
+    },
+  };
 }
 
 export async function runEsp32WordAiLookup(input: {
@@ -1804,33 +1514,7 @@ export async function runEsp32AiProvider(
   const startedAt = Date.now();
   const tracker = createStatusTracker(startedAt);
   tracker.mark('request', 'started');
-  tracker.mark('asr', 'started');
-  let asr: { transcript: string; requestId: string | null; elapsedMs: number };
-  let usedAsrProvider = config.asrProvider;
-  try {
-    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
-  } catch (error) {
-    if (
-      !config.asrFallbackProvider ||
-      !(error instanceof Esp32AiProviderError) ||
-      !isAsrFallbackEligibleCode(error.code)
-    ) {
-      throw error;
-    }
-    tracker.mark(
-      'asr_fallback',
-      'started',
-      `from=${usedAsrProvider} to=${config.asrFallbackProvider} code=${error.code}`
-    );
-    usedAsrProvider = config.asrFallbackProvider;
-    asr = await runSelectedAsrProvider(config, input, usedAsrProvider, tracker);
-    tracker.mark('asr_fallback', 'succeeded', `provider=${usedAsrProvider}`);
-  }
-  tracker.mark(
-    'asr',
-    'succeeded',
-    `text_bytes=${Buffer.byteLength(asr.transcript, 'utf8')}`
-  );
+  const asr = await runAsrWithFallback(config, input, tracker);
   const toolContext = input.userId
     ? {
         userId: input.userId,
@@ -1868,11 +1552,9 @@ export async function runEsp32AiProvider(
     actions: chat.actions,
     statusTrace: tracker.items,
     asr: {
-      provider: usedAsrProvider,
+      provider: asr.provider,
       model:
-        usedAsrProvider === 'stepfun'
-          ? config.stepfunAsrModel
-          : config.asrModel,
+        asr.provider === 'stepfun' ? config.stepfunAsrModel : config.asrModel,
       status: 'succeeded',
       text: asr.transcript,
       request_id: asr.requestId,

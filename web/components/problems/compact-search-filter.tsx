@@ -95,7 +95,7 @@ export default function CompactSearchFilter({
   const t = useTranslations('Problems');
   const tDataTable = useTranslations('DataTable');
   const tCommon = useTranslations('Common');
-  const debounceTimeoutRef = useRef<NodeJS.Timeout>();
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep refs to latest values so debounced callbacks never go stale
@@ -128,7 +128,7 @@ export default function CompactSearchFilter({
   const cancelDebounce = useCallback(() => {
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
-      debounceTimeoutRef.current = undefined;
+      debounceTimeoutRef.current = null;
     }
   }, []);
 

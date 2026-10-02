@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST } from '@/app/api/esp32/ai/transcribe-chat/route';
 import {
-  MAX_AUDIO_DURATION_MS,
   MAX_AUDIO_BODY_BYTES,
-  POST,
-} from '@/app/api/esp32/ai/transcribe-chat/route';
+  MAX_AUDIO_DURATION_MS,
+} from '@/lib/esp32-ai-audio-contract';
 
 const mockMaybeSingle = vi.fn();
 const mockSelectEq = vi.fn();

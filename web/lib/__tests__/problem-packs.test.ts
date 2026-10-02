@@ -69,7 +69,16 @@ const PROBLEM_ROW = {
       label: '选择',
       full_marks: 6,
       content: '该植物花色遗传遵循的规律是？',
-      answer_config: { type: 'mcq', correct_choice_id: 'B' },
+      answer_config: {
+        type: 'mcq',
+        correct_choice_id: 'B',
+        choices: [
+          { id: 'A', text: '基因的分离定律' },
+          { id: 'B', text: '基因的自由组合定律' },
+          { id: 'C', text: '$\\frac{9}{16}$ 的比例' },
+          { id: 'D', text: '细胞质遗传' },
+        ],
+      },
     },
     {
       index: 2,
@@ -156,6 +165,15 @@ describe('buildProblemPack', () => {
       expect(row.data.problem_id).toBe(PROBLEM_ID);
       expect(row.data.parts).toHaveLength(2);
       expect(row.data.parts[0].answer_text).toBe('B');
+      // Options are projected with math flattened ($\frac{9}{16}$ ->
+      // (9)/(16)); parts without choices omit the key entirely.
+      expect(row.data.parts[0].choices).toEqual([
+        { id: 'A', text: '基因的分离定律' },
+        { id: 'B', text: '基因的自由组合定律' },
+        { id: 'C', text: '(9)/(16) 的比例' },
+        { id: 'D', text: '细胞质遗传' },
+      ]);
+      expect(row.data.parts[1].choices).toBeUndefined();
       expect(row.data.image_ids).toEqual([IMAGE_ID]);
       expect(row.data.gray4_image_ids).toEqual([GRAY4_ID]);
       expect(row.data.solution_image_ids).toEqual([SOLUTION_ID]);
@@ -215,6 +233,60 @@ describe('buildProblemPack', () => {
     expect(parsed.gray4_image_ids).toEqual([null]);
     expect(parsed.solution_image_ids).toEqual([]);
     expect(parsed.solution_gray4_image_ids).toEqual([]);
+  });
+
+  // The device rejects a whole pack when one JSONL row exceeds its 65535-byte
+  // line bound, so an oversized row first loses its options and only then is
+  // skipped entirely.
+  function oversizedRow(partCount: number, withChoices: boolean) {
+    return {
+      ...PROBLEM_ROW,
+      parts: Array.from({ length: partCount }, (_, i) => ({
+        index: i + 1,
+        type: 'single_choice',
+        label: '选择',
+        full_marks: 5,
+        content: '甲'.repeat(5000),
+        answer_config: {
+          type: 'mcq',
+          correct_choice_id: 'A',
+          ...(withChoices
+            ? {
+                choices: Array.from({ length: 10 }, (_, c) => ({
+                  id: String.fromCharCode(65 + c),
+                  text: '乙'.repeat(500),
+                })),
+              }
+            : {}),
+        },
+      })),
+    };
+  }
+
+  it('drops choices when a row exceeds the device line bound', async () => {
+    const { supabase } = makeClient({
+      problem_sets: [{ data: SET_ROW, error: null }],
+      problem_set_problems: [{ data: JUNCTION_ROWS, error: null }],
+      problems: [{ data: [oversizedRow(4, true)], error: null }],
+    });
+    const pack = await buildProblemPack(supabase, USER_ID, SET_ID);
+    expect(pack.entry_count).toBe(1);
+    const parsed = problemPackRowSchema.parse(
+      JSON.parse(pack.body.split('\n')[1])
+    );
+    expect(parsed.parts).toHaveLength(4);
+    expect(parsed.parts[0].choices).toBeUndefined();
+  });
+
+  it('skips a row whose pre-existing fields already exceed the line bound', async () => {
+    const { supabase } = makeClient({
+      problem_sets: [{ data: SET_ROW, error: null }],
+      problem_set_problems: [{ data: JUNCTION_ROWS, error: null }],
+      problems: [{ data: [oversizedRow(5, false)], error: null }],
+    });
+    const pack = await buildProblemPack(supabase, USER_ID, SET_ID);
+    expect(pack.entry_count).toBe(0);
+    expect(pack.body.split('\n')).toHaveLength(1);
   });
 
   it('rejects an unknown problem set with 404', async () => {

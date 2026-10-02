@@ -1,17 +1,20 @@
-// MCP tool registry: the single tool table served by /api/mcp.
+// MCP tool registry: the single tool table served by /api/mcp and consumed by
+// the ESP32 voice chains -- lib/ai-tools/voice-tools.ts projects the shared
+// catalog entries (tool-catalog.ts) into OpenAI function definitions, and the
+// voice adapter executes these same handlers.
 //
-// Unlike v2-tools.ts (the ESP32 voice path, which discards data and returns a
-// short display string for TTS), every handler here returns the full JSON
-// payload -- the external AI client is the consumer and needs the data
-// itself. Handlers reuse the same lib functions and permission gates as the
-// web/voice paths; nothing in this file talks to tables directly except the
-// two problem-domain queries that need columns the shared helpers do not
-// expose (review-due listing and the asset-bearing problem detail).
+// Every handler returns the full JSON payload; the external AI client needs
+// the data itself, while the voice adapter maps that payload to a short
+// display string plus a device action. Handlers reuse the same lib functions
+// and permission gates as the web/voice paths. Note that many handlers here
+// and in tool-extensions.ts query tables directly through the service-role
+// client with an explicit user_id filter -- a new handler must scope its own
+// reads and writes the same way.
 
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database, Json } from '@/lib/database.types';
+import type { Database } from '@/lib/database.types';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import {
   createNotebookNoteFromAi,
@@ -22,41 +25,46 @@ import {
 } from '@/lib/notebooks';
 import { getNote, listNotes } from '@/lib/notebook-content-service';
 import {
-  createTodo,
+  createTodoFromAi,
   loadTodos,
-  updateTodoStatus,
+  updateTodoStatusFromAi,
   type TodoPriority,
   type TodoStatus,
 } from '@/lib/todos';
 import { recordProblemReview } from '@/lib/problem-review-service';
 import type { ProblemObservationRequest } from '@/lib/problem-study-v1';
-import { listAuthorizedWordDecks, loadWrongWords } from '@/lib/words';
+import {
+  createWordDeck,
+  listAuthorizedWordDecks,
+  loadWrongWords,
+  searchWords,
+  type WordLexiconType,
+} from '@/lib/words';
 import {
   loadWebWordStudySession,
   loadWordDeckStudySummaries,
 } from '@/lib/word-study-web';
 import { MCP_TOOL_EXTENSIONS } from '@/lib/mcp/tool-extensions';
+import { TOOL_CATALOG, type ToolCatalogEntry } from '@/lib/mcp/tool-catalog';
 
+// Shared execution context for every registry consumer. The external MCP
+// endpoint fills the credential fields; the ESP32 voice tools fill the
+// conversation/device provenance fields. Handlers must not assume both are
+// present -- the initial-idea chain guards its own credential requirements.
 export interface McpToolContext {
   userId: string;
-  apiTokenId: string;
-  origin: string;
-  confirmationPath: string;
   supabase: SupabaseClient<Database>;
+  /** MCP credential row id (PAT or OAuth token). Absent on voice calls. */
+  apiTokenId?: string;
+  /** App origin used to build user-facing confirmation links. MCP only. */
+  origin?: string;
+  confirmationPath?: string;
+  /** Voice conversation/device provenance for AI-created rows. */
+  conversationId?: string | null;
+  deviceId?: string | null;
 }
 
-export interface McpToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
-  annotations?: {
-    title?: string;
-    readOnlyHint?: boolean;
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
-    openWorldHint?: boolean;
-  };
+export interface McpToolDefinition extends ToolCatalogEntry {
   // Zod twin of inputSchema, enforced by the route before the handler runs.
   // Keep both in sync when a tool's contract changes.
   argsSchema: z.ZodType;
@@ -239,6 +247,50 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     }),
   },
 
+  {
+    ...TOOL_CATALOG.create_word_deck,
+    argsSchema: z.object({
+      title: z.string().trim().min(1).max(80),
+      description: z.string().max(500).nullish(),
+      subject_id: IdSchema.nullish(),
+      language: z.string().trim().max(16).nullish(),
+      target_language: z.string().trim().max(16).nullish(),
+      lexicon_type: z
+        .enum(['english_word', 'classical_chinese_term'])
+        .nullish(),
+    }),
+    annotations: NON_IDEMPOTENT_WRITE,
+    handler: async (ctx, args) => {
+      const result = await createWordDeck(ctx.supabase, ctx.userId, {
+        title: str(args.title),
+        description: optStr(args.description) ?? null,
+        subject_id: optStr(args.subject_id) ?? null,
+        language: optStr(args.language) ?? undefined,
+        target_language: optStr(args.target_language) ?? undefined,
+        lexicon_type: optStr(args.lexicon_type) as WordLexiconType | undefined,
+        source: 'ai',
+      });
+      return { deck: result.deck, action: result.action };
+    },
+  },
+  {
+    ...TOOL_CATALOG.search_words,
+    argsSchema: z.object({
+      q: z.string().trim().max(80).nullish(),
+      prefix: z.string().trim().max(80).nullish(),
+      deck_id: IdSchema.nullish(),
+      limit: z.number().int().min(1).max(20).nullish(),
+    }),
+    annotations: READ_ONLY,
+    handler: async (ctx, args) =>
+      searchWords(ctx.supabase, ctx.userId, {
+        q: optStr(args.q) ?? undefined,
+        prefix: optStr(args.prefix) ?? undefined,
+        deck_id: optStr(args.deck_id) ?? undefined,
+        limit: optNum(args.limit) ?? 10,
+      }),
+  },
+
   // -- Problem domain (review offloading core) -------------------------------
   {
     name: 'list_review_due_problems',
@@ -288,17 +340,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
-    name: 'search_user_problems',
-    description: '按标题、题干或解析搜索当前用户自己的错题。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: '搜索关键词' },
-        subject_id: { type: 'string', description: '可选科目 ID' },
-        limit: { type: 'number', description: '返回数量，最多 5' },
-      },
-      required: ['query'],
-    },
+    ...TOOL_CATALOG.search_user_problems,
     argsSchema: z.object({
       query: z.string().min(1).max(200),
       subject_id: IdSchema.nullish(),
@@ -313,16 +355,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       }),
   },
   {
-    name: 'get_problem_detail',
-    description:
-      '读取某道错题的完整内容：壳级题干、各小题（题面、参考答案、分值）、解析文本，以及题图/答案图的临时签名 URL（1 小时有效，题面常在图片里，请务必读取图片）。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        problem_id: { type: 'string', description: '错题 ID' },
-      },
-      required: ['problem_id'],
-    },
+    ...TOOL_CATALOG.get_problem_detail,
     argsSchema: z.object({
       problem_id: IdSchema,
     }),
@@ -433,12 +466,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 
   // -- Notebook domain --------------------------------------------------------
   {
-    name: 'list_authorized_notebooks',
-    description:
-      '列出当前用户授权给 AI 访问的空白笔记本及各自的读/写权限。读笔记前先调它确认 can_read。',
-    inputSchema: { type: 'object', properties: {} },
+    ...TOOL_CATALOG.list_authorized_notebooks,
     argsSchema: z.object({}),
-    annotations: READ_ONLY,
     handler: async ctx => listAuthorizedNotebooks(ctx),
   },
   {
@@ -544,23 +573,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
-    name: 'create_notebook_note',
-    description:
-      '在用户授权 AI 创建内容（can_create）的空白笔记本中新增一条笔记。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        notebook_id: { type: 'string', description: '目标空白笔记本 ID' },
-        title: { type: 'string', description: '笔记标题，最多 120 字符' },
-        content: { type: 'string', description: '笔记正文，最多 4000 字符' },
-        linked_problem_id: { type: 'string', description: '可选，关联错题 ID' },
-        client_request_id: {
-          type: 'string',
-          description: '可选幂等 ID（8-128 位 URL-safe 字符）',
-        },
-      },
-      required: ['notebook_id', 'title', 'content'],
-    },
+    ...TOOL_CATALOG.create_notebook_note,
     argsSchema: z.object({
       notebook_id: IdSchema,
       title: z.string().min(1).max(120),
@@ -580,26 +593,13 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         linked_problem_id: optStr(args.linked_problem_id) ?? null,
         client_request_id: optStr(args.client_request_id) ?? null,
       });
-      return { note: result.note };
+      return { note: result.note, action: result.action };
     },
   },
 
   // -- Todo domain ------------------------------------------------------------
   {
-    name: 'list_todos',
-    description: '列出当前用户的 Todo。默认只列出 pending。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        status: {
-          type: 'string',
-          enum: ['pending', 'completed', 'cancelled', 'all'],
-          description: 'Todo 状态过滤，默认 pending',
-        },
-        subject_id: { type: 'string', description: '可选科目 ID' },
-        limit: { type: 'number', description: '返回数量，1-50，默认 20' },
-      },
-    },
+    ...TOOL_CATALOG.list_todos,
     argsSchema: z.object({
       status: z.enum(['pending', 'completed', 'cancelled', 'all']).nullish(),
       subject_id: IdSchema.nullish(),
@@ -616,33 +616,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     },
   },
   {
-    name: 'create_todo',
-    description: '为当前用户创建一个 Todo。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'Todo 标题，最大 120 字符' },
-        description: {
-          type: 'string',
-          description: '可选说明，最大 2000 字符',
-        },
-        priority: {
-          type: 'string',
-          enum: ['low', 'normal', 'high'],
-          description: '优先级，默认 normal',
-        },
-        due_at: { type: 'string', description: '可选 ISO 时间' },
-        reminder_at: { type: 'string', description: '可选 ISO 时间' },
-        subject_id: { type: 'string', description: '可选科目 ID' },
-        problem_set_id: { type: 'string', description: '可选错题集 ID' },
-        problem_id: { type: 'string', description: '可选错题 ID' },
-        notebook_id: { type: 'string', description: '可选空白笔记本 ID' },
-        note_id: { type: 'string', description: '可选 Note ID' },
-        word_deck_id: { type: 'string', description: '可选 Word 词库 ID' },
-        word_entry_id: { type: 'string', description: '可选 Word 词条 ID' },
-      },
-      required: ['title'],
-    },
+    ...TOOL_CATALOG.create_todo,
     argsSchema: z.object({
       title: z.string().min(1).max(120),
       description: z.string().max(2000).nullish(),
@@ -659,7 +633,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     }),
     annotations: NON_IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
-      const todo = await createTodo(ctx.supabase, ctx.userId, {
+      const result = await createTodoFromAi(ctx, {
         title: str(args.title),
         description: optStr(args.description) ?? null,
         priority: optStr(args.priority) as TodoPriority | undefined,
@@ -672,42 +646,23 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         note_id: optStr(args.note_id) ?? null,
         word_deck_id: optStr(args.word_deck_id) ?? null,
         word_entry_id: optStr(args.word_entry_id) ?? null,
-        source: 'ai',
-        created_by: 'ai',
-        metadata: {} as Json,
       });
-      return { todo };
+      return { todo: result.todo, action: result.action };
     },
   },
   {
-    name: 'update_todo_status',
-    description:
-      '更新当前用户某个 Todo 的状态（pending/completed/cancelled）。不能删除 Todo。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        todo_id: { type: 'string', description: 'Todo ID' },
-        status: {
-          type: 'string',
-          enum: ['pending', 'completed', 'cancelled'],
-          description: '目标状态',
-        },
-      },
-      required: ['todo_id', 'status'],
-    },
+    ...TOOL_CATALOG.update_todo_status,
     argsSchema: z.object({
       todo_id: IdSchema,
       status: z.enum(['pending', 'completed', 'cancelled']),
     }),
     annotations: IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
-      const todo = await updateTodoStatus(
-        ctx.supabase,
-        ctx.userId,
-        str(args.todo_id),
-        str(args.status) as TodoStatus
-      );
-      return { todo };
+      const result = await updateTodoStatusFromAi(ctx, {
+        todo_id: str(args.todo_id),
+        status: str(args.status) as TodoStatus,
+      });
+      return { todo: result.todo, action: result.action };
     },
   },
   ...MCP_TOOL_EXTENSIONS,

@@ -64,7 +64,7 @@ function StructuredAnswerDisplay({
                 key={i}
                 className="inline-flex rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-mono text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300"
               >
-                {answer}
+                <MathText text={answer} />
               </span>
             ))}
           </div>

@@ -11,6 +11,14 @@
  *   - Key parity per locale (missing / extra keys vs en)
  *   - ICU format validity
  *   - Code-referenced keys missing from source
+ *
+ * Code key resolution:
+ *   - `const t = useTranslations('Ns')` / `getTranslations('Ns' | {namespace})`
+ *     bind a namespace; keys are resolved inside it.
+ *   - Translators passed as props (`t: TranslatorProp`) have no in-file
+ *     namespace; their keys must exist as a leaf under some namespace.
+ *     A key that exists under a *different* namespace than the parent binds
+ *     cannot be detected statically.
  */
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -124,33 +132,83 @@ function findReferencedKeys(en) {
   const files = [
     ...walk(path.join(webDir, 'app', '[locale]')),
     ...walk(path.join(webDir, 'components')),
-    ...walk(path.join(webDir, 'lib', 'hooks')),
-  ];
+    ...walk(path.join(webDir, 'lib')),
+    ...walk(path.join(webDir, 'server')),
+  ].filter(file => !/\.(test|spec)\.[jt]sx?$/.test(file));
 
+  // Every trailing suffix of every en leaf path (e.g. Problems.asc adds
+  // 'Problems.asc' and 'asc'). Used for prop-passed translators, whose
+  // namespace is bound only at the parent call site and is unknowable here.
+  const leafSuffixes = new Set();
+  for (const full of getLeafKeys(en)) {
+    const parts = full.split('.');
+    for (let i = 0; i < parts.length; i++) {
+      leafSuffixes.add(parts.slice(i).join('.'));
+    }
+  }
   const missing = [];
+
+  const namespaceDeclPatterns = [
+    // const t = useTranslations('Ns') / const t = await getTranslations('Ns')
+    /(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?(?:useTranslations|getTranslations)\s*\(\s*['"]([\w.]+)['"]\s*\)/g,
+    // const t = await getTranslations({ locale, namespace: 'Ns' })
+    /(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?getTranslations\s*\(\s*\{[^}]*?namespace\s*:\s*['"]([\w.]+)['"]/g,
+  ];
+  const translatorPropPattern =
+    /\b(\w+)\s*\??\s*:\s*(?:typeof\s+)?TranslatorProp\b/g;
+  const callPatternFor = varName =>
+    new RegExp(
+      '\\b' +
+        varName +
+        '\\b(?:\\.(?:rich|markup|raw|has|full))?\\s*\\(\\s*[\'"]([\\w.]+)[\'"]',
+      'g'
+    );
 
   for (const file of files) {
     const src = fs.readFileSync(file, 'utf8');
-    const hookPattern =
-      /const\s+(\w+)\s*=\s*(?:useTranslations|await\s+getTranslations)\(\s*['"](\w+)['"]\s*\)/g;
-    const hooks = {};
-    let m;
-    while ((m = hookPattern.exec(src)) !== null) hooks[m[1]] = m[2];
+    const rel = path.relative(webDir, file).replace(/\\/g, '/');
+    const lineAt = index => src.substring(0, index).split('\n').length;
 
-    for (const [varName, ns] of Object.entries(hooks)) {
-      const escaped = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const callPattern = new RegExp(
-        '\\b' + escaped + '\\([\'"]([\\w_.]+)[\'"]',
-        'g'
-      );
-      let cm;
-      while ((cm = callPattern.exec(src)) !== null) {
-        const key = cm[1];
-        const namespace = en[ns];
-        if (!namespace || resolveKey(namespace, key) === undefined) {
-          const rel = path.relative(webDir, file).replace(/\\/g, '/');
-          const line = src.substring(0, cm.index).split('\n').length;
-          missing.push(`${ns}.${key}  (${rel}:${line})`);
+    const bound = new Map();
+    for (const pattern of namespaceDeclPatterns) {
+      let m;
+      while ((m = pattern.exec(src)) !== null) bound.set(m[1], m[2]);
+    }
+
+    for (const [varName, namespace] of bound) {
+      const nsObject = resolveKey(en, namespace);
+      const callPattern = callPatternFor(varName);
+      let m;
+      while ((m = callPattern.exec(src)) !== null) {
+        const key = m[1];
+        if (
+          typeof nsObject !== 'object' ||
+          nsObject === null ||
+          resolveKey(nsObject, key) === undefined
+        ) {
+          missing.push(`${namespace}.${key}  (${rel}:${lineAt(m.index)})`);
+        }
+      }
+    }
+
+    // Prop-passed translators (TranslatorProp): the key must exist as a leaf
+    // under some namespace. This cannot catch a key that exists under a
+    // different namespace than the parent actually binds, only keys that are
+    // missing from the messages entirely.
+    const looseVars = new Set();
+    let lm;
+    const loosePattern = new RegExp(translatorPropPattern.source, 'g');
+    while ((lm = loosePattern.exec(src)) !== null) looseVars.add(lm[1]);
+
+    for (const varName of looseVars) {
+      const callPattern = callPatternFor(varName);
+      let m;
+      while ((m = callPattern.exec(src)) !== null) {
+        const key = m[1];
+        if (!leafSuffixes.has(key)) {
+          missing.push(
+            `${key}  (${rel}:${lineAt(m.index)})  [prop translator]`
+          );
         }
       }
     }

@@ -1,0 +1,36 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  { "event": "agent.status", "data": { "status": "running", "message": "已接取任务" } },
+  {
+    "event": "agent.tool",
+    "data": {
+      "tool": "notebook.search",
+      "call_id": "call_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "status": "running",
+      "preview": "query=极限"
+    }
+  },
+  {
+    "event": "agent.tool",
+    "data": {
+      "tool": "notebook.search",
+      "call_id": "call_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "status": "done",
+      "preview": "3 条结果"
+    }
+  },
+  {
+    "event": "agent.permission",
+    "data": {
+      "session_id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
+      "permission_id": "prm_01J8ZQ5R8W3P1Y4N7C0D2E6F9G",
+      "type": "notebook.write",
+      "title": "写入错题本",
+      "preview": "题目 128 · 追加 1 条记录"
+    }
+  },
+  { "event": "agent.text.delta", "data": { "delta": "已找到 " } },
+  { "event": "agent.text.delta", "data": { "delta": "3 道同类题。" } },
+  { "event": "agent.text", "data": { "text": "已找到 3 道同类题，并写入错题本。" } },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]

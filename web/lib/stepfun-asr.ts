@@ -5,8 +5,10 @@
 // audio to a URL - StepFun wants the audio inline as base64.
 
 import { Esp32AiProviderError } from './esp32-ai-provider';
+import { analyzePcmS16le } from './esp32-ai-audio-staging';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { extractSseData, takeNextSseEvent } from './sse-events';
+import { logger } from './logger';
 
 export interface StepFunAsrConfig {
   stepfunApiKey: string;
@@ -24,6 +26,29 @@ interface StepFunAsrEvent {
   text?: string;
   message?: string;
   meta?: { session_id?: string };
+}
+
+// Below these limits the clip is a button tap, a bump or near-silence rather
+// than an utterance, so an empty transcript is expected and must not be
+// reported as a provider failure (500). Device captures are pcm_s16le 16kHz
+// mono, so 2 bytes per sample.
+const NON_SPEECH_MIN_DURATION_MS = 1500;
+const NON_SPEECH_MAX_RMS = 200;
+
+export function isLikelyNonSpeechPcm(audio: ArrayBuffer): boolean {
+  const sampleCount = Math.floor(audio.byteLength / 2);
+  if (sampleCount === 0) return true;
+  const durationMs = (sampleCount / 16000) * 1000;
+  if (durationMs < NON_SPEECH_MIN_DURATION_MS) return true;
+
+  const view = new DataView(audio);
+  let sumSquares = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    const sample = view.getInt16(i * 2, true);
+    sumSquares += sample * sample;
+  }
+  const rms = Math.sqrt(sumSquares / sampleCount);
+  return rms < NON_SPEECH_MAX_RMS;
 }
 
 export async function runStepFunAsrSse(
@@ -129,6 +154,22 @@ export async function runStepFunAsrSse(
   let transcript = '';
   let requestId: string | null = null;
 
+  // Event ledger for empty-transcript diagnosis. The provider protocol has
+  // exactly three event types (delta/done/error); anything else, any
+  // non-JSON payload, and any non-SSE 200 body currently vanish silently
+  // below, so empty failures were indistinguishable from "server decided
+  // there is no speech" vs "stream broke before saying anything".
+  let deltaCount = 0;
+  let doneCount = 0;
+  let doneTextLength = 0;
+  let errorEventCount = 0;
+  let noDataEventCount = 0;
+  let malformedEventCount = 0;
+  let unknownEventCount = 0;
+  let lastUnknownType = '';
+  let unknownPayloadSample = '';
+  let malformedPayloadSample = '';
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -139,34 +180,51 @@ export async function runStepFunAsrSse(
         const rawEvent = nextEvent.event;
         buffer = nextEvent.rest;
         const dataPayload = extractSseData(rawEvent);
-        if (!dataPayload) continue;
+        if (!dataPayload) {
+          noDataEventCount += 1;
+          continue;
+        }
         let json: StepFunAsrEvent;
         try {
           json = JSON.parse(dataPayload) as StepFunAsrEvent;
         } catch {
+          malformedEventCount += 1;
+          if (!malformedPayloadSample) {
+            malformedPayloadSample = dataPayload.slice(0, 200);
+          }
           continue;
         }
         const type = json.type;
         if (type === 'transcript.text.delta') {
+          deltaCount += 1;
           const delta = typeof json.delta === 'string' ? json.delta : '';
           if (delta) {
             transcript += delta;
             pusher?.emitAsrDelta(delta);
           }
         } else if (type === 'transcript.text.done') {
+          doneCount += 1;
           if (typeof json.text === 'string' && json.text) {
             transcript = json.text;
+            doneTextLength = json.text.length;
           }
           if (json.meta?.session_id) {
             requestId = String(json.meta.session_id);
           }
         } else if (type === 'error') {
+          errorEventCount += 1;
           const message = String(json.message || 'StepFun ASR error');
           clearTimeout(timer);
           if (isNoSpeechMessage(message)) {
             throw new Esp32AiProviderError('no_speech', message, 422);
           }
           throw new Esp32AiProviderError('asr_failed', message, 500);
+        } else {
+          unknownEventCount += 1;
+          lastUnknownType = type || '(missing type)';
+          if (!unknownPayloadSample) {
+            unknownPayloadSample = dataPayload.slice(0, 200);
+          }
         }
       }
     }
@@ -183,9 +241,51 @@ export async function runStepFunAsrSse(
   clearTimeout(timer);
 
   if (!transcript) {
+    // Full evidence dump for the empty-transcript path: event ledger plus
+    // PCM quality stats (DC offset / clipping are the device-side suspects
+    // for provider-side "no speech" verdicts). Keeps base message greppable.
+    const audioDiagnostics = analyzePcmS16le(audio, sampleRate, channels);
+    const events = {
+      deltaCount,
+      doneCount,
+      doneTextLength,
+      errorEventCount,
+      unknownEventCount,
+      malformedEventCount,
+      noDataEventCount,
+    };
+    logger.error('StepFun ASR returned an empty transcript', undefined, {
+      component: 'Esp32StepFunAsr',
+      events,
+      lastUnknownType: lastUnknownType || undefined,
+      unknownPayloadSample: unknownPayloadSample || undefined,
+      malformedPayloadSample: malformedPayloadSample || undefined,
+      requestId: requestId ?? undefined,
+      elapsedMs: Date.now() - startedAt,
+      audio: {
+        pcmBytes: audioDiagnostics.pcmBytes,
+        durationMs: audioDiagnostics.sampleDurationMs,
+        peak: audioDiagnostics.peak,
+        rms: audioDiagnostics.rms,
+        dcOffset: audioDiagnostics.dcOffset,
+        clipRatio: audioDiagnostics.clipRatio,
+        zeroSampleRatio: audioDiagnostics.zeroSampleRatio,
+      },
+    });
+    if (isLikelyNonSpeechPcm(audio)) {
+      throw new Esp32AiProviderError(
+        'no_speech',
+        'StepFun ASR returned no transcript for likely non-speech audio',
+        422
+      );
+    }
+    const eventSummary =
+      `delta=${deltaCount} done=${doneCount}(${doneTextLength}chars) ` +
+      `error=${errorEventCount} unknown=${unknownEventCount} ` +
+      `malformed=${malformedEventCount} nodata=${noDataEventCount}`;
     throw new Esp32AiProviderError(
       'asr_failed',
-      'StepFun ASR returned no transcript',
+      `StepFun ASR returned no transcript [events: ${eventSummary}]`,
       500
     );
   }

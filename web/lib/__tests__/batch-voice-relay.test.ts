@@ -36,6 +36,8 @@ describe('batchVoiceRelay', () => {
     executeToolUrl: '',
     transcribeChatUrl:
       'http://localhost:3000/api/esp32/ai/transcribe-chat?protocol=v2-streaming',
+    agentTranscribeUrl:
+      'http://localhost:3000/api/esp32/agent/transcribe?protocol=v2-streaming',
     proxySecret: 'test-secret-123456789012345678901234',
     realtimeEnabled: true,
   };
@@ -638,5 +640,124 @@ describe('batchVoiceRelay', () => {
 
     expect(ws.sent.some(s => s.includes('state_error'))).toBe(false);
     expect(ws.sent.some(s => s.includes('sequence_gap'))).toBe(false);
+  });
+
+  it('routes tier=agent turns to the agent transcribe URL with the agent tier header', async () => {
+    const ws = new MockDeviceWs();
+    let fetchedUrl: string | null = null;
+    let headersSent: Record<string, string> = {};
+
+    global.fetch = vi.fn().mockImplementation(async (url, options) => {
+      fetchedUrl = String(url);
+      headersSent = options.headers;
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            Buffer.from('event: asr.complete\ndata: {"text":"hi"}\n\n')
+          );
+          controller.close();
+        },
+      });
+      return { ok: true, body: stream };
+    });
+
+    await handleBatchVoiceConnection(
+      ws as any,
+      mockDevice,
+      mockReq,
+      mockConfig
+    );
+
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'voice.turn.start',
+          request_id: 'req-agent-turn',
+          tier: 'agent',
+        })
+      ),
+      false
+    );
+
+    const pcmChunk = Buffer.alloc(480, 0x12);
+    for (let seq = 0; seq < 70; seq++) {
+      ws.emit(
+        'message',
+        encodeVoiceV2Audio({
+          pcm: pcmChunk,
+          seq,
+          sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+          streaming: true,
+        }),
+        true
+      );
+    }
+    const finalFrame = encodeVoiceV2Audio({
+      pcm: Buffer.alloc(0),
+      seq: 70,
+      sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+      final: true,
+    });
+    await ws.emit('message', finalFrame, true);
+    await new Promise(res => setTimeout(res, 50));
+
+    expect(fetchedUrl).toBe(mockConfig.agentTranscribeUrl);
+    expect(headersSent['x-wqn-ai-tier']).toBe('agent');
+    expect(headersSent['x-wqn-protocol']).toBe('v2-streaming');
+    const textOutput = ws.sent.slice(1).join('');
+    expect(textOutput).toContain('event: asr.complete');
+    expect(textOutput).toContain('event: turn.released');
+  });
+
+  it('rejects tier=agent with agent_voice_unavailable when the URL is missing, never calling std', async () => {
+    const ws = new MockDeviceWs();
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as any;
+
+    await handleBatchVoiceConnection(ws as any, mockDevice, mockReq, {
+      ...mockConfig,
+      agentTranscribeUrl: '',
+    });
+
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'voice.turn.start',
+          request_id: 'req-agent-no-url',
+          tier: 'agent',
+        })
+      ),
+      false
+    );
+
+    expect(ws.sent.some(s => s.includes('agent_voice_unavailable'))).toBe(true);
+
+    // Even if the device keeps streaming audio and sends FINAL, nothing is
+    // dispatched (no silent degradation to the std chat pipeline).
+    const pcmChunk = Buffer.alloc(480, 0x12);
+    for (let seq = 0; seq < 70; seq++) {
+      ws.emit(
+        'message',
+        encodeVoiceV2Audio({
+          pcm: pcmChunk,
+          seq,
+          sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+          streaming: true,
+        }),
+        true
+      );
+    }
+    const finalFrame = encodeVoiceV2Audio({
+      pcm: Buffer.alloc(0),
+      seq: 70,
+      sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+      final: true,
+    });
+    await ws.emit('message', finalFrame, true);
+    await new Promise(res => setTimeout(res, 20));
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

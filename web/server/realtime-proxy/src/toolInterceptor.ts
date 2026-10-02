@@ -26,6 +26,7 @@ export interface ToolExecResult {
   display: string;
   data?: unknown;
   action: unknown;
+  error?: { code: string; message: string } | null;
 }
 
 export interface Upstream {
@@ -119,6 +120,7 @@ export function injectToolResult(
         display: result.display,
         data: result.data ?? null,
         action: result.action ?? null,
+        error: result.error ?? null,
       }),
     },
   };

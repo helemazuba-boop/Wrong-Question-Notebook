@@ -1,0 +1,14 @@
+{
+  "request_id": "req_word_sequential_0002",
+  "boot_id": "boot_word_study_001",
+  "firmware_version": "0.1.0",
+  "capabilities": ["word.study.v1"],
+  "domain": "word",
+  "mode": "sequential",
+  "scope": {
+    "deck_ids": ["11111111-1111-4111-8111-111111111111"],
+    "include_mastered": true
+  },
+  "optional_count": 500,
+  "start_index": 1200
+}

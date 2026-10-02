@@ -64,7 +64,7 @@ function request(body: Record<string, unknown>) {
 
 const params = { params: Promise.resolve({ id: PROBLEM_ID }) };
 
-function mockSupabase() {
+function mockSupabase(options: { problemError?: any; tagError?: any } = {}) {
   const updatedProblem = builder({
     data: {
       id: PROBLEM_ID,
@@ -72,16 +72,21 @@ function mockSupabase() {
       subject_id: SUBJECT_ID,
       title: '更新后的题目',
     },
-    error: null,
+    error: options.problemError ?? null,
   });
   const tags = builder({ data: [], error: null });
   const from = vi.fn((table: string) =>
     table === 'problems' ? updatedProblem : tags
   );
+  const rpc = vi.fn().mockResolvedValue({
+    data: undefined,
+    error: options.tagError ?? null,
+  });
   mocks.requireUser.mockResolvedValue({
     user: { id: USER_ID },
-    supabase: { from },
+    supabase: { from, rpc },
   });
+  return { from, rpc, updatedProblem };
 }
 
 beforeEach(() => {
@@ -106,5 +111,32 @@ describe('Problem PATCH annotation wake', () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.wakeProblemMarkAnnotation).not.toHaveBeenCalled();
+  });
+
+  it('returns an error when the objective row update fails', async () => {
+    mockSupabase({ problemError: { message: 'write failed' } });
+    const response = await PATCH(request({ title: '更新后的题目' }), params);
+    expect(response.status).toBe(500);
+    expect(mocks.wakeProblemMarkAnnotation).not.toHaveBeenCalled();
+  });
+
+  it('replaces tags through the atomic RPC', async () => {
+    const tagId = '44444444-4444-4444-8444-444444444444';
+    const { rpc } = mockSupabase();
+    const response = await PATCH(request({ tag_ids: [tagId] }), params);
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('replace_problem_tags', {
+      p_problem_id: PROBLEM_ID,
+      p_tag_ids: [tagId],
+    });
+  });
+
+  it('does not report success when atomic tag replacement fails', async () => {
+    mockSupabase({ tagError: { message: 'invalid tag' } });
+    const response = await PATCH(
+      request({ tag_ids: ['44444444-4444-4444-8444-444444444444'] }),
+      params
+    );
+    expect(response.status).toBe(400);
   });
 });

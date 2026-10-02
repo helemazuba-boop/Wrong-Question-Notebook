@@ -8,6 +8,11 @@ import {
   isValidUuid,
 } from '@/lib/common-utils';
 import { QR_SESSION_CONSTANTS, FILE_CONSTANTS } from '@/lib/constants';
+import {
+  normalizeProblemImageInputs,
+  ProblemImageInputError,
+  type ProblemImageInputMimeType,
+} from '@/lib/image-input-normalization';
 
 function verifyToken(rawToken: string, storedHash: string): boolean {
   const computedHash = crypto
@@ -38,9 +43,8 @@ async function handlePhoneUpload(
     );
   }
 
-  // Extract token from query params
-  const token = req.nextUrl.searchParams.get('token');
-  if (!token) {
+  const token = req.headers.get('x-wqn-qr-token') ?? '';
+  if (!token || token.length > 256) {
     return NextResponse.json(
       createApiErrorResponse(QR_SESSION_CONSTANTS.ERRORS.INVALID_TOKEN, 403),
       { status: 403 }
@@ -77,6 +81,14 @@ async function handlePhoneUpload(
 
     // Check expiry
     if (new Date(session.expires_at) < new Date()) {
+      const { error: expiryError } = await serviceClient
+        .from('qr_upload_sessions')
+        .update({ status: 'expired' })
+        .eq('id', sessionId)
+        .in('status', ['pending', 'uploaded']);
+      if (expiryError) {
+        console.error('Failed to persist expired QR upload:', expiryError);
+      }
       return NextResponse.json(
         createApiErrorResponse(
           QR_SESSION_CONSTANTS.ERRORS.SESSION_EXPIRED,
@@ -139,16 +151,36 @@ async function handlePhoneUpload(
       );
     }
 
-    // Sanitize filename
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `user/${session.user_id}/${QR_SESSION_CONSTANTS.STORAGE_PATH_PREFIX}/${sessionId}/${safeName}`;
+    const sourceBuffer = Buffer.from(await file.arrayBuffer());
+    let normalizedBuffer: Buffer;
+    try {
+      const [normalized] = await normalizeProblemImageInputs([
+        {
+          data: sourceBuffer.toString('base64'),
+          mime_type: file.type as ProblemImageInputMimeType,
+        },
+      ]);
+      normalizedBuffer = Buffer.from(normalized.data, 'base64');
+    } catch (error) {
+      if (error instanceof ProblemImageInputError) {
+        return NextResponse.json(
+          createApiErrorResponse(error.message, error.status),
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
+
+    // Every attempt gets an independent object. A losing concurrent upload can
+    // therefore clean up its own file without deleting the winning object.
+    const attemptId = crypto.randomBytes(12).toString('hex');
+    const storagePath = `user/${session.user_id}/${QR_SESSION_CONSTANTS.STORAGE_PATH_PREFIX}/${sessionId}/photo-${attemptId}.jpg`;
 
     // Upload to storage
-    const buffer = Buffer.from(await file.arrayBuffer());
     const { error: uploadError } = await serviceClient.storage
       .from(FILE_CONSTANTS.STORAGE.BUCKET)
-      .upload(storagePath, buffer, {
-        contentType: file.type,
+      .upload(storagePath, normalizedBuffer, {
+        contentType: 'image/jpeg',
         cacheControl: FILE_CONSTANTS.STORAGE.CACHE_CONTROL,
         upsert: false,
       });
@@ -162,32 +194,60 @@ async function handlePhoneUpload(
     }
 
     // Optimistic concurrency: only update if still pending
+    const updateStartedAt = new Date().toISOString();
     const { data: updated, error: updateError } = await serviceClient
       .from('qr_upload_sessions')
       .update({
         status: 'uploaded',
         file_path: storagePath,
-        mime_type: file.type,
-        uploaded_at: new Date().toISOString(),
+        mime_type: 'image/jpeg',
+        uploaded_at: updateStartedAt,
       })
       .eq('id', sessionId)
       .eq('status', 'pending')
+      .gt('expires_at', updateStartedAt)
       .select('id')
-      .single();
+      .maybeSingle();
 
     if (updateError || !updated) {
-      // Another upload beat us — clean up the file we just uploaded
-      await serviceClient.storage
+      // The row never referenced this attempt's object, so it is always safe
+      // to remove regardless of whether this was a conflict or DB failure.
+      const { error: cleanupError } = await serviceClient.storage
         .from(FILE_CONSTANTS.STORAGE.BUCKET)
         .remove([storagePath]);
+      if (cleanupError) {
+        console.error(
+          'Failed to clean up uncommitted QR upload:',
+          cleanupError
+        );
+      }
 
-      return NextResponse.json(
-        createApiErrorResponse(
-          QR_SESSION_CONSTANTS.ERRORS.SESSION_ALREADY_USED,
-          409
-        ),
-        { status: 409 }
-      );
+      if (updateError) {
+        console.error('QR upload session update failed:', updateError);
+        return NextResponse.json(
+          createApiErrorResponse('Failed to commit file upload', 500),
+          { status: 500 }
+        );
+      }
+
+      const expired = new Date(session.expires_at) <= new Date();
+      if (expired) {
+        const { error: expiryError } = await serviceClient
+          .from('qr_upload_sessions')
+          .update({ status: 'expired' })
+          .eq('id', sessionId)
+          .eq('status', 'pending');
+        if (expiryError) {
+          console.error('Failed to persist expired QR upload:', expiryError);
+        }
+      }
+      const status = expired ? 410 : 409;
+      const message = expired
+        ? QR_SESSION_CONSTANTS.ERRORS.SESSION_EXPIRED
+        : QR_SESSION_CONSTANTS.ERRORS.SESSION_ALREADY_USED;
+      return NextResponse.json(createApiErrorResponse(message, status), {
+        status,
+      });
     }
 
     return NextResponse.json(
@@ -203,5 +263,5 @@ async function handlePhoneUpload(
 }
 
 export const POST = withSecurity(handlePhoneUpload, {
-  enableRateLimit: false,
+  rateLimitType: 'fileUpload',
 });

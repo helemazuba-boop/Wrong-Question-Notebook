@@ -13,6 +13,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_DIR="$PROJECT_ROOT/web"
 ENV_FILE="$WEB_DIR/.env.production"
 BUILDKIT_CONFIG="$SCRIPT_DIR/buildkit-config.toml"
+ENV_POLICY_FILE="$SCRIPT_DIR/release-env-policy.sh"
+REMOTE_RELEASE_SCRIPT="$SCRIPT_DIR/release-remote.sh"
 
 APP_BUILDER="wqn-builder"
 RT_BUILDER="wqn-realtime-builder"
@@ -30,7 +32,7 @@ APP_PORT="3000:3000"
 RT_CONTAINER="wqn-realtime"
 RT_PORT="127.0.0.1:8080:8080"
 RUNTIME_NETWORK="wqn-runtime"
-REMOTE_ENV_FILE=".env.production"
+REMOTE_ENV_FILE=".env.wqn-app"
 RT_REPO="wqn-realtime"
 
 usage() {
@@ -50,7 +52,9 @@ Options:
   --rt-container NAME       Realtime container name (default: wqn-realtime)
   --rt-port HOST:CONTAINER  Realtime port mapping (default: 127.0.0.1:8080:8080)
   --network NAME            Docker runtime network (default: wqn-runtime)
-  --remote-env PATH         Remote env file; relative paths are under $HOME
+  --remote-env PATH         App runtime env; relative paths are under $HOME
+                            (default: .env.wqn-app; Realtime is fixed at
+                            ~/.env.wqn-realtime)
   -h, --help                Show help
 
 Network policy:
@@ -127,6 +131,16 @@ if [[ ! "$APP_PORT" =~ ^[0-9.:]+:[0-9]+$ ]]; then
   echo "ERROR: invalid --app-port: $APP_PORT" >&2
   exit 2
 fi
+if [[ ! "$RT_PORT" =~ ^[0-9.:]+:[0-9]+$ ]]; then
+  echo "ERROR: invalid --rt-port: $RT_PORT" >&2
+  exit 2
+fi
+case "$REMOTE_ENV_FILE" in
+  .env.production|~/.env.production|*/.env.production)
+    echo "ERROR: --remote-env may not use the retired .env.production path." >&2
+    exit 2
+    ;;
+esac
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -143,9 +157,9 @@ require_cmd docker
 require_cmd git
 require_cmd python3
 require_cmd ssh
+require_cmd scp
 require_cmd sha256sum
 require_cmd sed
-require_cmd base64
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: missing production env file: $ENV_FILE" >&2
@@ -153,6 +167,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 if [[ ! -f "$WEB_DIR/Dockerfile" ]]; then
   echo "ERROR: missing $WEB_DIR/Dockerfile" >&2
+  exit 1
+fi
+if [[ ! -f "$ENV_POLICY_FILE" || ! -f "$REMOTE_RELEASE_SCRIPT" ]]; then
+  echo "ERROR: release env policy/remote deploy helper is missing under $SCRIPT_DIR" >&2
   exit 1
 fi
 if (( ! SKIP_REALTIME )) && [[ ! -f "$WEB_DIR/Dockerfile.realtime" ]]; then
@@ -190,14 +208,26 @@ PY
 
 getv() {
   local key="$1"
-  # Process environment deliberately wins, useful for one-shot overrides such
-  # as WQN_BUILD_PROXY without editing .env.production.
-  if [[ -v "$key" ]]; then
-    printf '%s' "${!key}"
-  elif [[ -v "DOTENV[$key]" ]]; then
+  # Release configuration comes from web/.env.production. Stale exported
+  # variables must not silently override the reviewed production source.
+  if [[ -v "DOTENV[$key]" ]]; then
     printf '%s' "${DOTENV[$key]}"
   fi
 }
+
+get_build_override() {
+  local key="$1"
+  # Preserve the documented one-shot build proxy override. It cannot alter
+  # runtime origins, credentials, or database routing.
+  if [[ -v "$key" ]]; then
+    printf '%s' "${!key}"
+  else
+    getv "$key"
+  fi
+}
+
+# shellcheck source=deploy/release-env-policy.sh
+source "$ENV_POLICY_FILE"
 
 is_placeholder() {
   case "$1" in
@@ -229,18 +259,11 @@ require_values \
 
 # Keep the production-level checks previously performed by web-release.bat.
 if (( ! NO_DEPLOY )); then
-  require_values \
-    NEXT_PUBLIC_SUPABASE_URL \
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY \
-    WQN_SUPABASE_EXPECTED_HOST \
-    SUPABASE_SECRET_KEY \
-    DASHSCOPE_API_KEY \
-    WQN_ESP32_AI_PUBLIC_BASE_URL \
-    WQN_ESP32_AI_AUDIO_URL_SECRET \
-    STEP_API_KEY \
-    WQN_REALTIME_PROXY_SECRET \
-    WQN_INTERNAL_API_BASE \
-    WQN_INTERNAL_API_ALLOWED_HOST
+  require_values "${APP_REQUIRED_RUNTIME_KEYS[@]}"
+  if (( ! SKIP_REALTIME )); then
+    require_values "${REALTIME_REQUIRED_RUNTIME_KEYS[@]}"
+  fi
+  validate_supabase_runtime_policy
 fi
 
 ACR_SERVER="$(getv ACR_SERVER)"
@@ -262,8 +285,8 @@ RT_IMAGE="${ACR_SERVER}/${ACR_NAMESPACE}/${RT_REPO}:${RT_TAG}"
 
 # Explicit build proxy only. Ordinary HTTP_PROXY/HTTPS_PROXY are intentionally
 # ignored so stale shell/system proxy settings cannot hijack a release.
-BUILD_PROXY="$(getv WQN_BUILD_PROXY)"
-BUILD_NO_PROXY="$(getv WQN_BUILD_NO_PROXY)"
+BUILD_PROXY="$(get_build_override WQN_BUILD_PROXY)"
+BUILD_NO_PROXY="$(get_build_override WQN_BUILD_NO_PROXY)"
 if [[ -n "$BUILD_PROXY" && -z "$BUILD_NO_PROXY" ]]; then
   BUILD_NO_PROXY="localhost,127.0.0.1,::1"
 fi
@@ -408,93 +431,49 @@ build_realtime() {
   "${args[@]}"
 }
 
-# Runtime env allow-list. Extra optional keys are included only when present.
-RUNTIME_KEYS=(
-  NEXT_PUBLIC_SUPABASE_URL
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
-  WQN_SUPABASE_EXPECTED_HOST
-  WQN_ALLOW_HTTP_SUPABASE_ORIGIN
-  SUPABASE_SECRET_KEY
-  SUPABASE_SERVICE_ROLE_KEY
-  NEXT_PUBLIC_APP_URL
-  SITE_URL
-  CRON_SECRET
-  AI_PROVIDER
-  AI_PROVIDER_BASE_URL
-  AI_PROVIDER_API_KEY
-  GEMINI_API_KEY
-  ANTHROPIC_API_KEY
-  AI_MODEL_EXTRACTION
-  AI_MODEL_CATEGORISATION
-  AI_MODEL_DIGEST
-  WQN_ESP32_AI_ASR_PROVIDER
-  WQN_ESP32_AI_ASR_FALLBACK_PROVIDER
-  WQN_ESP32_AI_CHAT_PROVIDER
-  DASHSCOPE_API_KEY
-  DASHSCOPE_CHAT_API_KEY
-  DASHSCOPE_CHAT_API_KEY_STD
-  DASHSCOPE_CHAT_API_KEY_PRO
-  DASHSCOPE_OPENAI_BASE_URL
-  DASHSCOPE_OPENAI_BASE_URL_STD
-  DASHSCOPE_OPENAI_BASE_URL_PRO
-  DASHSCOPE_ASR_MODEL
-  DASHSCOPE_ASR_TASK_URL
-  DASHSCOPE_TASK_STATUS_BASE_URL
-  DASHSCOPE_ASR_LANGUAGE_HINTS
-  DASHSCOPE_ASR_POLL_INTERVAL_MS
-  DASHSCOPE_ASR_POLL_ATTEMPTS
-  DASHSCOPE_CHAT_MODEL
-  DASHSCOPE_CHAT_MODEL_STD
-  DASHSCOPE_CHAT_MODEL_PRO
-  STEP_API_KEY
-  STEPFUN_API_KEY
-  STEPFUN_ASR_URL
-  STEPFUN_ASR_MODEL
-  STEPFUN_ASR_LANGUAGE
-  STEPFUN_ASR_HOTWORDS
-  STEPFUN_ASR_ENABLE_ITN
-  WQN_ESP32_AI_SYSTEM_PROMPT
-  WQN_ESP32_AI_PUBLIC_BASE_URL
-  WQN_ESP32_AI_AUDIO_URL_SECRET
-  WQN_ESP32_AI_AUDIO_TMP_DIR
-  WQN_ESP32_AI_AUDIO_URL_TTL_MS
-  WQN_ESP32_AI_PROVIDER_TIMEOUT_MS
-  WQN_ESP32_AI_LLM_TIMEOUT_MS
-  WQN_ESP32_AI_ASR_TIMEOUT_MS
-  WQN_ESP32_AI_STREAM_EVENT_ID_BASE
-  WQN_REALTIME_PROXY_SECRET
-  WQN_INTERNAL_API_BASE
-  WQN_INTERNAL_API_ALLOWED_HOST
-  SENTRY_DSN
-)
-
-make_runtime_env() {
-  local out="$1" key value supabase_url
-  : > "$out"
-  chmod 600 "$out"
-  for key in "${RUNTIME_KEYS[@]}"; do
-    value="$(getv "$key")"
-    [[ -n "$value" ]] || continue
-    value="${value//$'\r'/}"
-    value="${value//$'\n'/}"
-    printf '%s=%s\n' "$key" "$value" >> "$out"
-  done
-  supabase_url="$(getv SUPABASE_URL)"
-  [[ -n "$supabase_url" ]] || supabase_url="$(getv NEXT_PUBLIC_SUPABASE_URL)"
-  if [[ -n "$supabase_url" ]]; then
-    printf 'SUPABASE_URL=%s\n' "$supabase_url" >> "$out"
-  fi
-}
-
 deploy_all() {
-  local tmp_env env_b64
-  tmp_env="$(mktemp)"
-  make_runtime_env "$tmp_env"
-  env_b64="$(base64 -w0 "$tmp_env")"
-  rm -f "$tmp_env"
+  local local_stage remote_stage remote_stage_q deploy_rc
+  local_stage="$(mktemp -d)"
+  chmod 700 "$local_stage"
+
+  cleanup_release_stage() {
+    rm -rf -- "$local_stage"
+    if [[ -n "${remote_stage:-}" ]]; then
+      remote_stage_q="$(printf '%q' "$remote_stage")"
+      ssh "$SSH_HOST" "rm -rf -- $remote_stage_q" >/dev/null 2>&1 || true
+    fi
+  }
+  trap cleanup_release_stage RETURN
+
+  make_runtime_env app "$local_stage/app.env"
+  make_env_hash_manifest "$local_stage/app.env" "$local_stage/app.sha256"
+  make_forbidden_key_file app "$local_stage/app.forbidden"
+  if (( ! SKIP_REALTIME )); then
+    make_runtime_env realtime "$local_stage/realtime.env"
+    make_env_hash_manifest "$local_stage/realtime.env" "$local_stage/realtime.sha256"
+    make_forbidden_key_file realtime "$local_stage/realtime.forbidden"
+  fi
+
+  step "Staging least-privilege runtime env files on ECS: $SSH_HOST"
+  remote_stage="$(ssh "$SSH_HOST" \
+    'umask 077; stage=$(mktemp -d "$HOME/.wqn-release-stage.XXXXXX") && chmod 700 "$stage" && printf "%s" "$stage"')"
+  remote_stage="${remote_stage//$'\r'/}"
+  if [[ ! "$remote_stage" =~ ^/[A-Za-z0-9_./-]+/\.wqn-release-stage\.[A-Za-z0-9]+$ ]]; then
+    echo "ERROR: remote host returned an invalid staging path." >&2
+    exit 1
+  fi
+
+  scp -q "$local_stage/app.env" "$local_stage/app.sha256" \
+    "$local_stage/app.forbidden" \
+    "$SSH_HOST:$remote_stage/"
+  if (( ! SKIP_REALTIME )); then
+    scp -q "$local_stage/realtime.env" "$local_stage/realtime.sha256" \
+      "$local_stage/realtime.forbidden" \
+      "$SSH_HOST:$remote_stage/"
+  fi
 
   step "Deploying to ECS: $SSH_HOST"
-
+  set +e
   ssh "$SSH_HOST" bash -s -- \
     "$APP_IMAGE" \
     "$RT_IMAGE" \
@@ -505,106 +484,16 @@ deploy_all() {
     "$RT_PORT" \
     "$RUNTIME_NETWORK" \
     "$REMOTE_ENV_FILE" \
-    "$env_b64" <<'REMOTE'
-set -Eeuo pipefail
+    "$remote_stage" < "$REMOTE_RELEASE_SCRIPT"
+  deploy_rc=$?
+  set -e
 
-APP_IMAGE="$1"
-RT_IMAGE="$2"
-SKIP_REALTIME="$3"
-APP_CONTAINER="$4"
-APP_PORT="$5"
-RT_CONTAINER="$6"
-RT_PORT="$7"
-NETWORK="$8"
-REMOTE_ENV="$9"
-ENV_B64="${10}"
-
-if [[ "$REMOTE_ENV" = /* ]]; then
-  ENV_FILE="$REMOTE_ENV"
-else
-  ENV_FILE="$HOME/$REMOTE_ENV"
-fi
-
-printf '%s\n' '[deploy] Updating runtime env...'
-mkdir -p "$(dirname "$ENV_FILE")"
-umask 077
-printf '%s' "$ENV_B64" | base64 -d > "$ENV_FILE"
-
-printf '%s\n' '[deploy] Pulling release images before switching containers...'
-docker pull "$APP_IMAGE" &
-PULL_APP=$!
-
-if (( ! SKIP_REALTIME )); then
-  docker pull "$RT_IMAGE" &
-  PULL_RT=$!
-else
-  PULL_RT=''
-fi
-
-set +e
-wait "$PULL_APP"
-APP_PULL_RC=$?
-if [[ -n "$PULL_RT" ]]; then
-  wait "$PULL_RT"
-  RT_PULL_RC=$?
-else
-  RT_PULL_RC=0
-fi
-set -e
-
-if (( APP_PULL_RC != 0 || RT_PULL_RC != 0 )); then
-  printf '%s\n' "[deploy] Pull failed: app=$APP_PULL_RC realtime=$RT_PULL_RC" >&2
-  printf '%s\n' '[deploy] Existing containers were NOT touched.' >&2
-  exit 1
-fi
-
-printf '%s\n' '[deploy] Ensuring private runtime network...'
-docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
-
-printf '%s\n' '[deploy] Replacing app container...'
-docker stop "$APP_CONTAINER" >/dev/null 2>&1 || true
-docker rm "$APP_CONTAINER" >/dev/null 2>&1 || true
-docker run -d \
-  --name "$APP_CONTAINER" \
-  --restart unless-stopped \
-  --network "$NETWORK" \
-  --network-alias wqn \
-  --env-file "$ENV_FILE" \
-  -p "$APP_PORT" \
-  "$APP_IMAGE"
-
-if (( ! SKIP_REALTIME )); then
-  printf '%s\n' '[deploy] Replacing realtime container...'
-  docker stop "$RT_CONTAINER" >/dev/null 2>&1 || true
-  docker rm "$RT_CONTAINER" >/dev/null 2>&1 || true
-  docker run -d \
-    --name "$RT_CONTAINER" \
-    --restart unless-stopped \
-    --network "$NETWORK" \
-    --env-file "$ENV_FILE" \
-    -p "$RT_PORT" \
-    "$RT_IMAGE"
-
-  printf '%s\n' '[deploy] Checking realtime health...'
-  ok=0
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if docker exec "$RT_CONTAINER" wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1; then
-      ok=1
-      break
-    fi
-    sleep 1
-  done
-  if (( ! ok )); then
-    printf '%s\n' '[deploy] WARNING: realtime health endpoint did not become ready in 10s.' >&2
-    docker logs --tail 80 "$RT_CONTAINER" >&2 || true
-    exit 1
+  # release-remote.sh removes its own stage. Avoid a redundant SSH cleanup on
+  # success while retaining cleanup for scp/remote-script failures.
+  if (( deploy_rc == 0 )); then
+    remote_stage=""
   fi
-fi
-
-printf '%s\n' '[deploy] Pruning unused images...'
-docker image prune -f >/dev/null
-printf '%s\n' '[deploy] WQN deploy complete.'
-REMOTE
+  (( deploy_rc == 0 )) || return "$deploy_rc"
 }
 
 printf '\n========================================\n'
@@ -626,6 +515,10 @@ if (( NO_DEPLOY )); then
   printf 'Deploy:         disabled\n'
 else
   printf 'Deploy:         %s\n' "$SSH_HOST"
+  printf 'App env:        %s\n' "$REMOTE_ENV_FILE"
+  if (( ! SKIP_REALTIME )); then
+    printf 'Realtime env:   ~/.env.wqn-realtime\n'
+  fi
 fi
 printf '========================================\n'
 

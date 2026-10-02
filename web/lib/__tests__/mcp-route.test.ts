@@ -11,7 +11,7 @@ const { mockAuthenticate, mockFrom, mockRpc } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api-token-auth', () => ({
-  authenticateApiToken: mockAuthenticate,
+  authenticateMcpRequest: mockAuthenticate,
 }));
 vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({ from: mockFrom, rpc: mockRpc }),
@@ -146,9 +146,7 @@ describe('/api/mcp JSON-RPC dispatch', () => {
     const json = await res.json();
     expect(json.result.isError).toBe(false);
     expect(json.result.structuredContent).toMatchObject({
-      prompt: expect.stringContaining(
-        'Extract faithfully. Do NOT solve the problem.'
-      ),
+      prompt: expect.stringContaining('exactly one already-selected question'),
       next_step: expect.stringContaining('call create_problem again'),
     });
     expect(mockFrom).not.toHaveBeenCalled();

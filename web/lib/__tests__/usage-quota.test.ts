@@ -3,6 +3,7 @@ import {
   checkAndIncrementQuota,
   getQuotaUsage,
   getUserQuotaLimit,
+  refundQuotaUsage,
 } from '../usage-quota';
 
 // Mock createServiceClient
@@ -104,6 +105,28 @@ describe('checkAndIncrementQuota', () => {
 
     await expect(checkAndIncrementQuota('user-1')).rejects.toThrow(
       'Failed to check usage quota'
+    );
+  });
+});
+
+describe('refundQuotaUsage', () => {
+  it('refunds one accepted unit in the same user timezone period', async () => {
+    mockRpc.mockResolvedValue({ data: 2, error: null });
+
+    await expect(
+      refundQuotaUsage('user-1', 'ai_extraction', 'Asia/Shanghai')
+    ).resolves.toBe(2);
+    expect(mockRpc).toHaveBeenCalledWith('refund_quota_usage', {
+      p_user_id: 'user-1',
+      p_resource_type: 'ai_extraction',
+      p_user_tz: 'Asia/Shanghai',
+    });
+  });
+
+  it('surfaces a failed refund for reconciliation', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'DB error' } });
+    await expect(refundQuotaUsage('user-1')).rejects.toThrow(
+      'Failed to refund usage quota'
     );
   });
 });

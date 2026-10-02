@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/project-problem-reviews",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-qr-uploads",
+      "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/cron/problem-marks-annotate",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

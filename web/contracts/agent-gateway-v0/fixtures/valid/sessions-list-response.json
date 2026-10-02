@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      {
+        "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
+        "title": "考研数学 · 强化班错题整理",
+        "updatedAt": 1758432000000
+      },
+      {
+        "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E8A",
+        "title": "英语作文批改",
+        "updatedAt": 1758345600000
+      }
+    ]
+  }
+}

@@ -23,7 +23,7 @@ import type { RelayConfig, DeviceWs } from './voiceRelay.ts';
 
 interface ActiveTurn {
   requestId: string;
-  tier: 'std' | 'pro';
+  tier: 'std' | 'pro' | 'agent';
   conversationId: string | null;
   enableThinking?: boolean;
   reasoningEffort?: string;
@@ -152,9 +152,26 @@ export async function handleBatchVoiceConnection(
               return;
             }
 
+            const tier =
+              msg.tier === 'pro' || msg.tier === 'agent' ? msg.tier : 'std';
+            if (tier === 'agent' && !config.agentTranscribeUrl) {
+              // Never fall back to the std chat pipeline for agent turns: it
+              // would trigger LLM chat + voice tools as a side effect.
+              log.error(
+                'agent voice turn rejected: agentTranscribeUrl not configured',
+                { deviceId: device.deviceId, requestId }
+              );
+              sendSseError(
+                deviceWs,
+                'agent_voice_unavailable',
+                'Agent voice endpoint not configured'
+              );
+              return;
+            }
+
             currentTurn = {
               requestId,
-              tier: msg.tier === 'pro' ? 'pro' : 'std',
+              tier,
               conversationId:
                 typeof msg.conversation_id === 'string' && msg.conversation_id
                   ? msg.conversation_id
@@ -350,14 +367,19 @@ export async function handleBatchVoiceConnection(
             headers['x-wqn-reasoning-effort'] = turn.reasoningEffort;
           }
 
+          const upstreamUrl =
+            turn.tier === 'agent'
+              ? config.agentTranscribeUrl
+              : config.transcribeChatUrl;
+
           log.info('internal_pipeline_post_start', {
             deviceId: device.deviceId,
             requestId: turn.requestId,
             durationMs,
-            url: config.transcribeChatUrl,
+            url: upstreamUrl,
           });
 
-          const response = await fetch(config.transcribeChatUrl, {
+          const response = await fetch(upstreamUrl, {
             method: 'POST',
             headers,
             body: fullPcm,

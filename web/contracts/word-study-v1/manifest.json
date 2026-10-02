@@ -1,7 +1,7 @@
 {
   "contract": "word-study-v1",
   "schema": "word-study-v1.schema.json",
-  "schema_sha256": "b33bfed189b510720571a911f62bdffc260d1e3a14e0ab0dfa57f93035c4504e",
+  "schema_sha256": "3bfc6f455fe0f5a6aceabc348a38ea9297919e7190ee81739a143977a69bc663",
   "ordering_algorithm": "guided_random_v1",
   "pack_schema_version": 2
 }

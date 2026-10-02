@@ -127,11 +127,23 @@ export async function PATCH(
     );
   }
 
-  // 1) Update objective Problem fields without mixing in personal context.
-  if (Object.keys(problem).length > 0) {
+  // Derive first, then persist all objective fields in one row update. This
+  // avoids reporting a failed request after half of the Problem was committed.
+  const [derivedAssets, derivedSolutionAssets] = await Promise.all([
+    assets ? deriveProblemImageAssets(assets) : undefined,
+    solution_assets ? deriveProblemImageAssets(solution_assets) : undefined,
+  ]);
+  const objectiveUpdate = {
+    ...problem,
+    ...(derivedAssets ? { assets: derivedAssets } : {}),
+    ...(derivedSolutionAssets
+      ? { solution_assets: derivedSolutionAssets }
+      : {}),
+  };
+  if (Object.keys(objectiveUpdate).length > 0) {
     const { error } = await supabase
       .from('problems')
-      .update(problem)
+      .update(objectiveUpdate)
       .eq('id', id)
       .eq('user_id', user.id)
       .select()
@@ -149,36 +161,19 @@ export async function PATCH(
     }
   }
 
-  // 2) Update assets directly (they're already in permanent location).
-  // Best-effort WQNI derivations for freshly attached photos; failures keep
-  // the original-only asset and never block the save.
-  if (assets || solution_assets) {
-    await supabase
-      .from('problems')
-      .update({
-        assets: assets ? await deriveProblemImageAssets(assets) : undefined,
-        solution_assets: solution_assets
-          ? await deriveProblemImageAssets(solution_assets)
-          : undefined,
-      })
-      .eq('id', id)
-      .eq('user_id', user.id);
-  }
-
-  // Reset tags if provided
+  // The RPC validates tag ownership/subject and replaces links atomically.
   if (tag_ids) {
-    await supabase
-      .from('problem_tag')
-      .delete()
-      .eq('problem_id', id)
-      .eq('user_id', user.id);
-    if (tag_ids.length > 0) {
-      const tagLinks = tag_ids.map(tag_id => ({
-        user_id: user.id,
-        problem_id: id,
-        tag_id,
-      }));
-      await supabase.from('problem_tag').insert(tagLinks);
+    const { error: tagReplaceError } = await supabase.rpc(
+      'replace_problem_tags',
+      { p_problem_id: id, p_tag_ids: tag_ids }
+    );
+    if (tagReplaceError) {
+      return NextResponse.json(
+        createApiErrorResponse('Failed to replace Problem tags', 400, {
+          code: 'INVALID_PROBLEM_TAGS',
+        }),
+        { status: 400 }
+      );
     }
   }
 

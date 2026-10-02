@@ -88,6 +88,25 @@ export const RATE_LIMIT_CONSTANTS = {
       windowMs: 5 * 60 * 1000,
       maxRequests: 180,
     },
+    // ESP32 OpenCode agent gateway, keyed by authenticated device id.
+    // transcribe spends paid ASR quota and run triggers real LLM/tool usage
+    // on the self-hosted OpenCode server, so both stay deliberately tight.
+    esp32AgentSessions: {
+      windowMs: 60 * 1000,
+      maxRequests: 20,
+    },
+    esp32AgentTranscribe: {
+      windowMs: 60 * 1000,
+      maxRequests: 10,
+    },
+    esp32AgentRun: {
+      windowMs: 5 * 60 * 1000,
+      maxRequests: 6,
+    },
+    esp32AgentEvents: {
+      windowMs: 60 * 1000,
+      maxRequests: 20,
+    },
   },
 
   // Cleanup intervals
@@ -251,6 +270,7 @@ export const ROUTES = {
     ACTIVITY: '/admin/activity',
     SETTINGS: '/admin/settings',
     ANNOUNCEMENTS: '/admin/announcements',
+    PROBLEM_MARKS: '/admin/problem-marks',
   },
   SUBJECTS: '/subjects',
   HOME: '/',
@@ -373,6 +393,17 @@ export const ANSWER_CONFIG_CONSTANTS = {
 // =====================================================
 // AI Constants
 // =====================================================
+function boundedEnvironmentInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, minimum), maximum);
+}
+
 export const AI_CONSTANTS = {
   PROVIDER:
     (process.env.AI_PROVIDER as 'google' | 'anthropic' | 'openai') ?? 'google',
@@ -385,6 +416,15 @@ export const AI_CONSTANTS = {
       'image/gif',
     ] as readonly string[],
     RATE_LIMIT: { windowMs: 60 * 1000, maxRequests: 100 },
+    PROVIDER_RATE_LIMIT: {
+      windowSeconds: 1,
+      maxRequests: boundedEnvironmentInteger(
+        process.env.AI_EXTRACTION_PROVIDER_MAX_RPS,
+        10,
+        1,
+        100
+      ),
+    },
     COMPRESS_THRESHOLD: 4.3 * 1024 * 1024, // compress if base64 length exceeds this (leaves headroom below 4.5 MB Vercel limit)
     COMPRESS_MAX_DIMENSION: 1500, // max px on longest side
     COMPRESS_QUALITY: 0.8, // JPEG quality when compressing
@@ -399,6 +439,12 @@ export const AI_CONSTANTS = {
     PROBLEM_MARKING: process.env.AI_MODEL_PROBLEM_MARKING ?? 'gemini-2.5-flash',
     DIGEST: process.env.AI_MODEL_DIGEST ?? 'gemini-3-flash-preview',
   },
+  REQUEST_TIMEOUT_MS: boundedEnvironmentInteger(
+    process.env.AI_REQUEST_TIMEOUT_MS,
+    45_000,
+    1_000,
+    120_000
+  ),
 } as const;
 
 export type AI_CONSTANTS_TYPE = typeof AI_CONSTANTS;

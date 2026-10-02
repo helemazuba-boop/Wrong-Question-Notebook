@@ -2,7 +2,10 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import type { SkillRetrievalLock } from '@/lib/problem-marks/registry-artifact';
+import {
+  skillRetrievalProtocolSchema,
+  type SkillRetrievalLock,
+} from '@/lib/problem-marks/registry-artifact';
 
 const revisionSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -11,21 +14,29 @@ const stableMarkKeySchema = z
   .string()
   .regex(/^[a-z][a-z0-9_]*\.skill\.[a-z0-9_]+(?:\.[a-z0-9_]+)*$/);
 
-const profileSchema = z
+// Everything that is true of any published profile. The per-protocol shapes
+// below differ only in how a request is formed and how a response is read.
+const baseProfileShape = {
+  profile_id: nonBlankSchema,
+  endpoint: z
+    .string()
+    .url()
+    .refine(value => value.startsWith('https://')),
+  model: nonBlankSchema,
+  model_identity_policy: z.literal('hosted_alias'),
+  model_identity: nonBlankSchema,
+  dimension: z.number().int().positive(),
+  encoding_format: z.literal('float'),
+  normalization: z.literal('l2'),
+  document_template_version: nonBlankSchema,
+  query_template_version: nonBlankSchema,
+};
+
+const dashscopeProfileSchema = z
   .object({
-    profile_id: z.literal('skill-rag-qwen37-v1'),
+    ...baseProfileShape,
     provider_protocol: z.literal('dashscope-qwen37-native-v1'),
     provider: z.literal('dashscope'),
-    endpoint: z
-      .string()
-      .url()
-      .refine(value => value.startsWith('https://')),
-    model: z.literal('qwen3.7-text-embedding'),
-    model_identity_policy: z.literal('hosted_alias'),
-    model_identity: z.literal('qwen3.7-text-embedding'),
-    dimension: z.literal(2560),
-    encoding_format: z.literal('float'),
-    normalization: z.literal('l2'),
     document_contract: z
       .object({
         text_type: z.literal('document'),
@@ -36,21 +47,49 @@ const profileSchema = z
       .object({
         text_type: z.literal('query'),
         output_type: z.literal('dense'),
-        instruct: z.literal(
-          'Given a Chinese high school physics problem, retrieve the most relevant problem-solving skill or method needed to solve it.'
-        ),
+        instruct: nonBlankSchema,
       })
       .strict(),
-    document_template_version: nonBlankSchema,
-    query_template_version: nonBlankSchema,
     tokenizer: z.null(),
   })
   .strict();
 
+const nvidiaProfileSchema = z
+  .object({
+    ...baseProfileShape,
+    provider_protocol: z.literal('nvidia-query-passage-v1'),
+    provider: z.literal('nvidia'),
+    document_contract: z
+      .object({
+        input_type: z.literal('passage'),
+        truncate: z.literal('NONE'),
+      })
+      .strict(),
+    query_contract: z
+      .object({
+        input_type: z.literal('query'),
+        truncate: z.literal('NONE'),
+      })
+      .strict(),
+    tokenizer: z
+      .object({
+        repository: nonBlankSchema,
+        revision: nonBlankSchema,
+        max_tokens: z.number().int().positive(),
+      })
+      .passthrough(),
+  })
+  .strict();
+
+const profileSchema = z.discriminatedUnion('provider_protocol', [
+  dashscopeProfileSchema,
+  nvidiaProfileSchema,
+]);
+
 export const SkillRetrievalArtifactSchema = z
   .object({
     schema_version: z.literal(1),
-    profile_id: z.literal('skill-rag-qwen37-v1'),
+    profile_id: nonBlankSchema,
     profile_fingerprint: revisionSchema,
     source_corpus_sha256: sha256Schema,
     source_documents_sha256: sha256Schema,
@@ -80,14 +119,14 @@ export const SkillRetrievalManifestSchema = z
     representation_revision: revisionSchema,
     artifact: nonBlankSchema,
     artifact_sha256: sha256Schema,
-    profile_id: z.literal('skill-rag-qwen37-v1'),
+    profile_id: nonBlankSchema,
     profile_fingerprint: revisionSchema,
-    provider_protocol: z.literal('dashscope-qwen37-native-v1'),
-    provider: z.literal('dashscope'),
-    model: z.literal('qwen3.7-text-embedding'),
+    provider_protocol: skillRetrievalProtocolSchema,
+    provider: z.enum(['dashscope', 'nvidia']),
+    model: nonBlankSchema,
     model_identity_policy: z.literal('hosted_alias'),
-    model_identity: z.literal('qwen3.7-text-embedding'),
-    dimension: z.literal(2560),
+    model_identity: nonBlankSchema,
+    dimension: z.number().int().positive(),
     normalization: z.literal('l2'),
     source_corpus_sha256: sha256Schema,
     source_documents_sha256: sha256Schema,

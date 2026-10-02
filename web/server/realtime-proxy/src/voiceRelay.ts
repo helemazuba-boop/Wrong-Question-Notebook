@@ -101,6 +101,7 @@ export interface RelayConfig {
   upstream: UpstreamConfig;
   executeToolUrl: string;
   transcribeChatUrl: string;
+  agentTranscribeUrl: string;
   proxySecret: string;
   realtimeEnabled: boolean;
 }

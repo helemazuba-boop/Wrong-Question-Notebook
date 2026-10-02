@@ -9,7 +9,13 @@
       "type": "single_choice",
       "full_marks": 6,
       "content_text": "该植物花色遗传遵循的规律是？",
-      "answer_text": "B"
+      "answer_text": "B",
+      "choices": [
+        { "id": "A", "text": "基因的分离定律" },
+        { "id": "B", "text": "基因的自由组合定律" },
+        { "id": "C", "text": "伴性遗传" },
+        { "id": "D", "text": "细胞质遗传" }
+      ]
     },
     {
       "index": 2,

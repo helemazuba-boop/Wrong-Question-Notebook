@@ -1,0 +1,6 @@
+[
+  { "event": "agent.attached", "data": {} },
+  { "event": "agent.status", "data": { "status": "running", "message": "已在别处开始" } },
+  { "event": "agent.text.delta", "data": { "delta": "继续整理第 2 题。" } },
+  { "event": "agent.status", "data": { "status": "idle", "message": "观察结束" } }
+]

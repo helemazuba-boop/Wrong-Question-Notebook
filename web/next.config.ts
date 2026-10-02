@@ -26,6 +26,39 @@ const supabaseImageUrl = new URL(
 const supabaseImageProtocol = supabaseImageUrl.protocol.slice(0, -1) as
   'http' | 'https';
 
+/**
+ * Hosts allowed to invoke Server Actions.
+ *
+ * Next.js compares the `Origin` header against `x-forwarded-host` (falling
+ * back to `host`). A reverse proxy that forwards its own upstream address --
+ * `proxy_set_header X-Forwarded-Host $proxy_host` yields `127.0.0.1` -- makes
+ * every Server Action look cross-origin, and Next aborts it with
+ * "Invalid Server Actions request". Listing the public host here keeps the
+ * check meaningful (a foreign origin is still rejected) instead of disabling
+ * it, which is the documented remedy for a proxied deployment.
+ *
+ * The proxy should still be corrected to forward `$host`; this is a safety
+ * net so a proxy misconfiguration cannot take the consent screen down.
+ */
+function serverActionAllowedOrigins(): string[] {
+  const origin =
+    process.env.SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
+      : '');
+
+  if (!origin) return [];
+
+  try {
+    return [new URL(origin).host];
+  } catch {
+    // next.config.ts runs at build and server start; a bad SITE_URL must not
+    // stop the app from booting.
+    return [];
+  }
+}
+
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
@@ -41,6 +74,9 @@ const nextConfig: NextConfig = {
   // Enable experimental features for better performance
   experimental: {
     optimizePackageImports: ['lucide-react'],
+    serverActions: {
+      allowedOrigins: serverActionAllowedOrigins(),
+    },
   },
 
   // Image optimization

@@ -59,15 +59,46 @@ export interface AIClient {
   ): Promise<GenerateContentResult>;
 }
 
+export class AIClientTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`AI provider request timed out after ${timeoutMs} ms`);
+    this.name = 'AIClientTimeoutError';
+  }
+}
+
+function withRequestDeadline(client: AIClient, timeoutMs: number): AIClient {
+  return {
+    async generateContent(params): Promise<GenerateContentResult> {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          client.generateContent(params),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(
+              () => reject(new AIClientTimeoutError(timeoutMs)),
+              timeoutMs
+            );
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    },
+  };
+}
+
 // =====================================================
 // Google Provider
 // =====================================================
 
-function createGoogleClient(apiKey: string): AIClient {
+function createGoogleClient(apiKey: string, timeoutMs: number): AIClient {
   const baseUrl = process.env.AI_PROVIDER_BASE_URL;
   const genai = new GoogleGenAI({
     apiKey,
-    ...(baseUrl ? { httpOptions: { baseUrl } } : {}),
+    httpOptions: {
+      ...(baseUrl ? { baseUrl } : {}),
+      timeout: timeoutMs,
+    },
   });
 
   return {
@@ -92,8 +123,8 @@ function createGoogleClient(apiKey: string): AIClient {
 // Anthropic Provider
 // =====================================================
 
-function createAnthropicClient(apiKey: string): AIClient {
-  const anthropic = new Anthropic({ apiKey });
+function createAnthropicClient(apiKey: string, timeoutMs: number): AIClient {
+  const anthropic = new Anthropic({ apiKey, timeout: timeoutMs });
 
   return {
     async generateContent(params): Promise<GenerateContentResult> {
@@ -167,7 +198,11 @@ function createAnthropicClient(apiKey: string): AIClient {
 // OpenAI-Compatible Provider
 // =====================================================
 
-function createOpenAICompatClient(baseUrl: string, apiKey: string): AIClient {
+function createOpenAICompatClient(
+  baseUrl: string,
+  apiKey: string,
+  timeoutMs: number
+): AIClient {
   return {
     async generateContent(params): Promise<GenerateContentResult> {
       type MessageContent =
@@ -218,20 +253,32 @@ function createOpenAICompatClient(baseUrl: string, apiKey: string): AIClient {
         };
       }
 
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw new AIClientTimeoutError(timeoutMs);
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(
-          `OpenAI-compatible API error ${res.status}: ${errText}`
-        );
+        // Provider bodies can contain echoed prompts or sensitive diagnostics;
+        // keep both client errors and server logs metadata-only.
+        throw new Error(`OpenAI-compatible API error ${res.status}`);
       }
 
       const json = (await res.json()) as {
@@ -251,23 +298,26 @@ export type AIProvider = 'google' | 'anthropic' | 'openai';
 
 export function createAIClient(AI_CONSTANTS: AI_CONSTANTS_TYPE): AIClient {
   const provider: AIProvider = AI_CONSTANTS.PROVIDER as AIProvider;
+  const timeoutMs = AI_CONSTANTS.REQUEST_TIMEOUT_MS;
+
+  let client: AIClient;
 
   if (provider === 'anthropic') {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
-    return createAnthropicClient(apiKey);
-  }
-
-  if (provider === 'openai') {
+    client = createAnthropicClient(apiKey, timeoutMs);
+  } else if (provider === 'openai') {
     const baseUrl = process.env.AI_PROVIDER_BASE_URL;
     const apiKey = process.env.AI_PROVIDER_API_KEY;
     if (!baseUrl) throw new Error('AI_PROVIDER_BASE_URL is not configured');
     if (!apiKey) throw new Error('AI_PROVIDER_API_KEY is not configured');
-    return createOpenAICompatClient(baseUrl.trim(), apiKey.trim());
+    client = createOpenAICompatClient(baseUrl.trim(), apiKey.trim(), timeoutMs);
+  } else {
+    // Default: google
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+    client = createGoogleClient(apiKey, timeoutMs);
   }
 
-  // Default: google
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
-  return createGoogleClient(apiKey);
+  return withRequestDeadline(client, timeoutMs);
 }

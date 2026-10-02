@@ -9,6 +9,18 @@ updates:
       time: "09:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 10
+    ignore:
+      # eslint-config-next 16.3.3 depends on eslint-plugin-react ^7.37.0, whose
+      # peer range stops at ^9.7 -- no 7.x release supports eslint 10. Under
+      # eslint 10 it installs (npm overrides the peer with a warning) but then
+      # crashes at lint time:
+      #   TypeError: Error while loading rule 'react/display-name':
+      #   contextOrFilename.getFilename is not a function
+      # Revisit once eslint-config-next ships a react plugin with eslint 10
+      # support.
+      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
     groups:
       production-minor-and-patch:
         dependency-type: "production"

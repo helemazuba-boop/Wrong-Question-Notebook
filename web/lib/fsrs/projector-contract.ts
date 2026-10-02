@@ -10,9 +10,16 @@ import {
 
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
 
+// Not every persisted user id is an RFC 9562 UUID: seeded accounts use ids
+// like 00000000-0000-0000-0000-000000000002, whose version and variant
+// nibbles are 0. z.uuid() rejects those and the whole projection batch fails
+// to parse, so claims stay leased forever. z.guid() accepts any 8-4-4-4-12
+// hex id.
+const UserIdSchema = z.guid();
+
 export const ProjectionClaimSchema = z
   .object({
-    user_id: z.uuid(),
+    user_id: UserIdSchema,
     problem_id: z.uuid(),
     dirty_from: IsoTimestampSchema,
     lease_token: z.uuid(),
@@ -77,7 +84,7 @@ export const Sm2CompatibilityBaselineSchema = z
 export const PreparedProjectionSchema = z
   .object({
     run_id: z.uuid(),
-    user_id: z.uuid(),
+    user_id: UserIdSchema,
     problem_id: z.uuid(),
     lease_token: z.uuid(),
     authority_mode: z.enum(['sm2', 'fsrs']),

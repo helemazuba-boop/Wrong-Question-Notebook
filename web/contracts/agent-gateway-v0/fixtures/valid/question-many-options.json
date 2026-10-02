@@ -1,0 +1,22 @@
+[
+  { "event": "agent.accepted", "data": {} },
+  {
+    "event": "agent.question",
+    "data": {
+      "session_id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
+      "question_id": "frm_01J8ZQ5R8W3P1Y4N7C0D2E6F9J#0",
+      "title": "选择要使用的题库",
+      "options": [
+        { "value": "math", "label": "数学" },
+        { "value": "physics", "label": "物理" },
+        { "value": "chemistry", "label": "化学" },
+        { "value": "biology", "label": "生物" },
+        { "value": "history", "label": "历史" },
+        { "value": "geography", "label": "地理" },
+        { "value": "politics", "label": "政治" },
+        { "value": "english", "label": "英语" }
+      ]
+    }
+  },
+  { "event": "agent.status", "data": { "status": "idle", "message": "执行完成" } }
+]

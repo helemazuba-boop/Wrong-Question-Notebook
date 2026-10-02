@@ -74,6 +74,13 @@ function extraction(overrides: Record<string, unknown> = {}) {
       existing: [],
       new: [{ name: 'motion' }],
     },
+    ingestion: {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      schema_version: 'wqn.problem-ingestion.v1',
+      question_id: 'question-1',
+      source_region_ids: ['region-1'],
+      visual_region_ids: [],
+    },
     quota: { allowed: true, current: 1, limit: 10, remaining: 9 },
   };
 }
@@ -118,6 +125,7 @@ interface FakeState {
   failReviewOnce: boolean;
   uploads: string[];
   removed: string[];
+  upserts: Array<{ table: string; payload: unknown; options: unknown }>;
 }
 
 function makeSupabase(
@@ -135,6 +143,7 @@ function makeSupabase(
     failReviewOnce: options.failReviewOnce ?? false,
     uploads: [],
     removed: [],
+    upserts: [],
   };
   const tag = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', name: 'motion' };
 
@@ -163,9 +172,10 @@ function makeSupabase(
       this.payload = payload;
       return this;
     }
-    upsert(payload: any) {
+    upsert(payload: any, options?: unknown) {
       this.operation = 'upsert';
       this.payload = payload;
+      state.upserts.push({ table: this.table, payload, options });
       return this;
     }
 
@@ -329,6 +339,12 @@ describe('createProblemFromImages', () => {
     expect(state.problem.source.mcp_request_fingerprint).toBe(
       legacyFingerprint
     );
+    expect(state.problem.source).toMatchObject({
+      ingestion_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      ingestion_schema_version: 'wqn.problem-ingestion.v1',
+      ingestion_question_id: 'question-1',
+      source_region_ids: ['region-1'],
+    });
   });
 
   it('resumes incomplete relation writes before returning a replay', async () => {
@@ -365,6 +381,17 @@ describe('createProblemFromImages', () => {
       })
     ).rejects.toMatchObject({ code: 'request_id_reused', status: 409 });
     expect(mocks.extractProblemFromImages).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists solution text supplied with image imports', async () => {
+    const { supabase, state } = makeSupabase();
+    await createProblemFromImages(supabase, USER_ID, {
+      request_id: 'create_problem_solution_images_0001',
+      images: [IMAGE],
+      subject_id: SUBJECT_ID,
+      solution_text: 'By inspection.',
+    });
+    expect(state.problem.solution_text).toBe('By inspection.');
   });
 
   it('uses the uncategorized subject when subject is omitted', async () => {
@@ -537,6 +564,109 @@ describe('createProblem', () => {
     expect(result.problem.content.indexOf('First part.')).toBeLessThan(
       result.problem.content.indexOf('Second part.')
     );
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('low-confidence'),
+    ]);
+  });
+
+  it('persists a separated multi-choice answer instead of dropping it', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0007',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+              { id: 'C', text: 'c' },
+              { id: 'D', text: 'd' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'C、B',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    };
+    const result = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.parts).toEqual([
+      expect.objectContaining({
+        type: 'multi_choice',
+        correct_answer: 'BC',
+        answer_config: expect.objectContaining({
+          type: 'multi_mcq',
+          correct_choice_ids: ['B', 'C'],
+        }),
+      }),
+    ]);
+    expect(result.extraction.warnings).toEqual([]);
+    expect(result.problem.content).not.toContain('A. a');
+  });
+
+  it('reports an unsaveable answer instead of dropping it silently', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0008',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'E',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    };
+    const result = await createProblem(supabase, USER_ID, input);
+    const replay = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.parts[0]).not.toHaveProperty('correct_answer');
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('no id in "E" matches'),
+    ]);
+    expect(replay.replayed).toBe(true);
+    expect(replay.extraction.warnings).toEqual(result.extraction.warnings);
+  });
+
+  it('links tags against the problem_tag primary key, not a missing unique key', async () => {
+    const { supabase, state } = makeSupabase();
+    await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0009',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+    });
+
+    // problem_tag's only unique index is (problem_id, tag_id); asking
+    // PostgREST for (user_id, problem_id, tag_id) fails with 42P10.
+    const tagUpsert = state.upserts.find(
+      entry => entry.table === 'problem_tag'
+    );
+    expect(tagUpsert).toBeDefined();
+    expect(tagUpsert?.options).toEqual({
+      onConflict: 'problem_id,tag_id',
+      ignoreDuplicates: true,
+    });
+    expect(state.tagLinks.size).toBe(1);
   });
 
   it('rejects structured input that depends on missing visual content', async () => {
@@ -612,5 +742,84 @@ describe('createProblem', () => {
     });
     expect(mocks.ensurePresetSubjects).toHaveBeenCalledWith(supabase, USER_ID);
     expect(result.problem.subject_id).toBe(state.subjectId);
+  });
+
+  it('persists caller solution text and replays the same request', async () => {
+    const { supabase, state } = makeSupabase();
+    const input = {
+      request_id: 'create_structured_problem_0010',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+      solution_text: '配方得 $(x-y/2)^2$，故 $x^2 \\le 4/3$。',
+    };
+    const first = await createProblem(supabase, USER_ID, input);
+    const replay = await createProblem(supabase, USER_ID, input);
+
+    expect(state.problem.solution_text).toBe(
+      '配方得 $(x-y/2)^2$，故 $x^2 \\le 4/3$。'
+    );
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+  });
+
+  it('rejects request_id reuse when only the solution text changed', async () => {
+    const { supabase } = makeSupabase();
+    const base = {
+      request_id: 'create_structured_problem_0011',
+      ...structuredProblem(),
+      subject_id: SUBJECT_ID,
+      solution_text: 'First solution.',
+    };
+    await createProblem(supabase, USER_ID, base);
+    await expect(
+      createProblem(supabase, USER_ID, {
+        ...base,
+        solution_text: 'Second solution.',
+      })
+    ).rejects.toMatchObject({ code: 'request_id_reused', status: 409 });
+  });
+
+  it('warns when extended_working cannot be stored but keeps the answer', async () => {
+    const { supabase, state } = makeSupabase();
+    const result = await createProblem(supabase, USER_ID, {
+      request_id: 'create_structured_problem_0012',
+      ...structuredProblem({
+        parts: [
+          {
+            index: 1,
+            label: null,
+            type: 'multi_choice',
+            content: 'Which are correct?',
+            full_marks: 5,
+            mcq_choices: [
+              { id: 'A', text: 'a' },
+              { id: 'B', text: 'b' },
+              { id: 'C', text: 'c' },
+            ],
+            answer_hint: {
+              mcq_correct_choice_id: 'BC',
+              extended_working: '思路：先配方再比较。',
+              answer_confidence: 'high',
+            },
+          },
+        ],
+      }),
+      subject_id: SUBJECT_ID,
+    });
+
+    expect(state.problem.parts[0]).toMatchObject({
+      correct_answer: 'BC',
+      answer_config: expect.objectContaining({
+        type: 'multi_mcq',
+        correct_choice_ids: ['B', 'C'],
+      }),
+    });
+    expect(result.extraction.warnings).toEqual([
+      expect.stringContaining('extended_working'),
+    ]);
+    expect(result.extraction.warnings[0]).toContain('multi_choice');
+    expect(state.problem.source.mcp_creation_warnings).toEqual(
+      result.extraction.warnings
+    );
   });
 });

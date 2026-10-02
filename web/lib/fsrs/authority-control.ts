@@ -6,6 +6,12 @@ import type { Database } from '@/lib/database.types';
 
 const fingerprintSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
+// Persisted user ids are not always RFC 9562 UUIDs: seeded accounts use ids
+// like 00000000-0000-0000-0000-000000000002, whose version and variant nibbles
+// are 0, so z.uuid() rejects them and the cutover payload never reaches the
+// RPC. The same applies to cutover ids minted by the RPC itself. z.guid()
+// accepts any 8-4-4-4-12 hex id.
+
 export const FsrsCutoverExpectationSchema = z
   .object({
     problem_id: z.uuid(),
@@ -18,23 +24,23 @@ export const FsrsAuthorityActionSchema = z.discriminatedUnion('action', [
   z
     .object({
       action: z.literal('cutover'),
-      user_id: z.uuid(),
+      user_id: z.guid(),
       expected_projections: z.array(FsrsCutoverExpectationSchema),
     })
     .strict(),
   z
     .object({
       action: z.literal('cancel'),
-      user_id: z.uuid(),
-      cutover_id: z.uuid(),
+      user_id: z.guid(),
+      cutover_id: z.guid(),
     })
     .strict(),
 ]);
 
 const FsrsCutoverResultSchema = z
   .object({
-    cutover_id: z.uuid(),
-    user_id: z.uuid(),
+    cutover_id: z.guid(),
+    user_id: z.guid(),
     authority_mode: z.literal('fsrs'),
     problem_count: z.number().int().nonnegative(),
   })
@@ -42,8 +48,8 @@ const FsrsCutoverResultSchema = z
 
 const FsrsCancelResultSchema = z
   .object({
-    cutover_id: z.uuid(),
-    user_id: z.uuid(),
+    cutover_id: z.guid(),
+    user_id: z.guid(),
     authority_mode: z.literal('sm2'),
     restored_problem_count: z.number().int().nonnegative(),
   })

@@ -95,3 +95,12 @@ yarn.lock
 
 # Vendored artifacts with pinned checksums
 vendor/
+
+# Mirrored contract artifacts with pinned checksums.
+# Every contract directory mirrors the firmware-side copy, which is the
+# authority: `manifest.json` pins `schema_sha256` against the schema, and the
+# firmware build fails a configure on a mismatch. Prettier reflows JSON
+# inline-object style and repads Markdown tables, so a reformat here would
+# either break the pin or drift the two copies apart while looking like a
+# formatting change.
+contracts/

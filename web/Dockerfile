@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY

@@ -101,6 +101,7 @@ async function sync(req: NextRequest) {
     dueResult,
     todoCountResult,
     wordDueCountResult,
+    wordMistakeCountResult,
     problemRevisionResult,
     todoRevisionResult,
     wordRevisionResult,
@@ -124,6 +125,19 @@ async function sync(req: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', auth.userId)
       .or(`status.eq.new,due_at.is.null,due_at.lte.${now}`),
+    // Mistakes-mode pool: words the user answered "unknown" that are not
+    // mastered yet. This is the same filter the session candidate query
+    // applies (mistakes never show mastered words), so the home chip matches
+    // what the mode will actually walk.
+    svc
+      .from('word_mistake_links')
+      .select(
+        'word_entry_id, word_entries!inner(word_progress!inner(status, user_id))',
+        { count: 'exact', head: true }
+      )
+      .eq('user_id', auth.userId)
+      .eq('word_entries.word_progress.user_id', auth.userId)
+      .neq('word_entries.word_progress.status', 'mastered'),
     svc
       .from('problems')
       .select('revision')
@@ -161,6 +175,7 @@ async function sync(req: NextRequest) {
     dueResult.error,
     todoCountResult.error,
     wordDueCountResult.error,
+    wordMistakeCountResult.error,
     problemRevisionResult.error,
     todoRevisionResult.error,
     wordRevisionResult.error,
@@ -221,6 +236,7 @@ async function sync(req: NextRequest) {
       due_problem_ids: (dueResult.data || []).map(row => row.problem_id),
       todo_count: todoCountResult.count ?? 0,
       word_due_count: wordDueCountResult.count ?? 0,
+      word_mistake_count: wordMistakeCountResult.count ?? 0,
     },
     content_manifest: [
       {

@@ -36,7 +36,12 @@ export async function GET() {
       { status: 500 }
     );
   }
-  return NextResponse.json(createApiSuccessResponse({ tokens: data ?? [] }));
+  return NextResponse.json(
+    createApiSuccessResponse({
+      tokens: data ?? [],
+      maxActiveTokens: MAX_ACTIVE_TOKENS,
+    })
+  );
 }
 
 export async function POST(req: Request) {
@@ -75,7 +80,8 @@ export async function POST(req: Request) {
     return NextResponse.json(
       createApiErrorResponse(
         `At most ${MAX_ACTIVE_TOKENS} active tokens are allowed`,
-        403
+        403,
+        { code: 'token_quota_exceeded' }
       ),
       { status: 403 }
     );

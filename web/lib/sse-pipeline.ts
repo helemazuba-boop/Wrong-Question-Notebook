@@ -13,6 +13,7 @@ import type { SseWriter } from './ai-stream';
 import { SseEventIdGenerator } from './ai-stream';
 import { closeSseWithError, type Esp32AiErrorCode } from './ai-errors';
 import { Esp32AiProviderError } from './esp32-ai-provider';
+import { logger } from './logger';
 import { runPipelineAsr } from './sse-pipeline-asr';
 import type { Esp32AiAsrProvider } from './esp32-ai-asr-selection';
 import { runPipelineChat, type ToolExecutor } from './sse-pipeline-chat';
@@ -132,6 +133,15 @@ export async function runStreamingPipeline(
     asrResult.model,
     asrResult.provider
   );
+  // Stage telemetry: turns that "end silently" were previously impossible to
+  // attribute — this line pins how far the pipeline got before the stream died.
+  logger.info('ESP32 AI pipeline ASR completed', {
+    component: 'Esp32AiTranscribeChat',
+    provider: asrResult.provider,
+    model: asrResult.model,
+    elapsed_ms: asrResult.elapsedMs,
+    transcript_bytes: Buffer.byteLength(asrResult.transcript, 'utf8'),
+  });
 
   // ---- 2. Chat (streaming) ----
   const chatModel =
@@ -173,6 +183,15 @@ export async function runStreamingPipeline(
   );
 
   const latencyMs = Date.now() - startedAt;
+  logger.info('ESP32 AI pipeline chat completed', {
+    component: 'Esp32AiTranscribeChat',
+    model: chat.model,
+    finish_reason: chat.finishReason,
+    elapsed_ms: latencyMs,
+    reply_bytes: Buffer.byteLength(chat.replyText, 'utf8'),
+    reasoning_bytes: chat.reasoningBytes,
+    function_calls: chat.functionCalls?.length ?? 0,
+  });
   pusher.emitFinal({
     success: true,
     conversation_id: chat.conversationId,

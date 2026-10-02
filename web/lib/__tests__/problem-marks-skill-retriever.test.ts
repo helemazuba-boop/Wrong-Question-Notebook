@@ -100,6 +100,60 @@ describe('Skill retriever exact cosine TopK', () => {
     expect(cache.keys().next().value).toContain(lock().representation_revision);
   });
 
+  it('keeps cache entries apart per subject', async () => {
+    const cache = new Map();
+    const current = runtime();
+    await retrieveSkillCandidates(current, 'physics', query, cache);
+    await retrieveSkillCandidates(current, 'chemistry', query, cache);
+
+    // The same question text under two Subjects must not share a result.
+    expect(current.provider.embed).toHaveBeenCalledTimes(2);
+    expect(cache.size).toBe(2);
+    const first = await retrieveSkillCandidates(
+      current,
+      'physics',
+      query,
+      cache
+    );
+    expect(
+      first.candidates.every(c => c.stable_key.startsWith('physics.'))
+    ).toBe(true);
+  });
+
+  it('drops candidates below the configured minimum score', async () => {
+    const current = runtime();
+    const all = await retrieveSkillCandidates(
+      current,
+      'physics',
+      query,
+      new Map()
+    );
+    const scores = all.candidates.map(candidate => candidate.score);
+
+    const filtered = await retrieveSkillCandidates(
+      runtime({ minScore: 0.95 }),
+      'physics',
+      query,
+      new Map()
+    );
+    // Scores are 1.0, 0.8, 0.0 for the three physics documents.
+    expect(scores[0]).toBeCloseTo(1);
+    expect(filtered.candidates).toHaveLength(1);
+    expect(filtered.candidates[0].stable_key).toBe('physics.skill.move.001');
+    expect(filtered.retrievalDebug.min_score).toBe(0.95);
+  });
+
+  it('leaves the threshold off by default so behaviour is unchanged', async () => {
+    const result = await retrieveSkillCandidates(
+      runtime(),
+      'physics',
+      query,
+      new Map()
+    );
+    expect(result.retrievalDebug.min_score).toBe(0);
+    expect(result.candidates.length).toBeGreaterThan(1);
+  });
+
   it('separates coverage miss from provider and contract failures', async () => {
     await expect(
       retrieveSkillCandidates(runtime(), 'biology', query, new Map())

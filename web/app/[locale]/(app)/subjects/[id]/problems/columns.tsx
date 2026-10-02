@@ -1,6 +1,5 @@
 'use client';
 
-import { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpDown, MoreHorizontal, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,7 +22,7 @@ import {
 import { Link } from '@/i18n/navigation';
 import type { TranslatorProp } from '@/i18n/types';
 import { toast } from 'sonner';
-import { Problem, TableMeta } from '@/lib/types';
+import { Problem, ProblemColumnDef, TableMeta } from '@/lib/types';
 
 // Tag capsules component
 function TagCapsules({ tags }: { tags: { id: string; name: string }[] }) {
@@ -87,7 +86,7 @@ function DataTableColumnHeader({
 export function createColumns(
   t: TranslatorProp,
   locale?: string
-): ColumnDef<Problem>[] {
+): ProblemColumnDef<Problem>[] {
   return [
     {
       id: 'select',
@@ -355,4 +354,4 @@ export function createColumns(
 }
 
 // Default export for backwards compatibility (returns empty array - should be called with t)
-export const columns: ColumnDef<Problem>[] = [];
+export const columns: ProblemColumnDef<Problem>[] = [];

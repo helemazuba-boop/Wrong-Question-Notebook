@@ -89,6 +89,7 @@ function queryBuilder(table: string) {
     return chain;
   });
   chain.eq = fluent;
+  chain.neq = fluent;
   chain.lte = fluent;
   chain.or = fluent;
   chain.order = fluent;
@@ -127,6 +128,9 @@ function queryBuilder(table: string) {
       }
       if (table === 'word_progress' && countOnly) {
         return Promise.resolve(resolve({ data: null, count: 5, error: null }));
+      }
+      if (table === 'word_mistake_links' && countOnly) {
+        return Promise.resolve(resolve({ data: null, count: 3, error: null }));
       }
       return Promise.resolve(resolve({ data: null, error: null }));
     } catch (error) {
@@ -232,6 +236,7 @@ describe('device-control v3 authenticated routes', () => {
       due_problem_ids: [DUE_PROBLEM_ID],
       todo_count: 2,
       word_due_count: 5,
+      word_mistake_count: 3,
     });
     expect(body.data.content_manifest).toEqual(
       expect.arrayContaining([

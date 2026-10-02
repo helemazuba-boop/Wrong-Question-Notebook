@@ -1,4 +1,5 @@
 import {
+  EINK_DERIVATION_PIPELINE_VERSION,
   renderEinkDerivations,
   EinkDerivationError,
 } from '@/lib/eink-derivation-service';
@@ -35,6 +36,7 @@ export async function deriveProblemImageAssets(
     assets.map(async asset => {
       if (!isImageAsset(asset)) return asset;
       if (
+        asset.pipeline_version === EINK_DERIVATION_PIPELINE_VERSION &&
         asset.image_id &&
         asset.display_path &&
         asset.preview_path &&

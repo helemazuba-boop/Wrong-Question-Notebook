@@ -5,12 +5,15 @@ import {
   ColumnFiltersState,
   SortingState,
   flexRender,
+} from '@tanstack/react-table';
+import {
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
+  useLegacyTable,
+} from '@tanstack/react-table/legacy';
+import type { RowData } from '@tanstack/table-core';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -27,7 +30,7 @@ import { ProblemStatus } from '@/lib/schemas';
 import { getStatusBorderColor } from '@/lib/common-utils';
 
 import { useColumnVisibility } from '@/lib/hooks/useColumnVisibility';
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   onEdit,
@@ -43,7 +46,7 @@ export function DataTable<TData, TValue>({
   isAddToSetMode = false,
   hideStatusStrip = false,
   meta: externalMeta,
-}: DataTableProps<TData, TValue>) {
+}: DataTableProps<TData>) {
   const t = useTranslations('DataTable');
   const tCommon = useTranslations('Common');
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -55,7 +58,7 @@ export function DataTable<TData, TValue>({
   });
   const [rowSelection, setRowSelection] = React.useState({});
 
-  const table = useReactTable({
+  const table = useLegacyTable({
     data,
     columns,
     onSortingChange: setSorting,
@@ -81,17 +84,31 @@ export function DataTable<TData, TValue>({
     },
   });
 
+  // TanStack Table v9 rebuilds the table object on every render: `useTable`
+  // memoises on the options object, and the options here are an inline literal
+  // that is new each render. v8 returned a stable instance, so effects below
+  // keyed on `table` ran once; keyed on v9 they run every render, and because
+  // each of them sets state in the parent that is an update loop React ends up
+  // aborting with "Maximum update depth exceeded".
+  //
+  // Read the current table through a ref instead, and key the effects on the
+  // values they actually report about.
+  const tableRef = React.useRef(table);
+  React.useEffect(() => {
+    tableRef.current = table;
+  });
+
   // Notify parent when table is ready
   React.useEffect(() => {
     if (onTableReady) {
-      onTableReady(table);
+      onTableReady(tableRef.current);
     }
-  }, [table, onTableReady]);
+  }, [onTableReady]);
 
   // Notify parent when selection changes
   React.useEffect(() => {
     if (onSelectionChange) {
-      const selectedRows = table.getFilteredSelectedRowModel().rows;
+      const selectedRows = tableRef.current.getFilteredSelectedRowModel().rows;
       const selectedProblems = selectedRows
         .map(row => row.original as Problem)
         .filter(problem => {
@@ -103,7 +120,10 @@ export function DataTable<TData, TValue>({
         });
       onSelectionChange(selectedProblems);
     }
-  }, [rowSelection, table, onSelectionChange, isAddToSetMode]);
+    // Keyed on the selection inputs rather than on `table` — see the note
+    // above. `data` is included because the selected row model is derived
+    // from the filtered rows, not only from `rowSelection`.
+  }, [rowSelection, data, onSelectionChange, isAddToSetMode]);
 
   // Reset selection when resetSelection prop changes
   React.useEffect(() => {

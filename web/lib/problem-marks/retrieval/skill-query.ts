@@ -114,6 +114,21 @@ export function parseSkillRetrievalQueryProblem(
   );
 }
 
+// Each field is capped on its own, but a Problem with many parts can still add
+// up to far more text than a hosted embedding endpoint accepts. The NVIDIA
+// profile pins a 4096-token limit and forbids provider-side truncation, so the
+// assembled query is bounded here instead.
+const QUERY_TEXT_LIMIT = 12_000;
+
+function boundQueryText(text: string): string {
+  if (text.length <= QUERY_TEXT_LIMIT) return text;
+  return text.slice(0, QUERY_TEXT_LIMIT);
+}
+
+// Each field is capped on its own, but a Problem with many parts can still add
+// up to far more text than a hosted embedding endpoint accepts. The NVIDIA
+// profile pins a 4096-token limit and forbids provider-side truncation, so the
+// assembled query is bounded here instead.
 export function buildSkillRetrievalQueryText(
   problem: SkillRetrievalQueryProblem
 ): SkillRetrievalQueryText {
@@ -135,7 +150,7 @@ export function buildSkillRetrievalQueryText(
   ];
   return {
     templateVersion: queryTemplateVersion,
-    text: sections.join('\n\n'),
+    text: boundQueryText(sections.join('\n\n')),
   };
 }
 

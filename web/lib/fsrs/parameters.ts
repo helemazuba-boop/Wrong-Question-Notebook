@@ -45,6 +45,18 @@ Object.freeze(baselineParameters.relearning_steps);
 export const FSRS_BASELINE_PARAMETERS: Readonly<FsrsParameters> =
   Object.freeze(baselineParameters);
 
+// Word review caps the FSRS interval at one year. Problems keep the 100-year
+// default: a word that is "known" for a year has effectively left the deck,
+// while a problem can legitimately stay in rotation for years.
+export const WORD_FSRS_MAXIMUM_INTERVAL_DAYS = 365;
+
+export const WORD_FSRS_PARAMETERS: Readonly<FsrsParameters> = Object.freeze(
+  FsrsParametersSchema.parse({
+    ...baselineParameters,
+    maximum_interval: WORD_FSRS_MAXIMUM_INTERVAL_DAYS,
+  })
+);
+
 export function parseFsrsParameters(value: unknown): FsrsParameters {
   return FsrsParametersSchema.parse(value);
 }

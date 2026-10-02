@@ -63,51 +63,77 @@ setInterval(() => {
  * });
  * ```
  */
+export interface RateLimitResult {
+  ok: boolean;
+  retryAfter: number;
+  maxRequests: number;
+  resetTime: number;
+  count: number;
+}
+
+/**
+ * Consume one slot from a named rate limit bucket for an explicit key.
+ *
+ * Unlike createRateLimit, callers that authenticate first (ESP32 device
+ * routes) can key the bucket on the authenticated identity instead of
+ * something derivable from the raw request.
+ */
+export function consumeRateLimit(
+  namespace: string,
+  requesterKey: string,
+  config: Pick<RateLimitConfig, 'windowMs' | 'maxRequests'>
+): RateLimitResult {
+  // A bare IP/user key lets unrelated limiters poison each other. This was
+  // especially harmful during device claim: frequent ESP32 poll requests
+  // could consume the browser approval endpoint's much smaller auth bucket.
+  const key = `rate_limit:${namespace}:${requesterKey}`;
+  const now = Date.now();
+
+  let entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetTime) {
+    entry = {
+      count: 0,
+      resetTime: now + config.windowMs,
+    };
+    rateLimitStore.set(key, entry);
+  }
+
+  entry.count++;
+
+  const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+  return {
+    ok: entry.count <= config.maxRequests,
+    retryAfter,
+    maxRequests: config.maxRequests,
+    resetTime: entry.resetTime,
+    count: entry.count,
+  };
+}
+
 export function createRateLimit(config: RateLimitConfig) {
   return (req: NextRequest): NextResponse | null => {
     const requesterKey = config.keyGenerator
       ? config.keyGenerator(req)
       : getDefaultKey(req);
-    // A bare IP/user key lets unrelated limiters poison each other. This was
-    // especially harmful during device claim: frequent ESP32 poll requests
-    // could consume the browser approval endpoint's much smaller auth bucket.
     const namespace =
       config.namespace ?? `window-${config.windowMs}-max-${config.maxRequests}`;
-    const key = `rate_limit:${namespace}:${requesterKey}`;
-    const now = Date.now();
-    // const windowStart = now - config.windowMs;
+    const result = consumeRateLimit(namespace, requesterKey, config);
 
-    // Get or create rate limit entry
-    let entry = rateLimitStore.get(key);
-    if (!entry || now > entry.resetTime) {
-      entry = {
-        count: 0,
-        resetTime: now + config.windowMs,
-      };
-      rateLimitStore.set(key, entry);
-    }
-
-    // Increment counter
-    entry.count++;
-
-    // Check if limit exceeded
-    if (entry.count > config.maxRequests) {
-      const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
-
+    if (!result.ok) {
       return new NextResponse(
         JSON.stringify({
           error: 'Too Many Requests',
-          message: `Rate limit exceeded. Try again in ${retryAfter} seconds.`,
-          retryAfter,
+          message: `Rate limit exceeded. Try again in ${result.retryAfter} seconds.`,
+          retryAfter: result.retryAfter,
         }),
         {
           status: 429,
           headers: {
             'Content-Type': 'application/json',
-            'Retry-After': retryAfter.toString(),
+            'Retry-After': result.retryAfter.toString(),
             'X-RateLimit-Limit': config.maxRequests.toString(),
             'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': entry.resetTime.toString(),
+            'X-RateLimit-Reset': result.resetTime.toString(),
           },
         }
       );
@@ -118,9 +144,9 @@ export function createRateLimit(config: RateLimitConfig) {
     response.headers.set('X-RateLimit-Limit', config.maxRequests.toString());
     response.headers.set(
       'X-RateLimit-Remaining',
-      (config.maxRequests - entry.count).toString()
+      Math.max(0, config.maxRequests - result.count).toString()
     );
-    response.headers.set('X-RateLimit-Reset', entry.resetTime.toString());
+    response.headers.set('X-RateLimit-Reset', result.resetTime.toString());
 
     return null; // Allow request to proceed
   };

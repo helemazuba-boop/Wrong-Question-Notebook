@@ -48,6 +48,60 @@ export function guidedRandomBucket(
   return candidate.status === 'learning' ? 0 : 1;
 }
 
+// The review queue is a plain list: relearning/learning words first, then due
+// review words by due_at. Selection (what is due today) happens before ordering.
+export function dueQueueBucket(
+  candidate: Pick<WordStudyCandidate, 'status'>
+): number {
+  if (candidate.status === 'learning') return 0;
+  if (candidate.status === 'review') return 1;
+  if (candidate.status === 'new') return 2;
+  return 3;
+}
+
+function dueAtMs(dueAt: string | null): number {
+  const parsed = dueAt ? Date.parse(dueAt) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function compareDeckOrder(
+  left: WordStudyCandidate,
+  right: WordStudyCandidate
+): number {
+  const deck = left.deck_order - right.deck_order;
+  if (deck !== 0) return deck;
+  const sortIndex = left.sort_index - right.sort_index;
+  if (sortIndex !== 0) return sortIndex;
+  const word = compareUtf8Text(left.normalized_word, right.normalized_word);
+  if (word !== 0) return word;
+  return compareUtf8Text(left.item_id, right.item_id);
+}
+
+// Guided random reserves part of every session for words the user has never
+// seen. Buckets 0 (learning, due) and 1 (review, due) sort ahead of bucket 2
+// (new), so once a backlog of overdue words reaches the session size the pool
+// is entirely backlog and the device serves the same words forever -- the user
+// never reaches a new word no matter how many rounds they study.
+export const WORD_STUDY_DUE_NOW_SHARE = 0.6;
+
+export function capDueNowCandidates(
+  candidates: readonly WordStudyCandidate[],
+  nowMs: number,
+  outputLimit: number
+): WordStudyCandidate[] {
+  const maxDueNow = Math.floor(outputLimit * WORD_STUDY_DUE_NOW_SHARE);
+  const kept: WordStudyCandidate[] = [];
+  let dueNowKept = 0;
+  for (const candidate of candidates) {
+    if (guidedRandomBucket(candidate, nowMs) <= 1) {
+      if (dueNowKept >= maxDueNow) continue;
+      dueNowKept += 1;
+    }
+    kept.push(candidate);
+  }
+  return kept;
+}
+
 /**
  * The firmware orders text with std::string/strcmp, i.e. by UTF-8 bytes.
  * TextEncoder makes the cloud comparator explicit and avoids JavaScript's
@@ -86,18 +140,29 @@ export function orderWordStudyCandidates(
       return compareUtf8Text(left.item_id, right.item_id);
     }
 
+    if (ordering === 'pure_random_v1' || ordering === 'mistake_words_v1') {
+      const leftHash = guidedRandomHash(seed, left.item_id);
+      const rightHash = guidedRandomHash(seed, right.item_id);
+      if (leftHash !== rightHash) return leftHash < rightHash ? -1 : 1;
+      return compareUtf8Text(left.item_id, right.item_id);
+    }
+
+    if (ordering === 'due_queue_v1') {
+      const bucket = dueQueueBucket(left) - dueQueueBucket(right);
+      if (bucket !== 0) return bucket;
+      const leftDue = dueAtMs(left.due_at);
+      const rightDue = dueAtMs(right.due_at);
+      if (leftDue !== rightDue) return leftDue < rightDue ? -1 : 1;
+      return compareDeckOrder(left, right);
+    }
+
     if (ordering === 'lexicographic') {
       const word = compareUtf8Text(left.normalized_word, right.normalized_word);
       if (word !== 0) return word;
       return compareUtf8Text(left.item_id, right.item_id);
     }
 
-    const deck = left.deck_order - right.deck_order;
-    if (deck !== 0) return deck;
-    const sortIndex = left.sort_index - right.sort_index;
-    if (sortIndex !== 0) return sortIndex;
-    const word = compareUtf8Text(left.normalized_word, right.normalized_word);
-    if (word !== 0) return word;
-    return compareUtf8Text(left.item_id, right.item_id);
+    // `sequential` and `new_intake_v1` are both a faithful deck-order walk.
+    return compareDeckOrder(left, right);
   });
 }

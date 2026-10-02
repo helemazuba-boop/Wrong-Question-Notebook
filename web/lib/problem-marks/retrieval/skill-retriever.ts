@@ -41,8 +41,17 @@ export interface SkillRetrievalResult {
     top_k: number;
     subject: string;
     candidate_count: number;
+    min_score: number;
   };
 }
+
+// Minimum cosine score for a candidate to be offered to the marking model.
+// Disabled by default: the right value depends on the score distribution of real
+// queries, which has not been measured. For reference, the 76 published physics
+// documents score a median 0.46 against each other (p10 0.38, p90 0.55), so any
+// threshold below roughly 0.5 would filter nothing in this embedding space.
+// Calibrate against `retrieval_debug.skill[].score` before enabling.
+const DEFAULT_MIN_SCORE = 0;
 
 export interface SkillRetrievalRuntime {
   lock: SkillRetrievalLock;
@@ -50,6 +59,7 @@ export interface SkillRetrievalRuntime {
   manifest: SkillRetrievalManifest;
   provider: EmbeddingProvider;
   maxCacheEntries?: number;
+  minScore?: number;
 }
 
 export interface QueryCacheEntry {
@@ -94,8 +104,11 @@ export async function retrieveSkillCandidates(
       `Skill retrieval has no documents for Subject: ${subject}`
     );
   }
+  const minScore = runtime.minScore ?? DEFAULT_MIN_SCORE;
   const queryHash = hashQuery(query);
-  const cacheKey = `${runtime.artifact.profile_fingerprint}:${runtime.lock.representation_revision}:${queryHash}`;
+  // The subject is part of the key: the same question text is legitimately
+  // asked under different Subjects, and the candidate set differs per Subject.
+  const cacheKey = `${runtime.artifact.profile_fingerprint}:${runtime.lock.representation_revision}:${subject}:${queryHash}`;
   let candidates = cache.get(cacheKey)?.candidates;
   if (!candidates) {
     const queryVector = await runtime.provider.embed([query.text], 'query');
@@ -120,6 +133,7 @@ export async function retrieveSkillCandidates(
         if (right.score !== left.score) return right.score - left.score;
         return left.stable_key.localeCompare(right.stable_key, 'en');
       })
+      .filter(candidate => candidate.score >= minScore)
       .slice(0, topK)
       .map(({ index: _index, ...candidate }, position) => ({
         ...candidate,
@@ -142,6 +156,7 @@ export async function retrieveSkillCandidates(
       top_k: topK,
       subject,
       candidate_count: subjectDocuments.length,
+      min_score: minScore,
     },
   };
 }

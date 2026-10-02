@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import ProblemForm from './problem-form';
+import ProblemForm from '@/components/problems/problem-form';
 import EnhancedProblemsTable from './enhanced-problems-table';
 import StatsStrip from './stats-strip';
 import EmptyState from './empty-state';
@@ -26,6 +26,13 @@ export default function ProblemsPageClient({
   const tCommon = useTranslations('Common');
   const [problems, setProblems] = useState(initialProblems);
   const [tagsByProblem, setTagsByProblem] = useState(initialTagsByProblem);
+  // router.refresh() re-renders the server component with fresh data; adopt
+  // it here so imports/reviews made elsewhere (e.g. the ingestion workspace)
+  // show up without a full page reload.
+  useEffect(() => {
+    setProblems(initialProblems);
+    setTagsByProblem(initialTagsByProblem);
+  }, [initialProblems, initialTagsByProblem]);
   const { refreshChecklistStatus } = useOnboarding();
 
   const [formMode, setFormMode] = useState<FormMode>('closed');

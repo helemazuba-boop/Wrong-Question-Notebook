@@ -84,7 +84,7 @@ function Read-DotEnvFile {
     $vars = @{}
     $lineNumber = 0
 
-    foreach ($rawLine in Get-Content -LiteralPath $Path) {
+    foreach ($rawLine in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $lineNumber++
         $line = $rawLine.Trim()
 
@@ -657,6 +657,8 @@ $script:RuntimeVarKeys = @(
     "NEXT_PUBLIC_APP_URL",
     "SITE_URL",
     "CRON_SECRET",
+    "PROBLEM_REVIEW_PROJECTION_SECRET",
+    "WORD_REVIEW_ALGORITHM",
     "AI_PROVIDER",
     "AI_PROVIDER_BASE_URL",
     "AI_PROVIDER_API_KEY",
@@ -701,7 +703,18 @@ $script:RuntimeVarKeys = @(
     "WQN_ESP32_AI_STREAM_EVENT_ID_BASE",
     "WQN_REALTIME_PROXY_SECRET",
     "WQN_INTERNAL_API_ALLOWED_HOST",
-    "SENTRY_DSN"
+    "SENTRY_DSN",
+    "WQN_OPENCODE_SERVER_URL",
+    "WQN_OPENCODE_DIRECTORY",
+    "WQN_OPENCODE_SERVER_USERNAME",
+    "WQN_OPENCODE_SERVER_PASSWORD",
+    "WQN_OPENCODE_ALLOWED_USER_IDS",
+    "WQN_OPENCODE_AGENT",
+    "WQN_OPENCODE_PROVIDER_ID",
+    "WQN_OPENCODE_MODEL_ID",
+    "WQN_OPENCODE_USER_BINDINGS_JSON",
+    "WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS",
+    "WQN_OPENCODE_EVENT_MAX_DURATION_MS"
 )
 
 $buildArgKeys = $optionalBuildArgKeys + $publicBuildArgKeys

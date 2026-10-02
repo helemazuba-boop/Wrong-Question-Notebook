@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  'b33bfed189b510720571a911f62bdffc260d1e3a14e0ab0dfa57f93035c4504e' as const;
+  '3bfc6f455fe0f5a6aceabc348a38ea9297919e7190ee81739a143977a69bc663' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
@@ -29,17 +29,29 @@ export const wordStudyModeSchema = z.enum([
   'sequential',
   'random',
   'dictionary',
+  'review',
+  'intake',
+  'shuffle',
+  'mistakes',
 ]);
 export const wordStudyPurposeSchema = z.enum(['study', 'lookup']);
 export const wordStudyOrderingSchema = z.enum([
   'sequential',
   'guided_random_v1',
   'lexicographic',
+  'due_queue_v1',
+  'new_intake_v1',
+  'pure_random_v1',
+  'mistake_words_v1',
 ]);
 export const wordCandidatePolicyVersionSchema = z.enum([
   'sequential_v1',
   'guided_random_v1',
   'lexicographic_v1',
+  'due_queue_v1',
+  'new_intake_v1',
+  'pure_random_v1',
+  'mistake_words_v1',
 ]);
 export const wordObservationActionSchema = z.enum([
   'shown',
@@ -72,6 +84,12 @@ export const createWordStudySessionRequestSchema = requestMetadataSchema.extend(
     scope: wordStudyScopeSchema,
     optional_count: z.number().int().min(1).max(500),
     seed: seedSchema.optional(),
+    // Sequential continuation: skip the first N candidates of the ordered
+    // scope. The device persists the cursor locally across sessions.
+    start_index: z.number().int().min(0).max(1_000_000).optional(),
+    // Daily new-word budget for `intake`; the service subtracts words already
+    // introduced today (Asia/Shanghai day boundary) before slicing.
+    new_word_limit: z.number().int().min(1).max(200).optional(),
   }
 );
 
@@ -168,6 +186,10 @@ export const wordObservationDataSchema = z.strictObject({
   sequence: safeCounterSchema,
   item_id: uuidSchema,
   action: wordObservationActionSchema,
+  // Absent on a replayed observation: an idempotent replay returns the result
+  // JSON that was persisted when the observation first landed, which predates
+  // this field. Treat a missing value as 'sm2'.
+  authority_mode: z.enum(['sm2', 'fsrs']).optional(),
   progress: wordProgressProjectionSchema,
   projection_applied: z.boolean(),
   replayed: z.boolean(),
@@ -274,6 +296,14 @@ export function semanticsForWordMode(mode: WordStudyMode): {
       return { purpose: 'lookup', ordering: 'lexicographic' };
     case 'sequential':
       return { purpose: 'study', ordering: 'sequential' };
+    case 'review':
+      return { purpose: 'study', ordering: 'due_queue_v1' };
+    case 'intake':
+      return { purpose: 'study', ordering: 'new_intake_v1' };
+    case 'shuffle':
+      return { purpose: 'study', ordering: 'pure_random_v1' };
+    case 'mistakes':
+      return { purpose: 'study', ordering: 'mistake_words_v1' };
   }
 }
 
@@ -287,6 +317,14 @@ export function candidatePolicyVersionForOrdering(
       return 'lexicographic_v1';
     case 'sequential':
       return 'sequential_v1';
+    case 'due_queue_v1':
+      return 'due_queue_v1';
+    case 'new_intake_v1':
+      return 'new_intake_v1';
+    case 'pure_random_v1':
+      return 'pure_random_v1';
+    case 'mistake_words_v1':
+      return 'mistake_words_v1';
   }
 }
 

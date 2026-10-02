@@ -10,8 +10,8 @@ import type { NoteImageAsset } from '@/lib/notebook-content-service';
 // Orchestrates the storage side of note image attachments. The original is
 // uploaded client-side into problem-uploads (same direct-upload flow as
 // problem assets, under user/{uid}/notes/{noteId}/); the shared derivation
-// pipeline renders the e-ink objects next to it and this module cleans all
-// three objects up on detach.
+// pipeline renders the e-ink objects next to it and this module cleans the
+// original plus all four derived objects on detach.
 
 const BUCKET = FILE_CONSTANTS.STORAGE.BUCKET;
 
@@ -34,8 +34,8 @@ export function isOwnedNoteImagePath(
 
 /**
  * Renders the WQNI + preview derivations for an already-uploaded original and
- * returns the asset record to attach. Derived objects are content-addressed by
- * image_id, so re-rendering the same original overwrites identical bytes.
+ * returns the asset record to attach. Derived objects are immutable and
+ * content-addressed, so re-rendering the same original is idempotent.
  */
 export async function renderNoteImageDerivations(
   userId: string,
@@ -68,39 +68,39 @@ export async function renderNoteImageDerivations(
 
 /** Best-effort removal of a detached asset's storage objects. */
 export async function deleteNoteImageObjects(
-  asset: NoteImageAsset
+  asset: NoteImageAsset,
+  retainedAssets: NoteImageAsset[] = []
 ): Promise<void> {
   const service = createServiceClient();
-  await service.storage
-    .from(BUCKET)
-    .remove(
+  const retainedPaths = new Set(
+    retainedAssets.flatMap(value =>
       [
-        asset.path,
-        asset.display_path,
-        asset.preview_path,
-        asset.gray4_display_path,
-        asset.gray4_preview_path,
+        value.path,
+        value.display_path,
+        value.preview_path,
+        value.gray4_display_path,
+        value.gray4_preview_path,
       ].filter((path): path is string => typeof path === 'string')
-    );
-}
-
-/**
- * Best-effort removal of only the derived objects (.wqni/.png). Used when the
- * attach CAS fails after derivation: the client-uploaded original must stay so
- * a retry can re-render, but orphaned derivations would otherwise leak.
- */
-export async function deleteNoteImageDerivedObjects(
-  asset: NoteImageAsset
-): Promise<void> {
-  const service = createServiceClient();
-  await service.storage
-    .from(BUCKET)
-    .remove(
-      [
-        asset.display_path,
-        asset.preview_path,
-        asset.gray4_display_path,
-        asset.gray4_preview_path,
-      ].filter((path): path is string => typeof path === 'string')
-    );
+    )
+  );
+  const removable = [
+    asset.path,
+    asset.display_path,
+    asset.preview_path,
+    asset.gray4_display_path,
+    asset.gray4_preview_path,
+  ].filter(
+    (path): path is string =>
+      typeof path === 'string' && !retainedPaths.has(path)
+  );
+  if (removable.length > 0) {
+    const { error } = await service.storage.from(BUCKET).remove(removable);
+    if (error) {
+      throw new NotebookToolError(
+        'database_error',
+        'Failed to remove detached image objects',
+        500
+      );
+    }
+  }
 }

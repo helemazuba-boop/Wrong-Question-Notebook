@@ -2,58 +2,38 @@ import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { withSecurity } from '@/lib/security-middleware';
-import { createServiceClient } from '@/lib/supabase-utils';
 import {
   createApiErrorResponse,
   createApiSuccessResponse,
 } from '@/lib/common-utils';
-import { QR_SESSION_CONSTANTS, FILE_CONSTANTS } from '@/lib/constants';
+import { QR_SESSION_CONSTANTS } from '@/lib/constants';
 import type { QRSessionCreateResponse } from '@/lib/types';
+import { cleanupStaleQrUploadSessions } from '@/lib/qr-upload-cleanup';
+
+function publicSiteOrigin(req: Request): string {
+  const configuredOrigin = process.env.SITE_URL?.trim();
+  if (process.env.NODE_ENV === 'production' && !configuredOrigin) {
+    throw new Error('SITE_URL is required in production');
+  }
+  const url = new URL(configuredOrigin || req.url);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('SITE_URL must use http or https');
+  }
+  return url.origin;
+}
 
 async function createSession(req: Request) {
   const { user, supabase } = await requireUser();
   if (!user) return unauthorised();
 
   try {
-    const serviceClient = createServiceClient();
-
-    // Cleanup: delete user's stale sessions + their storage files.
-    // Targets:
-    //   1. consumed / expired sessions (terminal — safe to delete)
-    //   2. pending / uploaded sessions past their expires_at
-    const now = new Date().toISOString();
-
-    const { data: stale } = await serviceClient
-      .from('qr_upload_sessions')
-      .select('id, file_path')
-      .eq('user_id', user.id)
-      .or(
-        `status.in.(consumed,expired),` +
-          `and(status.in.(pending,uploaded),expires_at.lt.${now})`
-      );
-
-    if (stale && stale.length > 0) {
-      const staleIds = stale.map(s => s.id);
-      const filePaths = stale
-        .map(s => s.file_path)
-        .filter((p): p is string => !!p);
-
-      // Fire-and-forget: remove storage files then delete rows
-      (async () => {
-        try {
-          if (filePaths.length > 0) {
-            await serviceClient.storage
-              .from(FILE_CONSTANTS.STORAGE.BUCKET)
-              .remove(filePaths);
-          }
-          await serviceClient
-            .from('qr_upload_sessions')
-            .delete()
-            .in('id', staleIds);
-        } catch {
-          // Best-effort cleanup — don't block session creation
-        }
-      })();
+    const siteOrigin = publicSiteOrigin(req);
+    // The hourly cron is authoritative; this bounded pass prevents stale data
+    // from lingering when cron is temporarily unavailable.
+    try {
+      await cleanupStaleQrUploadSessions();
+    } catch (cleanupError) {
+      console.error('Best-effort QR upload cleanup failed:', cleanupError);
     }
 
     // Generate token
@@ -90,14 +70,12 @@ async function createSession(req: Request) {
     }
 
     // Build upload URL
-    const baseUrl =
-      req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
-    const protocol = req.headers.get('x-forwarded-proto') || 'https';
-    const uploadUrl = `${protocol}://${baseUrl}/upload/${session.id}?token=${rawToken}`;
+    // URL fragments are not sent in HTTP requests or proxy access logs. The
+    // mobile client moves this token into a request header before upload.
+    const uploadUrl = `${siteOrigin}/upload/${session.id}#token=${rawToken}`;
 
     const response: QRSessionCreateResponse = {
       sessionId: session.id,
-      token: rawToken,
       expiresAt: session.expires_at,
       uploadUrl,
     };

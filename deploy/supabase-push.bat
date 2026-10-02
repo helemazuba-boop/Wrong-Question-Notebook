@@ -1,92 +1,20 @@
 @echo off
-setlocal EnableExtensions
+setlocal
 
-set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%..") do set "PROJECT_ROOT=%%~fI"
-set "WEB_DIR=%PROJECT_ROOT%\web"
-set "EXIT_CODE=0"
-
-cd /d "%WEB_DIR%" || goto fail
-
-set "EXTRA_ARGS="
-set "DRY_RUN_ONLY="
-
-:parse_args
-if "%~1"=="" goto args_done
-if /I "%~1"=="--include-all" (
-  set "EXTRA_ARGS=--include-all"
-  shift
-  goto parse_args
-)
-if /I "%~1"=="--dry-run-only" (
-  set "DRY_RUN_ONLY=1"
-  shift
-  goto parse_args
-)
-echo ERROR: Unknown argument: %~1
-goto fail
-
-:args_done
-
-echo WQN Supabase migration deploy
-echo Web dir: %WEB_DIR%
-echo Extra args: %EXTRA_ARGS%
-if defined DRY_RUN_ONLY echo Mode: dry-run only
-echo.
-
-where supabase >nul 2>nul
+rem Production database pushes are implemented once in the reviewed WSL/bash
+rem entrypoint. This preserves the existing flags while preventing the old
+rem Windows path from falling back to a linked Supabase Cloud project.
+where wsl.exe >nul 2>&1
 if errorlevel 1 (
-  echo ERROR: Supabase CLI was not found in PATH.
-  goto fail
+  echo ERROR: WSL is required. Run deploy\supabase-push.sh from Ubuntu/WSL. 1>&2
+  exit /b 1
 )
 
-echo [1/4] Supabase CLI version
-supabase --version
-if errorlevel 1 goto fail
-
-echo.
-echo [2/4] Current migration status
-supabase migration list --linked
-if errorlevel 1 goto fail
-
-echo.
-echo [3/4] Dry run
-supabase db push --linked --dry-run %EXTRA_ARGS%
-if errorlevel 1 goto fail
-
-if defined DRY_RUN_ONLY (
-  echo.
-  echo Dry run complete. No migrations were applied.
-  goto success
+for /f "usebackq delims=" %%I in (`wsl.exe wslpath -a "%~dp0supabase-push.sh"`) do set "WQN_PUSH_SCRIPT=%%I"
+if not defined WQN_PUSH_SCRIPT (
+  echo ERROR: Could not resolve deploy\supabase-push.sh in WSL. 1>&2
+  exit /b 1
 )
 
-echo.
-echo [4/4] Applying pending migrations
-if defined EXTRA_ARGS (
-  echo WARNING: Running with %EXTRA_ARGS%.
-)
-supabase db push --linked %EXTRA_ARGS%
-if errorlevel 1 goto fail
-
-echo.
-echo [verify] Migration status after push
-supabase migration list --linked
-if errorlevel 1 goto fail
-
-echo.
-echo Supabase migration deploy complete.
-
-:success
-set "EXIT_CODE=0"
-goto done
-
-:fail
-set "EXIT_CODE=1"
-echo.
-echo ERROR: Supabase migration deploy failed.
-goto done
-
-:done
-echo.
-pause
-exit /b %EXIT_CODE%
+wsl.exe bash "%WQN_PUSH_SCRIPT%" %*
+exit /b %errorlevel%

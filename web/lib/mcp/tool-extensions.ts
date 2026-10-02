@@ -4,6 +4,7 @@ import type {
   McpToolContext,
   McpToolDefinition,
 } from '@/lib/mcp/tool-registry';
+import { TOOL_CATALOG } from '@/lib/mcp/tool-catalog';
 import {
   listAuthorizedNotebooks,
   loadNotebookAiAccess,
@@ -52,12 +53,14 @@ import {
   type CreateProblemInput,
 } from '@/lib/problem-creation-service';
 import {
-  PROBLEM_EXTRACTION_JSON_SCHEMA,
+  PROBLEM_DRAFT_JSON_SCHEMA,
+  PROBLEM_DRAFT_SYSTEM_PROMPT,
   PROBLEM_EXTRACTION_MIME_TYPES,
-  PROBLEM_EXTRACTION_SYSTEM_PROMPT,
 } from '@/lib/problem-extraction-service';
 import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import { ProblemInitialIdeaSchema } from '@/lib/schemas';
+import { PROBLEM_IMAGE_MAX_BASE64_CHARS } from '@/lib/image-input-normalization';
+import { VALIDATION_CONSTANTS } from '@/lib/constants';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -73,7 +76,6 @@ const CursorSchema = z
   .max(12)
   .refine(value => Number(value) <= 10_000, 'cursor is too large');
 const IsoDateTimeSchema = z.iso.datetime({ offset: true });
-const MAX_BASE64_IMAGE_CHARS = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
 const MCP_IDEA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const CreateProblemToolArgsSchema = z.union([
   z.object({ get_prompt: z.literal(true) }),
@@ -84,6 +86,18 @@ const CreateProblemToolArgsSchema = z.union([
     subject_id: UuidSchema.nullish(),
     problem_set_id: UuidSchema.nullish(),
     initial_idea_draft: ProblemInitialIdeaSchema.optional(),
+    // Adapter alias: callers read the description as "标签" and send a plain
+    // name list; without this key zod would strip it silently.
+    tags: z.array(z.string().trim().min(1).max(30)).max(20).nullish(),
+    // Caller-authored solution/explanation. Stored as the problem's 解答; it
+    // is objective content about the problem, so it needs no idea-challenge
+    // confirmation (unlike initial_idea_draft).
+    solution_text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
+      .nullish(),
   }),
 ]);
 
@@ -110,14 +124,38 @@ function base64UrlToken(bytes = 32): string {
 }
 
 function mcpIdeaConfirmUrl(
-  ctx: McpToolContext,
+  origin: string,
+  confirmationPath: string,
   challengeId: string,
   challengeToken: string
 ): string {
-  const path = `${ctx.confirmationPath}/${challengeId}`;
-  const url = new URL(path, ctx.origin);
+  const path = `${confirmationPath}/${challengeId}`;
+  const url = new URL(path, origin);
   url.hash = `token=${challengeToken}`;
   return url.toString();
+}
+
+// The initial-idea confirmation flow records which MCP credential proposed the
+// draft and builds a browser link back to the deployment, so it is only
+// defined for the /api/mcp surface. Voice callers never see these tools, but
+// the guard keeps the failure explicit if that ever changes.
+function requireMcpCredentialContext(ctx: McpToolContext): {
+  apiTokenId: string;
+  origin: string;
+  confirmationPath: string;
+} {
+  if (!ctx.apiTokenId || !ctx.origin || !ctx.confirmationPath) {
+    throw new ProblemCreationServiceError(
+      'initial_idea_challenge_unavailable',
+      'Initial idea confirmation requires an MCP credential context',
+      400
+    );
+  }
+  return {
+    apiTokenId: ctx.apiTokenId,
+    origin: ctx.origin,
+    confirmationPath: ctx.confirmationPath,
+  };
 }
 
 async function createMcpInitialIdeaChallenge(
@@ -126,6 +164,8 @@ async function createMcpInitialIdeaChallenge(
   requestId: string,
   proposedIdea: string
 ) {
+  const { apiTokenId, origin, confirmationPath } =
+    requireMcpCredentialContext(ctx);
   const exactTextHash = sha256Hex(proposedIdea);
   const existing = await ctx.supabase
     .from('problem_initial_idea_mcp_challenges')
@@ -148,7 +188,7 @@ async function createMcpInitialIdeaChallenge(
   if (existing.data) {
     const sameRequest =
       existing.data.problem_id === problemId &&
-      existing.data.source_api_token_id === ctx.apiTokenId &&
+      existing.data.source_api_token_id === apiTokenId &&
       existing.data.proposed_idea === proposedIdea &&
       existing.data.exact_text_hash === exactTextHash;
     if (!sameRequest) {
@@ -204,7 +244,7 @@ async function createMcpInitialIdeaChallenge(
       .insert({
         user_id: ctx.userId,
         problem_id: problemId,
-        source_api_token_id: ctx.apiTokenId,
+        source_api_token_id: apiTokenId,
         source_request_id: requestId,
         proposed_idea: proposedIdea,
         exact_text_hash: exactTextHash,
@@ -229,7 +269,12 @@ async function createMcpInitialIdeaChallenge(
     exact_text: proposedIdea,
     exact_text_hash: exactTextHash,
     expires_at: expiresAt,
-    confirm_url: mcpIdeaConfirmUrl(ctx, challengeId, challengeToken),
+    confirm_url: mcpIdeaConfirmUrl(
+      origin,
+      confirmationPath,
+      challengeId,
+      challengeToken
+    ),
     next_step:
       'Stop. Show exact_text verbatim to the user and ask them to open confirm_url. Do not call another tool to attest or confirm on their behalf. Only the signed-in WQN page can promote this machine draft to human evidence.',
   };
@@ -831,7 +876,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem',
     description:
-      '两阶段新增错题：先只传 get_prompt=true 获取完整题目识别 Prompt；调用方按 Prompt 阅读图片或文本后，再省略 get_prompt（或传 false）并提交壳题干、1-10 个 typed parts、可见答案提示、标签和置信度。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。',
+      '两阶段新增一条已经选定的题目：先只传 get_prompt=true 获取 Problem 草稿适配 Prompt；调用方提交壳题干、1-10 个 typed parts、仅限印刷标准答案的提示、标签（tags 或 suggested_tags.new_tag_names，二者合并）、可选解答（solution_text）和置信度。选择题答案只写选项 id：单选 "B"，多选按选项顺序拼接成 "BC"。整页切题应使用图片 ingestion 链路。本工具不会再次调用 AI 或消耗识别额度；创建可选科目和目标错题集，并按 request_id 幂等。响应里的 extraction.warnings 会列出未被保存的答案、解题过程或标签。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -844,14 +889,31 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
           type: 'string',
           description: '16-64 位 URL-safe 幂等 ID；重试必须复用',
         },
-        ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties,
+        ...PROBLEM_DRAFT_JSON_SCHEMA.properties,
+        suggested_tags: {
+          ...PROBLEM_DRAFT_JSON_SCHEMA.properties.suggested_tags,
+          description: '建议标签（与顶层 tags 等价，二者合并）',
+        },
         title: {
-          ...PROBLEM_EXTRACTION_JSON_SCHEMA.properties.title,
+          ...PROBLEM_DRAFT_JSON_SCHEMA.properties.title,
           minLength: 1,
           description: '题目主题摘要；不含题号和数学公式',
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        solution_text: {
+          type: 'string',
+          minLength: 1,
+          maxLength: VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX,
+          description:
+            '可选解答/解析，纯文本（不要 HTML）：行内公式用 $...$，块级公式用 $$...$$。写入题目的「解答」区，供复习页与设备展示，不参与自动判分。',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '可选标签名列表，与 suggested_tags.new_tag_names 等价，二者合并；已存在的同名标签直接复用，不存在的按科目上限新建',
+        },
         initial_idea_draft: {
           type: 'string',
           minLength: 1,
@@ -876,17 +938,27 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
     handler: async (ctx, args) => {
       if (args.get_prompt === true) {
         return {
-          prompt: PROBLEM_EXTRACTION_SYSTEM_PROMPT,
+          prompt: PROBLEM_DRAFT_SYSTEM_PROMPT,
           next_step:
             'Apply this prompt to the source material, then call create_problem again with get_prompt=false, a 16-64 character URL-safe request_id, and the resulting structured fields. Reuse the same request_id for retries.',
         };
       }
       const extraction = ProblemExtractionSchema.parse(args);
+      const tagNames = [
+        ...(extraction.suggested_tags?.new_tag_names ?? []),
+        ...(Array.isArray(args.tags) ? (args.tags as string[]) : []),
+      ];
       const result = await createProblem(ctx.supabase, ctx.userId, {
         request_id: str(args.request_id),
         ...extraction,
+        // Only override when the alias actually carries names: the request
+        // fingerprint must stay stable for callers that never used it.
+        ...(tagNames.length > 0
+          ? { suggested_tags: { new_tag_names: tagNames } }
+          : {}),
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
+        solution_text: optionalString(args.solution_text) ?? null,
       } satisfies CreateProblemInput);
       const initialIdeaDraft = optionalString(args.initial_idea_draft);
       if (!initialIdeaDraft) return result;
@@ -903,7 +975,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_problem_from_images',
     description:
-      '使用现有智能识别链路从 1-4 张试卷、练习或手写图片中抽取并新增错题。不会求解；可选科目，省略时自动归入“未分类”；可选直接加入一个已有错题集。写入按 request_id 幂等。',
+      '从 1-4 张仅包含同一道（可跨页）题目的试卷、练习或手写图片中识别并新增错题。不会求解；若检测到多道独立题目会拒绝猜选，应改用 Web ingestion 选择流程。可选科目和错题集，可用 solution_text 附带解答/解析（纯文本，支持 $公式$），写入按 request_id 幂等。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -932,6 +1004,13 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         },
         subject_id: { type: 'string', description: '可选科目 ID' },
         problem_set_id: { type: 'string', description: '可选目标错题集 ID' },
+        solution_text: {
+          type: 'string',
+          minLength: 1,
+          maxLength: VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX,
+          description:
+            '可选解答/解析，纯文本（不要 HTML）：行内公式用 $...$，块级公式用 $$...$$。写入题目的「解答」区，供复习页与设备展示，不参与自动判分。',
+        },
         initial_idea_draft: {
           type: 'string',
           minLength: 1,
@@ -952,7 +1031,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
       images: z
         .array(
           z.object({
-            data: z.string().min(1).max(MAX_BASE64_IMAGE_CHARS),
+            data: z.string().min(1).max(PROBLEM_IMAGE_MAX_BASE64_CHARS),
             mime_type: z.enum(PROBLEM_EXTRACTION_MIME_TYPES),
           })
         )
@@ -962,6 +1041,12 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
       problem_set_id: UuidSchema.nullish(),
       initial_idea_draft: ProblemInitialIdeaSchema.optional(),
       save_source_images: z.boolean().nullish(),
+      solution_text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
+        .nullish(),
     }),
     annotations: IDEMPOTENT_WRITE,
     handler: async (ctx, args) => {
@@ -973,6 +1058,7 @@ const PROBLEM_TOOLS: McpToolDefinition[] = [
         }>,
         subject_id: optionalString(args.subject_id) ?? null,
         problem_set_id: optionalString(args.problem_set_id) ?? null,
+        solution_text: optionalString(args.solution_text) ?? null,
         ...(typeof args.save_source_images === 'boolean'
           ? { save_source_images: args.save_source_images }
           : {}),
@@ -1346,12 +1432,8 @@ const NOTE_TOOLS: McpToolDefinition[] = [
 
 const WORD_TOOLS: McpToolDefinition[] = [
   {
-    name: 'list_authorized_word_decks',
-    description:
-      '列出授权给 AI 的 Word 词库、词条数量和 can_read/can_create/can_update 权限。科目可能为空。',
-    inputSchema: { type: 'object', properties: {} },
+    ...TOOL_CATALOG.list_authorized_word_decks,
     argsSchema: z.object({}),
-    annotations: READ_ONLY,
     handler: async ctx => listAuthorizedWordDecks(ctx),
   },
   {
@@ -1423,27 +1505,7 @@ const WORD_TOOLS: McpToolDefinition[] = [
     },
   },
   {
-    name: 'add_word_entry',
-    description:
-      '向已授权 can_create 的用户 Word 词库新增或按规范化词形幂等更新一个词条。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        deck_id: { type: 'string', description: '目标 Word 词库 ID' },
-        word: { type: 'string', description: '词形，最多 80 字符' },
-        meaning: { type: 'string', description: '释义，最多 1000 字符' },
-        phonetic: { type: ['string', 'null'] },
-        example: { type: ['string', 'null'] },
-        example_translation: { type: ['string', 'null'] },
-        part_of_speech: { type: ['string', 'null'] },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '最多 16 个字符串标签',
-        },
-      },
-      required: ['deck_id', 'word', 'meaning'],
-    },
+    ...TOOL_CATALOG.add_word_entry,
     argsSchema: z.object({
       deck_id: UuidSchema,
       word: z.string().trim().min(1).max(80),

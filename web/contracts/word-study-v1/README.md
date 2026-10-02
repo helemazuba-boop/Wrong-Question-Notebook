@@ -7,20 +7,25 @@ accepts only the `word` domain.
 
 ## User semantics
 
-The visible entries remain `sequential`, `random`, and `dictionary`. They map
-to the internal model as follows:
+Modes map to the internal model as follows:
 
 | Visible mode | Purpose  | Ordering           |
 | ------------ | -------- | ------------------ |
 | `sequential` | `study`  | `sequential`       |
 | `random`     | `study`  | `guided_random_v1` |
 | `dictionary` | `lookup` | `lexicographic`    |
+| `review`     | `study`  | `due_queue_v1`     |
+| `intake`     | `study`  | `new_intake_v1`    |
+| `shuffle`    | `study`  | `pure_random_v1`   |
+| `mistakes`   | `study`  | `mistake_words_v1` |
 
-All three modes render the same word card. Looking a word up does not by itself
-mutate learning progress. Only explicit `known` and `unknown` observations do so;
-`shown`, `revealed`, `skipped`, and `looked_up` remain append-only history.
-Stopping or pausing a session is not a failure and there is no compulsory daily
-target. Every session declares a count bound and can contain at most 500 items.
+`dictionary` is retired on the device (AI lookup replaces the letter grid) and
+remains in the enum for compatibility. All modes render the same word card.
+Looking a word up does not by itself mutate learning progress. Only explicit
+`known` and `unknown` observations do so; `shown`, `revealed`, `skipped`, and
+`looked_up` remain append-only history. Stopping or pausing a session is not a
+failure and there is no compulsory daily target. Every session declares a count
+bound and can contain at most 500 items.
 
 `guided_random_v1` is deterministic for the same candidate snapshot and seed.
 It places due learning words, due review words, new words, not-yet-due words,
@@ -28,6 +33,23 @@ and mastered words into successive buckets, then orders items inside a bucket
 by FNV-1a-64 of `seed + NUL + item_id`, with `item_id` as the collision tie-break.
 The product exposes this simply as “random”; no recommendation reason is sent
 or rendered.
+
+`due_queue_v1` is the review queue: the selection is words due before the end
+of today (Asia/Shanghai day boundary), and the order is learning (including
+relearning) first, then due review words by `due_at` ascending, with deck order
+and `sort_index` as tie-breaks. No bucketing, no hashing.
+
+`new_intake_v1` selects unlearned words in deck order. The session slice is
+bounded by the request's `new_word_limit` minus the number of words already
+introduced today, so the daily new-word budget is enforced server-side.
+
+`pure_random_v1` and `mistake_words_v1` order the eligible set by the same
+FNV-1a-64 shuffle; they differ in selection (`pure_random_v1` walks the whole
+non-mastered scope, `mistake_words_v1` only words the user has marked unknown).
+
+`sequential` accepts an optional `start_index`: the server skips that many
+candidates of the ordered scope and returns the next window, letting the device
+continue a book walk across sessions.
 
 ## Reliability and ownership
 

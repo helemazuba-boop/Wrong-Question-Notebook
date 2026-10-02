@@ -68,6 +68,30 @@ export async function checkAndIncrementQuota(
 }
 
 /**
+ * Refund one previously accepted quota unit after an outbound provider call
+ * fails. The RPC never decrements below zero.
+ */
+export async function refundQuotaUsage(
+  userId: string,
+  resourceType: string = USAGE_QUOTA_CONSTANTS.RESOURCE_TYPES.AI_EXTRACTION,
+  userTimezone: string = DEFAULT_TIMEZONE
+): Promise<number> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc('refund_quota_usage', {
+    p_user_id: userId,
+    p_resource_type: resourceType,
+    p_user_tz: userTimezone,
+  });
+
+  if (error) {
+    console.error('Quota refund failed:', error);
+    throw new Error('Failed to refund usage quota');
+  }
+
+  return data;
+}
+
+/**
  * Read-only query for current quota usage (does not increment).
  * Looks up the user's effective limit (override or default) for display.
  */

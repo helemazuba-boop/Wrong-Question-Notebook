@@ -13,7 +13,9 @@ function loadJson(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
-function contractValidator(contract: 'word-study-v1' | 'note-study-v1') {
+function contractValidator(
+  contract: 'word-study-v1' | 'note-study-v1' | 'problem-study-v1'
+) {
   const root = resolve(process.cwd(), `contracts/${contract}`);
   const schema = loadJson(
     resolve(root, `${contract}.schema.json`)
@@ -59,5 +61,11 @@ describe('study JSON Schema contracts', () => {
       'skipObservationRequest',
       'skip-request.json'
     );
+  });
+
+  it('accepts the problem pack row and meta fixtures', () => {
+    const contract = contractValidator('problem-study-v1');
+    contract.validate('packRow', 'pack-row.json');
+    contract.validate('packMeta', 'pack-meta.json');
   });
 });

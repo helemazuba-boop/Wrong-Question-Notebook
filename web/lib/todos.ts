@@ -813,8 +813,10 @@ export async function createTodoFromAi(
     due_at?: string | null;
     reminder_at?: string | null;
     subject_id?: string | null;
+    problem_set_id?: string | null;
     problem_id?: string | null;
     notebook_id?: string | null;
+    note_id?: string | null;
     word_deck_id?: string | null;
     word_entry_id?: string | null;
   }

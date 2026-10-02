@@ -3,6 +3,7 @@ import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import ProblemReview from './problem-review';
+import { ProblemMarksCard } from '@/components/problems/problem-marks-card';
 import { unstable_cache } from 'next/cache';
 import { readProblemInitialIdea } from '@/lib/problem-initial-idea';
 import {
@@ -126,10 +127,15 @@ export default async function ProblemReviewPage({
   }
 
   return (
-    <ProblemReview
-      problem={problem}
-      subject={subject}
-      allProblems={allProblems}
-    />
+    <>
+      <ProblemReview
+        problem={problem}
+        subject={subject}
+        allProblems={allProblems}
+      />
+      <div className="mx-auto mt-4 w-full max-w-3xl px-4">
+        <ProblemMarksCard problemId={problemId} />
+      </div>
+    </>
   );
 }

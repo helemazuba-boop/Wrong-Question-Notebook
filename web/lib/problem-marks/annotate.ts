@@ -102,6 +102,31 @@ const RETRIEVER_VERSION = 'skill-retriever-v1';
 const MARKING_PROMPT_VERSION = 'objective-problem-marking-v1';
 const EMPTY_QUERY_HASH = createHash('sha256').update('', 'utf8').digest('hex');
 
+// Failures that retrying cannot resolve: the annotation context or the locked
+// Registry revision is wrong, and the next attempt fails identically. These end
+// the annotation instead of holding a claim slot through the whole backoff
+// ladder.
+const TERMINAL_ERROR_CODES = new Set([
+  'INVALID_ANNOTATION_CONTEXT',
+  'REGISTRY_LOCK_MISMATCH',
+  'SKILL_QUERY_INVALID',
+  'SKILL_RETRIEVAL_CONTRACT',
+]);
+
+// A model response that does not parse is usually one bad completion rather
+// than a permanently broken Problem, so it gets a small retry budget before it
+// is abandoned.
+const BOUNDED_RETRY_ERROR_CODES = new Map<string, number>([
+  ['INVALID_MODEL_OUTPUT', 3],
+]);
+
+function isTerminalFailure(code: string, attemptCount: number | null): boolean {
+  if (TERMINAL_ERROR_CODES.has(code)) return true;
+  const budget = BOUNDED_RETRY_ERROR_CODES.get(code);
+  if (budget === undefined || attemptCount === null) return false;
+  return attemptCount >= budget;
+}
+
 type Context = z.infer<typeof preparedContextSchema>;
 type Candidate = z.infer<typeof candidateSchema>;
 type Assignment = z.infer<typeof assignmentSchema>;
@@ -217,7 +242,8 @@ export async function annotateClaimedProblemMark(
       supabase,
       envelope.run_id,
       lease.token,
-      'INVALID_ANNOTATION_CONTEXT'
+      'INVALID_ANNOTATION_CONTEXT',
+      true
     );
     throw error;
   }
@@ -230,7 +256,8 @@ export async function annotateClaimedProblemMark(
       supabase,
       context.run_id,
       lease.token,
-      annotationErrorCode(error)
+      annotationErrorCode(error),
+      claim.attempt_count
     );
   }
 
@@ -339,7 +366,8 @@ export async function annotateClaimedProblemMark(
       supabase,
       context.run_id,
       lease.token,
-      annotationErrorCode(error)
+      annotationErrorCode(error),
+      claim.attempt_count
     );
   }
 
@@ -716,9 +744,16 @@ async function recordFailure(
   supabase: SupabaseClient<Database>,
   runId: string,
   leaseToken: string,
-  code: string
+  code: string,
+  attemptCount: number | null = null
 ): Promise<ProblemMarkAnnotationResult> {
-  await failProblemMarkAnnotationRun(supabase, runId, leaseToken, code);
+  await failProblemMarkAnnotationRun(
+    supabase,
+    runId,
+    leaseToken,
+    code,
+    isTerminalFailure(code, attemptCount)
+  );
   return {
     status: 'failed',
     assignments: 0,

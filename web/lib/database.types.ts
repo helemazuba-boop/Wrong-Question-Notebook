@@ -307,6 +307,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      external_provider_rate_limits: {
+        Row: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at: string;
+          window_seconds: number;
+        };
+        Insert: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at?: string;
+          window_seconds: number;
+        };
+        Update: {
+          bucket_start?: string;
+          request_count?: number;
+          scope?: string;
+          updated_at?: string;
+          window_seconds?: number;
+        };
+        Relationships: [];
+      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -385,6 +409,47 @@ export type Database = {
             columns: ['subject_id'];
             isOneToOne: false;
             referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      esp32_agent_run_requests: {
+        Row: {
+          created_at: string;
+          device_id: string;
+          error_code: string | null;
+          expires_at: string;
+          request_fingerprint: string;
+          request_id: string;
+          session_id: string;
+          state: string;
+        };
+        Insert: {
+          created_at?: string;
+          device_id: string;
+          error_code?: string | null;
+          expires_at?: string;
+          request_fingerprint: string;
+          request_id: string;
+          session_id: string;
+          state?: string;
+        };
+        Update: {
+          created_at?: string;
+          device_id?: string;
+          error_code?: string | null;
+          expires_at?: string;
+          request_fingerprint?: string;
+          request_id?: string;
+          session_id?: string;
+          state?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_agent_run_requests_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
             referencedColumns: ['id'];
           },
         ];
@@ -1218,6 +1283,295 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'notebooks_subject_id_fkey';
+            columns: ['subject_id'];
+            isOneToOne: false;
+            referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      oauth_authorization_codes: {
+        Row: {
+          client_id: string;
+          code_challenge: string;
+          code_challenge_method: string;
+          code_hash: string;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          redirect_uri: string;
+          resource: string | null;
+          scope: string;
+          used_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          client_id: string;
+          code_challenge: string;
+          code_challenge_method?: string;
+          code_hash: string;
+          created_at?: string;
+          expires_at: string;
+          id?: string;
+          redirect_uri: string;
+          resource?: string | null;
+          scope?: string;
+          used_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          client_id?: string;
+          code_challenge?: string;
+          code_challenge_method?: string;
+          code_hash?: string;
+          created_at?: string;
+          expires_at?: string;
+          id?: string;
+          redirect_uri?: string;
+          resource?: string | null;
+          scope?: string;
+          used_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'oauth_authorization_codes_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'oauth_clients';
+            referencedColumns: ['client_id'];
+          },
+          {
+            foreignKeyName: 'oauth_authorization_codes_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      oauth_clients: {
+        Row: {
+          client_id: string;
+          client_name: string;
+          client_secret_hash: string | null;
+          created_at: string;
+          grant_types: string[];
+          id: string;
+          is_dynamic: boolean;
+          redirect_uris: string[];
+          response_types: string[];
+        };
+        Insert: {
+          client_id: string;
+          client_name: string;
+          client_secret_hash?: string | null;
+          created_at?: string;
+          grant_types?: string[];
+          id?: string;
+          is_dynamic?: boolean;
+          redirect_uris: string[];
+          response_types?: string[];
+        };
+        Update: {
+          client_id?: string;
+          client_name?: string;
+          client_secret_hash?: string | null;
+          created_at?: string;
+          grant_types?: string[];
+          id?: string;
+          is_dynamic?: boolean;
+          redirect_uris?: string[];
+          response_types?: string[];
+        };
+        Relationships: [];
+      };
+      oauth_tokens: {
+        Row: {
+          access_token_expires_at: string;
+          access_token_hash: string;
+          client_id: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          refresh_token_expires_at: string | null;
+          refresh_token_hash: string | null;
+          resource: string | null;
+          revoked_at: string | null;
+          scope: string;
+          user_id: string;
+        };
+        Insert: {
+          access_token_expires_at: string;
+          access_token_hash: string;
+          client_id: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          refresh_token_expires_at?: string | null;
+          refresh_token_hash?: string | null;
+          resource?: string | null;
+          revoked_at?: string | null;
+          scope?: string;
+          user_id: string;
+        };
+        Update: {
+          access_token_expires_at?: string;
+          access_token_hash?: string;
+          client_id?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          refresh_token_expires_at?: string | null;
+          refresh_token_hash?: string | null;
+          resource?: string | null;
+          revoked_at?: string | null;
+          scope?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'oauth_tokens_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'oauth_clients';
+            referencedColumns: ['client_id'];
+          },
+          {
+            foreignKeyName: 'oauth_tokens_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_ingestion_candidates: {
+        Row: {
+          assets: Json;
+          created_at: string;
+          ingestion_id: string;
+          position: number;
+          problem_id: string;
+          question_id: string;
+          solution_assets: Json;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          assets?: Json;
+          created_at?: string;
+          ingestion_id: string;
+          position: number;
+          problem_id?: string;
+          question_id: string;
+          solution_assets?: Json;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          assets?: Json;
+          created_at?: string;
+          ingestion_id?: string;
+          position?: number;
+          problem_id?: string;
+          question_id?: string;
+          solution_assets?: Json;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestion_candidates_ingestion_id_fkey';
+            columns: ['ingestion_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_ingestions';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_ingestion_problem_links: {
+        Row: {
+          created_at: string;
+          ingestion_id: string;
+          problem_id: string;
+          question_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          ingestion_id: string;
+          problem_id: string;
+          question_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          ingestion_id?: string;
+          problem_id?: string;
+          question_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestion_problem_links_ingestion_id_fkey';
+            columns: ['ingestion_id'];
+            isOneToOne: false;
+            referencedRelation: 'problem_ingestions';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'problem_ingestion_problem_links_problem_id_fkey';
+            columns: ['problem_id'];
+            isOneToOne: true;
+            referencedRelation: 'problems';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      problem_ingestions: {
+        Row: {
+          created_at: string;
+          document: Json;
+          id: string;
+          provider: string;
+          provider_model: string;
+          provider_payload: Json | null;
+          schema_version: string;
+          status: string;
+          subject_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          document: Json;
+          id?: string;
+          provider: string;
+          provider_model: string;
+          provider_payload?: Json | null;
+          schema_version: string;
+          status: string;
+          subject_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          document?: Json;
+          id?: string;
+          provider?: string;
+          provider_model?: string;
+          provider_payload?: Json | null;
+          schema_version?: string;
+          status?: string;
+          subject_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'problem_ingestions_subject_id_fkey';
             columns: ['subject_id'];
             isOneToOne: false;
             referencedRelation: 'subjects';
@@ -4225,6 +4579,31 @@ export type Database = {
         };
         Returns: Json;
       };
+      acquire_external_provider_rate_limit: {
+        Args: {
+          p_max_requests: number;
+          p_scope: string;
+          p_window_seconds?: number;
+        };
+        Returns: Json;
+      };
+      cancel_word_progress_fsrs_cutover: {
+        Args: { p_cutover_id: string; p_user_id: string };
+        Returns: Json;
+      };
+      claim_agent_run_request_v3: {
+        Args: {
+          p_device_id: string;
+          p_lease_seconds: number;
+          p_request_fingerprint: string;
+          p_request_id: string;
+          p_session_id: string;
+        };
+        Returns: {
+          error_code: string | null;
+          result: string;
+        }[];
+      };
       claim_problem_mark_annotation: {
         Args: { p_lease_seconds?: number; p_problem_id: string };
         Returns: Json;
@@ -4234,6 +4613,10 @@ export type Database = {
         Returns: Json;
       };
       claim_problem_review_projection_jobs: {
+        Args: { p_lease_seconds?: number; p_limit?: number };
+        Returns: Json;
+      };
+      claim_word_progress_projection_jobs: {
         Args: { p_lease_seconds?: number; p_limit?: number };
         Returns: Json;
       };
@@ -4286,6 +4669,26 @@ export type Database = {
           p_sm2_projection: Json;
         };
         Returns: Json;
+      };
+      commit_word_progress_projection: {
+        Args: {
+          p_expected_base_revision: number;
+          p_expected_event_count: number;
+          p_expected_fingerprint: string;
+          p_fsrs_card: Json | null;
+          p_lease_token: string;
+          p_run_id: string;
+        };
+        Returns: Json;
+      };
+      complete_agent_run_request_v3: {
+        Args: {
+          p_device_id: string;
+          p_error_code: string | null;
+          p_request_id: string;
+          p_state: string;
+        };
+        Returns: undefined;
       };
       compute_problem_set_count: {
         Args: { p_problem_set_id: string };
@@ -4410,6 +4813,10 @@ export type Database = {
         Args: { p_expected_projections: Json; p_user_id: string };
         Returns: Json;
       };
+      cutover_user_word_progress_to_fsrs: {
+        Args: { p_expected_projections: Json; p_user_id: string };
+        Returns: Json;
+      };
       fail_problem_mark_annotation: {
         Args: {
           p_error_code: string;
@@ -4428,6 +4835,15 @@ export type Database = {
           p_lease_token: string;
           p_problem_id: string;
           p_user_id: string;
+        };
+        Returns: boolean;
+      };
+      fail_word_progress_projection_job: {
+        Args: {
+          p_error_code: string;
+          p_lease_token: string;
+          p_user_id: string;
+          p_word_entry_id: string;
         };
         Returns: boolean;
       };
@@ -4672,6 +5088,14 @@ export type Database = {
         };
         Returns: Json;
       };
+      prepare_word_progress_projection: {
+        Args: {
+          p_lease_token: string;
+          p_user_id: string;
+          p_word_entry_id: string;
+        };
+        Returns: Json;
+      };
       problem_parts_valid: { Args: { p: Json }; Returns: boolean };
       prune_word_packs_v1: {
         Args: { p_deck_id: string };
@@ -4738,6 +5162,7 @@ export type Database = {
         };
         Returns: Json;
       };
+      problem_mark_annotation_health: { Args: never; Returns: Json };
       record_problem_set_copy: {
         Args: { p_problem_set_id: string; p_user_id: string };
         Returns: undefined;
@@ -4765,6 +5190,18 @@ export type Database = {
         Returns: Json;
       };
       refresh_ranking_scores: { Args: never; Returns: undefined };
+      refund_quota_usage: {
+        Args: {
+          p_resource_type: string;
+          p_user_id: string;
+          p_user_tz?: string;
+        };
+        Returns: number;
+      };
+      replace_problem_tags: {
+        Args: { p_problem_id: string; p_tag_ids: string[] };
+        Returns: undefined;
+      };
       renew_problem_mark_annotation_lease: {
         Args: {
           p_lease_seconds?: number;
@@ -4773,8 +5210,13 @@ export type Database = {
         };
         Returns: Json;
       };
+      requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      seed_word_scheduler_settings: {
+        Args: { p_default_authority_mode: string };
         Returns: Json;
       };
       set_problem_initial_idea: {

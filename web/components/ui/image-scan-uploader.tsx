@@ -17,18 +17,19 @@ import {
   Timer,
   ClipboardPaste,
   ScanLine,
-  Paperclip,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import type { TranslatorProp } from '@/i18n/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { ProblemIngestionWorkspacePanel } from '@/components/ui/problem-ingestion-workspace';
 import { createClient } from '@/lib/supabase/client';
 import { AI_CONSTANTS, QR_SESSION_CONSTANTS } from '@/lib/constants';
 import { getProblemTypeDisplayName } from '@/lib/common-utils';
-import { parsePastedExtraction } from '@/lib/problem-extraction';
+import { parseProblemIngestion } from '@/lib/problem-ingestion';
+import type { ProblemIngestionWorkspaceSummary } from '@/lib/problem-ingestion-workspace-contract';
 import type {
   ExtractedProblemData,
   QRSessionCreateResponse,
@@ -55,6 +56,9 @@ interface ImageScanUploaderProps {
   onCancel: () => void;
   quota: ExtractionQuota | null;
   onQuotaChange: (quota: ExtractionQuota) => void;
+  onBatchImported?: (count: number) => void;
+  /** When set, problems imported via the ingestion workspace are linked into this problem set. */
+  problemSetId?: string;
 }
 
 type UploaderState = 'initial' | 'preview' | 'result';
@@ -168,29 +172,62 @@ export function ImageScanUploader({
   onCancel,
   quota,
   onQuotaChange,
+  onBatchImported,
+  problemSetId,
 }: ImageScanUploaderProps) {
   const t = useTranslations('ImageScan');
   const tCommon = useTranslations('Common');
+  const locale = useLocale();
   const [state, setState] = useState<UploaderState>('initial');
   // 'scan': platform vision extraction. 'paste': the user ran our
   // off-platform prompt on an external LLM and pastes the JSON back — zero
-  // platform tokens, zero quota; validation is fully client-side.
+  // platform tokens and zero AI quota; valid v1 documents are persisted as
+  // resumable server-side workspaces after local schema validation.
   const [tab, setTab] = useState<UploaderTab>('scan');
   const [pasteText, setPasteText] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
   // Optional original image attached alongside pasted JSON (for diagrams).
-  const [pasteImageFile, setPasteImageFile] = useState<File | null>(null);
   const pasteFileInputRef = useRef<HTMLInputElement>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionResult, setExtractionResult] =
     useState<ExtractedProblemData | null>(null);
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [saveAsProblemAsset, setSaveAsProblemAsset] = useState(false);
   const [saveAsSolutionAsset, setSaveAsSolutionAsset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeIngestionId, setActiveIngestionId] = useState<string | null>(
+    null
+  );
+  const [resumableWorkspaces, setResumableWorkspaces] = useState<
+    ProblemIngestionWorkspaceSummary[]
+  >([]);
+
+  const refreshResumableWorkspaces = useCallback(async () => {
+    if (!subjectId) {
+      setResumableWorkspaces([]);
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/problem-ingestions?subject_id=${encodeURIComponent(subjectId)}`,
+        { cache: 'no-store' }
+      );
+      const json = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setResumableWorkspaces(json.data?.workspaces ?? []);
+      }
+    } catch {
+      // Recovery is a convenience; the primary import flow remains usable.
+    }
+  }, [subjectId]);
+
+  useEffect(() => {
+    void refreshResumableWorkspaces();
+  }, [refreshResumableWorkspaces]);
 
   // Desktop detection — QR upload only makes sense on desktop
   const [isDesktop, setIsDesktop] = useState(false);
@@ -483,6 +520,12 @@ export function ImageScanUploader({
       if (json.data?.quota) {
         onQuotaChange(json.data.quota);
       }
+      if (json.data?.ingestion?.id) {
+        setActiveIngestionId(json.data.ingestion.id);
+        void refreshResumableWorkspaces();
+        return;
+      }
+      setSelectedCandidateIndex(0);
       setExtractionResult(json.data);
       if (json.data.suggest_image_asset) {
         setSaveAsProblemAsset(true);
@@ -494,42 +537,65 @@ export function ImageScanUploader({
     } finally {
       setIsExtracting(false);
     }
-  }, [imageFile, imagePreview, onQuotaChange, subjectId, t]);
+  }, [
+    imageFile,
+    imagePreview,
+    onQuotaChange,
+    refreshResumableWorkspaces,
+    subjectId,
+    t,
+  ]);
 
-  const handleParsePasted = useCallback(() => {
-    const parsed = parsePastedExtraction(pasteText);
-    if (!parsed.ok) {
-      setPasteError(
-        parsed.error === 'invalid_json'
-          ? t('pasteInvalidJson', { detail: parsed.detail })
-          : t('pasteSchemaMismatch', { detail: parsed.detail })
-      );
+  const handleParsePasted = useCallback(async () => {
+    const ingestion = parseProblemIngestion(pasteText);
+    if (ingestion.ok) {
+      if (!subjectId) {
+        setPasteError(t('workspaceSubjectRequired'));
+        return;
+      }
+      setIsExtracting(true);
+      try {
+        const response = await fetch('/api/problem-ingestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subject_id: subjectId,
+            document: ingestion.data,
+          }),
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(json.error || t('workspaceCreateFailed'));
+        }
+        setPasteError(null);
+        setActiveIngestionId(json.data.workspace.id);
+        void refreshResumableWorkspaces();
+      } catch (workspaceError) {
+        setPasteError(
+          workspaceError instanceof Error
+            ? workspaceError.message
+            : t('workspaceCreateFailed')
+        );
+      } finally {
+        setIsExtracting(false);
+      }
       return;
     }
-    setPasteError(null);
-    const firstPart = parsed.data.parts[0];
-    const data: ExtractedProblemData = {
-      title: parsed.data.title,
-      content: parsed.data.content,
-      parts: parsed.data.parts,
-      suggest_image_asset: parsed.data.suggest_image_asset,
-      confidence: parsed.data.confidence,
-      suggested_tags: {
-        existing: [],
-        new: parsed.data.new_tag_names.map(name => ({ name })),
-      },
-      // Legacy mirror keeps the shared result preview logic simple.
-      problem_type: firstPart.type,
-      mcq_choices: firstPart.mcq_choices,
-      answer_hint: firstPart.answer_hint,
-    };
-    setExtractionResult(data);
-    if (pasteImageFile) {
-      setImageFile(pasteImageFile);
-      if (data.suggest_image_asset) setSaveAsProblemAsset(true);
+  }, [pasteText, refreshResumableWorkspaces, subjectId, t]);
+
+  const copyIngestionPrompt = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/problem-ingestion-prompt?locale=${encodeURIComponent(locale)}`
+      );
+      if (!response.ok) throw new Error('prompt fetch failed');
+      const text = await response.text();
+      await navigator.clipboard.writeText(text);
+      toast.success(t('pasteCopiedPrompt'));
+    } catch {
+      toast.error(t('pasteCopyPromptFailed'));
     }
-    setState('result');
-  }, [pasteText, pasteImageFile, t]);
+  }, [locale, t]);
 
   const handlePasteImageSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -540,7 +606,7 @@ export function ImageScanUploader({
         } else if (file.size > MAX_SIZE) {
           toast.error(t('imageTooLarge'));
         } else {
-          setPasteImageFile(file);
+          setImageFile(file);
         }
       }
       e.target.value = '';
@@ -553,10 +619,10 @@ export function ImageScanUploader({
     setImageFile(null);
     setImagePreview(null);
     setExtractionResult(null);
+    setSelectedCandidateIndex(0);
     setError(null);
     setPasteText('');
     setPasteError(null);
-    setPasteImageFile(null);
     setQrSession(null);
     setQrLoading(false);
     setSaveAsProblemAsset(false);
@@ -597,6 +663,24 @@ export function ImageScanUploader({
     }
   };
 
+  if (activeIngestionId) {
+    return (
+      <ProblemIngestionWorkspacePanel
+        ingestionId={activeIngestionId}
+        problemSetId={problemSetId}
+        onImported={count => {
+          onBatchImported?.(count);
+          void refreshResumableWorkspaces();
+        }}
+        onClose={() => {
+          setActiveIngestionId(null);
+          reset();
+          void refreshResumableWorkspaces();
+        }}
+      />
+    );
+  }
+
   // ── Initial state: dropzone (left) + QR code (right) ──
   if (state === 'initial') {
     const isExpired = qrSession && qrSecondsLeft <= 0;
@@ -632,6 +716,22 @@ export function ImageScanUploader({
             {t('pasteTab')}
           </button>
         </div>
+
+        {resumableWorkspaces.map(resumable => (
+          <button
+            key={resumable.id}
+            type="button"
+            onClick={() => setActiveIngestionId(resumable.id)}
+            className="flex w-full items-center justify-between rounded-xl border border-blue-200/60 bg-blue-50/50 px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50 dark:border-blue-800/40 dark:bg-blue-950/20 dark:text-blue-300"
+          >
+            <span>{t('workspaceResume')}</span>
+            <span>
+              {t('workspaceResumeCount', {
+                count: resumable.pending_count,
+              })}
+            </span>
+          </button>
+        ))}
 
         {tab === 'scan' ? (
           <div className="flex gap-3">
@@ -759,6 +859,19 @@ export function ImageScanUploader({
           </div>
         ) : (
           <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('pasteJsonHint')}
+              </p>
+              <button
+                type="button"
+                onClick={() => void copyIngestionPrompt()}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 transition-colors hover:border-amber-300 hover:text-amber-700 dark:border-gray-700 dark:text-gray-300 dark:hover:border-amber-600 dark:hover:text-amber-300"
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" />
+                {t('pasteCopyPrompt')}
+              </button>
+            </div>
             <textarea
               value={pasteText}
               onChange={e => {
@@ -775,42 +888,19 @@ export function ImageScanUploader({
                 <span className="break-all">{pasteError}</span>
               </div>
             )}
-            <div className="flex items-center justify-between gap-2">
-              <input
-                ref={pasteFileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={handlePasteImageSelect}
-                className="hidden"
-              />
-              {pasteImageFile ? (
-                <button
-                  type="button"
-                  onClick={() => setPasteImageFile(null)}
-                  className="flex min-w-0 items-center gap-1.5 text-xs text-gray-600 hover:text-rose-600 dark:text-gray-400 dark:hover:text-rose-400"
-                >
-                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{pasteImageFile.name}</span>
-                  <X className="h-3 w-3 shrink-0" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => pasteFileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-amber-600 dark:text-gray-400 dark:hover:text-amber-400"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  {t('attachOriginalImage')}
-                </button>
-              )}
+            <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
                 size="sm"
                 onClick={handleParsePasted}
-                disabled={!pasteText.trim()}
+                disabled={!pasteText.trim() || isExtracting}
               >
-                <CheckCircle2 className="mr-1 h-4 w-4" />
-                {t('parsePasted')}
+                {isExtracting ? (
+                  <Spinner className="mr-1" />
+                ) : (
+                  <CheckCircle2 className="mr-1 h-4 w-4" />
+                )}
+                {isExtracting ? t('workspaceCreating') : t('parsePasted')}
               </Button>
             </div>
           </div>
@@ -929,6 +1019,7 @@ export function ImageScanUploader({
   if (state === 'result' && extractionResult) {
     const confidence = extractionResult.confidence;
     const warnings = confidence?.warnings || [];
+    const candidates = extractionResult.candidates ?? [extractionResult];
 
     // Shell model: badge the first part's type; legacy responses only carry
     // the flat problem_type.
@@ -959,6 +1050,41 @@ export function ImageScanUploader({
               {t('problemExtracted')}
             </span>
           </div>
+
+          {candidates.length > 1 && (
+            <label className="mb-3 flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              <span>
+                {t('questionsDetected', { count: candidates.length })}
+              </span>
+              <select
+                value={selectedCandidateIndex}
+                onChange={event => {
+                  const index = Number(event.target.value);
+                  const selected = candidates[index];
+                  setSelectedCandidateIndex(index);
+                  setExtractionResult({ ...selected, candidates });
+                  if (selected.suggest_image_asset) {
+                    setSaveAsProblemAsset(true);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-emerald-200/70 bg-white px-2 py-1 text-xs dark:border-emerald-800/50 dark:bg-gray-900"
+              >
+                {candidates.map((candidate, index) => (
+                  <option
+                    key={
+                      candidate.ingestion_question_id ?? `candidate-${index}`
+                    }
+                    value={index}
+                  >
+                    {t('questionOption', {
+                      number: candidate.question_number_label || index + 1,
+                      title: candidate.title,
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {/* Confidence badges */}
           <div className="mb-3 flex flex-wrap gap-2">
@@ -1080,6 +1206,27 @@ export function ImageScanUploader({
               </div>
             )}
         </div>
+
+        {!imageFile && (
+          <div className="flex justify-end">
+            <input
+              ref={pasteFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handlePasteImageSelect}
+              className="hidden"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => pasteFileInputRef.current?.click()}
+            >
+              <ImageIcon className="mr-1 h-4 w-4" />
+              {t('attachOriginalImage')}
+            </Button>
+          </div>
+        )}
 
         {imageFile && (
           <ImageAssetToggles

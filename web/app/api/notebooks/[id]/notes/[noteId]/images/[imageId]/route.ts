@@ -31,7 +31,7 @@ export async function DELETE(
     // Storage cleanup is best-effort: the row is already consistent, and a
     // leaked object is preferable to a dangling asset reference.
     try {
-      await deleteNoteImageObjects(removed);
+      await deleteNoteImageObjects(removed, note.assets);
     } catch (error) {
       console.warn('note image storage cleanup failed:', error);
     }

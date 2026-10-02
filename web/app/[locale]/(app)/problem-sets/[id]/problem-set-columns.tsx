@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 
-import { ColumnDef } from '@tanstack/react-table';
 import { ArrowUpDown, MoreHorizontal, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -24,7 +23,7 @@ import {
 } from '@/lib/common-utils';
 import { toast } from 'sonner';
 import type { TranslatorProp } from '@/i18n/types';
-import { ProblemInSet } from '@/lib/types';
+import { ProblemColumnDef, ProblemInSet } from '@/lib/types';
 import CopyProblemDialog from '@/components/copy-problem-dialog';
 
 export type ProblemSetTableMeta = {
@@ -107,7 +106,7 @@ function DataTableColumnHeader({
 }
 
 // Shared columns (used by both owner and viewer)
-const titleColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const titleColumn = (t: TranslatorProp): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'title',
   header: ({ column }) => (
     <DataTableColumnHeader column={column} title={t('titleColumn')} t={t} />
@@ -125,7 +124,7 @@ const titleColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
   },
 });
 
-const typeColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const typeColumn = (t: TranslatorProp): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'parts',
   header: ({ column }) => (
     <DataTableColumnHeader
@@ -152,7 +151,7 @@ const typeColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
   },
 });
 
-const tagsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const tagsColumn = (t: TranslatorProp): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'tags',
   header: ({ column }) => (
     <DataTableColumnHeader column={column} title={t('tagsColumn')} t={t} />
@@ -172,7 +171,9 @@ const tagsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
   },
 });
 
-const createdAtColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const createdAtColumn = (
+  t: TranslatorProp
+): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'created_at',
   header: ({ column }) => (
     <DataTableColumnHeader
@@ -192,7 +193,7 @@ const createdAtColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
 });
 
 // Owner-only columns
-const selectColumn: ColumnDef<ProblemInSet> = {
+const selectColumn: ProblemColumnDef<ProblemInSet> = {
   id: 'select',
   header: ({ table }) => (
     <Checkbox
@@ -217,7 +218,7 @@ const selectColumn: ColumnDef<ProblemInSet> = {
   enableHiding: false,
 };
 
-const statusColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const statusColumn = (t: TranslatorProp): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'status',
   header: ({ column }) => (
     <DataTableColumnHeader column={column} title={t('statusColumn')} t={t} />
@@ -240,7 +241,9 @@ const statusColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
   },
 });
 
-const lastReviewedColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const lastReviewedColumn = (
+  t: TranslatorProp
+): ProblemColumnDef<ProblemInSet> => ({
   accessorKey: 'last_reviewed_date',
   header: ({ column }) => (
     <DataTableColumnHeader
@@ -260,7 +263,9 @@ const lastReviewedColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
 });
 
 // Actions column for owners
-const ownerActionsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const ownerActionsColumn = (
+  t: TranslatorProp
+): ProblemColumnDef<ProblemInSet> => ({
   id: 'actions',
   header: t('actionsColumn'),
   cell: ({ row, table }) => {
@@ -398,7 +403,9 @@ function ViewerActionsCell({
 }
 
 // Actions column for viewers
-const viewerActionsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
+const viewerActionsColumn = (
+  t: TranslatorProp
+): ProblemColumnDef<ProblemInSet> => ({
   id: 'actions',
   header: t('actionsColumn'),
   cell: ({ row, table }) => {
@@ -413,7 +420,7 @@ const viewerActionsColumn = (t: TranslatorProp): ColumnDef<ProblemInSet> => ({
 // Factory functions that create columns with translations
 export function createOwnerColumns(
   t: TranslatorProp
-): ColumnDef<ProblemInSet>[] {
+): ProblemColumnDef<ProblemInSet>[] {
   return [
     selectColumn,
     titleColumn(t),
@@ -428,7 +435,7 @@ export function createOwnerColumns(
 
 export function createViewerColumns(
   t: TranslatorProp
-): ColumnDef<ProblemInSet>[] {
+): ProblemColumnDef<ProblemInSet>[] {
   return [
     titleColumn(t),
     typeColumn(t),

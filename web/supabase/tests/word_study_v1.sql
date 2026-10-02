@@ -235,7 +235,11 @@ begin
     );
     raise exception 'sequence gap was accepted';
   exception
-    when serialization_failure then
+    -- 20260903000000_study_observation_advisory_granularity.sql moved this
+    -- raise from 40001 (serialization_failure) to P0001, because PostgREST
+    -- auto-retries 40001 by re-running the whole RPC. The device already
+    -- retries the 409 on its own, so the server-side retry was pure load.
+    when raise_exception then
       if sqlerrm <> 'STUDY_SEQUENCE_GAP' then raise; end if;
   end;
 
