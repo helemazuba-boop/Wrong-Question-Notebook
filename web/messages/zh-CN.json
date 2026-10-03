@@ -20,7 +20,7 @@
   },
   "Common": {
     "appName": "错题本",
-    "logoText": "rong Question Notebook",
+    "logoText": "错题本",
     "logoShortText": "QN",
     "themeLight": "浅色模式",
     "themeDark": "深色模式",
@@ -1508,9 +1508,6 @@
   "PrintDialog": {
     "title": "打印选项",
     "worksheetTitle": "错题练习卷",
-    "nameLabel": "姓名：__________",
-    "classLabel": "班级：__________",
-    "dateLabel": "日期：__________",
     "scopeLabel": "打印范围",
     "scopeCurrent": "当前题目",
     "scopeAll": "整个题集（{count, plural, other {# 题}}）",

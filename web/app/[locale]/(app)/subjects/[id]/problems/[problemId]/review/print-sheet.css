@@ -62,22 +62,30 @@
     line-height: 1.6;
   }
 
+  /* Brand mark plus the wordmark, the way the app's own nav pairs them. The
+     worksheet carries no title of its own: the subject line below and the
+     numbered problems say what it is, and a banner would be the largest thing
+     on page 1 while adding nothing. */
   .print-sheet-header {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    border-bottom: 2px solid #000;
-    padding-bottom: 0.4rem;
+    align-items: center;
+    gap: 1.5mm;
     margin-bottom: 0.75rem;
   }
 
-  .print-sheet-title {
-    font-size: 14pt;
-    font-weight: 700;
+  /* The inline logo mark, not the public/W_logo.svg asset: that one is
+     hardcoded #FF5300 and an <img> does not inherit `color`, so it would print
+     orange. This one is fill="currentColor", and the ink reset above turns it
+     into a crisp black vector — the binarised form, with no extra request. */
+  .print-sheet-brand {
+    height: 9mm;
+    width: 16.5mm;
   }
 
-  .print-sheet-blanks {
-    font-size: 11pt;
+  .print-sheet-wordmark {
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: -0.01em;
   }
 
   .print-sheet-subject {

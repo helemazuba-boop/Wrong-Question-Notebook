@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - The three answer placements (end / below / none) are rendered by React state instead of a cross-product of CSS `[data-print-mode]` display rules. A bare Ctrl+P that never opens the dialog now prints the same worksheet — the placement is kept in an external store, so it survives a reload and follows the user across tabs.
   - Print styles declare `@page { size: A4; margin: 14mm 12mm }`, which matters because the Android print adapter is built with `NO_MARGINS` and the page margins were previously whatever the browser defaulted to.
   - Answer space scales with the part: choice parts need none (the option letters are the answer area), a written part gets one ruled line and an essay gets a block, instead of a single line that could not hold a written response.
+  - The header carries the brand mark and the product's full name and nothing else. The name/class/date blanks a printed worksheet would normally open with were left out deliberately: they exist so a collected sheet can be attributed, and a sheet nobody can claim is worth less than one with less paper.
 
 - **OpenCode v2 upstream support**
   - New gateway reads for the capabilities that only exist in OpenCode v2: session message history (projected from the 11-way message union, oldest first, and trimmed cloud-side to the device's 12 KiB history ceiling), the pending permission list, the form/question list and its per-form state, the active-session map, spawned subagent sessions, session outcome, and run interruption.
@@ -77,6 +78,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Translate provider reasoning chunks into device-visible thinking SSE events.
 
 ### Fixed
+
+- **The app's own name was truncated in the navigation bar**
+  - `Common.logoText` read `rong Question Notebook` in both locales — the leading `W` was lost and the Chinese catalog was never translated — so every page's top bar rendered that string on desktop and `QN` on mobile. It now reads `Wrong Question Notebook` / `错题本`. The print header does not use this key: the product's full name is written out in English there and left untranslated, the way the landing footer, the mobile uploader and the privacy notice already do it, so a worksheet is the same in either locale.
 
 - **Every answer on the review page was visible on screen without asking**
   - The worksheet was markup inside the review page marked with `print-*` classes, and every rule for those classes — including the `display: none` meant to keep them off screen — lived inside one `@media print` block. On screen they therefore had no styling at all: the answer key, the solution text, and the "正确选项：A, C" line under every choice problem rendered as ordinary page content. A student reading a problem saw all of it without clicking 显示解答, which made the reveal gate meaningless. The markup now exists only in the print document, and `lib/__tests__/print-sheet-css.test.ts` fails if the sheet's `display: none` ever moves back inside `@media print` or if a print rule escapes the `.print-sheet` scope.

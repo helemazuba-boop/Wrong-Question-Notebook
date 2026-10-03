@@ -20,7 +20,7 @@
   },
   "Common": {
     "appName": "Wrong Question Notebook",
-    "logoText": "rong Question Notebook",
+    "logoText": "Wrong Question Notebook",
     "logoShortText": "QN",
     "themeLight": "Light",
     "themeDark": "Dark",
@@ -1508,9 +1508,6 @@
   "PrintDialog": {
     "title": "Print options",
     "worksheetTitle": "Practice Worksheet",
-    "nameLabel": "Name: __________",
-    "classLabel": "Class: __________",
-    "dateLabel": "Date: __________",
     "scopeLabel": "Scope",
     "scopeCurrent": "Current problem",
     "scopeAll": "Whole set ({count, plural, one {# problem} other {# problems}})",

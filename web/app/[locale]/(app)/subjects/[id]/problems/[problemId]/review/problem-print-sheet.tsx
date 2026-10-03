@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
+import { WLogo } from '@/components/w-logo';
 import MathText from '@/components/ui/math-text';
 import AssetPreview from './asset-preview';
 import type {
@@ -53,11 +54,14 @@ export default function ProblemPrintSheet({
   return createPortal(
     <div className="print-sheet" aria-hidden="true">
       <header className="print-sheet-header">
-        <span className="print-sheet-title">{t('worksheetTitle')}</span>
-        <span className="print-sheet-blanks">
-          {t('nameLabel')}&nbsp;&nbsp;&nbsp;{t('classLabel')}
-          &nbsp;&nbsp;&nbsp;{t('dateLabel')}
-        </span>
+        <WLogo className="print-sheet-brand" />
+        {/* The product's full name, not a translated display name. Everywhere
+            the full name matters — the landing footer, the mobile uploader,
+            the privacy notice — it is written out in English and left untrans-
+            lated, so the worksheet does the same. Printing `Common.logoText`
+            here would put 错题本 on a zh-locale sheet and Wrong Question
+            Notebook on an en one, and the two would not match. */}
+        <span className="print-sheet-wordmark">Wrong Question Notebook</span>
       </header>
       <p className="print-sheet-subject">{sheet.subjectName}</p>
 
