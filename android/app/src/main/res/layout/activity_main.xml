@@ -26,18 +26,6 @@
         android:max="100"
         android:visibility="gone" />
 
-    <ImageButton
-        android:id="@+id/menuButton"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="4dp"
-        android:alpha="0.7"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/menu_settings"
-        android:src="@drawable/ic_overflow"
-        android:tint="?android:attr/textColorPrimary" />
-
     <include
         android:id="@+id/errorOverlay"
         layout="@layout/view_error"

@@ -11,7 +11,6 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -31,18 +30,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
 
     private var lastBackPressTime = 0L
-
-    private val settingsLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val data = result.data
-            if (data?.getBooleanExtra(SettingsActivity.EXTRA_DATA_CLEARED, false) == true) {
-                webView.clearCache(true)
-                webView.clearHistory()
-                loadSiteUrl(Site.startUrl(appPrefs.locale))
-            } else if (data?.getBooleanExtra(SettingsActivity.EXTRA_LOCALE_CHANGED, false) == true) {
-                loadSiteUrl(Site.startUrl(appPrefs.locale))
-            }
-        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,8 +63,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
-
-        binding.menuButton.setOnClickListener { openSettings() }
 
         setupBackPress()
         setupSwipeRefresh()
@@ -128,12 +113,6 @@ class MainActivity : ComponentActivity() {
             view.setPadding(insets.left, insets.top, insets.right, insets.bottom)
             windowInsets
         }
-    }
-
-    fun openSettings() {
-        // Must go through the launcher so SettingsActivity's result
-        // (locale change / data cleared) is applied to the WebView.
-        settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
     override fun onNewIntent(intent: Intent) {

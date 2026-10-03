@@ -24,11 +24,6 @@ object WebViewConfig {
         }
     }
 
-    fun getWebViewVersionString(context: Context): String {
-        val packageInfo = getWebViewPackageInfo(context)
-        return packageInfo?.versionName ?: "Unknown"
-    }
-
     @Suppress("DEPRECATION")
     @SuppressLint("SetJavaScriptEnabled")
     fun applySettings(webView: WebView, context: Context) {

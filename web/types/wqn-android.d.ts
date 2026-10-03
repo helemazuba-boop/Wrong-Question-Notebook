@@ -3,7 +3,6 @@ interface WQNAndroidBridge {
   print?: (title?: string) => boolean;
   /** Note: the native bridge matches by arity - always pass a message. */
   onClientError?: (message: string) => void;
-  openSettings?: () => void;
 }
 
 interface Window {

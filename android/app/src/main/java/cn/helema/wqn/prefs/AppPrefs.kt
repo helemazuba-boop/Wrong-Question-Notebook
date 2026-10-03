@@ -9,7 +9,12 @@ class AppPrefs(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    var locale: String
+    /**
+     * The locale the site should open in. A NEXT_LOCALE cookie (the user's
+     * in-site choice) wins; otherwise follow the system language. There is no
+     * in-app override.
+     */
+    val locale: String
         get() {
             val cookie = CookieManager.getInstance().getCookie(Site.BASE_URL)
             if (cookie != null) {
@@ -21,16 +26,7 @@ class AppPrefs(context: Context) {
                     }
                 }
             }
-            return prefs.getString(KEY_LOCALE, DEFAULT_LOCALE) ?: DEFAULT_LOCALE
-        }
-        set(value) {
-            val normalized = if (value == "en") "en" else "zh-CN"
-            prefs.edit().putString(KEY_LOCALE, normalized).apply()
-            CookieManager.getInstance().setCookie(
-                Site.BASE_URL,
-                "NEXT_LOCALE=$normalized; path=/; domain=helema.cn; SameSite=Lax"
-            )
-            CookieManager.getInstance().flush()
+            return Site.systemLocale()
         }
 
     var lastUrl: String?
@@ -39,24 +35,9 @@ class AppPrefs(context: Context) {
             prefs.edit().putString(KEY_LAST_URL, value).apply()
         }
 
-    fun syncLocaleFromCookie() {
-        val cookie = CookieManager.getInstance().getCookie(Site.BASE_URL) ?: return
-        val match = NEXT_LOCALE_REGEX.find(cookie) ?: return
-        val cookieLocale = match.groupValues[1]
-        if (cookieLocale == "zh-CN" || cookieLocale == "en") {
-            prefs.edit().putString(KEY_LOCALE, cookieLocale).apply()
-        }
-    }
-
-    fun clearAll() {
-        prefs.edit().clear().apply()
-    }
-
     companion object {
         private const val PREFS_NAME = "wqn_prefs"
-        private const val KEY_LOCALE = "pref_locale"
         private const val KEY_LAST_URL = "pref_last_url"
-        const val DEFAULT_LOCALE = "zh-CN"
         private val NEXT_LOCALE_REGEX = Regex("""NEXT_LOCALE=([^;]+)""")
     }
 }

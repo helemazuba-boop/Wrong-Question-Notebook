@@ -1,9 +1,6 @@
 package cn.helema.wqn
 
-import android.content.Context
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
-import android.os.Build
+import java.util.Locale
 
 /** Constants that describe the hosted site this shell wraps. */
 object Site {
@@ -21,35 +18,8 @@ object Site {
 
     fun acceptLanguage(locale: String): String =
         if (locale.startsWith("zh")) "zh-CN,zh;q=0.9" else "en-US,en;q=0.9"
-}
 
-object AppInfo {
-    @Suppress("DEPRECATION")
-    fun versionName(context: Context): String = try {
-        val pm = context.packageManager
-        val info = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-        } else {
-            pm.getPackageInfo(context.packageName, 0)
-        }
-        info.versionName ?: "unknown"
-    } catch (e: Exception) {
-        "unknown"
-    }
-
-    @Suppress("DEPRECATION")
-    fun versionCode(context: Context): Long = try {
-        val pm = context.packageManager
-        val info = if (Build.VERSION.SDK_INT >= 33) {
-            pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-        } else {
-            pm.getPackageInfo(context.packageName, 0)
-        }
-        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
-    } catch (e: Exception) {
-        1L
-    }
-
-    fun isDebuggable(context: Context): Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    /** Map the device language onto one of the site's two locales. */
+    fun systemLocale(): String =
+        if (Locale.getDefault().language == "zh") "zh-CN" else "en"
 }

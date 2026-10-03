@@ -111,7 +111,6 @@ class WqnWebViewClient(
         view.evaluateJavascript(PrintBridge.SCRIPT_INJECTION, null)
 
         CookieManager.getInstance().flush()
-        appPrefs.syncLocaleFromCookie()
         if (url != null && !url.startsWith("data:") && !url.startsWith("about:")) {
             appPrefs.lastUrl = url
             onPageFinishedListener(url)

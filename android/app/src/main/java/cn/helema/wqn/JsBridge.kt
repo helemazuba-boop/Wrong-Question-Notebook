@@ -21,13 +21,4 @@ class JsBridge(
             activity.showClientError(message)
         }
     }
-
-    @JavascriptInterface
-    fun openSettings() {
-        activity.runOnUiThread {
-            // Launched through the activity so the settings result
-            // (locale change / data cleared) is applied to the WebView.
-            activity.openSettings()
-        }
-    }
 }
