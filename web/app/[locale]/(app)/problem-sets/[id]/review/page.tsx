@@ -292,6 +292,7 @@ export default async function ProblemSetReviewPage({
       problem={currentProblem}
       subject={{ id: problemSet.subject_id, name: problemSet.subject_name }}
       allProblems={problems}
+      printableProblems={problems}
       prevProblem={prevProblem}
       nextProblem={nextProblem}
       isProblemSetMode={true}

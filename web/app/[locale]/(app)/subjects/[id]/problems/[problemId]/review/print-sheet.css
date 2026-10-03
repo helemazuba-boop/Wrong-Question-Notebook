@@ -1,0 +1,219 @@
+/*
+ * Printed worksheet.
+ *
+ * The sheet is a document, not a state of the review screen. It is rendered
+ * into a React portal on <body> and hidden on screen by the rule below, which
+ * deliberately sits OUTSIDE `@media print`. That placement is the whole safety
+ * story: the answer key and the solution text exist nowhere else, so there is
+ * nothing that can leak and no "print-only" element left exposed on screen —
+ * which is exactly how the previous version worked, and why a student could
+ * read every answer at the bottom of the review page.
+ *
+ * Two rules keep this file honest:
+ *
+ * 1. Every rule is scoped under `.print-sheet`. Nothing here may reach the
+ *    live page — a rule that does is a bug, not a convenience.
+ * 2. Nothing outside this file may hide app chrome from print. `body > *`
+ *    below does it for every route at once, so the nav, the sidebar, the
+ *    marks card and any open dialog stay out of the paper without each one
+ *    needing its own `no-print` class.
+ */
+
+.print-sheet {
+  display: none;
+}
+
+/* Paper, not the browser's default. The Android print adapter is built with
+   NO_MARGINS, so this is the only thing keeping content off the paper edge. */
+@page {
+  size: A4;
+  margin: 14mm 12mm;
+}
+
+@media print {
+  /* The sheet is the only thing on paper. */
+  body > * {
+    display: none !important;
+  }
+  body > .print-sheet {
+    display: block !important;
+  }
+
+  /* A worksheet is black on white by definition. This blanket reset is what
+     makes a dark theme unable to leak: `dark:` utilities keep their value in
+     print media and print-color-adjust would otherwise honour it, which is how
+     the old sheet printed a white-on-white title. Anything that genuinely
+     needs ink opts out with .print-sheet-keep-color. */
+  .print-sheet,
+  .print-sheet * {
+    background: transparent !important;
+    color: #000 !important;
+    border-color: #999 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-sheet {
+    background: #fff !important;
+    font-family:
+      'Geist', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+
+  .print-sheet-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 2px solid #000;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .print-sheet-title {
+    font-size: 14pt;
+    font-weight: 700;
+  }
+
+  .print-sheet-blanks {
+    font-size: 11pt;
+  }
+
+  .print-sheet-subject {
+    font-size: 10pt;
+    margin: 0 0 1rem;
+  }
+
+  .print-sheet-problem {
+    break-inside: avoid;
+    margin-bottom: 1.5rem;
+  }
+
+  .print-sheet-problem-title {
+    font-size: 12pt;
+    font-weight: 700;
+    margin: 0 0 0.4rem;
+  }
+
+  .print-sheet-number {
+    font-weight: 700;
+  }
+
+  .print-sheet-part + .print-sheet-part {
+    margin-top: 0.75rem;
+  }
+
+  .print-sheet-part-label {
+    font-size: 11pt;
+    font-weight: 600;
+    margin: 0.4rem 0 0.2rem;
+  }
+
+  .print-sheet-marks {
+    font-weight: 400;
+  }
+
+  .print-sheet-choices {
+    list-style: none;
+    margin: 0.3rem 0 0;
+    padding: 0;
+  }
+
+  .print-sheet-choice {
+    display: flex;
+    gap: 0.4rem;
+    break-inside: avoid;
+    padding: 0.1rem 0;
+  }
+
+  .print-sheet-choice-id {
+    font-weight: 700;
+    min-width: 1.2em;
+  }
+
+  /* Ruled lines to write on. Height, not a border on an empty div, so several
+     stack into a block an essay can actually be answered in. */
+  .print-sheet-write-line {
+    border-bottom: 1px solid #333;
+    height: 1.9rem;
+  }
+
+  .print-sheet-inline-answer {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+    break-inside: avoid;
+  }
+
+  .print-sheet-answer-label,
+  .print-sheet-key-label {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Answer key. On its own page: the answers must not sit beside the
+     questions they answer. */
+  .print-sheet-key {
+    break-before: page;
+    border-top: 2px solid #000;
+    padding-top: 0.75rem;
+  }
+
+  .print-sheet-key-title {
+    font-size: 13pt;
+    font-weight: 700;
+    margin: 0 0 0.6rem;
+  }
+
+  .print-sheet-key-problem {
+    break-inside: avoid;
+    margin-bottom: 0.6rem;
+  }
+
+  .print-sheet-key-parts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.2rem;
+  }
+
+  .print-sheet-key-part {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+  }
+
+  .print-sheet-answer-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.6rem;
+  }
+
+  .print-sheet-solution {
+    break-inside: avoid;
+    margin-top: 0.5rem;
+  }
+
+  .print-sheet-solution-title {
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 0 0 0.3rem;
+  }
+
+  .print-sheet-assets {
+    margin-top: 0.4rem;
+  }
+
+  .print-sheet-asset + .print-sheet-asset {
+    margin-top: 0.4rem;
+  }
+
+  .print-sheet img {
+    max-width: 100%;
+    height: auto;
+    break-inside: avoid;
+  }
+
+  /* KaTeX inherits the sheet's ink, but its own font sizing must survive. */
+  .print-sheet .katex {
+    font-size: 1.05em !important;
+  }
+}

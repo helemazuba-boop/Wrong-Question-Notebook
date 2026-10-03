@@ -147,7 +147,7 @@ export default function SolutionReveal({
       </div>
 
       {!hasSolution ? (
-        <div className="text-center py-8 text-muted-foreground print-reveal-placeholder">
+        <div className="text-center py-8 text-muted-foreground">
           <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center">
             <span className="text-2xl">📝</span>
           </div>
@@ -156,7 +156,7 @@ export default function SolutionReveal({
           </p>
         </div>
       ) : isRevealed ? (
-        <div className="space-y-4 print-reveal-content">
+        <div className="space-y-4">
           {/* Correct Answers, one block per part that declares one */}
           {hasCorrectAnswer && (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-4">
@@ -200,7 +200,7 @@ export default function SolutionReveal({
           )}
         </div>
       ) : (
-        <div className="text-center py-8 text-muted-foreground print-reveal-placeholder">
+        <div className="text-center py-8 text-muted-foreground">
           <p className="text-sm">{t('clickToRevealSolution')}</p>
         </div>
       )}
