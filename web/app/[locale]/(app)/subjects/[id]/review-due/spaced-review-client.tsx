@@ -342,6 +342,7 @@ export default function SpacedReviewClient({
           problem={currentProblem}
           subject={{ id: subjectId, name: subjectName }}
           allProblems={sessionData.problems}
+          printableProblems={sessionData.problems}
           prevProblem={prevProblem || null}
           nextProblem={nextProblem || null}
           hideNavigation={true}

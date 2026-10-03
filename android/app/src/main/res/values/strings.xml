@@ -17,4 +17,8 @@
 
     <!-- Misc -->
     <string name="toast_back_to_exit">再按一次返回键退出</string>
+
+    <!-- Print errors -->
+    <string name="print_unavailable_message">当前设备不支持打印功能，请尝试使用浏览器打印。</string>
+    <string name="print_failed_message">打印启动失败，请尝试使用浏览器打印。</string>
 </resources>

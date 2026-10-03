@@ -20,7 +20,7 @@
   },
   "Common": {
     "appName": "错题本",
-    "logoText": "rong Question Notebook",
+    "logoText": "错题本",
     "logoShortText": "QN",
     "themeLight": "浅色模式",
     "themeDark": "深色模式",
@@ -1504,6 +1504,25 @@
     "problemSetLimitReached": "已达上限：{current}/{limit} 个错题本",
     "subjectLimitReached": "已达上限：{current}/{limit} 个科目",
     "subjectNameTooLong": "科目名称最多 {max} 个字符"
+  },
+  "PrintDialog": {
+    "title": "打印选项",
+    "worksheetTitle": "错题练习卷",
+    "scopeLabel": "打印范围",
+    "scopeCurrent": "当前题目",
+    "scopeAll": "整个题集（{count, plural, other {# 题}}）",
+    "selectAll": "全选",
+    "selectedCount": "已选 {selected} / {total}",
+    "emptySelection": "请至少选择一题",
+    "largeSheet": "将打印 {count, plural, other {# 题}}",
+    "placementLabel": "答案位置",
+    "modeEnd": "末尾（统一揭晓）",
+    "modeBelow": "题下（每题后）",
+    "modeNone": "不要（纯练习）",
+    "answerLabel": "答案：",
+    "answerKeyTitle": "参考答案",
+    "solutionTitle": "解题思路",
+    "printCount": "打印（{count}）"
   },
   "FileManager": {
     "clickToUpload": "点击上传",

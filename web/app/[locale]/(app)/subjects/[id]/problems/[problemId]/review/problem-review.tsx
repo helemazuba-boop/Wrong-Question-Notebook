@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useSyncExternalStore } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,17 @@ import {
 } from 'lucide-react';
 import CopyProblemDialog from '@/components/copy-problem-dialog';
 import PrintDialog from './print-dialog';
+import ProblemPrintSheet from './problem-print-sheet';
+import {
+  buildPrintSheet,
+  type PrintAnswerPlacement,
+} from '@/lib/print-sheet-model';
+import {
+  getPrintPlacement,
+  getServerPrintPlacement,
+  setPrintPlacement,
+  subscribePrintPlacement,
+} from '@/lib/print-placement';
 
 interface AllProblem {
   id: string;
@@ -105,6 +117,12 @@ interface ProblemReviewProps {
   backHref?: string;
   /** Original list/source route to keep when navigating inside a problem set. */
   fromHref?: string;
+  /**
+   * Full problem rows the viewer may print besides the current one. Only the
+   * problem-set and session routes pass this; the plain subject review route
+   * carries navigation data alone, and printing there stays single-problem.
+   */
+  printableProblems?: Problem[];
 }
 
 export default function ProblemReview({
@@ -128,6 +146,7 @@ export default function ProblemReview({
   isAuthenticated = true,
   backHref,
   fromHref,
+  printableProblems,
 }: ProblemReviewProps) {
   const tProblemSets = useTranslations('ProblemSets');
   const tProblems = useTranslations('Problems');
@@ -157,6 +176,19 @@ export default function ProblemReview({
     useState<PendingReviewRatingRequest | null>(null);
   const [hasDurableRating, setHasDurableRating] = useState(
     initialAttemptState?.formSaved === true
+  );
+  // Print state. The worksheet is a document of its own rendered beside the
+  // page, so all the print feature needs is which problems and where the
+  // answers go. The placement lives in an external store, not state, so it
+  // survives a reload and a Ctrl+P prints the last worksheet the user chose.
+  const [printJob, setPrintJob] = useState<{
+    problems: Problem[];
+    placement: PrintAnswerPlacement;
+  } | null>(null);
+  const printPlacement = useSyncExternalStore(
+    subscribePrintPlacement,
+    getPrintPlacement,
+    getServerPrintPlacement
   );
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -193,29 +225,17 @@ export default function ProblemReview({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [problem.id]);
 
-  // Force KaTeX to render before printing, so math is visible on paper.
-  useEffect(() => {
-    const renderKatex = () => {
-      import('katex').then(({ default: katex }) => {
-        document
-          .querySelectorAll(
-            '[data-type="inline-math"], [data-type="block-math"]'
-          )
-          .forEach(el => {
-            const latex = el.getAttribute('data-latex') || el.textContent || '';
-            const displayMode = el.getAttribute('data-type') === 'block-math';
-            if (!el.querySelector('.katex')) {
-              el.innerHTML = katex.renderToString(latex, {
-                displayMode,
-                throwOnError: false,
-              });
-            }
-          });
-      });
-    };
-    window.addEventListener('beforeprint', renderKatex);
-    return () => window.removeEventListener('beforeprint', renderKatex);
-  }, []);
+  // A job made while looking at another problem is stale. Derived, not reset
+  // by an effect: while the current problem is still one of the printed ones
+  // the job stands, and navigating elsewhere falls back to the current problem
+  // — so a later Ctrl+P prints what is on screen now rather than the set that
+  // was selected three problems ago.
+  const printedProblems = useMemo(() => {
+    const selected = printJob?.problems;
+    return selected?.some(item => item.id === problem.id)
+      ? selected
+      : [problem];
+  }, [printJob, problem]);
 
   // Get current problem index for navigation
   const currentIndex = allProblems.findIndex(p => p.id === problem.id);
@@ -377,17 +397,25 @@ export default function ProblemReview({
     }
   };
 
+  const handlePrintRequest = useCallback(
+    (problems: Problem[], placement: PrintAnswerPlacement) => {
+      setPrintJob({ problems, placement });
+      setPrintPlacement(placement);
+    },
+    []
+  );
+
+  const printSheet = useMemo(
+    () =>
+      buildPrintSheet(printedProblems, {
+        placement: printPlacement,
+        subjectName: subject.name,
+      }),
+    [printedProblems, printPlacement, subject.name]
+  );
+
   return (
     <div className="space-y-4">
-      {/* Print-only header: name / date / subject */}
-      <div className="print-header">
-        <span className="font-semibold">错题练习卷</span>
-        <span className="text-sm">
-          姓名：__________ &nbsp;&nbsp; 班级：__________ &nbsp;&nbsp;{' '}
-          {subject.name}
-        </span>
-      </div>
-
       {/* Sticky Header with gradient */}
       <div className="review-header-sticky">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -412,8 +440,10 @@ export default function ProblemReview({
             <PrintDialog
               problem={problem}
               subject={subject}
-              showSolution={showSolution}
-              setShowSolution={setShowSolution}
+              printableProblems={printableProblems}
+              placement={printPlacement}
+              onPlacementChange={setPrintPlacement}
+              onPrint={handlePrintRequest}
             />
             {/* Tags appear inline to the left of the button when expanded */}
             {problem.tags && problem.tags.length > 0 && (
@@ -492,38 +522,6 @@ export default function ProblemReview({
 
             {/* Divider */}
             <div className="border-t border-blue-200/30 dark:border-blue-800/20 my-4" />
-
-            {/* Print: inline answer area (题下 mode) */}
-            <div className="print-answer-inline">
-              <span className="print-answer-inline-label">答案：</span>
-              <div className="print-answer-inline-line" />
-            </div>
-            {parts
-              .filter(
-                part =>
-                  part.answer_config?.type === 'mcq' ||
-                  part.answer_config?.type === 'multi_mcq'
-              )
-              .map(part => {
-                const config = part.answer_config!;
-                const correctIds =
-                  config.type === 'mcq'
-                    ? [config.correct_choice_id]
-                    : config.type === 'multi_mcq'
-                      ? config.correct_choice_ids
-                      : [];
-                return (
-                  <div
-                    key={part.index}
-                    className="print-mcq-inline-answer print-answer-inline"
-                  >
-                    {parts.length > 1
-                      ? `${part.label || `(${part.index})`} `
-                      : ''}
-                    正确选项：{correctIds.join(', ')}
-                  </div>
-                );
-              })}
 
             {/* Answer Section */}
             <div>
@@ -718,10 +716,7 @@ export default function ProblemReview({
           </div>
 
           {/* Solution Card (GREEN gradient) */}
-          <div
-            className="rounded-2xl overflow-hidden border border-green-200/40 dark:border-green-800/30"
-            data-print-hide="true"
-          >
+          <div className="rounded-2xl overflow-hidden border border-green-200/40 dark:border-green-800/30">
             <SolutionReveal
               solutionText={problem.solution_text || undefined}
               solutionAssets={problem.solution_assets || []}
@@ -734,50 +729,6 @@ export default function ProblemReview({
               wrapperClassName="bg-gradient-to-br from-green-50 to-emerald-100/50 dark:from-green-950/40 dark:to-emerald-900/20 p-4"
             />
           </div>
-
-          {/* Print-only: answer appendix (末尾 mode) */}
-          <div className="print-answer-appendix">
-            <h2>参考答案</h2>
-            <div className="print-answer-appendix-item">
-              <strong>题目：</strong>
-              {parts.some(part => part.answer_config || part.correct_answer) ? (
-                <span>
-                  {parts.map(part => {
-                    const config = part.answer_config;
-                    let answerText: string | null = null;
-                    if (config?.type === 'mcq') {
-                      answerText = config.correct_choice_id;
-                    } else if (config?.type === 'multi_mcq') {
-                      answerText = config.correct_choice_ids.join(', ');
-                    } else if (part.correct_answer) {
-                      answerText = part.correct_answer;
-                    }
-                    if (!answerText) return null;
-                    return (
-                      <span key={part.index} className="mr-3 font-mono">
-                        {parts.length > 1
-                          ? `${part.label || `(${part.index})`} `
-                          : ''}
-                        {answerText}
-                      </span>
-                    );
-                  })}
-                </span>
-              ) : (
-                '—'
-              )}
-            </div>
-          </div>
-
-          {/* Print-only: solution appendix (末尾 mode) */}
-          {problem.solution_text && (
-            <div className="print-solution-appendix">
-              <h2 className="text-base font-bold mb-2">解题思路</h2>
-              <div className="prose max-w-none rich-text-content text-sm">
-                <RichTextDisplay content={problem.solution_text} />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* RIGHT COLUMN - Sticky Sidebar */}
@@ -904,6 +855,8 @@ export default function ProblemReview({
           problemTitle={problem.title}
         />
       )}
+
+      <ProblemPrintSheet sheet={printSheet} />
     </div>
   );
 }

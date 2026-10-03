@@ -386,6 +386,7 @@ export default function SessionReviewClient({
           problem={currentProblem}
           subject={{ id: subjectId, name: subjectName }}
           allProblems={sessionData.problems}
+          printableProblems={sessionData.problems}
           prevProblem={prevProblem || null}
           nextProblem={nextProblem || null}
           isProblemSetMode={true}

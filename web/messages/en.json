@@ -20,7 +20,7 @@
   },
   "Common": {
     "appName": "Wrong Question Notebook",
-    "logoText": "rong Question Notebook",
+    "logoText": "Wrong Question Notebook",
     "logoShortText": "QN",
     "themeLight": "Light",
     "themeDark": "Dark",
@@ -1504,6 +1504,25 @@
     "problemSetLimitReached": "Limit reached: {current}/{limit} wrong-question books",
     "subjectLimitReached": "Limit reached: {current}/{limit} subjects",
     "subjectNameTooLong": "Subject name must be at most {max} characters"
+  },
+  "PrintDialog": {
+    "title": "Print options",
+    "worksheetTitle": "Practice Worksheet",
+    "scopeLabel": "Scope",
+    "scopeCurrent": "Current problem",
+    "scopeAll": "Whole set ({count, plural, one {# problem} other {# problems}})",
+    "selectAll": "Select all",
+    "selectedCount": "{selected} of {total} selected",
+    "emptySelection": "Select at least one problem",
+    "largeSheet": "This will print {count, plural, one {# problem} other {# problems}}",
+    "placementLabel": "Answer placement",
+    "modeEnd": "At the end (all answers together)",
+    "modeBelow": "Below each problem",
+    "modeNone": "None (practice only)",
+    "answerLabel": "Answer:",
+    "answerKeyTitle": "Answer key",
+    "solutionTitle": "Solution",
+    "printCount": "Print ({count})"
   },
   "FileManager": {
     "clickToUpload": "Click to upload",
