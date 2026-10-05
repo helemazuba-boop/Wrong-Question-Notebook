@@ -1,8 +1,8 @@
 {
   "contract": "agent-gateway-v0",
-  "version": "2.1",
+  "version": "2.2",
   "schema": "agent-gateway-v0.schema.json",
-  "schema_sha256": "91173f1038115a42c24f59e95ae113da1dbca1cdb8966dbea7337523e384dc6e",
+  "schema_sha256": "66dd0e0aa64eb1e074af29440bc712f18b8cf11cd2af4b9320a313e97755332d",
   "api_base": "https://wqn.helema.cn/api/esp32",
   "routes_prefix": "/agent",
   "auth": "Authorization: Bearer <device pairing token>",
@@ -32,6 +32,7 @@
   ],
   "stream_terminator": "agent.status { status: \"idle\" }",
   "additive_fields": {
+    "session.outcome": "optional gateway-computed state of a session row. \"running\" requires the session to appear in GET /api/session/active, which the gateway already reads for the relay; an absent upstream outcome alone is never enough to claim it, and anything the gateway cannot decide -- an unrecognised upstream value, or a session that was never prompted -- is \"unknown\". The device must treat \"unknown\" as NOT running, because the hold-lock criterion built on this field decides whether the device may sleep. Absent is what a relay predating the field sends, and the device reads it the same way as \"unknown\"",
     "runRequest.request_id": "optional 16-lowercase-hex idempotency key minted by the device. The cloud claims it before submitting: a same-id retry attaches to the live run or replays its recorded terminal outcome instead of running the prompt twice, and a claim that rejects the submission answers a JSON error envelope (409/503) before the stream exists. Absent means no idempotency, which is what every device that predates the field sends"
   },
   "bounds": {
