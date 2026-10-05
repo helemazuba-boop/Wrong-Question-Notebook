@@ -79,6 +79,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A device that vanished mid-run pinned its session for half an hour**
+  - When the device closed the SSE stream part-way through a run, the cloud left the run's idempotency row `in_flight` on the grounds that the upstream run might still be going. That is true, but the device is gone, so nothing can tell it anything: every later submission for that (device, session) pair got a busy answer until the 30-minute lease retired the row. The row is now retired as `failed/detached` the moment the disconnect is noticed.
+  - The cost is stated rather than hidden: a same-id retry after a detach now sees a `failed` row instead of the `attached` row that used to let it link onto a live upstream run. That is the right trade for a device that disappeared — if it is really gone nothing wants that run, and if it comes back it submits a fresh id. No current UI path retries a run automatically behind a recording confirm, so nothing reaches this today.
+  - `error_code` is a bare unconstrained text column on this table, so `detached` needs no enum migration and is only ever read by a human inspecting the ledger. The state is `failed` rather than `completed` because the upstream run may well have succeeded: this records that _this device's_ delivery failed, not that the work failed.
+  - An observe attach is untouched. It carries no run claim of its own — the claim belongs to whichever run route opened it — and the observe route does not import the ledger at all, so the same relay outcome is discarded there exactly as before. The two behaviours are now pinned by tests that sit side by side in the run-route suite.
+
 - **The app's own name was truncated in the navigation bar**
   - `Common.logoText` read `rong Question Notebook` in _both_ locales — the leading `W` was lost — and the W in the wordmark is supplied by the logo beside it, so the top bar read `rong Question Notebook` on desktop and `QN` on mobile for every user. It now reads `Wrong Question Notebook` in both locales, matching the landing footer and the mobile uploader, which were already writing the full name out.
   - A first pass translated the Chinese catalog to `错题本`, which spelled `W 错题本` — the W glyph means nothing in Chinese, so the two halves stopped forming a wordmark. The brand name stays untranslated: `Common.appName` remains the localized `错题本` for the accessible name, while the visible wordmark is the full product name in either locale.

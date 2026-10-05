@@ -55,11 +55,34 @@ function jsonError(
 
 /**
  * Where a relay outcome lands in the idempotency ledger. A null return means
- * "no terminal write": the device disconnected or an observe attach ended
- * without a terminator, so the run may still be executing upstream and the row
- * must stay in_flight for a same-id retry to attach to. Writing a terminal
- * state here would make that retry skip a run that is still going; the lease
- * is what retires a row whose route never came back.
+ * "no terminal write": an observe attach ended without a terminator, so the
+ * run may still be executing upstream and the row must stay in_flight for a
+ * same-id retry to attach to. Writing a terminal state here would make that
+ * retry skip a run that is still going; the lease is what retires a row whose
+ * route never came back.
+ *
+ * `client_closed` is deliberately NOT in that set. It means the device hung up
+ * mid-run, and the row it owns is a *run* claim -- but the device is by
+ * definition no longer around to be told anything, so the only thing this
+ * write can still do is stop the row from pinning the session. Leaving it
+ * in_flight pinned every future submission for that (device, session) pair for
+ * the full 30-minute lease: a hang the device cannot see and cannot clear,
+ * because from its side it simply gets a busy signal for half an hour. The
+ * lease would retire the row eventually, but half an hour of "busy" is not a
+ * recovery path anyone would accept, so the row is retired here instead.
+ *
+ * The trade is stated honestly rather than hidden: a same-id retry after a
+ * detach now gets a `failed/detached` row instead of the `attached` row that
+ * used to let it link onto a run still going upstream. That is right for a
+ * device that vanished -- if it is really gone, nothing wants that run, and if
+ * it comes back it submits a fresh id. Nothing in the current UI retries a run
+ * automatically behind a recording confirm, so no existing path reaches it.
+ *
+ * `error_code` is a bare unconstrained `text` column on this table, so
+ * `'detached'` needs no enum migration; it is only ever read by a human
+ * looking at the ledger. The state is `failed`, not `completed`, because the
+ * upstream run may well have gone on to succeed -- this records that *this
+ * device's* delivery failed, not that the work failed.
  */
 function terminalLedgerWrite(
   outcome: OpenCodeRelayOutcome
@@ -76,8 +99,11 @@ function terminalLedgerWrite(
     case 'upstream_ended':
       return { state: 'failed', errorCode: 'stream_incomplete' };
     case 'observe_ended':
-    case 'client_closed':
+      // An observe attach carries no run claim of its own -- the claim belongs
+      // to whichever run route opened it -- so an observe ending never writes.
       return null;
+    case 'client_closed':
+      return { state: 'failed', errorCode: 'detached' };
   }
 }
 

@@ -860,8 +860,15 @@ export type OpenCodeRelayMode = 'run' | 'observe';
 
 /**
  * How a relay ended. The run route maps this onto the idempotency ledger; the
- * observe route ignores it. `client_closed` and `observe_ended` both mean no
- * terminator was seen -- the upstream run may still be executing.
+ * observe route ignores it entirely. `observe_ended` means an observe attach
+ * saw no terminator -- the upstream run may still be executing, and the observe
+ * route has no claim of its own to write, so nothing is recorded.
+ *
+ * `client_closed` instead means the device hung up, in *either* mode. On the
+ * observe route it is discarded along with `observe_ended`; on the run route it
+ * now retires the row as `failed/detached`, because a detached device cannot be
+ * waiting on it and a 30-minute lease is not a recovery path. See
+ * `terminalLedgerWrite` in the run route for the full reasoning.
  */
 export type OpenCodeRelayOutcome =
   | 'succeeded'

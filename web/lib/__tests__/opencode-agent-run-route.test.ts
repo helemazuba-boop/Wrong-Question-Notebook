@@ -478,10 +478,17 @@ describe('OpenCode Agent run route', () => {
       });
     });
 
-    it('leaves the row in flight when the device disconnects mid-run', async () => {
-      // A client disconnect is not a run ending: the run may still be
-      // executing upstream, so a terminal write here would make the next
-      // same-id retry skip a live run. Only the lease retires the row.
+    it('retires the row as failed/detached when the device disconnects mid-run', async () => {
+      // A client disconnect IS worth a terminal write, and this test is the
+      // regression test for the bug that motivated it: leaving the row
+      // in_flight pinned the (device, session) pair for the whole 30-minute
+      // lease, so a device that vanished could not be told anything and just
+      // got a busy signal for half an hour. The lease did retire the row
+      // eventually, but "eventually, in 30 minutes" is not a recovery path.
+      //
+      // The old assertion here was `expect(completeMock).not.toHaveBeenCalled()`
+      // with the comment "only the lease retires the row" -- that is exactly the
+      // behaviour being fixed, so the assertion is inverted on purpose.
       process.env.WQN_OPENCODE_PENDING_POLL_MS = '20';
       claimMock.mockResolvedValue({ kind: 'claimed' });
       fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
@@ -518,7 +525,12 @@ describe('OpenCode Agent run route', () => {
 
       // Give the relay's poll window time to notice the closed writer.
       await new Promise(resolve => setTimeout(resolve, 150));
-      expect(completeMock).not.toHaveBeenCalled();
+      expect(completeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'failed',
+          errorCode: 'detached',
+        })
+      );
     });
   });
 });
