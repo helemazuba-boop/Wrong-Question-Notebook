@@ -354,6 +354,56 @@ describe('OpenCode v2 event projection', () => {
 
   const PART_ROUNDS_SESSION = 'ses_ef468b6eeffe6m26RAGcHLoWBR';
 
+  /**
+   * `bubblesOf` for the thinking channel, on the same device model: append
+   * deltas, replace on a full frame. Kept separate because the two channels have
+   * independent buffers and independent staircase bugs, and a shared helper
+   * would have to decide which channel it was modelling.
+   */
+  function thinkingBubblesOf(
+    capture: string,
+    detail: OpenCodeHistoryDetail,
+    sessionId: string
+  ): string[] {
+    const state = createOpenCodeRelayState(detail);
+    const bubbles: string[] = [];
+    let buffer = '';
+    const writer = {
+      ...createWriter(),
+      emit(event: string, data: Record<string, unknown>) {
+        if (event === 'agent.reasoning') {
+          buffer = String(data.text ?? '');
+          bubbles.push(buffer);
+        } else if (event === 'agent.reasoning.delta') {
+          buffer += String(data.delta ?? '');
+          bubbles.push(buffer);
+        }
+        return bubbles.length;
+      },
+    };
+    for (const frame of capture.split(/\r?\n\r?\n/)) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (
+        !String((event as { type?: string }).type ?? '').startsWith('session.')
+      ) {
+        continue;
+      }
+      emitNormalizedOpenCodeEvent(writer, event, sessionId, state);
+    }
+    return bubbles;
+  }
+
   it('shows each round of a multi-round run instead of splicing them', () => {
     // Symptom 4, replayed from a real capture on every tier. AS-IS, detail 1
     // and 2 built `PART-ONE.` -> `PART-ONE.PART-TWO.` -> all three glued --
@@ -373,6 +423,30 @@ describe('OpenCode v2 event projection', () => {
     }
   });
 
+  it('starts the thinking bubble over at a round change too', () => {
+    // The same staircase on the other channel. `g_agent_thinking_text` is wiped
+    // once per turn on the device, so without a reasoning clear the bubble at
+    // round N holds rounds 1..N -- measured on this capture as
+    // ["Run the shell command.", "Run the shell command.Output: wqn-tool-probe"],
+    // i.e. round two's thinking announced round one's command as its own. It is
+    // bounded by kMaxThinkingBytes rather than fixed, so it shows up as a
+    // truncated, nonsensical thinking block rather than an obvious duplication.
+    //
+    // This capture is the one that exercises reasoning: the PART-rounds capture
+    // that fixes the text channel carries no reasoning events at all, which is
+    // exactly why this needed its own fixture rather than sharing that one.
+    //
+    // Brief and standard never render a thinking block, so they expect nothing.
+    for (const detail of [0, 1] as const) {
+      expect(thinkingBubblesOf(capture(), detail, CAPTURE_SESSION)).toEqual([]);
+    }
+    expect(thinkingBubblesOf(capture(), 2, CAPTURE_SESSION)).toEqual([
+      'Run the shell command.',
+      '',
+      'Output: wqn-tool-probe',
+    ]);
+  });
+
   it('projects a real captured run into exactly the frames the device needs', async () => {
     const text = await relayText([capture()], {
       mode: 'run',
@@ -385,7 +459,8 @@ describe('OpenCode v2 event projection', () => {
       'agent.tool', // session.tool.called, named from tool.input.started
       'agent.tool', // session.tool.success
       'agent.status', // the second step
-      'agent.text', // the round change: the answer bubble starts over
+      'agent.reasoning', // round change: the thinking bubble starts over
+      'agent.text', // round change: the answer bubble starts over
       'agent.reasoning.delta', // "Output: wqn-tool-probe"
       'agent.text.delta', // the reply
       'agent.status', // session.execution.succeeded, the terminator

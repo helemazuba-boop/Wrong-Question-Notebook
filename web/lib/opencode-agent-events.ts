@@ -351,18 +351,25 @@ function applyReasoningDelta(
   // capture: reasoning.delta at :61, text.delta at :65), so this handler sees
   // each round boundary *before* `applyDelta` does and issues the clear.
   //
-  // It shares `textRoundKey` on purpose. A first draft gave reasoning its own
+  // It shares `textRoundKey` on purpose. An earlier draft gave reasoning its own
   // key on the theory that reasoning advancing a shared key would suppress the
-  // text handler's clear; measuring it showed the clear is not suppressed, only
-  // relocated -- while the separate key emits the clear twice at the same
-  // boundary, erasing part of the round that had just arrived. Both variants
-  // were run before this was written: shared key clears once at the right
-  // point, separate key clears twice.
+  // text handler's clear. Measured, that is not what happens: the clear is
+  // relocated rather than suppressed, and on the real capture the two variants
+  // are frame-for-frame identical, so the extra key buys nothing.
   //
-  // Only reachable at detail >= 2, since that is when reasoning is projected
-  // at all, so it cannot affect tiers that never render a thinking block.
+  // TWO clears, not one, because they are independent buffers on the device and
+  // both have the same staircase bug. `g_agent_thinking_text` is wiped once per
+  // turn, so without the reasoning clear the thinking bubble at round N holds
+  // rounds 1..N -- measured on the raw capture as
+  // ["Run the shell command.", "Run the shell command.Output: wqn-tool-probe"].
+  // The text clear is emitted here too rather than left to `applyDelta`, so the
+  // boundary is caught whichever kind of frame arrives first.
+  //
+  // Only reachable at detail >= 2, since that is when reasoning is projected at
+  // all, so it cannot affect tiers that never render a thinking block.
   const round = stringField(data, 'assistantMessageID');
   if (round && state.textRoundKey && round !== state.textRoundKey) {
+    writer.emit('agent.reasoning', { session_id: sessionId, text: '' });
     writer.emit('agent.text', { session_id: sessionId, text: '' });
   }
   if (round) state.textRoundKey = round;
