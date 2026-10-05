@@ -16,8 +16,10 @@ import {
   replyOpenCodePermission,
   replyOpenCodeQuestion,
   resolveOpenCodeBinding,
+  resolveOpenCodeSessionOutcome,
   submitOpenCodePrompt,
   listOpenCodeSessions,
+  listOpenCodeSessionsWithOutcome,
 } from '@/lib/opencode-agent-gateway';
 
 const fetchMock = vi.fn();
@@ -107,6 +109,121 @@ describe('OpenCode Agent gateway', () => {
     );
 
     expect(sessions.map(session => session.id)).toEqual(['ses_elsewhere']);
+  });
+
+  it('never calls an absent upstream outcome evidence of a running session', () => {
+    // This is the whole reason the field is resolved rather than mapped. Three
+    // of the twelve sessions measured while planning were never prompted; their
+    // rows have no `outcome` at all, and reading that as `running` would keep
+    // the device from ever sleeping, because the device's hold-lock criterion
+    // is built on exactly this field.
+    expect(resolveOpenCodeSessionOutcome('', false)).toBe('unknown');
+    expect(resolveOpenCodeSessionOutcome('', true)).toBe('running');
+  });
+
+  it('reports the settled outcome only for vocabulary it recognises', () => {
+    // `failed` is reserved, not observed: it was never measured on the wire.
+    // It is in the set on the strength of the upstream vocabulary, and the
+    // device treats it the same as any other settled value -- not running.
+    expect(resolveOpenCodeSessionOutcome('succeeded', false)).toBe('succeeded');
+    expect(resolveOpenCodeSessionOutcome('interrupted', false)).toBe(
+      'interrupted'
+    );
+    expect(resolveOpenCodeSessionOutcome('failed', false)).toBe('failed');
+    // An upstream that grows a value this contract predates must degrade, not
+    // throw and not guess: the device reads `unknown` as "no run in flight".
+    expect(resolveOpenCodeSessionOutcome('cancelled-by-user', false)).toBe(
+      'unknown'
+    );
+    expect(resolveOpenCodeSessionOutcome('RUNNING', false)).toBe('unknown');
+  });
+
+  it('lets the active set win over a stale settled outcome', () => {
+    // A session running its SECOND run carries `succeeded` from the first one.
+    // Mapping the row verbatim would report it settled, and a conjunction that
+    // required both signals would report `unknown`; either way the device would
+    // show the wrong thing about the one session it is watching.
+    expect(resolveOpenCodeSessionOutcome('succeeded', true)).toBe('running');
+    expect(resolveOpenCodeSessionOutcome('anything-at-all', true)).toBe(
+      'running'
+    );
+  });
+
+  it('resolves the list against the active-session map, not the row alone', async () => {
+    fetchMock.mockImplementation(async (input: URL) => {
+      if (input.pathname === '/api/session/active') {
+        // The active map is a {data} envelope like every other v2 read.
+        return jsonResponse({ data: { ses_live: { type: 'running' } } });
+      }
+      return jsonResponse({
+        data: [
+          {
+            id: 'ses_live',
+            title: 'Live',
+            time: { updated: 3 },
+          },
+          {
+            id: 'ses_done',
+            title: 'Done',
+            outcome: 'succeeded',
+            time: { updated: 2 },
+          },
+          {
+            id: 'ses_fresh',
+            title: 'Fresh',
+            time: { updated: 1 },
+          },
+        ],
+      });
+    });
+
+    const sessions = await listOpenCodeSessionsWithOutcome(
+      resolveOpenCodeBinding('user-1')
+    );
+
+    expect(sessions.map(session => [session.id, session.outcome])).toEqual([
+      ['ses_live', 'running'],
+      ['ses_done', 'succeeded'],
+      ['ses_fresh', 'unknown'],
+    ]);
+  });
+
+  it('spends the plain list on no extra request, so access checks stay cheap', async () => {
+    // assertOpenCodeSessionAccess calls listOpenCodeSessions on every route and
+    // on its reject path. Resolving `outcome` there would add a second upstream
+    // request per route to fill a field none of those callers read.
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ data: [{ id: 'ses_owned', time: { updated: 1 } }] })
+    );
+
+    const sessions = await listOpenCodeSessions(
+      resolveOpenCodeBinding('user-1')
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sessions[0].outcome).toBeUndefined();
+  });
+
+  it('degrades a failed active read to unknown rather than failing the picker', async () => {
+    // The two consequences are not symmetric. Letting the active read's failure
+    // propagate would take the whole picker away from a list the device could
+    // otherwise show; degrading it reports `unknown`, which the device reads as
+    // NOT running -- a missing indicator, not a device that never sleeps.
+    fetchMock.mockImplementation(async (input: URL) => {
+      if (input.pathname === '/api/session/active') {
+        return jsonResponse({ error: { code: 'upstream_error' } }, 502);
+      }
+      return jsonResponse({
+        data: [{ id: 'ses_some', title: 'Some', time: { updated: 1 } }],
+      });
+    });
+
+    const sessions = await listOpenCodeSessionsWithOutcome(
+      resolveOpenCodeBinding('user-1')
+    );
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].outcome).toBe('unknown');
   });
 
   it('re-asserts session ownership through the binding-scoped list', async () => {
