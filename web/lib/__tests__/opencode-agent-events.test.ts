@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSseResponse } from '@/lib/ai-stream';
+import type { OpenCodeHistoryDetail } from '@/lib/opencode-agent-detail';
 import {
   createOpenCodeRelayState,
   emitNormalizedOpenCodeEvent,
@@ -281,6 +282,96 @@ describe('OpenCode v2 event projection', () => {
       'utf8'
     );
   }
+
+  /**
+   * The capture that reproduces symptom 4: three model rounds in one run, each
+   * contributing a text part, so a device that appends into one buffer builds
+   * `PART-ONE.PART-ONE.PART-TWO.PART-ONE.PART-TWO.PART-THREE.` instead of
+   * showing the last round's answer.
+   *
+   * This is `events.txt` from a live probe, not the committed
+   * `opencode-v2-sse-raw.txt` -- that one has two rounds and carries no PART
+   * text at all, so it cannot show a splice. Capturing the real run is what
+   * makes the AS-IS column below a measurement rather than a claim.
+   */
+  function partRounds(): string {
+    return readFileSync(
+      join(__dirname, '__fixtures__/opencode-v2-part-rounds.txt'),
+      'utf8'
+    );
+  }
+
+  /**
+   * The device appends deltas and replaces on a full `agent.text` frame, so one
+   * buffer is all it has. This records what that buffer holds after every text
+   * frame, which is the shape a user actually sees: an empty entry is the clear
+   * frame, so `['PART-ONE.', '', 'PART-TWO.']` means round one showed, was
+   * cleared, and round two showed.
+   */
+  function bubblesOf(
+    capture: string,
+    detail: OpenCodeHistoryDetail,
+    sessionId: string
+  ): string[] {
+    const state = createOpenCodeRelayState(detail);
+    const bubbles: string[] = [];
+    let buffer = '';
+    const writer = {
+      ...createWriter(),
+      emit(event: string, data: Record<string, unknown>) {
+        if (event === 'agent.text') {
+          buffer = String(data.text ?? '');
+          bubbles.push(buffer);
+        } else if (event === 'agent.text.delta') {
+          buffer += String(data.delta ?? '');
+          bubbles.push(buffer);
+        }
+        return bubbles.length;
+      },
+    };
+    for (const frame of capture.split(/\r?\n\r?\n/)) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (
+        !String((event as { type?: string }).type ?? '').startsWith('session.')
+      ) {
+        continue;
+      }
+      emitNormalizedOpenCodeEvent(writer, event, sessionId, state);
+    }
+    return bubbles;
+  }
+
+  const PART_ROUNDS_SESSION = 'ses_ef468b6eeffe6m26RAGcHLoWBR';
+
+  it('shows each round of a multi-round run instead of splicing them', () => {
+    // Symptom 4, replayed from a real capture on every tier. AS-IS, detail 1
+    // and 2 built `PART-ONE.` -> `PART-ONE.PART-TWO.` -> all three glued --
+    // three rounds in one device buffer with no boundary, which is exactly the
+    // `11111-tooluse-1111122222-tooluse11111222223333` shape.
+    //
+    // The empty entries are the clear frame, not a regression: an empty
+    // `agent.text` is the device's "replace the buffer with this text" frame,
+    // so round N is shown, then replaced, then round N+1 shows. Brief tier
+    // already cleared, so its sequence is unchanged by the fix -- which is the
+    // point of the fix: the other tiers now behave the way brief always did.
+    const expected = ['PART-ONE.', '', 'PART-TWO.', '', 'PART-THREE.'];
+    for (const detail of [0, 1, 2] as const) {
+      expect(bubblesOf(partRounds(), detail, PART_ROUNDS_SESSION)).toEqual(
+        expected
+      );
+    }
+  });
 
   it('projects a real captured run into exactly the frames the device needs', async () => {
     const text = await relayText([capture()], {
