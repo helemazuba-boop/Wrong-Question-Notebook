@@ -294,6 +294,7 @@ describe('OpenCode v2 event projection', () => {
       'agent.tool', // session.tool.called, named from tool.input.started
       'agent.tool', // session.tool.success
       'agent.status', // the second step
+      'agent.text', // the round change: the answer bubble starts over
       'agent.reasoning.delta', // "Output: wqn-tool-probe"
       'agent.text.delta', // the reply
       'agent.status', // session.execution.succeeded, the terminator
@@ -342,8 +343,13 @@ describe('OpenCode v2 event projection', () => {
     );
     expect(text).not.toContain('Run the shell command.\n}');
     // The capture's text.ended carries exactly the delta it already sent, so
-    // no `agent.text` repair frame may follow it.
-    expect(text).not.toContain('event: agent.text\n');
+    // it must not be followed by a repair frame replaying the whole part.
+    // The one `agent.text` frame allowed is the round-boundary clear, which is
+    // empty -- an empty clear is the device's "start the answer over" frame and
+    // never carries text of its own.
+    const textFrames = [...text.matchAll(/^event: agent.text$/gm)];
+    expect(textFrames).toHaveLength(1);
+    expect(JSON.parse(payloadOfAt(text, 'agent.text', 0)).text).toBe('');
   });
 
   it('drops the server-wide events the capture carries', async () => {
@@ -612,9 +618,16 @@ describe('OpenCode v2 event projection', () => {
       state
     );
 
-    // Nothing was sent for the second part, so it is replayed in full.
-    expect(writer.names()).toEqual(['agent.text.delta', 'agent.text']);
-    expect(writer.frames[1].data.text).toBe('two');
+    // Nothing was sent for the second part, so it is replayed in full. The
+    // clear comes first because the round changed, then the full text follows:
+    // the device must drop round one's lead-in before it replaces the buffer.
+    expect(writer.names()).toEqual([
+      'agent.text.delta',
+      'agent.text',
+      'agent.text',
+    ]);
+    expect(writer.frames[1].data.text).toBe('');
+    expect(writer.frames[2].data.text).toBe('two');
   });
 
   it('repairs a lost reasoning delta the same way', () => {
@@ -794,8 +807,14 @@ describe('OpenCode v2 event projection', () => {
     expect(writer.frames[2].data.delta).toBe('答案在此');
   });
 
-  it('leaves the device buffer alone at the standard and full tiers', () => {
-    for (const detail of [1, 2] as const) {
+  it('clears the device buffer at a round change on every tier', () => {
+    // This is the regression test for the `11111-tooluse-1111122222-tooluse…`
+    // splice. It used to be named "leaves the device buffer alone at the
+    // standard and full tiers" and asserted exactly two delta frames with no
+    // clear between them -- which is the bug, stated as an expectation. Two
+    // rounds, one device buffer, no boundary: the second round's lead-in was
+    // glued in front of the answer on every tier except brief.
+    for (const detail of [0, 1, 2] as const) {
       const state = createOpenCodeRelayState(detail);
       const writer = createWriter();
       const delta = (messageId: string, text: string) => ({
@@ -821,7 +840,15 @@ describe('OpenCode v2 event projection', () => {
         state
       );
 
-      expect(writer.names()).toEqual(['agent.text.delta', 'agent.text.delta']);
+      // The clear is an EMPTY agent.text: the device's existing "replace the
+      // buffer with this text" frame, so the boundary costs no extra state on
+      // the firmware side and never blanks a block that is already mirrored.
+      expect(writer.names()).toEqual([
+        'agent.text.delta',
+        'agent.text',
+        'agent.text.delta',
+      ]);
+      expect(writer.frames[1].data.text).toBe('');
     }
   });
 
