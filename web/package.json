@@ -83,7 +83,7 @@
     "tailwind-merge": "^3.3.0",
     "tiptap-extension-resizable-image": "^2.0.0",
     "ts-fsrs": "5.4.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.1.11"
   },
   "devDependencies": {
