@@ -170,8 +170,11 @@ deploy/.wqn-builder-config.hash
 # Self-hosted Supabase migration dumps and audit output contain production data
 deploy/supabase-selfhost/artifacts/
 
-# Claude
-.claude/settings.local.json
+# Local editor/agent tooling and debug artifacts (repo hygiene; see doc/1006-security-fix-plan.md B4)
+.claude/
+.vscode/
+.worktrees/
+serial_log*
 
 # Mac System files
 .DS_Store
