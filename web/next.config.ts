@@ -63,6 +63,9 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
 
+  // Do not advertise the framework in responses.
+  poweredByHeader: false,
+
   // Keep Turbopack scoped to the app package even when the repo root also has a lockfile.
   turbopack: {
     root: projectRoot,
@@ -113,10 +116,6 @@ const nextConfig: NextConfig = {
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
           },
           {
             key: 'Referrer-Policy',

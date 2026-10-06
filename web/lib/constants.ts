@@ -44,7 +44,6 @@ export const FILE_CONSTANTS = {
     // File security headers
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'no-referrer',
     'Content-Security-Policy': "default-src 'self'",
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
@@ -195,7 +194,6 @@ export const SECURITY_CONSTANTS = {
   SECURITY_HEADERS: {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Content-Security-Policy':
       "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://data.helema.cn wss://data.helema.cn https://*.supabase.co https://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
@@ -206,7 +204,6 @@ export const SECURITY_CONSTANTS = {
   FILE_SECURITY_HEADERS: {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'no-referrer',
     'Content-Security-Policy': "default-src 'self'",
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
