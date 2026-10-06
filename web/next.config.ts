@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import * as path from 'node:path';
 import { validateSupabasePublicEnvironment } from './lib/supabase-config';
+import { CONTENT_SECURITY_POLICY } from './lib/security-policy';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 const projectRoot = path.resolve(__dirname);
@@ -129,6 +130,18 @@ const nextConfig: NextConfig = {
           {
             key: 'Strict-Transport-Security',
             value: 'max-age=31536000; includeSubDomains',
+          },
+        ],
+      },
+      {
+        // HTML pages only. API routes already receive the same policy from
+        // withSecurity (lib/security-middleware.ts), so excluding them here
+        // avoids a duplicate header.
+        source: '/((?!api|_next/static|_next/image).*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: CONTENT_SECURITY_POLICY,
           },
         ],
       },

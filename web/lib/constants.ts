@@ -7,6 +7,8 @@
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import { CONTENT_SECURITY_POLICY } from './security-policy';
+
 // =====================================================
 // File Upload Constants
 // =====================================================
@@ -195,8 +197,7 @@ export const SECURITY_CONSTANTS = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://data.helema.cn wss://data.helema.cn https://*.supabase.co https://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+    'Content-Security-Policy': CONTENT_SECURITY_POLICY,
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   },
 
