@@ -1,0 +1,12 @@
+# gitleaks configuration for this repository.
+# Extends the default ruleset. The allowlist only covers fake credentials that
+# test fixtures intentionally embed (they never hold real values).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credentials used by test fixtures"
+regexes = [
+  # batch voice relay tests use a fixed dummy proxy secret
+  '''test-secret-[0-9]+''',
+]

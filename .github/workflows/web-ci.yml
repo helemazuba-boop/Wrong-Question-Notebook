@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - release/note-baseline-prod
     paths:
       - 'web/**'
 
@@ -96,3 +97,26 @@ jobs:
 
       - name: Check client bundle for server secrets
         run: npm run check:client-bundle-secrets
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # The advisory database is queried against the lockfile, so no install
+      # is needed. Production dependencies must stay clean.
+      - name: Block on production vulnerabilities
+        run: npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org
+
+      # Dev-only chains (eslint-config-next -> braces, GHSA-vfj7-8cjw-p6xm,
+      # no fixed release yet) are reported but not blocking.
+      - name: Report full audit (dev included)
+        continue-on-error: true
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
