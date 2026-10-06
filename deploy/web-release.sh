@@ -202,6 +202,10 @@ Reminders:
            proxy_set_header Upgrade $http_upgrade;
            proxy_set_header Connection "upgrade";
            proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $remote_addr;
+           proxy_set_header X-Forwarded-Host $host;
+           proxy_set_header X-Forwarded-Proto $scheme;
            proxy_read_timeout 1h;
            proxy_send_timeout 1h;
            proxy_buffering off;
