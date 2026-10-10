@@ -61,18 +61,36 @@ test('create and edit a note, attach a real image and retain it after refresh', 
   );
   await editDialog.getByRole('button', { name: '保存', exact: true }).click();
   expect((await savedResponse).ok()).toBeTruthy();
-  await page.reload();
-  const card = page
+  await expect(editDialog).toBeHidden();
+  const savedCard = page
     .getByTestId('note-card')
     .filter({ hasText: 'Persisted browser note' });
-  await expect(card).toContainText('Updated browser content');
-  await card.getByRole('button', { name: '编辑', exact: true }).click();
-  const preview = editDialog.getByAltText('墨水屏预览');
-  await expect
-    .poll(() =>
-      preview.evaluate(image => (image as HTMLImageElement).naturalWidth)
-    )
-    .toBeGreaterThan(0);
+  await expect(savedCard).toContainText('Updated browser content');
+  // Verify persisted content in a fresh document, then reload it. The editing
+  // tab has an independent router.refresh stream after loadPage completes.
+  const persisted = await page.context().newPage();
+  try {
+    await persisted.goto(`/en/notebooks/${data.notebookId}`);
+    await expect(
+      persisted.getByText('Persisted browser note', { exact: true })
+    ).toBeVisible();
+    await persisted.reload();
+    const card = persisted
+      .getByTestId('note-card')
+      .filter({ hasText: 'Persisted browser note' });
+    await expect(card).toContainText('Updated browser content');
+    await card.getByRole('button', { name: '编辑', exact: true }).click();
+    const preview = persisted
+      .getByRole('dialog', { name: '编辑笔记' })
+      .getByAltText('墨水屏预览');
+    await expect
+      .poll(() =>
+        preview.evaluate(image => (image as HTMLImageElement).naturalWidth)
+      )
+      .toBeGreaterThan(0);
+  } finally {
+    await persisted.close();
+  }
   const { data: note, error } = await data.admin
     .from('notebook_notes')
     .select('content,user_id,assets')
