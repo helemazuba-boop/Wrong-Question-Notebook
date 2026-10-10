@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSseResponse } from '@/lib/ai-stream';
+import type { OpenCodeHistoryDetail } from '@/lib/opencode-agent-detail';
 import {
   createOpenCodeRelayState,
   emitNormalizedOpenCodeEvent,
@@ -282,6 +283,170 @@ describe('OpenCode v2 event projection', () => {
     );
   }
 
+  /**
+   * The capture that reproduces symptom 4: three model rounds in one run, each
+   * contributing a text part, so a device that appends into one buffer builds
+   * `PART-ONE.PART-ONE.PART-TWO.PART-ONE.PART-TWO.PART-THREE.` instead of
+   * showing the last round's answer.
+   *
+   * This is `events.txt` from a live probe, not the committed
+   * `opencode-v2-sse-raw.txt` -- that one has two rounds and carries no PART
+   * text at all, so it cannot show a splice. Capturing the real run is what
+   * makes the AS-IS column below a measurement rather than a claim.
+   */
+  function partRounds(): string {
+    return readFileSync(
+      join(__dirname, '__fixtures__/opencode-v2-part-rounds.txt'),
+      'utf8'
+    );
+  }
+
+  /**
+   * The device appends deltas and replaces on a full `agent.text` frame, so one
+   * buffer is all it has. This records what that buffer holds after every text
+   * frame, which is the shape a user actually sees: an empty entry is the clear
+   * frame, so `['PART-ONE.', '', 'PART-TWO.']` means round one showed, was
+   * cleared, and round two showed.
+   */
+  function bubblesOf(
+    capture: string,
+    detail: OpenCodeHistoryDetail,
+    sessionId: string
+  ): string[] {
+    const state = createOpenCodeRelayState(detail);
+    const bubbles: string[] = [];
+    let buffer = '';
+    const writer = {
+      ...createWriter(),
+      emit(event: string, data: Record<string, unknown>) {
+        if (event === 'agent.text') {
+          buffer = String(data.text ?? '');
+          bubbles.push(buffer);
+        } else if (event === 'agent.text.delta') {
+          buffer += String(data.delta ?? '');
+          bubbles.push(buffer);
+        }
+        return bubbles.length;
+      },
+    };
+    for (const frame of capture.split(/\r?\n\r?\n/)) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (
+        !String((event as { type?: string }).type ?? '').startsWith('session.')
+      ) {
+        continue;
+      }
+      emitNormalizedOpenCodeEvent(writer, event, sessionId, state);
+    }
+    return bubbles;
+  }
+
+  const PART_ROUNDS_SESSION = 'ses_ef468b6eeffe6m26RAGcHLoWBR';
+
+  /**
+   * `bubblesOf` for the thinking channel, on the same device model: append
+   * deltas, replace on a full frame. Kept separate because the two channels have
+   * independent buffers and independent staircase bugs, and a shared helper
+   * would have to decide which channel it was modelling.
+   */
+  function thinkingBubblesOf(
+    capture: string,
+    detail: OpenCodeHistoryDetail,
+    sessionId: string
+  ): string[] {
+    const state = createOpenCodeRelayState(detail);
+    const bubbles: string[] = [];
+    let buffer = '';
+    const writer = {
+      ...createWriter(),
+      emit(event: string, data: Record<string, unknown>) {
+        if (event === 'agent.reasoning') {
+          buffer = String(data.text ?? '');
+          bubbles.push(buffer);
+        } else if (event === 'agent.reasoning.delta') {
+          buffer += String(data.delta ?? '');
+          bubbles.push(buffer);
+        }
+        return bubbles.length;
+      },
+    };
+    for (const frame of capture.split(/\r?\n\r?\n/)) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) continue;
+      let event: unknown;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (
+        !String((event as { type?: string }).type ?? '').startsWith('session.')
+      ) {
+        continue;
+      }
+      emitNormalizedOpenCodeEvent(writer, event, sessionId, state);
+    }
+    return bubbles;
+  }
+
+  it('shows each round of a multi-round run instead of splicing them', () => {
+    // Symptom 4, replayed from a real capture on every tier. AS-IS, detail 1
+    // and 2 built `PART-ONE.` -> `PART-ONE.PART-TWO.` -> all three glued --
+    // three rounds in one device buffer with no boundary, which is exactly the
+    // `11111-tooluse-1111122222-tooluse11111222223333` shape.
+    //
+    // The empty entries are the clear frame, not a regression: an empty
+    // `agent.text` is the device's "replace the buffer with this text" frame,
+    // so round N is shown, then replaced, then round N+1 shows. Brief tier
+    // already cleared, so its sequence is unchanged by the fix -- which is the
+    // point of the fix: the other tiers now behave the way brief always did.
+    const expected = ['PART-ONE.', '', 'PART-TWO.', '', 'PART-THREE.'];
+    for (const detail of [0, 1, 2] as const) {
+      expect(bubblesOf(partRounds(), detail, PART_ROUNDS_SESSION)).toEqual(
+        expected
+      );
+    }
+  });
+
+  it('starts the thinking bubble over at a round change too', () => {
+    // The same staircase on the other channel. `g_agent_thinking_text` is wiped
+    // once per turn on the device, so without a reasoning clear the bubble at
+    // round N holds rounds 1..N -- measured on this capture as
+    // ["Run the shell command.", "Run the shell command.Output: wqn-tool-probe"],
+    // i.e. round two's thinking announced round one's command as its own. It is
+    // bounded by kMaxThinkingBytes rather than fixed, so it shows up as a
+    // truncated, nonsensical thinking block rather than an obvious duplication.
+    //
+    // This capture is the one that exercises reasoning: the PART-rounds capture
+    // that fixes the text channel carries no reasoning events at all, which is
+    // exactly why this needed its own fixture rather than sharing that one.
+    //
+    // Brief and standard never render a thinking block, so they expect nothing.
+    for (const detail of [0, 1] as const) {
+      expect(thinkingBubblesOf(capture(), detail, CAPTURE_SESSION)).toEqual([]);
+    }
+    expect(thinkingBubblesOf(capture(), 2, CAPTURE_SESSION)).toEqual([
+      'Run the shell command.',
+      '',
+      'Output: wqn-tool-probe',
+    ]);
+  });
+
   it('projects a real captured run into exactly the frames the device needs', async () => {
     const text = await relayText([capture()], {
       mode: 'run',
@@ -294,6 +459,8 @@ describe('OpenCode v2 event projection', () => {
       'agent.tool', // session.tool.called, named from tool.input.started
       'agent.tool', // session.tool.success
       'agent.status', // the second step
+      'agent.reasoning', // round change: the thinking bubble starts over
+      'agent.text', // round change: the answer bubble starts over
       'agent.reasoning.delta', // "Output: wqn-tool-probe"
       'agent.text.delta', // the reply
       'agent.status', // session.execution.succeeded, the terminator
@@ -342,8 +509,13 @@ describe('OpenCode v2 event projection', () => {
     );
     expect(text).not.toContain('Run the shell command.\n}');
     // The capture's text.ended carries exactly the delta it already sent, so
-    // no `agent.text` repair frame may follow it.
-    expect(text).not.toContain('event: agent.text\n');
+    // it must not be followed by a repair frame replaying the whole part.
+    // The one `agent.text` frame allowed is the round-boundary clear, which is
+    // empty -- an empty clear is the device's "start the answer over" frame and
+    // never carries text of its own.
+    const textFrames = [...text.matchAll(/^event: agent.text$/gm)];
+    expect(textFrames).toHaveLength(1);
+    expect(JSON.parse(payloadOfAt(text, 'agent.text', 0)).text).toBe('');
   });
 
   it('drops the server-wide events the capture carries', async () => {
@@ -612,9 +784,16 @@ describe('OpenCode v2 event projection', () => {
       state
     );
 
-    // Nothing was sent for the second part, so it is replayed in full.
-    expect(writer.names()).toEqual(['agent.text.delta', 'agent.text']);
-    expect(writer.frames[1].data.text).toBe('two');
+    // Nothing was sent for the second part, so it is replayed in full. The
+    // clear comes first because the round changed, then the full text follows:
+    // the device must drop round one's lead-in before it replaces the buffer.
+    expect(writer.names()).toEqual([
+      'agent.text.delta',
+      'agent.text',
+      'agent.text',
+    ]);
+    expect(writer.frames[1].data.text).toBe('');
+    expect(writer.frames[2].data.text).toBe('two');
   });
 
   it('repairs a lost reasoning delta the same way', () => {
@@ -794,8 +973,14 @@ describe('OpenCode v2 event projection', () => {
     expect(writer.frames[2].data.delta).toBe('答案在此');
   });
 
-  it('leaves the device buffer alone at the standard and full tiers', () => {
-    for (const detail of [1, 2] as const) {
+  it('clears the device buffer at a round change on every tier', () => {
+    // This is the regression test for the `11111-tooluse-1111122222-tooluse…`
+    // splice. It used to be named "leaves the device buffer alone at the
+    // standard and full tiers" and asserted exactly two delta frames with no
+    // clear between them -- which is the bug, stated as an expectation. Two
+    // rounds, one device buffer, no boundary: the second round's lead-in was
+    // glued in front of the answer on every tier except brief.
+    for (const detail of [0, 1, 2] as const) {
       const state = createOpenCodeRelayState(detail);
       const writer = createWriter();
       const delta = (messageId: string, text: string) => ({
@@ -821,7 +1006,15 @@ describe('OpenCode v2 event projection', () => {
         state
       );
 
-      expect(writer.names()).toEqual(['agent.text.delta', 'agent.text.delta']);
+      // The clear is an EMPTY agent.text: the device's existing "replace the
+      // buffer with this text" frame, so the boundary costs no extra state on
+      // the firmware side and never blanks a block that is already mirrored.
+      expect(writer.names()).toEqual([
+        'agent.text.delta',
+        'agent.text',
+        'agent.text.delta',
+      ]);
+      expect(writer.frames[1].data.text).toBe('');
     }
   });
 

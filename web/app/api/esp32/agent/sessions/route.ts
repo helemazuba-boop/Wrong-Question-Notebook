@@ -4,7 +4,7 @@ import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 import {
   createOpenCodeSession,
-  listOpenCodeSessions,
+  listOpenCodeSessionsWithOutcome,
   OpenCodeGatewayError,
   resolveOpenCodeBinding,
 } from '@/lib/opencode-agent-gateway';
@@ -36,7 +36,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const limited = enforceAgentRateLimit(auth.deviceId, 'sessions');
   if (limited) return limited;
   try {
-    const sessions = await listOpenCodeSessions(
+    // With outcome, not plain listOpenCodeSessions: the device needs to know
+    // which session is running, and reading it back per session afterwards
+    // would be one detail round-trip per row.
+    const sessions = await listOpenCodeSessionsWithOutcome(
       resolveOpenCodeBinding(auth.userId)
     );
     return NextResponse.json({ success: true, data: { sessions } });

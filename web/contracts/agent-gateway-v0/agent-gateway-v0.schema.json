@@ -18,7 +18,11 @@
       "properties": {
         "id": { "$ref": "#/$defs/sessionId" },
         "title": { "type": "string", "maxLength": 256 },
-        "updatedAt": { "type": "integer", "minimum": 0 }
+        "updatedAt": { "type": "integer", "minimum": 0 },
+        "outcome": {
+          "description": "Whether this session has a run in flight, and how its last run ended. Computed by the gateway from two reads rather than mapped straight from the upstream row: `running` requires the session to be present in GET /api/session/active, an absent upstream `outcome` alone is never enough to claim it, and a value the gateway does not recognise -- or a session it cannot decide for -- is `unknown` rather than a guess. `unknown` is therefore the answer for a session that was never prompted as well as for an upstream vocabulary this contract predates, and it is not evidence of a running session. Optional so a device contract consumer written before the field exists still validates.",
+          "enum": ["running", "succeeded", "interrupted", "failed", "unknown"]
+        }
       }
     },
     "error": {

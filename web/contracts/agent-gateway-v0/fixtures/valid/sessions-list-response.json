@@ -5,12 +5,24 @@
       {
         "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E7F",
         "title": "考研数学 · 强化班错题整理",
-        "updatedAt": 1758432000000
+        "updatedAt": 1758432000000,
+        "outcome": "running"
       },
       {
         "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E8A",
         "title": "英语作文批改",
-        "updatedAt": 1758345600000
+        "updatedAt": 1758345600000,
+        "outcome": "succeeded"
+      },
+      {
+        "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4E9B",
+        "title": "新 Session",
+        "updatedAt": 1758262400000,
+        "outcome": "unknown"
+      },
+      {
+        "id": "ses_01J8ZQ4K7V2N9X0M3B6C5D4EAC",
+        "updatedAt": 1758178800000
       }
     ]
   }
