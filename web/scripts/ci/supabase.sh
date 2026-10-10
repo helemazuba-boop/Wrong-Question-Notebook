@@ -27,6 +27,16 @@ elif [[ "$action" == start ]]; then
   supabase status --workdir "$ci_workdir" --output json > "$ci_workdir/status.json"
 elif [[ "$action" == test ]]; then
   db_url=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["DB_URL"])' "$ci_workdir/status.json")
+  psql "$db_url" --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --command 'select version from supabase_migrations.schema_migrations order by version' > "$ci_workdir/applied-migrations.txt"
+  python3 - "$web_root/supabase/migrations" "$ci_workdir/applied-migrations.txt" <<'PYTHON'
+import pathlib, sys
+expected = {file.name.split('_', 1)[0] for file in pathlib.Path(sys.argv[1]).glob('*.sql')}
+actual = set(pathlib.Path(sys.argv[2]).read_text().split())
+if actual != expected:
+    sys.exit(f'Migration history mismatch: missing={sorted(expected-actual)}, extra={sorted(actual-expected)}')
+print(f'Verified all {len(expected)} migration versions are applied')
+PYTHON
   supabase test db --workdir "$ci_workdir"
   count=0
   for sql in "$web_root"/supabase/tests/*.sql; do
@@ -50,7 +60,7 @@ elif [[ "$action" == upgrade ]]; then
   psql "$db_url" --no-psqlrc --set ON_ERROR_STOP=1 --file "$web_root/scripts/ci/upgrade-seed.sql"
   rm -rf "$ci_workdir/supabase/migrations"
   cp -R "$web_root/supabase/migrations" "$ci_workdir/supabase/migrations"
-  supabase migration up --local --workdir "$ci_workdir"
+  supabase migration up --local --include-all --workdir "$ci_workdir"
   psql "$db_url" --no-psqlrc --set ON_ERROR_STOP=1 --file "$web_root/scripts/ci/upgrade-assert.sql"
   bash "$0" test
 elif [[ "$action" == stop ]]; then
