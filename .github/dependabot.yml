@@ -1,8 +1,10 @@
+
 version: 2
 
 updates:
   - package-ecosystem: "gradle"
     directory: "/android"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
     groups:
@@ -11,6 +13,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/web"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -43,6 +46,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/web/server/realtime-proxy"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -63,6 +67,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
