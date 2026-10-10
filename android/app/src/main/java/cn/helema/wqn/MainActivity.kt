@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
 
     private fun determineInitialUrl(intent: Intent?): String {
         val data = intent?.data
-        if (data != null && Site.isOwnHost(data.host)) {
+        if (data != null && Site.isOwnUrl(data.toString())) {
             return data.toString()
         }
         return Site.startUrl(appPrefs.locale)
@@ -198,6 +198,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadSiteUrl(url: String) {
+        if (!Site.isOwnUrl(url)) {
+            loadSiteUrl(Site.startUrl(appPrefs.locale))
+            return
+        }
         val headers = mapOf("Accept-Language" to Site.acceptLanguage(appPrefs.locale))
         webView.loadUrl(url, headers)
     }

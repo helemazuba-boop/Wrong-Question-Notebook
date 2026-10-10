@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
   redirectTo.pathname = safePath;
 
   // Presence selects the Auth protocol; Supabase verifies the credential before creating a session.
-  // codeql[js/user-controlled-bypass]
   if (token_hash && type) {
     const supabase = await createClient();
 

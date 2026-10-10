@@ -27,7 +27,7 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest --no-daemon
       - name: Require actual executed unit tests
-        run: python3 .github/scripts/verify-junit.py android/app/build/test-results/testDebugUnitTest 4
+        run: python3 .github/scripts/verify-junit.py android/app/build/test-results/testDebugUnitTest 5
       - uses: actions/upload-artifact@v7
         if: always()
         with:

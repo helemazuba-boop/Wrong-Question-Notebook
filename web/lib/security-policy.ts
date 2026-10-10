@@ -28,10 +28,7 @@ export function buildContentSecurityPolicy(
   return `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ${[...connectSources].join(' ')}; frame-ancestors 'none'; base-uri 'self'; form-action 'self';`;
 }
 
-export const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy({
-  url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  publishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY,
-  expectedHost: process.env.WQN_SUPABASE_EXPECTED_HOST,
-  allowedHttpOrigin: process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN,
-  nodeEnv: process.env.NODE_ENV,
-});
+// constants.ts is shared with browser components; keep this export free of
+// server environment validation. HTML headers add the configured origin in
+// next.config.ts after the production host guard has validated it.
+export const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy();

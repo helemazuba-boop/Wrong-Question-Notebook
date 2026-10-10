@@ -1,5 +1,54 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
+
+const policy = JSON.parse(
+  readFileSync(
+    process.argv[3] ||
+      new URL("../security/codeql-exceptions.json", import.meta.url),
+    "utf8",
+  ),
+);
+if (!Array.isArray(policy.exceptions))
+  throw new Error("Malformed CodeQL review policy");
+for (const entry of policy.exceptions) {
+  if (
+    !entry.ruleId ||
+    !entry.justification ||
+    !entry.expires ||
+    entry.expires <= new Date().toISOString().slice(0, 10)
+  )
+    throw new Error("Missing or expired CodeQL false-positive review");
+  for (const source of [
+    { path: entry.path, sha256: entry.sha256 },
+    ...(entry.relatedSources || []),
+  ]) {
+    if (
+      !source.path ||
+      isAbsolute(source.path) ||
+      source.path.split("/").includes("..") ||
+      !/^[0-9a-f]{64}$/.test(source.sha256)
+    )
+      throw new Error("Malformed CodeQL source fingerprint");
+  }
+}
+
+function reviewedFalsePositive(ruleId, result) {
+  const uri = result.locations?.[0]?.physicalLocation?.artifactLocation?.uri;
+  if (!uri) return false;
+  const path = decodeURIComponent(uri);
+  return policy.exceptions.some((entry) => {
+    if (entry.ruleId !== ruleId || entry.path !== path) return false;
+    return [
+      { path: entry.path, sha256: entry.sha256 },
+      ...(entry.relatedSources || []),
+    ].every(
+      (source) =>
+        createHash("sha256").update(readFileSync(source.path)).digest("hex") ===
+        source.sha256,
+    );
+  });
+}
 
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
@@ -45,6 +94,7 @@ for (const file of reports) {
       const severity = Number(rule.properties?.["security-severity"] || 0);
       if (
         severity >= 7 &&
+        !reviewedFalsePositive(ruleId, result) &&
         !result.suppressions?.some(
           (suppression) => suppression.status === "accepted",
         )

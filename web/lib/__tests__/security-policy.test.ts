@@ -1,7 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildContentSecurityPolicy } from '../security-policy';
 
 describe('configured Supabase CSP origin', () => {
+  it('can load shared browser constants without private server environment variables', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://supabase.e2e.test:8444');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY', 'test-public');
+    vi.stubEnv('WQN_SUPABASE_EXPECTED_HOST', undefined);
+    vi.resetModules();
+    try {
+      const shared = await import('../security-policy');
+      expect(shared.CONTENT_SECURITY_POLICY).toContain(
+        "frame-ancestors 'none'"
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
   const input = {
     url: 'https://supabase.e2e.test:8444',
     publishableKey: 'test-public',

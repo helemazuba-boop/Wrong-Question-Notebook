@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import * as path from 'node:path';
 import { validateSupabasePublicEnvironment } from './lib/supabase-config';
-import { CONTENT_SECURITY_POLICY } from './lib/security-policy';
+import { buildContentSecurityPolicy } from './lib/security-policy';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 const projectRoot = path.resolve(__dirname);
@@ -141,7 +141,14 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: CONTENT_SECURITY_POLICY,
+            value: buildContentSecurityPolicy({
+              url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+              publishableKey:
+                process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY,
+              expectedHost: process.env.WQN_SUPABASE_EXPECTED_HOST,
+              allowedHttpOrigin: process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN,
+              nodeEnv: process.env.NODE_ENV,
+            }),
           },
         ],
       },

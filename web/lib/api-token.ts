@@ -26,6 +26,5 @@ export function isValidApiToken(token: string): boolean {
  */
 export function hashApiToken(token: string): string {
   // MCP credentials contain 256 random bits; this is a token lookup digest, never a password KDF.
-  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(token).digest('hex');
 }

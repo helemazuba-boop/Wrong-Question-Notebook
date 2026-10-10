@@ -21,6 +21,13 @@ class SiteTest {
             .forEach { assertFalse("Unexpected own host: $it", Site.isOwnHost(it)) }
     }
 
+    @Test fun bridgedPagesRequireTrustedHttpsWithoutEmbeddedCredentials() {
+        assertTrue(Site.isOwnUrl("https://${Site.HOST}/en"))
+        listOf(null, "http://${Site.HOST}/en", "https://${Site.HOST}.evil.invalid/en",
+            "https://evil@${Site.HOST}/en", "javascript:alert(1)", "file:///tmp/evil.html")
+            .forEach { assertFalse("Unexpected trusted URL: $it", Site.isOwnUrl(it)) }
+    }
+
     @Test fun startUrlsUseAnExplicitLocale() {
         assertEquals("https://wqn.helema.cn/en", Site.startUrl("en"))
         assertEquals("https://wqn.helema.cn/zh-CN", Site.startUrl("zh-CN"))

@@ -28,7 +28,8 @@ begin
       select 1
       from public.problem_mark_annotations annotation
       join public.problem_mark_annotation_runs run
-        on run.id = annotation.active_run_id
+        on run.problem_id = annotation.problem_id
+       and run.semantic_revision = old.semantic_revision
       where annotation.problem_id = new.id
         and annotation.lease_token is not null
         and annotation.lease_until > clock_timestamp()

@@ -505,8 +505,8 @@ select is(
 select throws_ok(
   $$insert into public.problem_marks (problem_id, mark_key, role, part_index)
     values ('c0000000-0000-4000-8000-000000000001', 'math.skill.parameter_separation', 'required', null)$$,
-  '42501', null,
-  'a non-owner cannot correct another user problem marks'
+  '23503', 'PROBLEM_MARK_PROBLEM_NOT_FOUND',
+  'RLS hides the foreign problem before its marks can be changed'
 );
 
 reset role;

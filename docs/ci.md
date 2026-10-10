@@ -13,7 +13,7 @@ published vulnerabilities even when lockfiles have not changed.
 | Database (clean / upgrade)                   | All migrations apply, all pgTAP and ordinary SQL assertions pass, existing notebook data survives an upgrade             |
 | Container (web / realtime-proxy)             | Final image builds and boots, health endpoint responds, Web sharp loads, image vulnerability and secret scans pass       |
 | Browser E2E                                  | Login/logout, notes/images, CSV/XLSX imports, study progress, lost-response recovery and user isolation                  |
-| Android build and unit tests                 | Debug/release compile, lint passes, at least four real JVM tests pass                                                    |
+| Android build and unit tests                 | Debug/release compile, lint passes, at least five real JVM tests pass                                                    |
 | Android native tests (API 30 / 36)           | Six native tests pass for WebView configuration, back navigation, error recovery, file selection, printing and downloads |
 
 Browser PR checks use desktop Chromium and a mobile Chromium viewport. Nightly,
@@ -73,7 +73,7 @@ CycloneDX inventories, health responses and logs are uploaded for investigation.
 Images are built for testing and are not published by these workflows.
 
 CodeQL findings are checked from SARIF as well as uploaded to GitHub Security.
-`.github/security/ci-ruleset.json` defines the complete release merge gate and
+`.github/security/ci-ruleset.json` defines the complete main and release merge gates and
 can be applied through GitHub's repository rulesets API after validation.
 Review and fix existing findings before enabling required merge checks. Configure
 the stable job names in the table as required status checks once the workflows
@@ -86,3 +86,17 @@ The Android local fixture origin is compiled into the debug build only with
 `-PwqnCiAssets=true`. Release builds always use the production HTTPS host, contain
 no fixture assets and keep cleartext traffic disabled. Debug permits cleartext
 only for the instrumentation download server on `127.0.0.1`.
+
+## Reviewed CodeQL false positives
+
+`.github/security/codeql-exceptions.json` records six specific rule/file reviews:
+SHA-256 lookup digests for 256-bit random bearer tokens, credential-presence
+branches that call Supabase verification, and the required WebView JavaScript
+and print/error bridge. Each review binds the source SHA-256, related security
+controls, rationale and an expiry of 2027-01-08. A changed source, different rule
+or file, or expired review blocks High/Critical findings again. These reviews
+are also recorded as false-positive dismissals in GitHub Security; all other
+findings remain visible, and new High/Critical findings block the job.
+
+Android backup is disabled. Deep links, restored pages, popups and in-app
+navigation require a trusted HTTPS URL before entering the bridged WebView.

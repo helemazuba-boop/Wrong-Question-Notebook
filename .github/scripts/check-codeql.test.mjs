@@ -4,8 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
-function check(severity, extra = {}) {
+function check(severity, extra = {}, exception) {
   const directory = mkdtempSync(join(tmpdir(), "wqn-codeql-policy-"));
   try {
     const report = {
@@ -29,10 +30,22 @@ function check(severity, extra = {}) {
       ],
     };
     writeFileSync(join(directory, "test.sarif"), JSON.stringify(report));
-    return spawnSync(process.execPath, [
-      new URL("./check-codeql.mjs", import.meta.url).pathname,
-      directory,
-    ]);
+    if (exception) {
+      writeFileSync(join(directory, "fixture.js"), "reviewed source");
+      writeFileSync(
+        join(directory, "policy.json"),
+        JSON.stringify({ exceptions: [exception] }),
+      );
+    }
+    return spawnSync(
+      process.execPath,
+      [
+        new URL("./check-codeql.mjs", import.meta.url).pathname,
+        directory,
+        ...(exception ? [join(directory, "policy.json")] : []),
+      ],
+      { cwd: directory },
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -40,6 +53,44 @@ function check(severity, extra = {}) {
 test("High and Critical findings block the job", () => {
   assert.equal(check("7.0").status, 1);
   assert.equal(check("9.8").status, 1);
+});
+
+test("false-positive reviews bind the rule, file, source hash and expiry", () => {
+  const exception = {
+    ruleId: "test/rule",
+    path: "fixture.js",
+    sha256: createHash("sha256").update("reviewed source").digest("hex"),
+    justification: "Reviewed fixture",
+    expires: "2099-01-01",
+  };
+  const finding = {
+    results: [
+      {
+        ruleId: "test/rule",
+        message: { text: "Fixture" },
+        locations: [
+          { physicalLocation: { artifactLocation: { uri: "fixture.js" } } },
+        ],
+      },
+    ],
+  };
+  assert.equal(check("8.1", finding, exception).status, 0);
+  assert.equal(
+    check("8.1", finding, { ...exception, ruleId: "another/rule" }).status,
+    1,
+  );
+  assert.equal(
+    check("8.1", finding, { ...exception, path: "other.js" }).status,
+    1,
+  );
+  assert.equal(
+    check("8.1", finding, { ...exception, sha256: "0".repeat(64) }).status,
+    1,
+  );
+  assert.equal(
+    check("8.1", finding, { ...exception, expires: "2020-01-01" }).status,
+    1,
+  );
 });
 test("Medium findings remain visible without blocking", () =>
   assert.equal(check("6.5").status, 0));

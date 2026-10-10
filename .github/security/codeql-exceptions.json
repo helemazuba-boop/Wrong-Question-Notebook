@@ -1,0 +1,115 @@
+{
+  "exceptions": [
+    {
+      "ruleId": "js/insufficient-password-hash",
+      "path": "web/lib/api-token.ts",
+      "sha256": "4d181b109e028578dbf130039a0d74cc71f85240cfe2ad75ade3728fbb3baa13",
+      "justification": "MCP bearer credentials are generated with randomBytes(32); SHA-256 stores a lookup digest of 256 random bits, never a human password.",
+      "expires": "2027-01-08",
+      "relatedSources": [
+        {
+          "path": "web/app/api/mcp-tokens/route.ts",
+          "sha256": "c3c9bf0ed39a540447072f7c933df99fc71069826d23fd6f849703c0b860e094"
+        }
+      ]
+    },
+    {
+      "ruleId": "js/insufficient-password-hash",
+      "path": "web/lib/oauth/service.ts",
+      "sha256": "c20eddae8d2640fb6a78539d9e418dfaf51aa931de37e588093c04200eba75ec",
+      "justification": "Access, refresh and authorization credentials are generated here with randomBytes(32). A SHA-256 lookup digest does not need a password KDF.",
+      "expires": "2027-01-08",
+      "relatedSources": []
+    },
+    {
+      "ruleId": "js/user-controlled-bypass",
+      "path": "web/app/[locale]/auth/confirm/route.ts",
+      "sha256": "b9b4afb4cbc68825ad13e403a42cc660302507f533c4db57a70ed33b4c46ed02",
+      "justification": "The condition chooses the OTP protocol; verifyOtp validates the secret before Supabase creates a session. Presence of a query parameter grants no authority.",
+      "expires": "2027-01-08",
+      "relatedSources": []
+    },
+    {
+      "ruleId": "js/user-controlled-bypass",
+      "path": "web/app/auth/callback/route.ts",
+      "sha256": "781486b182875e31bd36a4e221a2e87cf28a5fbd6f478695578d2c8ddcbae51c",
+      "justification": "Conditions select PKCE versus OTP. exchangeCodeForSession or verifyOtp validates the secret before returning a session; failure returns an error redirect.",
+      "expires": "2027-01-08",
+      "relatedSources": []
+    },
+    {
+      "ruleId": "java/android/websettings-javascript-enabled",
+      "path": "android/app/src/main/java/cn/helema/wqn/WebViewConfig.kt",
+      "sha256": "7a86354b5ca9056d91158f97c9e78d37bab54df566c3f9947e509af9d6ad789b",
+      "justification": "The Next.js application requires JavaScript. The bridged WebView loads only trusted HTTPS URLs; external navigation opens outside it. Mixed content and file access are disabled, and the web CSP limits frames to self.",
+      "expires": "2027-01-08",
+      "relatedSources": [
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/Site.kt",
+          "sha256": "b12091923196206ab98798575c7c5ec6c1a2420281d14e0a19e76fd6eda8dea9"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/JsBridge.kt",
+          "sha256": "1b479adf5a45ee765e73f70df5ed771ec8d7ad25e2b735ef80f6afa7da0d81df"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/WqnWebViewClient.kt",
+          "sha256": "0275e5c22961668bcb032a5d7784c84ddaa04d77d295b268212808e714814ba4"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/WqnWebChromeClient.kt",
+          "sha256": "6b3c6a31f9504c1e6d738442c960724489685924b738d14ec6b0efb5585a04ef"
+        },
+        {
+          "path": "android/app/src/main/AndroidManifest.xml",
+          "sha256": "7ba077cb1c7b86c5a3b0a540147ec1677019550d1a035e31a63082b4f43b9d51"
+        },
+        {
+          "path": "web/lib/security-policy.ts",
+          "sha256": "a3d71bcbb45c394fd4b6c8c124f2ba0c8ebcb8d2ebb00c12e85ec4798f284671"
+        },
+        {
+          "path": "web/next.config.ts",
+          "sha256": "36a2a342a35ca9113a532c6dc87dd71b21ec6d9c063da2850db1df1d455bdc12"
+        }
+      ]
+    },
+    {
+      "ruleId": "java/android/webview-addjavascriptinterface",
+      "path": "android/app/src/main/java/cn/helema/wqn/MainActivity.kt",
+      "sha256": "6b62324ea038d4a328b4d050cc334471b32a85d62e0018ca3775fd75069044b9",
+      "justification": "This app requires the annotated print/error bridge on API 30+. It exposes only system printing and a local error overlay. HTTPS host checks constrain deep links, restores, popups and navigation; CSP confines frames to self. Related source hashes protect these controls.",
+      "expires": "2027-01-08",
+      "relatedSources": [
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/Site.kt",
+          "sha256": "b12091923196206ab98798575c7c5ec6c1a2420281d14e0a19e76fd6eda8dea9"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/JsBridge.kt",
+          "sha256": "1b479adf5a45ee765e73f70df5ed771ec8d7ad25e2b735ef80f6afa7da0d81df"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/WqnWebViewClient.kt",
+          "sha256": "0275e5c22961668bcb032a5d7784c84ddaa04d77d295b268212808e714814ba4"
+        },
+        {
+          "path": "android/app/src/main/java/cn/helema/wqn/WqnWebChromeClient.kt",
+          "sha256": "6b3c6a31f9504c1e6d738442c960724489685924b738d14ec6b0efb5585a04ef"
+        },
+        {
+          "path": "android/app/src/main/AndroidManifest.xml",
+          "sha256": "7ba077cb1c7b86c5a3b0a540147ec1677019550d1a035e31a63082b4f43b9d51"
+        },
+        {
+          "path": "web/lib/security-policy.ts",
+          "sha256": "a3d71bcbb45c394fd4b6c8c124f2ba0c8ebcb8d2ebb00c12e85ec4798f284671"
+        },
+        {
+          "path": "web/next.config.ts",
+          "sha256": "36a2a342a35ca9113a532c6dc87dd71b21ec6d9c063da2850db1df1d455bdc12"
+        }
+      ]
+    }
+  ]
+}

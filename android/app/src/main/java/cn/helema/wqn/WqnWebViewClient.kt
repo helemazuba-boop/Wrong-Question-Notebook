@@ -43,8 +43,7 @@ class WqnWebViewClient(
 
         when (scheme) {
             "http", "https" -> {
-                val host = uri.host
-                return if (Site.isOwnHost(host)) {
+                return if (Site.isOwnUrl(uri.toString())) {
                     // In-site navigation: let WebView handle it
                     false
                 } else {
@@ -70,7 +69,7 @@ class WqnWebViewClient(
                     context.startActivity(intent)
                     return true
                 } catch (_: Exception) {
-                    return false
+                    return true
                 }
             }
         }
@@ -85,7 +84,7 @@ class WqnWebViewClient(
                 val fallbackUrl = intent.getStringExtra("browser_fallback_url")
                 if (!fallbackUrl.isNullOrEmpty()) {
                     val fallbackUri = Uri.parse(fallbackUrl)
-                    if (Site.isOwnHost(fallbackUri.host)) {
+                    if (Site.isOwnUrl(fallbackUri.toString())) {
                         view.loadUrl(fallbackUrl)
                     } else {
                         launchExternalUrl(context, fallbackUri)
