@@ -21,6 +21,7 @@ values = {
     'SITE_URL': 'https://wqn.e2e.test:8443',
     'WQN_E2E_BASE_URL': 'https://wqn.e2e.test:8443',
     'NODE_EXTRA_CA_CERTS': str(local / 'certs/ca.crt'),
+    'PLAYWRIGHT_FIREFOX_POLICIES_JSON': str(local / 'certs/firefox-policies.json'),
     'NEXT_TELEMETRY_DISABLED': '1',
 }
 os.umask(0o077)
