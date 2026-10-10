@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - release/note-baseline-prod
+      - 'ci/**'
 
 permissions:
   contents: read

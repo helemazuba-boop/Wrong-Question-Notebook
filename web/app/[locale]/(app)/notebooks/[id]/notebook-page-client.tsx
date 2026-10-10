@@ -754,7 +754,11 @@ export default function NotebookPageClient({
               </p>
             </div>
             {notes.map(note => (
-              <Card key={note.id} className="rounded-lg shadow-sm">
+              <Card
+                key={note.id}
+                data-testid="note-card"
+                className="rounded-lg shadow-sm"
+              >
                 <CardHeader className="space-y-3 border-b p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-2">
@@ -965,6 +969,7 @@ export default function NotebookPageClient({
                 ref={imageInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
+                aria-label="笔记图片"
                 multiple
                 className="hidden"
                 onChange={event =>

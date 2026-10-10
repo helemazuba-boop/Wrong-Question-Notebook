@@ -66,6 +66,10 @@ next-env.d.ts
 playwright-report/
 test-results/
 blob-report/
+artifacts/
+.ci-local/
+playwright/.auth/
+__pycache__/
 
 # Optional stylelint cache
 .stylelintcache

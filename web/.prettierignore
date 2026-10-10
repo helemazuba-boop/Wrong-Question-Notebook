@@ -104,3 +104,5 @@ vendor/
 # either break the pin or drift the two copies apart while looking like a
 # formatting change.
 contracts/
+playwright-report/
+test-results/

@@ -1,0 +1,113 @@
+name: Container CI
+on:
+  pull_request:
+  push:
+    branches: [main, release/note-baseline-prod, "ci/**"]
+  schedule:
+    - cron: "20 19 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  containers:
+    name: Container (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: web
+            dockerfile: web/Dockerfile
+            port: 3000
+            health: /api/health
+          - image: realtime-proxy
+            dockerfile: web/Dockerfile.realtime
+            port: 8080
+            health: /health
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: sb_publishable_ci_placeholder
+      WQN_SUPABASE_EXPECTED_HOST: ci.invalid
+      SITE_URL: https://ci.invalid
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - name: Generate an ephemeral Server Actions encryption key
+        run: |
+          mkdir -p artifacts
+          key=$(openssl rand -base64 32)
+          echo "::add-mask::$key"
+          echo "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: ${{ matrix.dockerfile }}
+          load: true
+          push: false
+          tags: wqn-ci:${{ matrix.image }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          secret-envs: next_server_actions_encryption_key=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=https://ci.invalid
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=sb_publishable_ci_placeholder
+            WQN_SUPABASE_EXPECTED_HOST=ci.invalid
+            SITE_URL=https://ci.invalid
+      - name: Verify sharp native runtime in the Web image
+        if: matrix.image == 'web'
+        run: docker run --rm --entrypoint node wqn-ci:web -e 'require("sharp")({create:{width:8,height:8,channels:3,background:"white"}}).png().toBuffer().then(b=>{if(!b.length)process.exit(1)})'
+      - name: Start the final image and verify health
+        env:
+          IMAGE: ${{ matrix.image }}
+          PORT: ${{ matrix.port }}
+          HEALTH: ${{ matrix.health }}
+        run: |
+          docker run --detach --name wqn-ci --publish "127.0.0.1:$PORT:$PORT" \
+            -e SUPABASE_SECRET_KEY=ci_runtime_placeholder \
+            -e STEP_API_KEY=ci_provider_placeholder "wqn-ci:$IMAGE"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:$PORT$HEALTH" > artifacts/health.json; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs wqn-ci
+          exit 1
+      - name: Verify the realtime proxy rejects an unsupported upgrade
+        if: matrix.image == 'realtime-proxy'
+        run: |
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Connection: Upgrade' -H 'Upgrade: websocket' http://127.0.0.1:8080/api/esp32/realtime)
+          test "$code" = 426
+      - name: Install pinned Trivy
+        run: |
+          version=0.75.0
+          curl --fail --location --retry 3 -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_Linux-64bit.tar.gz"
+          curl --fail --location --retry 3 -o /tmp/trivy-checksums.txt "https://github.com/aquasecurity/trivy/releases/download/v$version/trivy_${version}_checksums.txt"
+          cd /tmp
+          expected=$(awk '/Linux-64bit.tar.gz$/ {print $1}' trivy-checksums.txt)
+          echo "$expected  trivy.tar.gz" | sha256sum --check
+          tar -xzf trivy.tar.gz trivy
+          sudo install trivy /usr/local/bin/trivy
+      - name: Scan final image vulnerabilities and secrets
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: trivy image --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --format json --output artifacts/trivy.json "wqn-ci:$IMAGE"
+      - name: Generate the image software inventory
+        if: always()
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: trivy image --format cyclonedx --output artifacts/sbom.cdx.json "wqn-ci:$IMAGE"
+      - name: Collect container logs
+        if: always()
+        run: docker logs wqn-ci > artifacts/container.log 2>&1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: container-${{ matrix.image }}
+          path: artifacts/
+          retention-days: 14
+      - name: Stop test container
+        if: always()
+        run: docker rm --force wqn-ci

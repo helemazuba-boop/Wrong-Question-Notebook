@@ -11,6 +11,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.webkit.WebViewAssetLoader
 import cn.helema.wqn.prefs.AppPrefs
 
 class WqnWebViewClient(
@@ -20,6 +21,16 @@ class WqnWebViewClient(
     private val onPageFinishedListener: (url: String) -> Unit,
     private val onRendererCrash: () -> Unit
 ) : WebViewClient() {
+
+    private val testAssets by lazy {
+        WebViewAssetLoader.Builder()
+            .setDomain(Site.HOST)
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .build()
+    }
+
+    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+        if (BuildConfig.WQN_CI_ASSETS) testAssets.shouldInterceptRequest(request.url) else null
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         // API routes and sub-resources must not be intercepted

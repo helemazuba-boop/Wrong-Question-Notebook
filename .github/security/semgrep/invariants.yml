@@ -1,0 +1,23 @@
+rules:
+  - id: tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Trust a specific CA instead of disabling TLS verification.
+    pattern-either:
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      - pattern: |
+          new $AGENT({..., rejectUnauthorized: false, ...})
+  - id: dynamic-code-execution
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Dynamic code execution needs an explicit reviewed exception.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: webview-ssl-error-bypass
+    languages: [kotlin, java]
+    severity: ERROR
+    message: Never proceed past a WebView certificate validation failure.
+    pattern: $HANDLER.proceed()
+    paths:
+      include: ["*WebViewClient*", "*invariants.java"]

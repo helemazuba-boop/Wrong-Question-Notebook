@@ -11,7 +11,7 @@ WORKDIR /app
 RUN apk add --no-cache libc6-compat
 
 COPY server/realtime-proxy/package.json server/realtime-proxy/package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts || npm install --omit=dev --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts
 
 # ============================================================
 # Stage 2: runtime (Node.js, NOT Bun)
@@ -26,9 +26,7 @@ RUN addgroup -S -g 1001 wqn 2>/dev/null || true \
 COPY --from=deps --chown=wqn:wqn /app/node_modules ./node_modules
 COPY --from=deps --chown=wqn:wqn /app/package.json ./package.json
 
-# tsx is needed to run TypeScript without a separate build step.
-# It's a devDep so --omit=dev excluded it; install explicitly.
-RUN npm install tsx --no-save
+# tsx is a locked production dependency installed in the deps stage.
 
 # Preserve the source layout because the relay imports the dependency-free
 # voice tool projection (lib/ai-tools/voice-tools.ts) and the MCP catalog it
@@ -50,4 +48,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 
 WORKDIR /app
-CMD ["npx", "tsx", "server/realtime-proxy/src/index.ts"]
+CMD ["node", "--import", "tsx", "server/realtime-proxy/src/index.ts"]

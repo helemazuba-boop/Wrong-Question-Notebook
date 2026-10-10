@@ -4,14 +4,15 @@ import java.util.Locale
 
 /** Constants that describe the hosted site this shell wraps. */
 object Site {
-    const val HOST = "wqn.helema.cn"
-    const val BASE_URL = "https://wqn.helema.cn"
+    const val HOST = BuildConfig.WQN_SITE_HOST
+    const val BASE_URL = "https://$HOST"
 
     /**
      * The site always prefixes the locale (next-intl `prefix: 'always'`), so `/`
      * would only 307-redirect to `/en`. Never load the bare origin.
      */
-    fun startUrl(locale: String): String = "$BASE_URL/$locale"
+    fun startUrl(locale: String): String =
+        if (BuildConfig.WQN_CI_ASSETS) "$BASE_URL/assets/ci.html" else "$BASE_URL/$locale"
 
     fun isOwnHost(host: String?): Boolean =
         host == HOST || host?.endsWith(".helema.cn") == true || host == "helema.cn"

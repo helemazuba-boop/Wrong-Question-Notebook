@@ -5,7 +5,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['**/__tests__/**/*.test.ts'],
+    include: [
+      '**/__tests__/**/*.test.ts',
+      'server/realtime-proxy/tests/**/*.test.ts',
+    ],
     isolate: true,
     coverage: {
       provider: 'v8',

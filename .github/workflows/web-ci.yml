@@ -2,14 +2,14 @@ name: Web CI
 
 on:
   pull_request:
-    paths:
-      - 'web/**'
   push:
     branches:
       - main
       - release/note-baseline-prod
-    paths:
-      - 'web/**'
+      - "ci/**"
+  schedule:
+    - cron: "20 18 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -77,7 +77,7 @@ jobs:
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: sb_publishable_ci_placeholder
       WQN_SUPABASE_EXPECTED_HOST: ci.invalid
       SITE_URL: https://ci.invalid
-      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -99,8 +99,12 @@ jobs:
         run: npm run check:client-bundle-secrets
 
   dependency-audit:
-    name: Dependency audit
+    name: Dependency audit (${{ matrix.package }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [web, realtime-proxy]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -110,13 +114,23 @@ jobs:
         with:
           node-version: 24
 
-      # The advisory database is queried against the lockfile, so no install
-      # is needed. Production dependencies must stay clean.
-      - name: Block on production vulnerabilities
-        run: npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org
+      - name: Verify audit policy
+        working-directory: .
+        run: node --test .github/scripts/audit-policy.test.mjs
 
-      # Dev-only chains (eslint-config-next -> braces, GHSA-vfj7-8cjw-p6xm,
-      # no fixed release yet) are reported but not blocking.
-      - name: Report full audit (dev included)
-        continue-on-error: true
-        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+      - name: Audit locked production and development dependencies
+        working-directory: .
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          directory=web
+          if [ "$PACKAGE" = realtime-proxy ]; then directory=web/server/realtime-proxy; fi
+          node .github/scripts/audit-policy.mjs "$directory" "artifacts/audit/$PACKAGE"
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-audit-${{ matrix.package }}
+          path: artifacts/audit/${{ matrix.package }}
+          retention-days: 14

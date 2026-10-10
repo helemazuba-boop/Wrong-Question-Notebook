@@ -1,0 +1,49 @@
+name: Database CI
+on:
+  pull_request:
+  push:
+    branches: [main, release/note-baseline-prod, "ci/**"]
+  schedule:
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  database:
+    name: Database (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [clean, upgrade]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.120.0
+      - name: Apply migrations from an empty database
+        if: matrix.mode == 'clean'
+        run: |
+          bash web/scripts/ci/supabase.sh prepare
+          bash web/scripts/ci/supabase.sh start
+          bash web/scripts/ci/supabase.sh test
+      - name: Upgrade an existing database and verify preserved data
+        if: matrix.mode == 'upgrade'
+        env:
+          WQN_MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash web/scripts/ci/supabase.sh upgrade
+      - name: Save database logs
+        if: failure()
+        run: docker logs supabase_db_wqn-ci > artifacts/database.log 2>&1
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: database-${{ matrix.mode }}-logs
+          path: artifacts/database.log
+          retention-days: 7
+      - name: Stop temporary database
+        if: always()
+        run: bash web/scripts/ci/supabase.sh stop
