@@ -146,6 +146,13 @@ export { expect };
 
 export async function startStudy(page: Page, data: Data) {
   await page.goto(`/en/words/study/new?deck=${data.studyDeckId}`);
+  // Long deck and subject names must not expand the mobile page or move the
+  // count selector beyond the visual viewport.
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1
+    )
+  ).toBeTruthy();
   await page.getByLabel('本次数量', { exact: true }).click();
   await page.getByRole('option', { name: /^10\s*词$/ }).click();
   const response = page.waitForResponse(
