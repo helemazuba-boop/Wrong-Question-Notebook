@@ -82,6 +82,12 @@ export default async function globalSetup() {
       }
       await login(page, email, password);
       await expect(page).toHaveURL(/\/en\/subjects/);
+      const rejectCookies = page.getByRole('button', {
+        name: 'Reject all',
+        exact: true,
+      });
+      await rejectCookies.click();
+      await expect(rejectCookies).toBeHidden();
       await context.storageState({
         path: path.join(directory, `${name}.json`),
       });
