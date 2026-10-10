@@ -7,6 +7,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   failOnFlakyTests: !!process.env.CI,
   workers: 1,
+  maxFailures: process.env.CI ? 3 : 0,
   retries: process.env.CI ? 1 : 0,
   timeout: 60_000,
   globalTimeout: 20 * 60_000,
@@ -31,6 +32,8 @@ export default defineConfig({
   webServer: [
     {
       command: 'npm run start',
+      stdout: 'pipe',
+      stderr: 'pipe',
       url: 'http://127.0.0.1:3000/api/health',
       timeout: 120_000,
       reuseExistingServer: false,

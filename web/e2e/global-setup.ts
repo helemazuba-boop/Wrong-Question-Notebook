@@ -50,7 +50,7 @@ export default async function globalSetup() {
         baseURL: process.env.WQN_E2E_BASE_URL,
       });
       const page = await context.newPage();
-      const response = await page.goto('/en/auth/login?redirect=/notebooks');
+      const response = await page.goto('/en/auth/login?redirect=/subjects');
       try {
         await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
       } catch (error) {
@@ -68,7 +68,7 @@ export default async function globalSetup() {
         throw error;
       }
       await login(page, email, password);
-      await expect(page).toHaveURL(/\/en\/notebooks/);
+      await expect(page).toHaveURL(/\/en\/subjects/);
       await context.storageState({
         path: path.join(directory, `${name}.json`),
       });

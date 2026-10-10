@@ -146,7 +146,8 @@ export { expect };
 
 export async function startStudy(page: Page, data: Data) {
   await page.goto(`/en/words/study/new?deck=${data.studyDeckId}`);
-  await page.getByLabel('本次数量', { exact: true }).fill('2');
+  await page.getByLabel('本次数量', { exact: true }).click();
+  await page.getByRole('option', { name: /^10\s*词$/ }).click();
   const response = page.waitForResponse(
     response =>
       response.url().endsWith('/api/words/study/sessions') &&

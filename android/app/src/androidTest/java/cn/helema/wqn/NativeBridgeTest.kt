@@ -27,6 +27,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.CountDownLatch
@@ -42,6 +43,7 @@ class NativeBridgeTest {
         assertTrue("Build instrumentation with -PwqnCiAssets=true", BuildConfig.WQN_CI_ASSETS)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         awaitJs("document.title", "\"WQN CI fixture\"")
+        awaitJs("window.__wqnPrintInstalled === true", "true")
     }
 
     @After fun closeFixture() {
@@ -72,6 +74,21 @@ class NativeBridgeTest {
         assertEquals(expected, actual)
     }
 
+    private fun tapElement(selector: String) {
+        val point = JSONObject(js("(() => { const r = document.querySelector('$selector').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2, viewport: window.innerWidth}; })()"))
+        var x = 0
+        var y = 0
+        scenario.onActivity {
+            val view = it.findViewById<WebView>(R.id.webView)
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val scale = view.width / point.getDouble("viewport")
+            x = location[0] + (point.getDouble("x") * scale).toInt()
+            y = location[1] + (point.getDouble("y") * scale).toInt()
+        }
+        assertTrue("Native touch was not injected", device.click(x, y))
+    }
+
     @Test fun fixtureLoadsWithTheProductionWebViewSettingsAndBridge() {
         assertEquals("\"function\"", js("typeof window.WQNAndroid.print"))
         assertEquals("true", js("window.__wqnPrintInstalled === true"))
@@ -86,7 +103,11 @@ class NativeBridgeTest {
     @Test fun backNavigatesWithinTheWebView() {
         js("document.querySelector('#next').click()")
         awaitJs("document.title", "\"WQN CI second\"")
-        device.pressBack()
+        awaitJs("window.__wqnPrintInstalled === true", "true")
+        scenario.onActivity {
+            assertTrue(it.findViewById<WebView>(R.id.webView).canGoBack())
+            it.onBackPressedDispatcher.onBackPressed()
+        }
         awaitJs("document.title", "\"WQN CI fixture\"")
     }
 
@@ -108,7 +129,7 @@ class NativeBridgeTest {
         try {
             intending(hasAction(Intent.ACTION_GET_CONTENT)).respondWith(
                 ActivityResult(Activity.RESULT_OK, Intent().setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)))
-            js("document.querySelector('#upload').click()")
+            tapElement("#upload")
             awaitJs("window.selectedFile", "\"wqn-ci.csv\"")
         } finally {
             Intents.release()
@@ -126,7 +147,7 @@ class NativeBridgeTest {
         val server = MockWebServer()
         server.enqueue(MockResponse().setHeader("Content-Type", "text/csv").setBody("word,meaning\napple,fruit\n"))
         server.start()
-        val url = server.url("/wqn-ci.csv").toString()
+        val url = server.url("/wqn-ci.csv").newBuilder().host("127.0.0.1").build().toString()
         val context = instrumentation.targetContext
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         var downloadId = -1L
@@ -147,7 +168,11 @@ class NativeBridgeTest {
                     while (cursor.moveToNext()) {
                         if (cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) == url) {
                             downloadId = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
-                            completed = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
+                            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                            if (status == DownloadManager.STATUS_FAILED) {
+                                fail("Download failed: " + cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)))
+                            }
+                            completed = status == DownloadManager.STATUS_SUCCESSFUL
                         }
                     }
                 }
