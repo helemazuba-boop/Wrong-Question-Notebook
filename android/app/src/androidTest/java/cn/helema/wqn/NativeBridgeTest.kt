@@ -101,11 +101,19 @@ class NativeBridgeTest {
     }
 
     @Test fun backNavigatesWithinTheWebView() {
-        js("document.querySelector('#next').click()")
+        tapElement("#next")
         awaitJs("document.title", "\"WQN CI second\"")
         awaitJs("window.__wqnPrintInstalled === true", "true")
+        // Wait for Chromium to commit the user-initiated history entry before
+        // exercising the Activity's real back callback.
+        val deadline = System.currentTimeMillis() + 10_000
+        var canGoBack = false
+        while (!canGoBack && System.currentTimeMillis() < deadline) {
+            scenario.onActivity { canGoBack = it.findViewById<WebView>(R.id.webView).canGoBack() }
+            if (!canGoBack) Thread.sleep(100)
+        }
+        assertTrue("User navigation did not create a WebView history entry", canGoBack)
         scenario.onActivity {
-            assertTrue(it.findViewById<WebView>(R.id.webView).canGoBack())
             it.onBackPressedDispatcher.onBackPressed()
         }
         awaitJs("document.title", "\"WQN CI fixture\"")
