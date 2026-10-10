@@ -1,10 +1,10 @@
 {
-  "name": "WQN release CI gates",
+  "name": "WQN main and release CI gates",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
     "ref_name": {
-      "include": ["refs/heads/release/note-baseline-prod"],
+      "include": ["refs/heads/main", "refs/heads/release/note-baseline-prod"],
       "exclude": []
     }
   },

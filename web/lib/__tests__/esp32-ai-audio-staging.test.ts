@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   analyzePcmS16le,
   pcmS16leToWavBuffer,
+  stageEsp32AiAudioFile,
 } from '@/lib/esp32-ai-audio-staging';
 
 function exactArrayBuffer(buffer: Buffer): ArrayBuffer {
@@ -12,6 +16,28 @@ function exactArrayBuffer(buffer: Buffer): ArrayBuffer {
 }
 
 describe('ESP32 AI PCM diagnostics', () => {
+  it('stores temporary voice recordings with owner-only permissions', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wqn-audio-permissions-'));
+    vi.stubEnv('WQN_ESP32_AI_AUDIO_TMP_DIR', directory);
+    vi.stubEnv(
+      'WQN_ESP32_AI_AUDIO_URL_SECRET',
+      'ephemeral-test-signing-secret'
+    );
+    try {
+      const recording = await stageEsp32AiAudioFile({
+        audio: exactArrayBuffer(Buffer.alloc(32)),
+        sampleRate: 16000,
+        channels: 1,
+        publicBaseUrl: 'https://example.invalid',
+        ttlMs: 60000,
+      });
+      expect((await stat(recording.filePath)).mode & 0o777).toBe(0o600);
+      await recording.cleanup();
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('records bytes, duration, peak, RMS, zero-sample ratio, DC offset, and clip ratio', () => {
     const pcm = Buffer.alloc(8);
     [0, -1000, 2000, 0].forEach((sample, index) => {

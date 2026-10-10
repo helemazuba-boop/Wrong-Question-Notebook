@@ -19,12 +19,16 @@ export async function GET(request: NextRequest) {
   const redirectPath = getSafeAuthRedirect(params.get('next'));
   const supabase = await createClient();
 
+  // Presence selects the Auth protocol; Supabase verifies the credential before creating a session.
+  // codeql[js/user-controlled-bypass]
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) return errorRedirect(request, error.message);
     return NextResponse.redirect(new URL(redirectPath, request.url));
   }
 
+  // Presence selects the Auth protocol; Supabase verifies the credential before creating a session.
+  // codeql[js/user-controlled-bypass]
   if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,

@@ -40,12 +40,15 @@ jobs:
           java-version: "17"
       - name: Install Android SDK
         if: matrix.language == 'java-kotlin'
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
+          config-file: .github/security/codeql-config.yml
       - name: Build Android for Kotlin analysis
         if: matrix.language == 'java-kotlin'
         working-directory: android

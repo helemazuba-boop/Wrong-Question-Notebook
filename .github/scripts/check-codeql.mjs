@@ -25,12 +25,21 @@ for (const file of reports) {
     ) {
       throw new Error(`CodeQL analysis failed: ${file}`);
     }
-    const rules = run.tool.driver.rules || [];
+    const components = [run.tool.driver, ...(run.tool.extensions || [])];
     for (const result of run.results || []) {
       count++;
+      const component = result.rule?.toolComponent;
+      const owner =
+        component?.index !== undefined
+          ? run.tool.extensions?.[component.index]
+          : component?.name
+            ? components.find((entry) => entry.name === component.name)
+            : run.tool.driver;
+      const rules = owner?.rules || [];
+      const ruleId = result.rule?.id || result.ruleId;
       const rule =
-        rules.find((rule) => rule.id === result.ruleId) ||
-        rules[result.ruleIndex];
+        rules.find((entry) => entry.id === ruleId) ||
+        rules[result.rule?.index ?? result.ruleIndex];
       if (!rule)
         throw new Error(`Missing CodeQL rule descriptor: ${result.ruleId}`);
       const severity = Number(rule.properties?.["security-severity"] || 0);

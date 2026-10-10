@@ -25,5 +25,7 @@ export function isValidApiToken(token: string): boolean {
  * offset with a slow KDF (same reasoning as esp32-token.ts).
  */
 export function hashApiToken(token: string): string {
+  // MCP credentials contain 256 random bits; this is a token lookup digest, never a password KDF.
+  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(token).digest('hex');
 }

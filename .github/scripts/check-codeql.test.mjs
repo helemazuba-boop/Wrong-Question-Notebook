@@ -50,3 +50,28 @@ test("failed analyses and incomplete rule descriptors are rejected", () => {
   );
   assert.equal(check("5", { tool: { driver: { rules: [] } } }).status, 1);
 });
+
+test("CodeQL query-pack extension descriptors enforce the same threshold", () => {
+  const extension = (severity) => ({
+    tool: {
+      driver: { rules: [] },
+      extensions: [
+        {
+          name: "codeql/javascript-queries",
+          rules: [
+            { id: "test/rule", properties: { "security-severity": severity } },
+          ],
+        },
+      ],
+    },
+    results: [
+      {
+        ruleId: "test/rule",
+        rule: { id: "test/rule", index: 0, toolComponent: { index: 0 } },
+        message: { text: "Extension finding" },
+      },
+    ],
+  });
+  assert.equal(check("0", extension("8.1")).status, 1);
+  assert.equal(check("0", extension("6.5")).status, 0);
+});

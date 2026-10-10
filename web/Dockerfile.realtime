@@ -36,6 +36,9 @@ COPY --chown=wqn:wqn server/realtime-proxy/src ./server/realtime-proxy/src
 COPY --chown=wqn:wqn lib/ai-tools/voice-tools.ts ./lib/ai-tools/voice-tools.ts
 COPY --chown=wqn:wqn lib/mcp/tool-catalog.ts ./lib/mcp/tool-catalog.ts
 
+# The runtime only executes Node; remove npm and its unused dependency tree.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 USER wqn
 
 ENV NODE_ENV=production

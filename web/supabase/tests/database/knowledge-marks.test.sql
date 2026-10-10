@@ -1,6 +1,6 @@
 begin;
 
-select plan(95);
+select plan(99);
 
 select has_table(
   'public',
@@ -50,7 +50,7 @@ select policies_are(
 select policies_are(
   'public',
   'problem_marks',
-  array['problem_marks_visible_problem_select'],
+  array['problem_marks_visible_problem_select', 'problem_marks_owner_insert', 'problem_marks_owner_update', 'problem_marks_owner_delete'],
   'problem marks reuse problem visibility'
 );
 
@@ -422,13 +422,15 @@ select throws_ok(
   null,
   'authenticated users cannot write canonical marks'
 );
-select throws_ok(
+select lives_ok(
   $$insert into public.problem_marks (problem_id, mark_key, role, part_index)
     values ('c0000000-0000-4000-8000-000000000001', 'math.skill.parameter_separation', 'required', null)$$,
-  '42501',
-  null,
-  'authenticated users cannot write problem marks'
+  'the owner can correct their problem marks'
 );
+-- Keep later cardinality assertions independent of this correction.
+delete from public.problem_marks
+where problem_id = 'c0000000-0000-4000-8000-000000000001'
+  and mark_key = 'math.skill.parameter_separation' and part_index is null;
 select is(
   has_function_privilege(
     'authenticated',
@@ -499,6 +501,12 @@ select is(
   ),
   0,
   'unshared authenticated users cannot read another user problem marks'
+);
+select throws_ok(
+  $$insert into public.problem_marks (problem_id, mark_key, role, part_index)
+    values ('c0000000-0000-4000-8000-000000000001', 'math.skill.parameter_separation', 'required', null)$$,
+  '42501', null,
+  'a non-owner cannot correct another user problem marks'
 );
 
 reset role;
@@ -988,5 +996,32 @@ select is(
   'inheritance failure leaves destination annotation pending'
 );
 
+-- A processing worker keeps its lease when the objective Problem advances.
+update public.problems set title = 'Processing revision'
+where id = 'c0000000-0000-4000-8000-000000000003';
+create temporary table processing_claim as
+select public.claim_problem_mark_annotation('c0000000-0000-4000-8000-000000000003', 120) as payload;
+select public.prepare_problem_mark_annotation(
+  'c0000000-0000-4000-8000-000000000003',
+  (select semantic_revision from public.problems where id = 'c0000000-0000-4000-8000-000000000003'),
+  (select (payload ->> 'lease_token')::uuid from processing_claim)
+);
+update public.problems set title = 'Next semantic revision'
+where id = 'c0000000-0000-4000-8000-000000000003';
+select is(
+  (select lease_token::text from public.problem_mark_annotations where problem_id = 'c0000000-0000-4000-8000-000000000003'),
+  (select payload ->> 'lease_token' from processing_claim),
+  'a processing worker keeps its live lease after a semantic edit'
+);
+select is(
+  (select semantic_revision from public.problem_mark_annotations where problem_id = 'c0000000-0000-4000-8000-000000000003'),
+  (select semantic_revision from public.problems where id = 'c0000000-0000-4000-8000-000000000003'),
+  'the pending annotation head advances to the new semantic revision'
+);
+select is(
+  (select count(*)::integer from public.problem_mark_enqueue_errors where problem_id = 'c0000000-0000-4000-8000-000000000003'),
+  0,
+  'semantic edits do not record a missing lease field error'
+);
 select * from finish();
 rollback;

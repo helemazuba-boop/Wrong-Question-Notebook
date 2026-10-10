@@ -280,8 +280,8 @@ select is(
     from public.get_subjects_with_metadata()
     where id = 'b1000000-0000-4000-8000-000000000002'
   ),
-  1,
-  'a foreign problem planted in the caller''s subject is not counted'
+  2,
+  'both owned problems count, while a foreign planted problem does not'
 );
 
 select is(

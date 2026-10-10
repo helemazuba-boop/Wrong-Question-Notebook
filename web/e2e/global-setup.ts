@@ -50,7 +50,23 @@ export default async function globalSetup() {
         baseURL: process.env.WQN_E2E_BASE_URL,
       });
       const page = await context.newPage();
-      await page.goto('/en/auth/login?redirect=/notebooks');
+      const response = await page.goto('/en/auth/login?redirect=/notebooks');
+      try {
+        await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+      } catch (error) {
+        await mkdir('test-results', { recursive: true });
+        await page.screenshot({
+          path: 'test-results/setup-login.png',
+          fullPage: true,
+        });
+        console.error('Login page diagnostic', {
+          status: response?.status(),
+          url: page.url(),
+          title: await page.title(),
+          text: (await page.locator('body').innerText()).slice(0, 2000),
+        });
+        throw error;
+      }
       await login(page, email, password);
       await expect(page).toHaveURL(/\/en\/notebooks/);
       await context.storageState({
