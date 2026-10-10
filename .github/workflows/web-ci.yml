@@ -18,6 +18,9 @@ defaults:
   run:
     working-directory: web
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   checks:
     name: Type-check, lint, format
