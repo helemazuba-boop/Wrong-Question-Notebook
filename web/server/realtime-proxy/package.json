@@ -9,13 +9,13 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.4",
+    "@supabase/supabase-js": "^2.117.3",
     "dotenv": "^17.4.2",
     "tsx": "4.23.15",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.10",
+    "@types/ws": "^8.18.2",
     "bun-types": "latest",
     "typescript": "^7.0.2"
   },
