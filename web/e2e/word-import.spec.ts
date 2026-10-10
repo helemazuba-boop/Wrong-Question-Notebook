@@ -38,9 +38,23 @@ for (const format of ['csv', 'xlsx']) {
         response.url().endsWith(`/decks/${data.importDeckId}/import`) &&
         response.request().method() === 'POST'
     );
+    const refreshedPage = page.waitForResponse(
+      response =>
+        new URL(response.url()).pathname ===
+          `/en/words/decks/${data.importDeckId}` &&
+        response.request().headers().rsc === '1'
+    );
     await page.getByRole('button', { name: '导入到词库', exact: true }).click();
     expect((await response).ok()).toBeTruthy();
     await expect(page.getByText('上次成功导入 2 条。')).toBeVisible();
+    // The success text precedes loadEntryPage and router.refresh. Wait for the
+    // refreshed page to finish so a real reload cannot race that navigation.
+    const refreshed = await refreshedPage;
+    expect(refreshed.ok()).toBeTruthy();
+    await refreshed.finished();
+    await expect(
+      page.getByRole('cell', { name: 'durable', exact: true })
+    ).toBeVisible();
     await page.reload();
     await expect(
       page.getByRole('cell', { name: 'durable', exact: true })
