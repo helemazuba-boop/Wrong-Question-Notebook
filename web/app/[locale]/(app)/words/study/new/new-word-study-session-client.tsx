@@ -172,13 +172,13 @@ export default function NewWordStudySessionClient({ decks }: Props) {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {selectableDecks.map(deck => {
                   const selected = selectedDeckIds.includes(deck.id);
                   return (
                     <label
                       key={deck.id}
-                      className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition-colors ${
+                      className={`flex min-w-0 cursor-pointer gap-3 rounded-lg border p-4 transition-colors ${
                         selected ? 'border-primary bg-primary/5' : ''
                       }`}
                     >
