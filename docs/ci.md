@@ -28,7 +28,9 @@ key is used only by setup, cleanup and database assertions.
 Requirements: Node 24, Docker, Supabase CLI 2.120.0, OpenSSL, PostgreSQL `psql`,
 and `certutil` (`libnss3-tools` on Ubuntu). Browser certificate setup uses sudo
 to trust a short-lived local CA and map two `.test` hosts. TLS verification and
-the production Supabase hostname guard remain enabled.
+the production Supabase hostname guard remain enabled. Firefox receives this
+ephemeral CA through its certificate installation policy, since Linux Firefox
+uses its own certificate store.
 
 ```bash
 # From the repository root. This starts and stops its own wqn-ci Supabase stack.

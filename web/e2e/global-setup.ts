@@ -1,4 +1,4 @@
-import { chromium, expect, type Page } from '@playwright/test';
+import { chromium, firefox, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
@@ -16,6 +16,21 @@ export default async function globalSetup() {
   const key = process.env.SUPABASE_SECRET_KEY;
   if (url !== 'https://supabase.e2e.test:8444' || !key)
     throw new Error('E2E requires the isolated local Supabase environment');
+  // Linux Firefox uses its own certificate store. Install only our ephemeral
+  // test CA through its documented policy; TLS verification remains enabled.
+  const policyDirectory = path.join(
+    path.dirname(firefox.executablePath()),
+    'distribution'
+  );
+  await mkdir(policyDirectory, { recursive: true });
+  await writeFile(
+    path.join(policyDirectory, 'policies.json'),
+    JSON.stringify({
+      policies: {
+        Certificates: { Install: [path.resolve('../.ci-local/certs/ca.crt')] },
+      },
+    })
+  );
   const admin = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
