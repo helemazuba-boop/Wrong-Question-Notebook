@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
   const redirectTo = request.nextUrl.clone();
   redirectTo.pathname = safePath;
 
+  // Presence selects the Auth protocol; Supabase verifies the credential before creating a session.
   if (token_hash && type) {
     const supabase = await createClient();
 

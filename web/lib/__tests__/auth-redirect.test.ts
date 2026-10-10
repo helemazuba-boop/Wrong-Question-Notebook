@@ -23,6 +23,12 @@ describe('getSafeAuthRedirect', () => {
     expect(getSafeAuthRedirect('//example.com')).toBe('/subjects');
     expect(getSafeAuthRedirect('javascript:alert(1)')).toBe('/subjects');
   });
+
+  it('rejects backslashes and control characters', () => {
+    expect(getSafeAuthRedirect('/\\example.com')).toBe('/subjects');
+    expect(getSafeAuthRedirect('/subjects\u0000')).toBe('/subjects');
+    expect(getSafeAuthRedirect('/subjects\nx-injected: 1')).toBe('/subjects');
+  });
 });
 
 describe('buildAuthCallbackUrl', () => {

@@ -227,9 +227,9 @@ export async function stageEsp32AiAudioFile(
     input.channels
   );
 
-  await mkdir(getTmpDir(), { recursive: true });
+  await mkdir(getTmpDir(), { recursive: true, mode: 0o700 });
   await cleanupExpiredAudioFiles();
-  await writeFile(filePath, wav, { flag: 'wx' });
+  await writeFile(filePath, wav, { flag: 'wx', mode: 0o600 });
 
   const diagnostics = analyzePcmS16le(
     input.audio,

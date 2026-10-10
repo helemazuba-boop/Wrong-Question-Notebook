@@ -66,6 +66,10 @@ next-env.d.ts
 playwright-report/
 test-results/
 blob-report/
+artifacts/
+.ci-local/
+playwright/.auth/
+__pycache__/
 
 # Optional stylelint cache
 .stylelintcache
@@ -166,12 +170,16 @@ firmware/
 
 # Local deploy helper cache
 deploy/.wqn-builder-config.hash
+deploy/.wqn-realtime-builder-config.hash
 
 # Self-hosted Supabase migration dumps and audit output contain production data
 deploy/supabase-selfhost/artifacts/
 
-# Claude
-.claude/settings.local.json
+# Local editor/agent tooling and debug artifacts (repo hygiene; see doc/1006-security-fix-plan.md B4)
+.claude/
+.vscode/
+.worktrees/
+serial_log*
 
 # Mac System files
 .DS_Store

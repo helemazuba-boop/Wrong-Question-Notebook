@@ -1,0 +1,67 @@
+name: Browser E2E
+on:
+  pull_request:
+  push:
+    branches: [main, release/note-baseline-prod, "ci/**"]
+  schedule:
+    - cron: "40 19 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  e2e:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.120.0
+      - run: npm ci
+        working-directory: web
+      - name: Install browser engines and certificate tools
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium firefox webkit
+          sudo apt-get install -y libnss3-tools
+      - name: Start an isolated Supabase stack
+        run: |
+          bash web/scripts/ci/supabase.sh prepare
+          bash web/scripts/ci/supabase.sh start
+      - name: Configure trusted HTTPS test origins
+        run: |
+          bash web/scripts/ci/e2e-certificates.sh trust
+          python3 web/scripts/ci/e2e-environment.py
+      - name: Build production application
+        working-directory: web
+        run: npm run build
+      - name: Exercise browser flows with real Auth, API, database and storage
+        working-directory: web
+        env:
+          FULL_BROWSER_MATRIX: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/ci/') }}
+        run: |
+          if [ "$FULL_BROWSER_MATRIX" = true ]; then
+            npm run test:e2e
+          else
+            npm run test:e2e -- --project=chromium --project=mobile-chromium
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-e2e-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 7
+      - name: Stop temporary Supabase
+        if: always()
+        run: bash web/scripts/ci/supabase.sh stop

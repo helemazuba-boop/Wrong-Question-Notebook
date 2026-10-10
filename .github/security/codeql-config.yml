@@ -1,0 +1,10 @@
+name: WQN application security
+# Intentional vulnerable rule fixtures and developer-only probes are validated
+# separately. Application sources remain in both security-extended analyses.
+paths-ignore:
+  - .github/security/semgrep
+  - web/**/__tests__
+  - web/e2e
+  - web/server/realtime-proxy/tests
+  - web/server/realtime-proxy/test-stepfun.ts
+  - web/server/realtime-proxy/test-stepfun-audio.ts

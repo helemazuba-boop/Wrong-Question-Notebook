@@ -1,0 +1,10 @@
+# Production code is scanned strictly; dedicated rule fixtures run with --test.
+**/__tests__/**
+**/tests/**
+web/e2e/**
+android/app/src/test/**
+android/app/src/androidTest/**
+**/node_modules/**
+**/build/**
+**/.next/**
+web/vendor/**

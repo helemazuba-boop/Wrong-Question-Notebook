@@ -11,6 +11,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.webkit.WebViewAssetLoader
 import cn.helema.wqn.prefs.AppPrefs
 
 class WqnWebViewClient(
@@ -20,6 +21,16 @@ class WqnWebViewClient(
     private val onPageFinishedListener: (url: String) -> Unit,
     private val onRendererCrash: () -> Unit
 ) : WebViewClient() {
+
+    private val testAssets by lazy {
+        WebViewAssetLoader.Builder()
+            .setDomain(Site.HOST)
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .build()
+    }
+
+    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+        if (BuildConfig.WQN_CI_ASSETS) testAssets.shouldInterceptRequest(request.url) else null
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         // API routes and sub-resources must not be intercepted
@@ -32,8 +43,7 @@ class WqnWebViewClient(
 
         when (scheme) {
             "http", "https" -> {
-                val host = uri.host
-                return if (Site.isOwnHost(host)) {
+                return if (Site.isOwnUrl(uri.toString())) {
                     // In-site navigation: let WebView handle it
                     false
                 } else {
@@ -59,7 +69,7 @@ class WqnWebViewClient(
                     context.startActivity(intent)
                     return true
                 } catch (_: Exception) {
-                    return false
+                    return true
                 }
             }
         }
@@ -74,7 +84,7 @@ class WqnWebViewClient(
                 val fallbackUrl = intent.getStringExtra("browser_fallback_url")
                 if (!fallbackUrl.isNullOrEmpty()) {
                     val fallbackUri = Uri.parse(fallbackUrl)
-                    if (Site.isOwnHost(fallbackUri.host)) {
+                    if (Site.isOwnUrl(fallbackUri.toString())) {
                         view.loadUrl(fallbackUrl)
                     } else {
                         launchExternalUrl(context, fallbackUri)

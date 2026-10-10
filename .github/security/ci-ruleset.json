@@ -1,0 +1,51 @@
+{
+  "name": "WQN main and release CI gates",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main", "refs/heads/release/note-baseline-prod"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          { "context": "Type-check, lint, format" },
+          { "context": "Run vitest" },
+          { "context": "Production build" },
+          { "context": "Dependency audit (web)" },
+          { "context": "Dependency audit (realtime-proxy)" },
+          { "context": "CodeQL (javascript-typescript)" },
+          { "context": "CodeQL (java-kotlin)" },
+          { "context": "Project security rules" },
+          { "context": "Database (clean)" },
+          { "context": "Database (upgrade)" },
+          { "context": "Container (web)" },
+          { "context": "Container (realtime-proxy)" },
+          { "context": "Browser E2E" },
+          { "context": "Android build and unit tests" },
+          { "context": "Android native tests (API 30)" },
+          { "context": "Android native tests (API 36)" },
+          { "context": "Forbidden tracked paths" },
+          { "context": "Secret scan (gitleaks)" }
+        ]
+      }
+    },
+    {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          {
+            "tool": "CodeQL",
+            "alerts_threshold": "errors",
+            "security_alerts_threshold": "high_or_higher"
+          }
+        ]
+      }
+    }
+  ]
+}

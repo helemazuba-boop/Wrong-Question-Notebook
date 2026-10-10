@@ -1,0 +1,16 @@
+[
+  {
+    "id": "GHSA-vfj7-8cjw-p6xm",
+    "packages": [
+      "braces",
+      "micromatch",
+      "fast-glob",
+      "@next/eslint-plugin-next",
+      "eslint-config-next"
+    ],
+    "severity": "high",
+    "expires": "2026-11-09",
+    "reason": "Dev-only ESLint glob parsing of repository-controlled paths. No fixed braces release is available; production dependencies must pass independently. Recheck upstream before expiry.",
+    "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+  }
+]

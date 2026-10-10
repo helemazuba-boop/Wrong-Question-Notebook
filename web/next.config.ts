@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import * as path from 'node:path';
 import { validateSupabasePublicEnvironment } from './lib/supabase-config';
+import { buildContentSecurityPolicy } from './lib/security-policy';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 const projectRoot = path.resolve(__dirname);
@@ -63,6 +64,9 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: 'standalone',
 
+  // Do not advertise the framework in responses.
+  poweredByHeader: false,
+
   // Keep Turbopack scoped to the app package even when the repo root also has a lockfile.
   turbopack: {
     root: projectRoot,
@@ -115,10 +119,6 @@ const nextConfig: NextConfig = {
             value: 'nosniff',
           },
           {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
-          },
-          {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
           },
@@ -130,6 +130,25 @@ const nextConfig: NextConfig = {
           {
             key: 'Strict-Transport-Security',
             value: 'max-age=31536000; includeSubDomains',
+          },
+        ],
+      },
+      {
+        // HTML pages only. API routes already receive the same policy from
+        // withSecurity (lib/security-middleware.ts), so excluding them here
+        // avoids a duplicate header.
+        source: '/((?!api|_next/static|_next/image).*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: buildContentSecurityPolicy({
+              url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+              publishableKey:
+                process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY,
+              expectedHost: process.env.WQN_SUPABASE_EXPECTED_HOST,
+              allowedHttpOrigin: process.env.WQN_ALLOW_HTTP_SUPABASE_ORIGIN,
+              nodeEnv: process.env.NODE_ENV,
+            }),
           },
         ],
       },

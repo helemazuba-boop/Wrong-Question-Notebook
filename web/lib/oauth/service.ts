@@ -61,6 +61,7 @@ export function generateClientId(): string {
 
 /** SHA-256 hex digest, matching the `^[0-9a-f]{64}$` constraints in SQL. */
 export function hashOAuthSecret(secret: string): string {
+  // Access, refresh and authorization credentials contain 256 random bits; no human password reaches this digest.
   return createHash('sha256').update(secret).digest('hex');
 }
 

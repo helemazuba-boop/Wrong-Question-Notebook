@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>WQN CI fixture</title></head>
+  <body>
+    <h1>Native bridge fixture</h1>
+    <a id="next" href="second.html">Next page</a>
+    <input id="upload" type="file" accept="text/csv">
+    <script>
+      document.querySelector('#upload').addEventListener('change', event => {
+        window.selectedFile = event.target.files[0]?.name || '';
+      });
+    </script>
+  </body>
+</html>

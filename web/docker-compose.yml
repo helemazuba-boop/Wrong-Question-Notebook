@@ -93,8 +93,7 @@ services:
       WQN_INTERNAL_API_ALLOWED_HOST: ${WQN_INTERNAL_API_ALLOWED_HOST:-wqn:3000}
       SENTRY_DSN: ${SENTRY_DSN:-}
     healthcheck:
-      test:
-        ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health || exit 1']
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
       interval: 30s
       timeout: 10s
       retries: 3

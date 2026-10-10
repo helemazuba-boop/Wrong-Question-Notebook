@@ -97,6 +97,8 @@ const eslintConfig = [
       'out/**',
       'build/**',
       'dist/**',
+      'playwright-report/**',
+      'test-results/**',
       '*.d.ts',
       'package-lock.json',
       'yarn.lock',

@@ -120,6 +120,7 @@ type ParseResult = {
 };
 
 const MAX_IMPORT_ENTRIES = 4000;
+const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
 const PREVIEW_LIMIT = 10;
 const ENTRY_PAGE_SIZE = 50;
 
@@ -700,9 +701,19 @@ export default function WordDeckPageClient({
 
   async function handleFile(file: File | null) {
     if (!file) return;
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      toast.error(`文件不能超过 ${MAX_IMPORT_FILE_BYTES / (1024 * 1024)} MB`);
+      return;
+    }
     const name = file.name.toLowerCase();
     if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      let workbook: XLSX.WorkBook;
+      try {
+        workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      } catch {
+        toast.error('无法解析该 Excel 文件');
+        return;
+      }
       const firstSheet = workbook.SheetNames[0];
       const worksheet = firstSheet ? workbook.Sheets[firstSheet] : null;
       if (!worksheet) {

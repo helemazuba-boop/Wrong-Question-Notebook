@@ -158,7 +158,7 @@ export default function NewWordStudySessionClient({ decks }: Props) {
       />
 
       <form onSubmit={startSession} className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+        <Card className="min-w-0 xl:col-span-2">
           <CardHeader>
             <CardTitle>选择词库</CardTitle>
           </CardHeader>
@@ -172,13 +172,13 @@ export default function NewWordStudySessionClient({ decks }: Props) {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {selectableDecks.map(deck => {
                   const selected = selectedDeckIds.includes(deck.id);
                   return (
                     <label
                       key={deck.id}
-                      className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition-colors ${
+                      className={`flex min-w-0 cursor-pointer gap-3 rounded-lg border p-4 transition-colors ${
                         selected ? 'border-primary bg-primary/5' : ''
                       }`}
                     >
@@ -189,14 +189,14 @@ export default function NewWordStudySessionClient({ decks }: Props) {
                         }
                         aria-label={`选择${deck.title}`}
                       />
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2 font-medium">
                           <span className="truncate">{deck.title}</span>
                           {deck.is_system ? (
                             <Badge variant="secondary">系统</Badge>
                           ) : null}
                         </span>
-                        <span className="mt-1 block text-sm text-muted-foreground">
+                        <span className="mt-1 block break-words text-sm text-muted-foreground">
                           {deck.word_count} 词 · {deck.subject_name || '无科目'}
                         </span>
                       </span>
@@ -208,7 +208,7 @@ export default function NewWordStudySessionClient({ decks }: Props) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>学习方式</CardTitle>
           </CardHeader>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { handleBatchVoiceConnection } from '../src/batchVoiceRelay.ts';
-import { encodeWflvAudio } from '../src/frameIo.ts';
+import { encodeVoiceV2Audio } from '../src/frameIo.ts';
 import { STD_PRO_SAMPLE_RATE_HZ } from '../src/types.ts';
 
 class MockDeviceWs extends EventEmitter {
@@ -125,7 +125,7 @@ describe('batchVoiceRelay', () => {
 
     // Chunk 0 (ok)
     const pcm = Buffer.alloc(480);
-    const frame0 = encodeWflvAudio({
+    const frame0 = encodeVoiceV2Audio({
       pcm,
       seq: 0,
       sampleRate: STD_PRO_SAMPLE_RATE_HZ,
@@ -134,7 +134,7 @@ describe('batchVoiceRelay', () => {
     ws.emit('message', frame0, true);
 
     // Chunk 2 (gap! expected 1)
-    const frame2 = encodeWflvAudio({
+    const frame2 = encodeVoiceV2Audio({
       pcm,
       seq: 2,
       sampleRate: STD_PRO_SAMPLE_RATE_HZ,
@@ -203,10 +203,10 @@ describe('batchVoiceRelay', () => {
       false
     );
 
-    // Send 3 PCM chunks (480 bytes each)
-    const pcmChunk = Buffer.alloc(480, 0x12);
+    // Three 400ms chunks meet the pipeline's minimum one-second duration.
+    const pcmChunk = Buffer.alloc(12800, 0x12);
     for (let seq = 0; seq < 3; seq++) {
-      const frame = encodeWflvAudio({
+      const frame = encodeVoiceV2Audio({
         pcm: pcmChunk,
         seq,
         sampleRate: STD_PRO_SAMPLE_RATE_HZ,
@@ -216,7 +216,7 @@ describe('batchVoiceRelay', () => {
     }
 
     // Send FINAL frame
-    const finalFrame = encodeWflvAudio({
+    const finalFrame = encodeVoiceV2Audio({
       pcm: Buffer.alloc(0),
       seq: 3,
       sampleRate: STD_PRO_SAMPLE_RATE_HZ,
@@ -225,7 +225,9 @@ describe('batchVoiceRelay', () => {
     await ws.emit('message', finalFrame, true);
 
     // Wait for async reader
-    await new Promise(res => setTimeout(res, 50));
+    await vi.waitFor(() =>
+      expect(ws.sent.join('')).toContain('event: turn.done')
+    );
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(headersSent['X-WQN-Internal-Proxy-Authorization']).toBe(
@@ -239,9 +241,9 @@ describe('batchVoiceRelay', () => {
     expect(headersSent['x-wqn-enable-thinking']).toBe('true');
     expect(headersSent['x-wqn-reasoning-effort']).toBe('high');
 
-    // Total PCM length should be 3 * 480 = 1440 bytes
+    // Total PCM length is 3 * 12800 = 38400 bytes (1200ms at 16kHz mono).
     expect(bodySent).not.toBeNull();
-    expect((bodySent as unknown as Buffer).length).toBe(1440);
+    expect((bodySent as unknown as Buffer).length).toBe(38400);
 
     // Check SSE stream received on device WS
     const textOutput = ws.sent.slice(1).join('');

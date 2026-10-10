@@ -50,7 +50,7 @@ class WqnWebChromeClient(
         tempWebView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(tempView: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
-                if (Site.isOwnHost(uri.host)) {
+                if (Site.isOwnUrl(uri.toString())) {
                     view.loadUrl(uri.toString())
                 } else {
                     launchExternalUrl(view.context, uri)

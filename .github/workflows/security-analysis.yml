@@ -1,0 +1,95 @@
+name: Security analysis
+
+on:
+  pull_request:
+  push:
+    branches: [main, release/note-baseline-prod, "ci/**"]
+  schedule:
+    - cron: "40 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: java-kotlin
+            build-mode: manual
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        if: matrix.language == 'java-kotlin'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Android SDK
+        if: matrix.language == 'java-kotlin'
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+          config-file: .github/security/codeql-config.yml
+      - name: Build Android for Kotlin analysis
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: artifacts/codeql
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Reject High and Critical CodeQL findings
+        run: |
+          node --test .github/scripts/check-codeql.test.mjs
+          node .github/scripts/check-codeql.mjs artifacts/codeql
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: codeql-${{ matrix.language }}
+          path: artifacts/codeql/
+          retention-days: 14
+
+  semgrep:
+    name: Project security rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep==1.180.0
+      - name: Verify positive and negative rule fixtures
+        run: semgrep --test .github/security/semgrep
+      - name: Scan application and deployment sources
+        run: |
+          mkdir -p artifacts
+          semgrep scan --strict --error --config .github/security/semgrep --json-output artifacts/semgrep.json web android deploy
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: project-security-rules
+          path: artifacts/semgrep.json
+          retention-days: 14

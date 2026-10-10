@@ -1,0 +1,4 @@
+Contact: https://github.com/helemazuba-boop/Wrong-Question-Notebook/security/advisories/new
+Expires: 2027-10-06T00:00:00.000Z
+Preferred-Languages: zh-CN, en
+Canonical: https://wqn.helema.cn/.well-known/security.txt
