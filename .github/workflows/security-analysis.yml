@@ -40,7 +40,7 @@ jobs:
           java-version: "17"
       - name: Install Android SDK
         if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
       - uses: github/codeql-action/init@v4
