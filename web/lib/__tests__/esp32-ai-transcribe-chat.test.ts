@@ -76,6 +76,40 @@ async function configureParaformerProvider() {
   process.env.DASHSCOPE_ASR_POLL_ATTEMPTS = '2';
 }
 
+function streamingChatResponse(chunks: Array<Record<string, unknown>>) {
+  return new Response(
+    chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') +
+      'data: [DONE]\n\n'
+  );
+}
+
+function mockStreamingProviders(chunks: Array<Record<string, unknown>>) {
+  mockFetch
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ output: { task_id: 'task-thinking' } }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        output: {
+          task_status: 'SUCCEEDED',
+          results: [{ text: '请回答。' }],
+        },
+      }),
+    })
+    .mockResolvedValueOnce(streamingChatResponse(chunks));
+}
+
+function readSseEvents(body: string) {
+  return body.split('\n\n').flatMap(block => {
+    const lines = block.split('\n');
+    const event = lines.find(line => line.startsWith('event: '))?.slice(7);
+    const data = lines.find(line => line.startsWith('data: '))?.slice(6);
+    return event && data ? [{ event, data: JSON.parse(data) }] : [];
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.WQN_ESP32_AI_ASR_PROVIDER;
@@ -424,7 +458,7 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
       createAudioRequest(
         createValidHeaders({
           'x-wqn-protocol': 'v2-streaming',
-          'x-wqn-ai-tier': 'pro',
+          'x-wqn-ai-tier': 'std',
           'x-wqn-enable-thinking': 'true',
           'x-wqn-reasoning-effort': 'high',
           'x-wqn-conversation-id': 'conv-v2',
@@ -470,6 +504,189 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(response.status).toBe(422);
     expect(body.error.code).toBe('invalid_audio');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['low', 'medium', 'high'] as const)(
+    'forwards STD Step 5 %s effort and reads its native reasoning field',
+    async effort => {
+      mockAuthenticatedDevice();
+      await configureParaformerProvider();
+      process.env.DASHSCOPE_CHAT_MODEL_STD = 'step-5-preview';
+      process.env.DASHSCOPE_OPENAI_BASE_URL_STD = 'https://api.stepfun.com/v1';
+      mockStreamingProviders([
+        { choices: [{ delta: { reasoning: '先分析' } }] },
+        { choices: [{ delta: { content: '答案' } }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      ]);
+
+      const response = await POST(
+        createAudioRequest(
+          createValidHeaders({
+            'x-wqn-protocol': 'v2-streaming',
+            'x-wqn-ai-tier': 'std',
+            'x-wqn-enable-thinking': 'true',
+            'x-wqn-reasoning-effort': effort,
+          })
+        )
+      );
+      const events = readSseEvents(await response.text());
+      const [url, init] = mockFetch.mock.calls[2];
+      const chatBody = JSON.parse(init.body);
+
+      expect(response.status).toBe(200);
+      expect(url).toBe('https://api.stepfun.com/v1/chat/completions');
+      expect(chatBody.reasoning_effort).toBe(effort);
+      expect(chatBody).not.toHaveProperty('enable_thinking');
+      expect(chatBody).not.toHaveProperty('thinking_budget');
+      expect(events).toEqual(
+        expect.arrayContaining([
+          { event: 'thinking.start', data: {} },
+          {
+            event: 'thinking.delta',
+            data: expect.objectContaining({ delta: '先分析' }),
+          },
+          {
+            event: 'thinking.done',
+            data: expect.objectContaining({ full_text: '先分析' }),
+          },
+        ])
+      );
+      expect(
+        events.find(frame => frame.event === 'final')?.data.reply_text
+      ).toBe('答案');
+    }
+  );
+
+  it.each([
+    { model: 'step-5-preview', preToolText: '先调用工具。' },
+    { model: 'stepfun/step-5-preview', preToolText: undefined },
+  ])(
+    'uses low and prefixes the answer once when thinking is off for $model',
+    async ({ model, preToolText }) => {
+      mockAuthenticatedDevice();
+      await configureParaformerProvider();
+      process.env.DASHSCOPE_CHAT_MODEL_STD = model;
+      mockStreamingProviders([
+        { choices: [{ delta: { reasoning_content: '先分析' } }] },
+        {
+          choices: [
+            {
+              delta: {
+                content: preToolText,
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'thinking-tool-1',
+                    type: 'function',
+                    function: { name: 'unknown_tool', arguments: '{}' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        },
+      ]);
+      mockFetch.mockResolvedValueOnce(
+        streamingChatResponse([
+          { choices: [{ delta: { reasoning: '工具返回后继续分析' } }] },
+          { choices: [{ delta: { content: '答' } }] },
+          { choices: [{ delta: { content: '案' }, finish_reason: 'stop' }] },
+        ])
+      );
+
+      const response = await POST(
+        createAudioRequest(
+          createValidHeaders({
+            'x-wqn-protocol': 'v2-streaming',
+            'x-wqn-ai-tier': 'std',
+            'x-wqn-enable-thinking': 'false',
+            // Off must win even when an inconsistent effort is supplied.
+            'x-wqn-reasoning-effort': 'high',
+          })
+        )
+      );
+      const events = readSseEvents(await response.text());
+      const notice = `该模型不支持关闭 thinking，当前使用 ${model} low 回答。\n\n`;
+      const streamedAnswer = events
+        .filter(frame => frame.event === 'text.delta')
+        .map(frame => frame.data.delta)
+        .join('');
+
+      expect(response.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      for (const [, init] of mockFetch.mock.calls.slice(2)) {
+        const chatBody = JSON.parse(init.body);
+        expect(chatBody.reasoning_effort).toBe('low');
+        expect(chatBody).not.toHaveProperty('enable_thinking');
+        expect(chatBody).not.toHaveProperty('thinking_budget');
+        expect(chatBody.messages[0].content).not.toContain(
+          'validate key assumptions'
+        );
+      }
+      expect(streamedAnswer).toBe(notice + (preToolText || '') + '答案');
+      expect(
+        events.find(frame => frame.event === 'final')?.data.reply_text
+      ).toBe(streamedAnswer);
+      expect(
+        events.filter(frame => frame.event === 'thinking.delta')
+      ).toHaveLength(2);
+    }
+  );
+
+  it('keeps an empty Step 5 answer empty instead of returning only the fallback notice', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    process.env.DASHSCOPE_CHAT_MODEL_STD = 'step-5-preview';
+    mockStreamingProviders([
+      { choices: [{ delta: { reasoning: '只有思考内容' } }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] },
+    ]);
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({
+          'x-wqn-protocol': 'v2-streaming',
+          'x-wqn-enable-thinking': 'false',
+        })
+      )
+    );
+    const events = readSseEvents(await response.text());
+
+    expect(events.some(frame => frame.event === 'text.delta')).toBe(false);
+    expect(events.find(frame => frame.event === 'final')?.data.reply_text).toBe(
+      ''
+    );
+    expect(JSON.parse(mockFetch.mock.calls[2][1].body).reasoning_effort).toBe(
+      'low'
+    );
+  });
+
+  it('preserves the DashScope off switch without a Step 5 fallback notice', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    mockStreamingProviders([
+      { choices: [{ delta: { content: '直接回答' }, finish_reason: 'stop' }] },
+    ]);
+
+    const response = await POST(
+      createAudioRequest(
+        createValidHeaders({
+          'x-wqn-protocol': 'v2-streaming',
+          'x-wqn-enable-thinking': 'false',
+          'x-wqn-reasoning-effort': 'low',
+        })
+      )
+    );
+    const events = readSseEvents(await response.text());
+    const chatBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+
+    expect(chatBody.enable_thinking).toBe(false);
+    expect(chatBody).not.toHaveProperty('thinking_budget');
+    expect(chatBody).not.toHaveProperty('reasoning_effort');
+    expect(events.find(frame => frame.event === 'final')?.data.reply_text).toBe(
+      '直接回答'
+    );
   });
 
   it('stages PCM as a signed WAV URL, calls paraformer-v2, then calls chat', async () => {
