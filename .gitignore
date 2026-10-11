@@ -170,6 +170,7 @@ firmware/
 
 # Local deploy helper cache
 deploy/.wqn-builder-config.hash
+deploy/.wqn-realtime-builder-config.hash
 
 # Self-hosted Supabase migration dumps and audit output contain production data
 deploy/supabase-selfhost/artifacts/
