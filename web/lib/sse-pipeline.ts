@@ -156,10 +156,12 @@ export async function runStreamingPipeline(
       model: chatModel,
       llmTimeoutMs: options.llmTimeoutMs,
       systemPrompt:
+        options.input.enableThinking !== false &&
         options.input.reasoningEffort === 'high'
           ? `${options.systemPrompt}\nThink carefully, validate key assumptions, and prioritize correctness.`
           : options.systemPrompt,
       enableThinking: options.input.enableThinking,
+      reasoningEffort: options.input.reasoningEffort,
       thinkingBudget:
         options.input.enableThinking === false
           ? undefined

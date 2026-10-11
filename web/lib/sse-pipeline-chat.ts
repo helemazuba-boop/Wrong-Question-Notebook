@@ -18,6 +18,7 @@ import {
   type AccumulatedToolCall,
   type OaiChatChunk,
   type PipelinePusher,
+  type StreamingPipelineInput,
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
 import { AI_TOOLS } from './ai-tools/voice-tools';
@@ -29,7 +30,12 @@ export interface ChatStreamConfig {
   llmTimeoutMs: number;
   systemPrompt: string;
   enableThinking?: boolean;
+  reasoningEffort?: StreamingPipelineInput['reasoningEffort'];
   thinkingBudget?: number;
+}
+
+function isStep5PreviewModel(model: string): boolean {
+  return /^(?:stepfun\/)?step-5-preview$/i.test(model);
 }
 
 export interface ChatStreamInput {
@@ -94,6 +100,10 @@ export async function runPipelineChat(
   }
   messages.push({ role: 'user', content: input.transcript });
 
+  const fallbackNotice =
+    isStep5PreviewModel(config.model) && config.enableThinking === false
+      ? `该模型不支持关闭 thinking，当前使用 ${config.model} low 回答。\n\n`
+      : '';
   let lastRequestId: string | null = null;
   let fullReply = '';
   let lastFinishReason: string | null = null;
@@ -107,7 +117,8 @@ export async function runPipelineChat(
       config,
       messages,
       hasTools,
-      pusher
+      pusher,
+      fullReply ? '' : fallbackNotice
     );
     lastRequestId = response.requestId || lastRequestId;
     lastFinishReason = response.finishReason ?? lastFinishReason;
@@ -238,7 +249,8 @@ async function fetchStreamingCompletion(
   config: ChatStreamConfig,
   messages: Array<Record<string, unknown>>,
   hasTools: boolean,
-  pusher: PipelinePusher
+  pusher: PipelinePusher,
+  replyPrefix: string
 ): Promise<{
   requestId: string | null;
   content: string | null;
@@ -263,11 +275,21 @@ async function fetchStreamingCompletion(
       tools: hasTools ? AI_TOOLS : undefined,
       tool_choice: hasTools ? 'auto' : undefined,
     };
-    if (typeof config.enableThinking === 'boolean') {
-      body.enable_thinking = config.enableThinking;
-    }
-    if (config.enableThinking !== false && config.thinkingBudget) {
-      body.thinking_budget = config.thinkingBudget;
+    if (isStep5PreviewModel(config.model)) {
+      // Step 5 uses reasoning_effort, not DashScope's thinking controls.
+      // https://platform.stepfun.com/docs/zh/guides/models/step-5-preview
+      const effort =
+        config.enableThinking === false ? 'low' : config.reasoningEffort;
+      if (effort) {
+        body.reasoning_effort = effort;
+      }
+    } else {
+      if (typeof config.enableThinking === 'boolean') {
+        body.enable_thinking = config.enableThinking;
+      }
+      if (config.enableThinking !== false && config.thinkingBudget) {
+        body.thinking_budget = config.thinkingBudget;
+      }
     }
     const r = await fetch(config.baseUrl + '/chat/completions', {
       method: 'POST',
@@ -292,7 +314,7 @@ async function fetchStreamingCompletion(
         code === 'provider_unavailable' ? 502 : r.status
       );
     }
-    return await consumeOpenAiSse(r.body, pusher, hasTools);
+    return await consumeOpenAiSse(r.body, pusher, hasTools, replyPrefix);
   } finally {
     clearTimeout(timer);
   }
@@ -309,7 +331,8 @@ interface ConsumedStream {
 async function consumeOpenAiSse(
   body: ReadableStream<Uint8Array>,
   pusher: PipelinePusher,
-  hasTools: boolean
+  hasTools: boolean,
+  replyPrefix: string
 ): Promise<ConsumedStream> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -345,21 +368,27 @@ async function consumeOpenAiSse(
     const choice = json.choices && json.choices[0];
     if (!choice) return;
     const delta = choice.delta || {};
-    if (
-      typeof delta.reasoning_content === 'string' &&
-      delta.reasoning_content.length > 0
-    ) {
+    // StepFun defaults to `reasoning`; DeepSeek/DashScope use
+    // `reasoning_content`. Keep either field on the thinking channel.
+    const reasoningDelta = delta.reasoning_content || delta.reasoning;
+    if (typeof reasoningDelta === 'string' && reasoningDelta.length > 0) {
       if (!reasoningStarted) {
         pusher.emitThinkingStart();
         reasoningStarted = true;
       }
-      reasoning += delta.reasoning_content;
-      pusher.emitThinkingDelta(delta.reasoning_content);
+      reasoning += reasoningDelta;
+      pusher.emitThinkingDelta(reasoningDelta);
     }
     if (typeof delta.content === 'string' && delta.content.length > 0) {
       finishReasoning();
       if (!firstDeltaEmitted) {
         pusher.openSentence();
+        // Add the fallback notice only with actual answer content, so a
+        // reasoning-only/empty upstream cannot become a notice-only reply.
+        if (replyPrefix) {
+          pusher.appendDelta(replyPrefix);
+          content += replyPrefix;
+        }
         firstDeltaEmitted = true;
       }
       pusher.appendDelta(delta.content);

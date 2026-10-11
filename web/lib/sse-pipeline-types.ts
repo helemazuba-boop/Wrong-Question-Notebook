@@ -57,6 +57,7 @@ export interface OaiChatChunk {
         function?: { name?: string; arguments?: string };
       }>;
       reasoning_content?: string | null;
+      reasoning?: string | null;
     };
     finish_reason?: string | 'stop' | 'tool_calls' | 'length' | null;
   }>;
