@@ -47,10 +47,70 @@ export const OPENCODE_HISTORY_THINKING_CHARS = 2 * 1024;
 // and `permission.preview` are all `maxLength: 160` in the schema. Nothing
 // enforces that at runtime, so this constant is the only clamp.
 export const OPENCODE_HISTORY_PREVIEW_CHARS = 160;
+/**
+ * Whether a session has a run in flight, and how its last run ended.
+ *
+ * `unknown` is the honest answer more often than it looks: it is what a
+ * session that was never prompted reports (upstream writes `outcome` only
+ * once a run settles), what an upstream vocabulary this contract predates
+ * reports, and what a failed active-session read degrades to. It is also
+ * what the device must read as NOT running -- see resolveOpenCodeSessionOutcome.
+ */
+export type OpenCodeSessionOutcome =
+  'running' | 'succeeded' | 'interrupted' | 'failed' | 'unknown';
+
+/**
+ * Upstream values that mean "the last run ended, and here is how". `failed`
+ * is in this set on the strength of the vocabulary, not observation: it was
+ * never measured on the wire while planning this, so it is reserved rather
+ * than verified. Anything outside the set falls to `unknown`.
+ */
+const OPENCODE_SETTLED_OUTCOMES: ReadonlySet<string> = new Set([
+  'succeeded',
+  'interrupted',
+  'failed',
+]);
+
+/**
+ * Resolves one session row's state from the two reads that can answer it.
+ *
+ * The active-session map is the only evidence that can claim a run is in
+ * flight. Upstream's `outcome` is written when a run settles and absent
+ * while one runs, so on its own it cannot tell "running" from "never
+ * prompted" -- three of the twelve sessions measured while planning this
+ * were the second kind, and reading them as running would keep a device
+ * from ever sleeping, because the device's hold-lock criterion is built on
+ * exactly this field.
+ *
+ * So: active wins, a recognised settled value fills in the rest, and every
+ * other shape is `unknown`. Deliberately NOT the conjunction the plan's
+ * wording asks for (outcome present AND in the active set, else unknown):
+ * that reports `unknown` for a session running its SECOND run, which has a
+ * settled outcome from the first one behind it, and would make three of the
+ * five enum values unreachable from the list route.
+ */
+export function resolveOpenCodeSessionOutcome(
+  rowOutcome: string,
+  isActive: boolean
+): OpenCodeSessionOutcome {
+  if (isActive) return 'running';
+  if (OPENCODE_SETTLED_OUTCOMES.has(rowOutcome)) {
+    return rowOutcome as OpenCodeSessionOutcome;
+  }
+  return 'unknown';
+}
+
 export interface OpenCodeSessionSummary {
   id: string;
   title: string;
   updatedAt: number;
+  /**
+   * Absent when the caller did not ask for the active-session read. The
+   * access-check paths (assertOpenCodeSessionAccess, the child-session read)
+   * deliberately do not pay for it, and the device contract reads an absent
+   * field the same way it reads `unknown`.
+   */
+  outcome?: OpenCodeSessionOutcome;
 }
 
 export type OpenCodePermissionDecision = 'once' | 'reject';
@@ -409,14 +469,26 @@ function previewValue(
   return '';
 }
 
-function sessionRow(row: unknown): OpenCodeSessionSummary | null {
+/**
+ * Maps one upstream row onto the device summary.
+ *
+ * `active` is optional on purpose: when it is omitted the row's own `outcome`
+ * is not resolved at all and the field stays absent, which is what the
+ * access-check paths want (they need ids and titles, and a second upstream
+ * request per route to resolve a field nobody reads there is the cost the
+ * plan calls out at assertOpenCodeSessionAccess).
+ */
+function sessionRow(
+  row: unknown,
+  active?: ReadonlySet<string>
+): OpenCodeSessionSummary | null {
   const record = asRecord(row);
   const id = stringField(record, 'id');
   if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) return null;
   const time = asRecord(record.time);
   // Session.Info.title is optional and is genuinely absent on fresh and failed
   // sessions; the device must render a placeholder rather than a blank row.
-  return {
+  const summary: OpenCodeSessionSummary = {
     id,
     title: clampCodePoints(
       stringField(record, 'title').trim() || '新 Session',
@@ -424,12 +496,20 @@ function sessionRow(row: unknown): OpenCodeSessionSummary | null {
     ),
     updatedAt: finiteTimestamp(time.updated),
   };
+  if (active !== undefined) {
+    summary.outcome = resolveOpenCodeSessionOutcome(
+      stringField(record, 'outcome'),
+      active.has(id)
+    );
+  }
+  return summary;
 }
 
-export async function listOpenCodeSessions(
+async function readOpenCodeSessionRows(
   binding: OpenCodeAgentBinding,
-  limit = OPENCODE_SESSION_LIST_LIMIT
-): Promise<OpenCodeSessionSummary[]> {
+  limit: number,
+  parentID: string | null
+): Promise<unknown[]> {
   // `order=desc` (NOT `updated.desc`, which the server 400s), `parentID=null`
   // to exclude subagent sessions, and `?directory=` as the tenant boundary.
   // There is deliberately no client-side directory comparison: a session's own
@@ -438,14 +518,61 @@ export async function listOpenCodeSessions(
   const url = upstreamUrl(binding, '/api/session');
   url.searchParams.set('limit', String(limit));
   url.searchParams.set('order', 'desc');
-  url.searchParams.set('parentID', 'null');
-  const sessions = await readDataRows(
+  if (parentID !== null) {
+    url.searchParams.set('parentID', parentID);
+  } else {
+    url.searchParams.set('parentID', 'null');
+  }
+  return readDataRows(
     binding,
     url.pathname + url.search,
-    'session list'
+    parentID === null ? 'session list' : 'child session list'
   );
+}
+
+/**
+ * The bound sessions, without their run state. Cheap: one upstream request.
+ * Every route that only needs to know whether a session is owned uses this
+ * one, and every route pays for exactly one request.
+ */
+export async function listOpenCodeSessions(
+  binding: OpenCodeAgentBinding,
+  limit = OPENCODE_SESSION_LIST_LIMIT
+): Promise<OpenCodeSessionSummary[]> {
+  const sessions = await readOpenCodeSessionRows(binding, limit, null);
   return sessions
-    .map(sessionRow)
+    .map(row => sessionRow(row))
+    .filter((session): session is OpenCodeSessionSummary => session !== null)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, Math.max(1, Math.min(limit, OPENCODE_SESSION_LIST_LIMIT)));
+}
+
+/**
+ * The bound sessions WITH their run state: one session-list request and one
+ * active-session request, resolved together by resolveOpenCodeSessionOutcome.
+ *
+ * This is what the device's session route calls, because the device needs to
+ * know which session is running without a detail round-trip per session.
+ *
+ * A failed active-session read degrades to an empty set rather than failing
+ * the request. The consequences are asymmetric and only one of them is safe:
+ * failing the route would take the picker away from a session list the device
+ * could otherwise show, while an empty set makes every never-prompted session
+ * report `unknown` -- which the device reads as not running, so it is a
+ * missing indicator rather than a device that never sleeps. Upstream failure
+ * of the list itself still propagates, because there is nothing to show.
+ */
+export async function listOpenCodeSessionsWithOutcome(
+  binding: OpenCodeAgentBinding,
+  limit = OPENCODE_SESSION_LIST_LIMIT
+): Promise<OpenCodeSessionSummary[]> {
+  const [sessions, active] = await Promise.all([
+    readOpenCodeSessionRows(binding, limit, null),
+    listOpenCodeActiveSessions(binding).catch(() => [] as string[]),
+  ]);
+  const activeSet = new Set(active);
+  return sessions
+    .map(row => sessionRow(row, activeSet))
     .filter((session): session is OpenCodeSessionSummary => session !== null)
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, Math.max(1, Math.min(limit, OPENCODE_SESSION_LIST_LIMIT)));
@@ -1322,17 +1449,9 @@ export async function listOpenCodeChildSessions(
   sessionId: string,
   limit = 8
 ): Promise<OpenCodeSessionSummary[]> {
-  const url = upstreamUrl(binding, '/api/session');
-  url.searchParams.set('limit', String(limit));
-  url.searchParams.set('order', 'desc');
-  url.searchParams.set('parentID', sessionId);
-  const rows = await readDataRows(
-    binding,
-    url.pathname + url.search,
-    'child session list'
-  );
+  const rows = await readOpenCodeSessionRows(binding, limit, sessionId);
   return rows
-    .map(sessionRow)
+    .map(row => sessionRow(row))
     .filter((session): session is OpenCodeSessionSummary => session !== null);
 }
 
