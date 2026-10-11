@@ -71,6 +71,10 @@ test('insert and edit inline and block formulas, then persist and render them af
       expect(response.ok()).toBeTruthy();
       await response.finished();
     }
+    // Next also prefetches visible links after hydration. Finish those finite
+    // requests before unloading this document: WebKit surfaces an interrupted
+    // prefetch as a page error even when all persisted-content assertions pass.
+    await target.waitForLoadState('networkidle');
   }
   const persisted = await page.context().newPage();
   persisted.on('pageerror', error => pageErrors.push(error.message));

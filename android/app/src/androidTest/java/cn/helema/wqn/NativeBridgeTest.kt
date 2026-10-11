@@ -74,6 +74,27 @@ class NativeBridgeTest {
         assertEquals(expected, actual)
     }
 
+    private fun awaitPage(path: String, title: String) {
+        val expectedUrl = "${Site.BASE_URL}$path"
+        val deadline = System.currentTimeMillis() + 20_000
+        var actualUrl: String? = null
+        var actualTitle: String? = null
+        var progress = 0
+        do {
+            scenario.onActivity {
+                val view = it.findViewById<WebView>(R.id.webView)
+                actualUrl = view.url
+                actualTitle = view.title
+                progress = view.progress
+            }
+            if (actualUrl == expectedUrl && actualTitle == title && progress == 100) return
+            Thread.sleep(100)
+        } while (System.currentTimeMillis() < deadline)
+        assertEquals("Navigation URL", expectedUrl, actualUrl)
+        assertEquals("Navigation title", title, actualTitle)
+        assertEquals("Navigation progress", 100, progress)
+    }
+
     private fun tapElement(selector: String) {
         val point = JSONObject(js("(() => { const r = document.querySelector('$selector').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2, viewport: window.innerWidth}; })()"))
         var x = 0
@@ -102,6 +123,7 @@ class NativeBridgeTest {
 
     @Test fun backNavigatesWithinTheWebView() {
         tapElement("#next")
+        awaitPage("/assets/second.html", "WQN CI second")
         awaitJs("document.title", "\"WQN CI second\"")
         awaitJs("window.__wqnPrintInstalled === true", "true")
         // Wait for Chromium to commit the user-initiated history entry before
@@ -116,7 +138,11 @@ class NativeBridgeTest {
         scenario.onActivity {
             it.onBackPressedDispatcher.onBackPressed()
         }
+        // Chromium can replace or restore a renderer during history traversal;
+        // evaluating JS before the new document commits can lose its callback.
+        awaitPage("/assets/ci.html", "WQN CI fixture")
         awaitJs("document.title", "\"WQN CI fixture\"")
+        awaitJs("window.__wqnPrintInstalled === true", "true")
     }
 
     @Test fun clientErrorUsesTheNativeOverlayAndRetryRecovers() {
