@@ -65,9 +65,20 @@ jobs:
           api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
           script: bash .github/scripts/android-emulator-tests.sh
+      - name: Capture emulator boot diagnostics
+        if: failure()
+        run: |
+          adb devices -l > android-emulator-boot.txt 2>&1 || true
+          timeout 15s adb -s emulator-5554 shell getprop >> android-emulator-boot.txt 2>&1 || true
+          timeout 15s adb -s emulator-5554 logcat -d > android-emulator-boot-logcat.txt 2>&1 || true
+          find "$ANDROID_AVD_HOME" -name config.ini -exec cat {} \; >> android-emulator-boot.txt 2>&1 || true
       - name: Require actual executed native tests
         run: python3 .github/scripts/verify-junit.py android/app/build/outputs/androidTest-results/connected 6
       - uses: actions/upload-artifact@v7
@@ -78,4 +89,5 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
             android-logcat.txt
+            android-emulator-boot*.txt
           retention-days: 7
