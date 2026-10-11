@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "cn.helema.wqn"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "cn.helema.wqn"
