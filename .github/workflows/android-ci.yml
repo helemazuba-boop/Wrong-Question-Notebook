@@ -41,7 +41,7 @@ jobs:
             android/app/build/test-results/
           retention-days: 14
   instrumentation:
-    name: Android native tests (API ${{ matrix.api }})
+    name: Android native tests (API ${{ matrix.api == '37.0' && '37' || matrix.api }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -63,7 +63,10 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          # The 37.0 image crashes SurfaceFlinger before tests can run. Google's
+          # stable 37.2 image retains API 37 and also exercises 16 KB page sizes.
+          system-image-api-level: ${{ matrix.api == '37.0' && '37.2' || matrix.api }}
+          target: ${{ matrix.api == '37.0' && 'google_apis_ps16k' || 'google_apis' }}
           arch: x86_64
           profile: pixel_2
           cores: 2

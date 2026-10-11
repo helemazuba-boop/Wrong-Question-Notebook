@@ -57,7 +57,9 @@ cd android
 
 Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
 9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
-Native tests run on APIs 30, 36 and 37.0.
+Native tests run on APIs 30, 36 and 37. API 37 uses Google's stable
+`android-37.2/google_apis_ps16k` image, which also tests 16 KB page-size compatibility;
+the older 37.0 image repeatedly crashed SurfaceFlinger before running any tests.
 Emulators use a Pixel 2 device profile, a 256 MB heap and a 6 GB data partition.
 API 37 receives the required 4 GB RAM and automatic software graphics backend;
 APIs 30/36 use 2 GB RAM and SwiftShader. The runner waits for package/activity
@@ -103,7 +105,7 @@ Images are built for testing and are not published by these workflows.
 CodeQL findings are checked from SARIF as well as uploaded to GitHub Security.
 `.github/security/ci-ruleset.json` defines the complete main and release merge gates and
 can be applied through GitHub's repository rulesets API after validation.
-The API 37.0 required check must be applied only after this workflow matrix has
+The API 37 required check must be applied only after this workflow matrix has
 reached both protected branches; the active ruleset stays on its existing checks
 while this compatibility PR is under review.
 Review and fix existing findings before enabling required merge checks. Configure
