@@ -62,7 +62,9 @@ jobs:
         run: sudo chmod 666 /dev/kvm
       - name: Assemble instrumentation APKs before starting the emulator
         working-directory: android
-        run: ./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
+        run: ./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon --max-workers=2 --no-parallel
+      - name: Check emulator readiness policy
+        run: python3 -m unittest discover -s .github/scripts -p 'android_emulator_test.py'
       - uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api }}
@@ -74,13 +76,14 @@ jobs:
           arch: x86_64
           profile: ${{ matrix.api == '37.0' && 'pixel_3a' || 'pixel_2' }}
           cores: 2
-          # The API 37 image's first-boot services exhausted 4 GB and lmkd
-          # killed the instrumentation process before any tests executed.
+          # Keep API 37 at 6 GB and drain first-boot work before testing.
+          # Increasing RAM alone did not prevent lmkd from killing the runner.
           ram-size: ${{ matrix.api == '37.0' && '6144M' || '2048M' }}
           heap-size: 256M
           disk-size: 6G
           disable-animations: true
           emulator-options: -no-window -gpu ${{ matrix.api == '37.0' && 'swiftshader_indirect' || 'swiftshader' }} -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
+          pre-emulator-launch-script: python3 .github/scripts/android-emulator.py configure "${{ matrix.api }}"
           script: bash .github/scripts/android-emulator-tests.sh
       - name: Require actual executed native tests
         run: python3 .github/scripts/verify-junit.py android/app/build/outputs/androidTest-results/connected 6
@@ -100,5 +103,6 @@ jobs:
             android/app/build/outputs/androidTest-results/
             android-logcat.txt
             android-emulator-memory.txt
+            android-emulator-readiness.txt
             android-emulator-boot*.txt
           retention-days: 7

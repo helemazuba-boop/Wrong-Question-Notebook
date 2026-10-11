@@ -65,15 +65,25 @@ repeatedly crashed SurfaceFlinger before running any tests in this environment;
 API 37 is therefore preview-image coverage, alongside stable API 30/36 regression
 tests. Compile SDK remains the stable `android-37.0` package.
 Emulators use a 256 MB heap and a 6 GB data partition. API 37 follows the recipe's
-Pixel 3a profile and `swiftshader_indirect` renderer, with 6 GB RAM: the image's
-first-boot services exhausted 4 GB and killed the instrumentation process before
-any tests ran. APKs are assembled before booting the emulator to separate compiler
-load from first-boot activity. This legacy
+Pixel 3a profile and `swiftshader_indirect` renderer, with 6 GB RAM and a
+720x1280 display at 320 dpi to bound software-rendering costs. APKs are assembled
+before booting the emulator with at most two Gradle workers. Instrumentation uses
+one worker, no parallel Gradle tasks and a 1 GB JVM heap. This legacy
 renderer is scoped to the pinned preview image; switch it together with the image
 once a stable configuration passes. APIs 30/36 use Pixel 2, 2 GB RAM and SwiftShader.
-The runner waits for package/activity/settings
-services and provisioning before building and installing tests. Failed boots retain AVD configuration and available
-device logs, guest memory pressure and page size. The test manifest removes OkHttp's automatic startup provider from the test
+The runner waits for package/activity/settings services and provisioning. API 37
+also waits up to three minutes for first-boot broadcasts to finish, then requires
+30 seconds without new `lmkd` kills, at least 1.5 GB of guest available memory and
+2 GB of host available memory within five minutes. A readiness failure fails the
+job; native tests run once and must still produce six passing cases.
+Increasing guest RAM alone was insufficient: release run `38150801071` killed
+the instrumentation process under first-boot pressure even at 6 GB, with the
+exit-time sample showing 4.2 GB guest and 8 GB host available memory. Exit-time
+available memory does not show the pressure at the instant of the kill.
+The runner retains readiness observations and samples host/guest memory and
+guest zone watermarks every five seconds throughout readiness and testing.
+Failed boots also retain AVD configuration, device logs and page size.
+The test manifest removes OkHttp's automatic startup provider from the test
 APK, so standalone AndroidX helper activities do not attempt to load classes
 packaged only in the target app; instrumented OkHttp calls initialize lazily.
 
@@ -84,6 +94,8 @@ projection contracts bind that version. Updating it requires a separate schedule
 migration and compatibility review.
 
 Formula E2E also checks that every browser document remains free of page errors.
+After editing a formula, it waits for the popover to unmount and restore focus
+before clicking Save, avoiding Firefox's scroll restoration during a pointer click.
 The subject table keeps its default membership array and column definitions
 stable so selection reporting cannot repeatedly rebuild the table data.
 
