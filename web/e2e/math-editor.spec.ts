@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import type { Page } from '@playwright/test';
 
 test('insert and edit inline and block formulas, then persist and render them after reload', async ({
   page,
@@ -45,11 +46,37 @@ test('insert and edit inline and block formulas, then persist and render them af
   expect(created.ok()).toBeTruthy();
   const problemId = (await created.json()).data.id as string;
   const review = `/en/subjects/${data.subjectId}/problems/${problemId}/review`;
+  async function loadReview(target: Page, reload = false) {
+    // Wait for hydration requests before navigating away or reloading. WebKit
+    // reports interrupted fetches as page errors; Firefox can abort a document
+    // navigation that races the editing tab's router.refresh stream.
+    const responses = [
+      '/api/announcement',
+      '/api/attempts',
+      `/api/problems/${problemId}`,
+    ].map(path =>
+      target.waitForResponse(response => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === 'GET' &&
+          url.pathname === path &&
+          (path !== '/api/attempts' ||
+            url.searchParams.get('problem_id') === problemId)
+        );
+      })
+    );
+    if (reload) await target.reload();
+    else await target.goto(review);
+    for (const response of await Promise.all(responses)) {
+      expect(response.ok()).toBeTruthy();
+      await response.finished();
+    }
+  }
   const persisted = await page.context().newPage();
   persisted.on('pageerror', error => pageErrors.push(error.message));
   try {
-    await persisted.goto(review);
-    await persisted.reload();
+    await loadReview(persisted);
+    await loadReview(persisted, true);
     await expect(
       persisted
         .locator('[data-type="inline-math"][data-latex="x^2 + 1"] .katex')
@@ -89,20 +116,27 @@ test('insert and edit inline and block formulas, then persist and render them af
     await expect(
       persisted.getByPlaceholder('Short descriptive title for the problem')
     ).toBeHidden();
-    await persisted.goto(review);
-    await persisted.reload();
-    await expect(
-      persisted
-        .locator('[data-type="inline-math"][data-latex="x^2 + 2"] .katex')
-        .first()
-    ).toBeVisible();
-    await expect(
-      persisted.locator('[data-type="inline-math"][data-latex="x^2 + 1"]')
-    ).toHaveCount(0);
-    await expect(
-      persisted.locator('[data-type="block-math"] .katex').first()
-    ).toBeVisible();
-    await expect(persisted.locator('.katex-error')).toHaveCount(0);
+    // Read the second save in another document, independent of router.refresh.
+    const verified = await page.context().newPage();
+    verified.on('pageerror', error => pageErrors.push(error.message));
+    try {
+      await loadReview(verified);
+      await loadReview(verified, true);
+      await expect(
+        verified
+          .locator('[data-type="inline-math"][data-latex="x^2 + 2"] .katex')
+          .first()
+      ).toBeVisible();
+      await expect(
+        verified.locator('[data-type="inline-math"][data-latex="x^2 + 1"]')
+      ).toHaveCount(0);
+      await expect(
+        verified.locator('[data-type="block-math"] .katex').first()
+      ).toBeVisible();
+      await expect(verified.locator('.katex-error')).toHaveCount(0);
+    } finally {
+      await verified.close();
+    }
   } finally {
     await persisted.close();
   }

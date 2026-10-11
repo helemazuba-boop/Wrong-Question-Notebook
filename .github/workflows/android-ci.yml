@@ -67,10 +67,11 @@ jobs:
           arch: x86_64
           profile: pixel_2
           cores: 2
-          ram-size: 2048M
+          ram-size: ${{ matrix.api == '37.0' && '4096M' || '2048M' }}
           heap-size: 256M
+          disk-size: 6G
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
+          emulator-options: -no-window -gpu ${{ matrix.api == '37.0' && 'software' || 'swiftshader' }} -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
           script: bash .github/scripts/android-emulator-tests.sh
       - name: Capture emulator boot diagnostics
         if: failure()

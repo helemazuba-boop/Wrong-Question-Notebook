@@ -58,9 +58,11 @@ cd android
 Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
 9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
 Native tests run on APIs 30, 36 and 37.0.
-Emulators use a Pixel 2 device profile, 2 GB RAM, a 256 MB heap and the supported
-SwiftShader renderer. Failed boots retain AVD configuration and available device
-logs. The test manifest removes OkHttp's automatic startup provider from the test
+Emulators use a Pixel 2 device profile, a 256 MB heap and a 6 GB data partition.
+API 37 receives the required 4 GB RAM and automatic software graphics backend;
+APIs 30/36 use 2 GB RAM and SwiftShader. The runner waits for package/activity
+services before installing tests. Failed boots retain AVD configuration and available
+device logs. The test manifest removes OkHttp's automatic startup provider from the test
 APK, so standalone AndroidX helper activities do not attempt to load classes
 packaged only in the target app; instrumented OkHttp calls initialize lazily.
 
@@ -101,6 +103,9 @@ Images are built for testing and are not published by these workflows.
 CodeQL findings are checked from SARIF as well as uploaded to GitHub Security.
 `.github/security/ci-ruleset.json` defines the complete main and release merge gates and
 can be applied through GitHub's repository rulesets API after validation.
+The API 37.0 required check must be applied only after this workflow matrix has
+reached both protected branches; the active ruleset stays on its existing checks
+while this compatibility PR is under review.
 Review and fix existing findings before enabling required merge checks. Configure
 the stable job names in the table as required status checks once the workflows
 are present on the target branch. GitHub's `Require code scanning results` can

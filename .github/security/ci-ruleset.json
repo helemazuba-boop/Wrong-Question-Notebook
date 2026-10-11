@@ -30,6 +30,7 @@
           { "context": "Android build and unit tests" },
           { "context": "Android native tests (API 30)" },
           { "context": "Android native tests (API 36)" },
+          { "context": "Android native tests (API 37.0)" },
           { "context": "Forbidden tracked paths" },
           { "context": "Secret scan (gitleaks)" }
         ]
