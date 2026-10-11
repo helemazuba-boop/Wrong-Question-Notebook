@@ -84,7 +84,7 @@
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "tiptap-extension-resizable-image": "^2.0.0",
-    "ts-fsrs": "5.4.2",
+    "ts-fsrs": "5.4.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.6.5"
   },
