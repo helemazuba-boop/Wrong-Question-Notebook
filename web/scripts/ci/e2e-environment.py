@@ -5,10 +5,15 @@ import os
 import pathlib
 import shlex
 import sys
+from urllib.parse import urlparse
 
 repo = pathlib.Path(__file__).resolve().parents[3]
 local = repo / '.ci-local'
-status = json.loads((local / 'supabase/status.json').read_text())
+workdir = pathlib.Path(os.getenv('WQN_CI_SUPABASE_WORKDIR', str(local / 'supabase')))
+status = json.loads((workdir / 'status.json').read_text())
+api = urlparse(status['API_URL'])
+if api.scheme != 'http' or api.hostname not in ('127.0.0.1', 'localhost') or not api.port:
+    sys.exit('E2E upstream must be a local HTTP Supabase API with an explicit port')
 public_key = status.get('ANON_KEY') or status.get('PUBLISHABLE_KEY')
 server_key = status.get('SERVICE_ROLE_KEY') or status.get('SECRET_KEY')
 if not public_key or not server_key or public_key == server_key:
@@ -23,6 +28,7 @@ values = {
     'NODE_EXTRA_CA_CERTS': str(local / 'certs/ca.crt'),
     'PLAYWRIGHT_FIREFOX_POLICIES_JSON': str(local / 'certs/firefox-policies.json'),
     'NEXT_TELEMETRY_DISABLED': '1',
+    'WQN_E2E_SUPABASE_PORT': str(api.port),
 }
 os.umask(0o077)
 (local / 'e2e.env').write_text(''.join(f'export {key}={shlex.quote(value)}\n' for key, value in values.items()))

@@ -12,9 +12,9 @@ published vulnerabilities even when lockfiles have not changed.
 | Project security rules                       | Rule fixture selftests and strict production-source Semgrep scan                                                         |
 | Database (clean / upgrade)                   | All migrations apply, all pgTAP and ordinary SQL assertions pass, existing notebook data survives an upgrade             |
 | Container (web / realtime-proxy)             | Final image builds and boots, health endpoint responds, Web sharp loads, image vulnerability and secret scans pass       |
-| Browser E2E                                  | Login/logout, notes/images, CSV/XLSX imports, study progress, lost-response recovery and user isolation                  |
+| Browser E2E                                  | Login/logout, notes/images, CSV/XLSX imports, study progress, lost-response recovery, user isolation and persisted inline/block formulas                  |
 | Android build and unit tests                 | Debug/release compile, lint passes, at least five real JVM tests pass                                                    |
-| Android native tests (API 30 / 36)           | Six native tests pass for WebView configuration, back navigation, error recovery, file selection, printing and downloads |
+| Android native tests (API 30 / 36 / 37)           | Six native tests pass for WebView configuration, back navigation, error recovery, file selection, printing and downloads |
 
 Browser PR checks use desktop Chromium and a mobile Chromium viewport. Nightly,
 manual and `ci/**` runs also use Firefox and WebKit. CI has one browser worker,
@@ -33,7 +33,7 @@ ephemeral CA through its certificate installation policy, since Linux Firefox
 uses its own certificate store.
 
 ```bash
-# From the repository root. This starts and stops its own wqn-ci Supabase stack.
+# From the repository root. This starts and stops its own uniquely named Supabase stack.
 bash web/scripts/ci/run-e2e.sh --project=chromium --project=mobile-chromium
 
 # Database clean-install tests, without application services.
@@ -54,6 +54,43 @@ cd android
 # On a running API 30+ emulator. Uses packaged debug fixtures, no production site.
 ./gradlew connectedDebugAndroidTest -PwqnCiAssets=true
 ```
+
+Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
+9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
+Native tests run on APIs 30, 36 and 37. API 37 pins Google's
+`android-37.2-beta3/google_apis_ps16k` image from
+[Android Testify's working CI recipe](https://ndtp.github.io/android-testify/docs/recipes/continuous-integration),
+which also tests 16 KB page-size compatibility. Stable 37.0 and 37.2 images
+repeatedly crashed SurfaceFlinger before running any tests in this environment;
+API 37 is therefore preview-image coverage, alongside stable API 30/36 regression
+tests. Compile SDK remains the stable `android-37.0` package.
+Emulators use a 256 MB heap and a 6 GB data partition. API 37 follows the recipe's
+Pixel 3a profile and `swiftshader_indirect` renderer, with 6 GB RAM: the image's
+first-boot services exhausted 4 GB and killed the instrumentation process before
+any tests ran. APKs are assembled before booting the emulator to separate compiler
+load from first-boot activity. This legacy
+renderer is scoped to the pinned preview image; switch it together with the image
+once a stable configuration passes. APIs 30/36 use Pixel 2, 2 GB RAM and SwiftShader.
+The runner waits for package/activity/settings
+services and provisioning before building and installing tests. Failed boots retain AVD configuration and available
+device logs, guest memory pressure and page size. The test manifest removes OkHttp's automatic startup provider from the test
+APK, so standalone AndroidX helper activities do not attempt to load classes
+packaged only in the target app; instrumented OkHttp calls initialize lazily.
+
+Dependency updates keep the editor packages on the same Tiptap version with
+KaTeX 0.18.x, as required by the mathematics extension's peer dependency.
+`ts-fsrs` remains pinned to 5.4.1: the runtime guard, diagnostics and database
+projection contracts bind that version. Updating it requires a separate scheduler
+migration and compatibility review.
+
+Formula E2E also checks that every browser document remains free of page errors.
+The subject table keeps its default membership array and column definitions
+stable so selection reporting cannot repeatedly rebuild the table data.
+
+The Supabase runner allocates a unique project ID and eight independent free
+ports for each stack. The HTTPS gateway forwards to the actual local API port
+returned by Supabase. Startup diagnoses occupied ports; cleanup and log capture
+require the recorded project ownership and never stop another local stack.
 
 The Supabase runner refuses to overwrite an existing CI stack directory. After
 manual database runs, remove `.ci-local/supabase` only after stopping its stack.
@@ -77,6 +114,9 @@ Images are built for testing and are not published by these workflows.
 CodeQL findings are checked from SARIF as well as uploaded to GitHub Security.
 `.github/security/ci-ruleset.json` defines the complete main and release merge gates and
 can be applied through GitHub's repository rulesets API after validation.
+The API 37 required check must be applied only after this workflow matrix has
+reached both protected branches; the active ruleset stays on its existing checks
+while this compatibility PR is under review.
 Review and fix existing findings before enabling required merge checks. Configure
 the stable job names in the table as required status checks once the workflows
 are present on the target branch. GitHub's `Require code scanning results` can

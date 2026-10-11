@@ -42,7 +42,7 @@ jobs:
         if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}

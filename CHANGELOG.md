@@ -85,6 +85,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Desktop problem lists remain usable after creating or editing a problem**
+  - Keep table membership defaults and translated columns stable so selection updates cannot trigger an endless render loop after dependency upgrades.
+  - Give the mobile problem action menu an accessible name for assistive technology and browser automation.
+
 - **A second OpenCode session could not run while another one was streaming**
   - The agent-run idempotency ledger required one in-flight run per *device*, so a prompt into any other session on the same device was answered `409 run_in_progress` for as long as the first run lasted. A device is meant to hold several sessions and to run several of them in the cloud — only its live display is single-flight — so the claim was coarse by one dimension. The unique in-flight index is now on `(device_id, session_id)` and the busy check asks about this session rather than the device, so each session gets its own claim while a second prompt into the _same_ session still collides.
   - The invariant that wording was really protecting is intact, and measured rather than assumed: against a probe database, exactly one line of the claim path moves. A new prompt into a different session went from `busy` to `claimed`; a second prompt into the same session, the same-id attach replay, the fingerprint conflict, the terminal replay, the lease self-heal and the invalid-input rejection all return what they returned before.

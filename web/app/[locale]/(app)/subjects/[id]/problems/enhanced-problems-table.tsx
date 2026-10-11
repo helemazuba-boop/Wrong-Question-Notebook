@@ -17,6 +17,11 @@ import { useFilterParams } from '@/lib/hooks/useFilterParams';
 import { confirmUnsavedNavigation } from '@/lib/hooks/useUnsavedChanges';
 import ProblemCardList from '@/components/problems/problem-card-list';
 
+// Keep the optional membership input stable across selection/visibility updates.
+// A fresh default array invalidates tableProblems, whose selection effect then
+// updates this component again even when no selected row has changed.
+const EMPTY_PROBLEM_SET_IDS: string[] = [];
+
 export default function EnhancedProblemsTable({
   initialProblems,
   initialTagsByProblem,
@@ -25,7 +30,7 @@ export default function EnhancedProblemsTable({
   onProblemDeleted = null,
   onEditProblem,
   onFiltersActiveChange,
-  problemSetProblemIds = [],
+  problemSetProblemIds = EMPTY_PROBLEM_SET_IDS,
   isAddToSetMode = false,
   targetProblemSetId = null,
   returnToProblemSetHref,
@@ -47,6 +52,7 @@ export default function EnhancedProblemsTable({
   const t = useTranslations('Problems');
   const tCommon = useTranslations('Common');
   const locale = useLocale();
+  const columns = useMemo(() => createColumns(t, locale), [t, locale]);
   const { initialFilters, updateUrl } = useFilterParams();
   const [problems, setProblems] = useState<Problem[]>(initialProblems);
   const [tagsByProblem, setTagsByProblem] = useState(initialTagsByProblem);
@@ -466,7 +472,7 @@ export default function EnhancedProblemsTable({
         />
       ) : (
         <DataTable
-          columns={createColumns(t, locale)}
+          columns={columns}
           data={tableProblems}
           onEdit={onEditProblem ? handleEdit : undefined}
           onDelete={handleDeleteClick}
@@ -480,7 +486,6 @@ export default function EnhancedProblemsTable({
           onColumnVisibilityChange={handleColumnVisibilityChange}
           columnVisibilityStorageKey={`problems-table-column-visibility-${subjectId}`}
           isAddToSetMode={isAddToSetMode}
-          meta={{}}
         />
       )}
 

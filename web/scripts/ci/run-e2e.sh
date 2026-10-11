@@ -6,7 +6,7 @@ docker info > /dev/null
 bash web/scripts/ci/supabase.sh prepare
 cleanup() {
   bash "$repo_root/web/scripts/ci/supabase.sh" stop
-  rm -rf "$repo_root/.ci-local/supabase"
+  rm -rf "${WQN_CI_SUPABASE_WORKDIR:-$repo_root/.ci-local/supabase}"
 }
 trap cleanup EXIT
 bash web/scripts/ci/supabase.sh start

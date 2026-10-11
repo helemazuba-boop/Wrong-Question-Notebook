@@ -25,7 +25,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - name: Build debug and release, lint and execute unit tests
         working-directory: android
         run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest --no-daemon
@@ -41,13 +41,13 @@ jobs:
             android/app/build/test-results/
           retention-days: 14
   instrumentation:
-    name: Android native tests (API ${{ matrix.api }})
+    name: Android native tests (API ${{ matrix.api == '37.0' && '37' || matrix.api }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        api: [30, 36]
+        api: [30, 36, "37.0"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
@@ -57,19 +57,40 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - name: Enable emulator acceleration
         run: sudo chmod 666 /dev/kvm
+      - name: Assemble instrumentation APKs before starting the emulator
+        working-directory: android
+        run: ./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
       - uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          # Stable 37.0/37.2 images crash SurfaceFlinger before tests can run.
+          # Pin the API 37 image used by Android Testify's working CI recipe:
+          # https://ndtp.github.io/android-testify/docs/recipes/continuous-integration
+          system-image-api-level: ${{ matrix.api == '37.0' && '37.2-beta3' || matrix.api }}
+          target: ${{ matrix.api == '37.0' && 'google_apis_ps16k' || 'google_apis' }}
           arch: x86_64
+          profile: ${{ matrix.api == '37.0' && 'pixel_3a' || 'pixel_2' }}
+          cores: 2
+          # The API 37 image's first-boot services exhausted 4 GB and lmkd
+          # killed the instrumentation process before any tests executed.
+          ram-size: ${{ matrix.api == '37.0' && '6144M' || '2048M' }}
+          heap-size: 256M
+          disk-size: 6G
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu ${{ matrix.api == '37.0' && 'swiftshader_indirect' || 'swiftshader' }} -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
           script: bash .github/scripts/android-emulator-tests.sh
       - name: Require actual executed native tests
         run: python3 .github/scripts/verify-junit.py android/app/build/outputs/androidTest-results/connected 6
+      - name: Capture emulator boot diagnostics
+        if: failure()
+        run: |
+          adb devices -l > android-emulator-boot.txt 2>&1 || true
+          timeout 15s adb -s emulator-5554 shell getprop >> android-emulator-boot.txt 2>&1 || true
+          timeout 15s adb -s emulator-5554 logcat -d > android-emulator-boot-logcat.txt 2>&1 || true
+          find "$ANDROID_AVD_HOME" -name config.ini -exec cat {} \; >> android-emulator-boot.txt 2>&1 || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -78,4 +99,6 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
             android-logcat.txt
+            android-emulator-memory.txt
+            android-emulator-boot*.txt
           retention-days: 7

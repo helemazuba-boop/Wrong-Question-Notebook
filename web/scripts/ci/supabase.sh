@@ -5,24 +5,16 @@ web_root=$(cd "$(dirname "$0")/../.." && pwd)
 repo_root=$(cd "$web_root/.." && pwd)
 ci_workdir=${WQN_CI_SUPABASE_WORKDIR:-"$repo_root/.ci-local/supabase"}
 action=${1:-start}
+config_script="$web_root/scripts/ci/supabase-config.py"
 
 if [[ "$action" == prepare ]]; then
-  if [[ -e "$ci_workdir/supabase/config.toml" ]]; then
-    echo "Refusing to overwrite an existing CI stack: $ci_workdir" >&2
-    exit 1
-  fi
-  mkdir -p "$ci_workdir/supabase" "$repo_root/artifacts"
-  python3 - "$web_root/supabase/config.toml" "$ci_workdir/supabase/config.toml" <<'PY'
-import pathlib, re, sys
-text = pathlib.Path(sys.argv[1]).read_text()
-text = re.sub(r'^project_id = .*$', 'project_id = "wqn-ci"', text, flags=re.M)
-text = re.sub(r'(\[db.seed\]\n(?:#[^\n]*\n)*)enabled = true', r'\1enabled = false', text)
-pathlib.Path(sys.argv[2]).write_text(text)
-PY
+  python3 "$config_script" prepare "$ci_workdir" --source "$web_root/supabase/config.toml"
+  mkdir -p "$repo_root/artifacts"
   cp -R "$web_root/supabase/migrations" "$ci_workdir/supabase/migrations"
   mkdir -p "$ci_workdir/supabase/tests"
   cp -R "$web_root/supabase/tests/database" "$ci_workdir/supabase/tests/database"
 elif [[ "$action" == start ]]; then
+  python3 "$config_script" preflight "$ci_workdir"
   supabase start --workdir "$ci_workdir" --exclude studio,imgproxy,edge-runtime,logflare,vector,supavisor
   supabase status --workdir "$ci_workdir" --output json > "$ci_workdir/status.json"
 elif [[ "$action" == test ]]; then
@@ -64,7 +56,13 @@ elif [[ "$action" == upgrade ]]; then
   psql "$db_url" --no-psqlrc --set ON_ERROR_STOP=1 --file "$web_root/scripts/ci/upgrade-assert.sql"
   bash "$0" test
 elif [[ "$action" == stop ]]; then
-  supabase stop --workdir "$ci_workdir" --no-backup
+  if [[ -e "$ci_workdir/supabase/config.toml" ]]; then
+    python3 "$config_script" project "$ci_workdir" > /dev/null
+    supabase stop --workdir "$ci_workdir" --no-backup
+  fi
+elif [[ "$action" == logs ]]; then
+  project=$(python3 "$config_script" project "$ci_workdir")
+  docker logs "supabase_db_$project"
 else
   echo "Unknown CI Supabase action: $action" >&2
   exit 1
