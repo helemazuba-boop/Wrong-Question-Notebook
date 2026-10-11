@@ -59,6 +59,12 @@ Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
 9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
 Native tests run on APIs 30, 36 and 37.0.
 
+Dependency updates keep the editor packages on the same Tiptap version with
+KaTeX 0.18.x, as required by the mathematics extension's peer dependency.
+`ts-fsrs` remains pinned to 5.4.1: the runtime guard, diagnostics and database
+projection contracts bind that version. Updating it requires a separate scheduler
+migration and compatibility review.
+
 The Supabase runner allocates a unique project ID and eight independent free
 ports for each stack. The HTTPS gateway forwards to the actual local API port
 returned by Supabase. Startup diagnoses occupied ports; cleanup and log capture
