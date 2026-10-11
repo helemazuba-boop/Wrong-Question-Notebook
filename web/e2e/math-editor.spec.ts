@@ -4,6 +4,8 @@ test('insert and edit inline and block formulas, then persist and render them af
   page,
   data,
 }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto(`/en/subjects/${data.subjectId}/problems`);
   await page
     .getByRole('button', { name: 'Write manually', exact: true })
@@ -44,6 +46,7 @@ test('insert and edit inline and block formulas, then persist and render them af
   const problemId = (await created.json()).data.id as string;
   const review = `/en/subjects/${data.subjectId}/problems/${problemId}/review`;
   const persisted = await page.context().newPage();
+  persisted.on('pageerror', error => pageErrors.push(error.message));
   try {
     await persisted.goto(review);
     await persisted.reload();
@@ -113,4 +116,5 @@ test('insert and edit inline and block formulas, then persist and render them af
   expect(problem?.content).toContain('data-latex="x^2 + 2"');
   expect(problem?.content).toContain('data-type="block-math"');
   expect(problem?.content).not.toContain('data-latex="x^2 + 1"');
+  expect(pageErrors).toEqual([]);
 });
