@@ -185,6 +185,7 @@ export default function ProblemCardList({
                         <Button
                           variant="ghost"
                           className="h-7 w-7 p-0"
+                          aria-label={tCommon('openMenu')}
                           onClick={e => e.stopPropagation()}
                         >
                           <MoreHorizontal className="h-4 w-4" />

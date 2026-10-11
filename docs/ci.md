@@ -12,9 +12,9 @@ published vulnerabilities even when lockfiles have not changed.
 | Project security rules                       | Rule fixture selftests and strict production-source Semgrep scan                                                         |
 | Database (clean / upgrade)                   | All migrations apply, all pgTAP and ordinary SQL assertions pass, existing notebook data survives an upgrade             |
 | Container (web / realtime-proxy)             | Final image builds and boots, health endpoint responds, Web sharp loads, image vulnerability and secret scans pass       |
-| Browser E2E                                  | Login/logout, notes/images, CSV/XLSX imports, study progress, lost-response recovery and user isolation                  |
+| Browser E2E                                  | Login/logout, notes/images, CSV/XLSX imports, study progress, lost-response recovery, user isolation and persisted inline/block formulas                  |
 | Android build and unit tests                 | Debug/release compile, lint passes, at least five real JVM tests pass                                                    |
-| Android native tests (API 30 / 36)           | Six native tests pass for WebView configuration, back navigation, error recovery, file selection, printing and downloads |
+| Android native tests (API 30 / 36 / 37)           | Six native tests pass for WebView configuration, back navigation, error recovery, file selection, printing and downloads |
 
 Browser PR checks use desktop Chromium and a mobile Chromium viewport. Nightly,
 manual and `ci/**` runs also use Firefox and WebKit. CI has one browser worker,
@@ -33,7 +33,7 @@ ephemeral CA through its certificate installation policy, since Linux Firefox
 uses its own certificate store.
 
 ```bash
-# From the repository root. This starts and stops its own wqn-ci Supabase stack.
+# From the repository root. This starts and stops its own uniquely named Supabase stack.
 bash web/scripts/ci/run-e2e.sh --project=chromium --project=mobile-chromium
 
 # Database clean-install tests, without application services.
@@ -54,6 +54,15 @@ cd android
 # On a running API 30+ emulator. Uses packaged debug fixtures, no production site.
 ./gradlew connectedDebugAndroidTest -PwqnCiAssets=true
 ```
+
+Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
+9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
+Native tests run on APIs 30, 36 and 37.0.
+
+The Supabase runner allocates a unique project ID and eight independent free
+ports for each stack. The HTTPS gateway forwards to the actual local API port
+returned by Supabase. Startup diagnoses occupied ports; cleanup and log capture
+require the recorded project ownership and never stop another local stack.
 
 The Supabase runner refuses to overwrite an existing CI stack directory. After
 manual database runs, remove `.ci-local/supabase` only after stopping its stack.
