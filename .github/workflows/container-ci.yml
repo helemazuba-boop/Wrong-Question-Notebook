@@ -35,7 +35,7 @@ jobs:
       SITE_URL: https://ci.invalid
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Generate an ephemeral Server Actions encryption key
         run: |
           mkdir -p artifacts
