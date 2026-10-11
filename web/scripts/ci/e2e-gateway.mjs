@@ -4,13 +4,16 @@ import { connect } from 'node:net';
 import { readFileSync } from 'node:fs';
 
 const certificates = new URL('../../../.ci-local/certs/', import.meta.url);
+const supabasePort = Number(process.env.WQN_E2E_SUPABASE_PORT);
+if (!Number.isInteger(supabasePort) || supabasePort < 1 || supabasePort > 65535)
+  throw new Error('A valid local Supabase port is required');
 const tls = {
   key: readFileSync(new URL('server.key', certificates)),
   cert: readFileSync(new URL('server.crt', certificates)),
 };
 for (const [port, upstream] of [
   [8443, 3000],
-  [8444, 54321],
+  [8444, supabasePort],
 ]) {
   const server = createServer(tls, (req, res) => {
     const proxy = request(
@@ -31,7 +34,7 @@ for (const [port, upstream] of [
       }
     );
     proxy.on('error', error => {
-      console.error(`Gateway upstream ${upstream}: ${error.message}`);
+      console.error(JSON.stringify({ upstream, error: error.message }));
       if (!res.headersSent) res.writeHead(502);
       res.end('Test upstream unavailable');
     });
