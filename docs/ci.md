@@ -64,9 +64,11 @@ which also tests 16 KB page-size compatibility. Stable 37.0 and 37.2 images
 repeatedly crashed SurfaceFlinger before running any tests in this environment;
 API 37 is therefore preview-image coverage, alongside stable API 30/36 regression
 tests. Compile SDK remains the stable `android-37.0` package.
-Emulators use a Pixel 2 device profile, a 256 MB heap and a 6 GB data partition.
-API 37 receives the required 4 GB RAM and automatic software graphics backend;
-APIs 30/36 use 2 GB RAM and SwiftShader. The runner waits for package/activity/settings
+Emulators use a 256 MB heap and a 6 GB data partition. API 37 follows the recipe's
+Pixel 3a profile, required 4 GB RAM and `swiftshader_indirect` renderer. This legacy
+renderer is scoped to the pinned preview image; switch it together with the image
+once a stable configuration passes. APIs 30/36 use Pixel 2, 2 GB RAM and SwiftShader.
+The runner waits for package/activity/settings
 services and provisioning before building and installing tests. Failed boots retain AVD configuration and available
 device logs. The test manifest removes OkHttp's automatic startup provider from the test
 APK, so standalone AndroidX helper activities do not attempt to load classes
