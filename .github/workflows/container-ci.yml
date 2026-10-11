@@ -42,7 +42,7 @@ jobs:
           key=$(openssl rand -base64 32)
           echo "::add-mask::$key"
           echo "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: web
           file: ${{ matrix.dockerfile }}
