@@ -5,27 +5,31 @@ capture_logcat() {
   timeout 15s adb logcat -d > "$repo_root/android-logcat.txt" 2>&1 || true
 }
 trap capture_logcat EXIT
-cd "$repo_root/android"
-# Build before checking device readiness: a newer system image can finish boot
-# while its package/activity services are still initializing or restarting.
-./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
-ready=0
-readiness_deadline=$((SECONDS + 120))
-while ((SECONDS < readiness_deadline)); do
-  package_status=$(timeout 10s adb shell service check package 2>/dev/null || true)
-  activity_status=$(timeout 10s adb shell service check activity 2>/dev/null || true)
-  if [[ "$package_status" == *": found"* && "$activity_status" == *": found"* ]]; then
-    ready=$((ready + 1))
-    if ((ready >= 3)); then
-      break
+wait_for_android() {
+  local ready=0 readiness_deadline=$((SECONDS + 180))
+  while ((SECONDS < readiness_deadline)); do
+    local package_status activity_status provisioned booted
+    package_status=$(timeout 10s adb shell service check package 2>/dev/null || true)
+    activity_status=$(timeout 10s adb shell service check activity 2>/dev/null || true)
+    provisioned=$(timeout 10s adb shell settings get global device_provisioned 2>/dev/null | tr -d '\r' || true)
+    booted=$(timeout 10s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+    if [[ "$package_status" == *": found"* && "$activity_status" == *": found"* && "$provisioned" == 1 && "$booted" == 1 ]]; then
+      ready=$((ready + 1))
+      if ((ready >= 3)); then
+        return 0
+      fi
+    else
+      ready=0
     fi
-  else
-    ready=0
-  fi
-  sleep 2
-done
-if ((ready < 3)); then
-  echo "Android package/activity services did not become ready" >&2
-  exit 1
-fi
+    sleep 2
+  done
+  echo "Android package/activity/settings services did not become ready" >&2
+  return 1
+}
+wait_for_android
+cd "$repo_root/android"
+./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
+# Check again after compiling, so a restarted framework cannot produce a
+# successful Gradle invocation with zero actually executed native tests.
+wait_for_android
 ./gradlew connectedDebugAndroidTest -PwqnCiAssets=true --no-daemon

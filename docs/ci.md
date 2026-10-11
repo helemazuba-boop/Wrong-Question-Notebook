@@ -57,13 +57,17 @@ cd android
 
 Android uses compile SDK 37 (the `platforms;android-37.0` SDK package), AGP
 9.4.1, Gradle 9.8.1 and JDK 17. Target SDK remains 36 and minimum SDK remains 26.
-Native tests run on APIs 30, 36 and 37. API 37 uses Google's stable
-`android-37.2/google_apis_ps16k` image, which also tests 16 KB page-size compatibility;
-the older 37.0 image repeatedly crashed SurfaceFlinger before running any tests.
+Native tests run on APIs 30, 36 and 37. API 37 pins Google's
+`android-37.2-beta3/google_apis_ps16k` image from
+[Android Testify's working CI recipe](https://ndtp.github.io/android-testify/docs/recipes/continuous-integration),
+which also tests 16 KB page-size compatibility. Stable 37.0 and 37.2 images
+repeatedly crashed SurfaceFlinger before running any tests in this environment;
+API 37 is therefore preview-image coverage, alongside stable API 30/36 regression
+tests. Compile SDK remains the stable `android-37.0` package.
 Emulators use a Pixel 2 device profile, a 256 MB heap and a 6 GB data partition.
 API 37 receives the required 4 GB RAM and automatic software graphics backend;
-APIs 30/36 use 2 GB RAM and SwiftShader. The runner waits for package/activity
-services before installing tests. Failed boots retain AVD configuration and available
+APIs 30/36 use 2 GB RAM and SwiftShader. The runner waits for package/activity/settings
+services and provisioning before building and installing tests. Failed boots retain AVD configuration and available
 device logs. The test manifest removes OkHttp's automatic startup provider from the test
 APK, so standalone AndroidX helper activities do not attempt to load classes
 packaged only in the target app; instrumented OkHttp calls initialize lazily.

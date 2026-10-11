@@ -63,9 +63,10 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api }}
-          # The 37.0 image crashes SurfaceFlinger before tests can run. Google's
-          # stable 37.2 image retains API 37 and also exercises 16 KB page sizes.
-          system-image-api-level: ${{ matrix.api == '37.0' && '37.2' || matrix.api }}
+          # Stable 37.0/37.2 images crash SurfaceFlinger before tests can run.
+          # Pin the API 37 image used by Android Testify's working CI recipe:
+          # https://ndtp.github.io/android-testify/docs/recipes/continuous-integration
+          system-image-api-level: ${{ matrix.api == '37.0' && '37.2-beta3' || matrix.api }}
           target: ${{ matrix.api == '37.0' && 'google_apis_ps16k' || 'google_apis' }}
           arch: x86_64
           profile: pixel_2
