@@ -259,18 +259,23 @@ function applyDelta(
   const clipped = clampUtf8Bytes(delta, MAX_DELTA_EVENT_BYTES);
   const key = streamKey(data);
   const round = stringField(data, 'assistantMessageID');
-  // [detail] Brief tier: rounds are model round-trips, and only the last one is
+  // A round change is a model round-trip, and only the last round's text is
   // the answer. The device appends deltas into one buffer, so a new round's
   // first text frame clears it -- otherwise every round's lead-in ("让我看看：")
-  // stays glued in front of the answer. An empty `agent.text` is the device's
-  // existing "replace the buffer with this text" frame, and it never blanks an
-  // already-mirrored block, so nothing flickers between rounds.
-  if (
-    state.detail < 1 &&
-    round &&
-    state.textRoundKey &&
-    round !== state.textRoundKey
-  ) {
+  // stays glued in front of the answer, which is the
+  // `11111-tooluse-1111122222-tooluse11111222223333` splice this fixed.
+  //
+  // This used to be gated on `state.detail < 1`, which made it a "brief tier
+  // only" nicety. That was backwards: the standard and full tiers are the ones
+  // that render reasoning and tool blocks between the text rounds, so they are
+  // the tiers where a round boundary is visible to the user as a splice. At
+  // detail >= 1 the device had no way to know a new round had started and just
+  // kept appending.
+  //
+  // An empty `agent.text` is the device's existing "replace the buffer with
+  // this text" frame, and it never blanks an already-mirrored block, so
+  // nothing flickers between rounds.
+  if (round && state.textRoundKey && round !== state.textRoundKey) {
     writer.emit('agent.text', { session_id: sessionId, text: '' });
   }
   if (round) state.textRoundKey = round;
@@ -308,16 +313,18 @@ function endText(
   if (!text) return;
   const key = streamKey(data);
   const round = stringField(data, 'assistantMessageID');
-  if (
-    state.detail < 1 &&
-    round &&
-    state.textRoundKey &&
-    round !== state.textRoundKey
-  ) {
-    // [detail] Brief tier: the bubble shows the newest round only. A round whose
-    // deltas already went out has been superseded, so replaying its full text
-    // would glue it back in front of the answer. A round whose deltas never
-    // arrived is still the best thing to show: it becomes the current round.
+  // Same round-change clear as `applyDelta`, for the round whose first text
+  // frame is an `ended` rather than a `delta` -- which is the common case on a
+  // mid-run attach, because the relay's lost-delta self-heal replays whole
+  // parts. Without this, attaching mid-run glues the previous round's text in
+  // front of the one being settled.
+  //
+  // A round whose deltas already went out has been superseded, so replaying its
+  // full text would glue it back in front of the answer. A round whose deltas
+  // never arrived is still the best thing to show: it becomes the current
+  // round. Both branches are why this cannot simply be removed: the clear and
+  // the "is this round already on the device" question are the same question.
+  if (round && state.textRoundKey && round !== state.textRoundKey) {
     if (roundHasDeltas(state, round)) return;
     state.textRoundKey = round;
     writer.emit('agent.text', { session_id: sessionId, text: '' });
@@ -340,6 +347,32 @@ function applyReasoningDelta(
   if (!delta) return;
   const clipped = clampUtf8Bytes(delta, MAX_REASONING_EVENT_BYTES);
   const key = streamKey(data);
+  // Reasoning precedes text inside a round (verified frame-by-frame on a real
+  // capture: reasoning.delta at :61, text.delta at :65), so this handler sees
+  // each round boundary *before* `applyDelta` does and issues the clear.
+  //
+  // It shares `textRoundKey` on purpose. An earlier draft gave reasoning its own
+  // key on the theory that reasoning advancing a shared key would suppress the
+  // text handler's clear. Measured, that is not what happens: the clear is
+  // relocated rather than suppressed, and on the real capture the two variants
+  // are frame-for-frame identical, so the extra key buys nothing.
+  //
+  // TWO clears, not one, because they are independent buffers on the device and
+  // both have the same staircase bug. `g_agent_thinking_text` is wiped once per
+  // turn, so without the reasoning clear the thinking bubble at round N holds
+  // rounds 1..N -- measured on the raw capture as
+  // ["Run the shell command.", "Run the shell command.Output: wqn-tool-probe"].
+  // The text clear is emitted here too rather than left to `applyDelta`, so the
+  // boundary is caught whichever kind of frame arrives first.
+  //
+  // Only reachable at detail >= 2, since that is when reasoning is projected at
+  // all, so it cannot affect tiers that never render a thinking block.
+  const round = stringField(data, 'assistantMessageID');
+  if (round && state.textRoundKey && round !== state.textRoundKey) {
+    writer.emit('agent.reasoning', { session_id: sessionId, text: '' });
+    writer.emit('agent.text', { session_id: sessionId, text: '' });
+  }
+  if (round) state.textRoundKey = round;
   if (key) {
     state.reasoningDeltas.set(
       key,
@@ -860,8 +893,15 @@ export type OpenCodeRelayMode = 'run' | 'observe';
 
 /**
  * How a relay ended. The run route maps this onto the idempotency ledger; the
- * observe route ignores it. `client_closed` and `observe_ended` both mean no
- * terminator was seen -- the upstream run may still be executing.
+ * observe route ignores it entirely. `observe_ended` means an observe attach
+ * saw no terminator -- the upstream run may still be executing, and the observe
+ * route has no claim of its own to write, so nothing is recorded.
+ *
+ * `client_closed` instead means the device hung up, in *either* mode. On the
+ * observe route it is discarded along with `observe_ended`; on the run route it
+ * now retires the row as `failed/detached`, because a detached device cannot be
+ * waiting on it and a 30-minute lease is not a recovery path. See
+ * `terminalLedgerWrite` in the run route for the full reasoning.
  */
 export type OpenCodeRelayOutcome =
   | 'succeeded'
