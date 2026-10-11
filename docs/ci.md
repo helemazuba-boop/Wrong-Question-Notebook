@@ -94,6 +94,8 @@ projection contracts bind that version. Updating it requires a separate schedule
 migration and compatibility review.
 
 Formula E2E also checks that every browser document remains free of page errors.
+After editing a formula, it waits for the popover to unmount and restore focus
+before clicking Save, avoiding Firefox's scroll restoration during a pointer click.
 The subject table keeps its default membership array and column definitions
 stable so selection reporting cannot repeatedly rebuild the table data.
 

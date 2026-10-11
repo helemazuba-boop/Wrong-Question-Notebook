@@ -108,6 +108,20 @@ test('insert and edit inline and block formulas, then persist and render them af
     await persisted
       .getByRole('button', { name: 'Update Formula', exact: true })
       .click();
+    // Closing the Radix popover restores focus and scrolls to its trigger.
+    // Finish that transition before clicking Save: Firefox can otherwise move
+    // the form between pointer-down and pointer-up and never submit the PATCH.
+    await expect(
+      persisted.getByLabel('LaTeX Formula', { exact: true })
+    ).toHaveCount(0);
+    await expect(
+      edit.getByTitle('Add math formula', { exact: true })
+    ).toBeFocused();
+    await expect(
+      edit
+        .locator('[data-type="inline-math"][data-latex="x^2 + 2"] .katex')
+        .first()
+    ).toBeVisible();
     const savedResponse = persisted.waitForResponse(
       response =>
         response.url().endsWith(`/api/problems/${problemId}`) &&
