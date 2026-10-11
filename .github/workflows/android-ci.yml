@@ -60,6 +60,9 @@ jobs:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - name: Enable emulator acceleration
         run: sudo chmod 666 /dev/kvm
+      - name: Assemble instrumentation APKs before starting the emulator
+        working-directory: android
+        run: ./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
       - uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api }}
@@ -71,12 +74,16 @@ jobs:
           arch: x86_64
           profile: ${{ matrix.api == '37.0' && 'pixel_3a' || 'pixel_2' }}
           cores: 2
-          ram-size: ${{ matrix.api == '37.0' && '4096M' || '2048M' }}
+          # The API 37 image's first-boot services exhausted 4 GB and lmkd
+          # killed the instrumentation process before any tests executed.
+          ram-size: ${{ matrix.api == '37.0' && '6144M' || '2048M' }}
           heap-size: 256M
           disk-size: 6G
           disable-animations: true
           emulator-options: -no-window -gpu ${{ matrix.api == '37.0' && 'swiftshader_indirect' || 'swiftshader' }} -no-snapshot -noaudio -no-boot-anim -no-metrics -camera-back none
           script: bash .github/scripts/android-emulator-tests.sh
+      - name: Require actual executed native tests
+        run: python3 .github/scripts/verify-junit.py android/app/build/outputs/androidTest-results/connected 6
       - name: Capture emulator boot diagnostics
         if: failure()
         run: |
@@ -84,8 +91,6 @@ jobs:
           timeout 15s adb -s emulator-5554 shell getprop >> android-emulator-boot.txt 2>&1 || true
           timeout 15s adb -s emulator-5554 logcat -d > android-emulator-boot-logcat.txt 2>&1 || true
           find "$ANDROID_AVD_HOME" -name config.ini -exec cat {} \; >> android-emulator-boot.txt 2>&1 || true
-      - name: Require actual executed native tests
-        run: python3 .github/scripts/verify-junit.py android/app/build/outputs/androidTest-results/connected 6
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -94,5 +99,6 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
             android-logcat.txt
+            android-emulator-memory.txt
             android-emulator-boot*.txt
           retention-days: 7

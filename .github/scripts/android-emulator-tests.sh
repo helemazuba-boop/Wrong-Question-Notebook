@@ -3,6 +3,10 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 capture_logcat() {
   timeout 15s adb logcat -d > "$repo_root/android-logcat.txt" 2>&1 || true
+  {
+    free -m
+    timeout 10s adb shell 'getprop ro.build.version.sdk; getconf PAGESIZE; cat /proc/meminfo; cat /proc/pressure/memory' || true
+  } > "$repo_root/android-emulator-memory.txt" 2>&1
 }
 trap capture_logcat EXIT
 wait_for_android() {
@@ -28,8 +32,6 @@ wait_for_android() {
 }
 wait_for_android
 cd "$repo_root/android"
-./gradlew assembleDebug assembleDebugAndroidTest -PwqnCiAssets=true --no-daemon
-# Check again after compiling, so a restarted framework cannot produce a
-# successful Gradle invocation with zero actually executed native tests.
-wait_for_android
+# The workflow assembles APKs before booting the emulator, keeping compilation
+# separate from the API 37 image's first-boot memory and CPU demands.
 ./gradlew connectedDebugAndroidTest -PwqnCiAssets=true --no-daemon
