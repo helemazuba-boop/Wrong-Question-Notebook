@@ -60,6 +60,57 @@ describe('report moderation authorization and resolution', () => {
       (await list(request('/api/admin/reports', undefined, 'GET'))).status
     ).toBe(503);
   });
+  it('previews question choices without returning answer keys or private annotations', async () => {
+    mocks.from
+      .mockReturnValueOnce(queryResult({ problem_set_id: SET_ID }))
+      .mockReturnValueOnce(queryResult({ id: SET_ID, user_id: TEST_USER.id }))
+      .mockReturnValueOnce(
+        queryResult([
+          {
+            problems: {
+              id: SET_ID,
+              title: 'Reported question',
+              content: 'Which option?',
+              private_notes: 'Owner only',
+              parts: [
+                {
+                  index: 1,
+                  content: 'Choose one',
+                  answer_config: {
+                    type: 'mcq',
+                    choices: [{ id: 'A', text: '<p>First option</p>' }],
+                    correct_choice_id: 'A',
+                  },
+                },
+              ],
+            },
+          },
+        ])
+      );
+    const response = await context(
+      request('/api/admin/reports/id', undefined, 'GET'),
+      params(SET_ID)
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      hasMore: false,
+      problems: [
+        {
+          id: SET_ID,
+          title: 'Reported question',
+          content: 'Which option?',
+          assets: [],
+          parts: [
+            {
+              index: 1,
+              content: 'Choose one',
+              choices: [{ id: 'A', text: '<p>First option</p>' }],
+            },
+          ],
+        },
+      ],
+    });
+  });
   it('rejects actor spoofing and malformed actions before calling the RPC', async () => {
     for (const body of [
       { action: 'hide', message: 'Reviewed', p_actor_user_id: 'spoof' },

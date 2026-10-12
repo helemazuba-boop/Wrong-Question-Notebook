@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { ModerationReport } from '@/lib/moderation';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
 import Image from 'next/image';
+import { apiGet, apiPatch } from '@/lib/api-client';
 
 export function ReportsQueueClient({
   initialReports,
@@ -32,18 +33,17 @@ export function ReportsQueueClient({
       parts: Array<{
         index: number;
         content?: string;
-        options?: Array<{ label: string; text: string }>;
+        choices?: Array<{ id: string; text: string }>;
       }>;
     }>;
   } | null>(null);
   async function loadContext(report: string, nextOffset = 0) {
     setBusy(true);
     try {
-      const response = await fetch(
-        `/api/admin/reports/${report}?offset=${nextOffset}`
-      );
-      if (!response.ok) throw new Error();
-      setPreview({ ...(await response.json()), report, offset: nextOffset });
+      const result = await apiGet<
+        Omit<NonNullable<typeof preview>, 'report' | 'offset'>
+      >(`/api/admin/reports/${report}?offset=${nextOffset}`);
+      setPreview({ ...result, report, offset: nextOffset });
     } catch {
       toast.error(t('loadFailed'));
     } finally {
@@ -53,11 +53,10 @@ export function ReportsQueueClient({
   async function load(nextStatus = status, nextOffset = offset) {
     setBusy(true);
     try {
-      const response = await fetch(
+      const result = await apiGet<{ reports: ModerationReport[] }>(
         `/api/admin/reports?status=${nextStatus}&offset=${nextOffset}`
       );
-      if (!response.ok) throw new Error();
-      setReports((await response.json()).reports);
+      setReports(result.reports);
       setStatus(nextStatus);
       setOffset(nextOffset);
       setError(false);
@@ -89,12 +88,7 @@ export function ReportsQueueClient({
       return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/admin/reports/${report.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, message }),
-      });
-      if (!response.ok) throw new Error();
+      await apiPatch(`/api/admin/reports/${report.id}`, { action, message });
       setMessage('');
       toast.success(t('saved'));
       await load();
@@ -159,10 +153,11 @@ export function ReportsQueueClient({
                   {problem.parts.map(part => (
                     <div key={part.index}>
                       <RichTextDisplay content={part.content ?? ''} />
-                      {part.options?.map(option => (
-                        <p key={option.label}>
-                          {option.label}: {option.text}
-                        </p>
+                      {part.choices?.map(choice => (
+                        <div key={choice.id}>
+                          <span>{choice.id}: </span>
+                          <RichTextDisplay content={choice.text} />
+                        </div>
                       ))}
                     </div>
                   ))}

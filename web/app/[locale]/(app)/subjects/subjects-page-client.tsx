@@ -69,7 +69,7 @@ export default function SubjectsPageClient({
   initialSubjects,
   initialShelfItems,
 }: SubjectsPageClientProps) {
-  const tFeature = useFeatureTranslations('Notebooks');
+  const tFeature = useFeatureTranslations('Notebooks.shelf');
   function createdMessage(kind: CreateKind) {
     if (kind === 'notebook') return tFeature('notebookCreated');
     if (kind === 'word_deck') return tFeature('deckCreated');
@@ -615,7 +615,7 @@ function ShelfItemCard({
   onContinue: () => void;
   onAiAccessChange: (checked: boolean) => void;
 }) {
-  const tFeature = useFeatureTranslations('Notebooks');
+  const tFeature = useFeatureTranslations('Notebooks.shelf');
   const featureLocale = useFeatureLocale();
   const typeLabels: Record<ShelfContentType, string> = {
     problem_set: tFeature('questionNotebook'),

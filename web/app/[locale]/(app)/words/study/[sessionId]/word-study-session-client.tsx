@@ -127,7 +127,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
 
   const heading = useMemo(
     () => session.deck_titles.join('、') || tFeature('vocabularyStudy'),
-    [session.deck_titles]
+    [session.deck_titles, tFeature]
   );
 
   const refreshSession = useCallback(async () => {
@@ -147,7 +147,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
     }
     setSession(result.data.session);
     return result.data.session;
-  }, []);
+  }, [tFeature]);
 
   const updateStatus = useCallback(
     async (status: 'active' | 'paused' | 'completed' | 'abandoned') => {
@@ -176,7 +176,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         expires_at: result.data!.session.expires_at,
       }));
     },
-    []
+    [tFeature]
   );
 
   const completeIfNeeded = useCallback(
@@ -197,7 +197,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         setCompletionBusy(false);
       }
     },
-    [updateStatus]
+    [updateStatus, tFeature]
   );
 
   const reconcileWithServer = useCallback(
@@ -232,7 +232,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       }
       return false;
     },
-    [completeIfNeeded, refreshSession]
+    [completeIfNeeded, refreshSession, tFeature]
   );
 
   const sendObservation = useCallback(
@@ -388,7 +388,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         setBusy(false);
       }
     },
-    [completeIfNeeded, reconcileWithServer]
+    [completeIfNeeded, reconcileWithServer, tFeature]
   );
 
   const retryPending = useCallback(async () => {
@@ -459,6 +459,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
     reconcileWithServer,
     refreshSession,
     sendObservation,
+    tFeature,
   ]);
 
   useEffect(() => {

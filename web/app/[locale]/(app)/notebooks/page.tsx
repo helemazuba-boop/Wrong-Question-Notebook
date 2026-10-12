@@ -44,6 +44,7 @@ export default async function NotebooksPage({
           {(data ?? []).map(notebook => (
             <Link
               key={notebook.id}
+              aria-label={notebook.title}
               href={appendFromParam(
                 `/notebooks/${notebook.id}`,
                 `/notebooks?page=${page}`

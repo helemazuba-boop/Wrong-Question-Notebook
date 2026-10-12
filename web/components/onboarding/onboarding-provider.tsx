@@ -13,6 +13,7 @@ import type { OnboardingStatus } from '@/lib/types';
 import { WelcomeModal } from './welcome-modal';
 import { OnboardingChecklist } from './onboarding-checklist';
 import { toast } from 'sonner';
+import { apiGet, apiPost } from '@/lib/api-client';
 const OnboardingContext = createContext({ refreshChecklistStatus: () => {} });
 export function useOnboarding() {
   return useContext(OnboardingContext);
@@ -36,11 +37,11 @@ export function OnboardingProvider({
   const completing = useRef(false);
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/onboarding/status', {
-        cache: 'no-store',
-      });
-      if (!response.ok) throw new Error();
-      setStatus((await response.json()).data);
+      const result = await apiGet<{ data: OnboardingStatus }>(
+        '/api/onboarding/status',
+        { cache: 'no-store' }
+      );
+      setStatus(result.data);
       setError(false);
     } catch {
       setError(true);
@@ -56,13 +57,11 @@ export function OnboardingProvider({
   async function choose(scenario: NonNullable<OnboardingStatus['scenario']>) {
     setBusy(true);
     try {
-      const response = await fetch('/api/onboarding/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario }),
-      });
-      if (!response.ok) throw new Error();
-      setStatus((await response.json()).data);
+      const result = await apiPost<{ data: OnboardingStatus }>(
+        '/api/onboarding/status',
+        { scenario }
+      );
+      setStatus(result.data);
       setPicker(false);
     } catch {
       toast.error(t('statusUnavailable'));
@@ -72,12 +71,7 @@ export function OnboardingProvider({
   }
   async function dismiss() {
     try {
-      const response = await fetch('/api/onboarding/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dismiss: true }),
-      });
-      if (!response.ok) throw new Error();
+      await apiPost('/api/onboarding/complete', { dismiss: true });
       setDismissed(true);
     } catch {
       toast.error(t('statusUnavailable'));
@@ -95,13 +89,8 @@ export function OnboardingProvider({
     )
       return;
     completing.current = true;
-    void fetch('/api/onboarding/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    })
-      .then(response => {
-        if (!response.ok) throw new Error();
+    void apiPost('/api/onboarding/complete', {})
+      .then(() => {
         setCongrats(true);
       })
       .catch(() => {

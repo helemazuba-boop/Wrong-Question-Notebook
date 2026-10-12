@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { apiGet, apiPost, isApiError } from '@/lib/api-client';
 type Job = {
   id: string;
   kind: 'export' | 'delete';
@@ -21,6 +22,7 @@ export function AccountDataClient({
   active: boolean;
 }) {
   const t = useTranslations('AccountData');
+  const [now, setNow] = useState(Date.now);
   const [jobs, setJobs] = useState<Job[]>([]),
     [error, setError] = useState(false),
     [busy, setBusy] = useState(false),
@@ -29,11 +31,12 @@ export function AccountDataClient({
     [deleting, setDeleting] = useState(!active);
   async function load(nextOffset = offset) {
     try {
-      const response = await fetch(`/api/account/data?offset=${nextOffset}`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) throw new Error();
-      setJobs((await response.json()).jobs);
+      const result = await apiGet<{ jobs: Job[] }>(
+        `/api/account/data?offset=${nextOffset}`,
+        { cache: 'no-store' }
+      );
+      setJobs(result.jobs);
+      setNow(Date.now());
       setOffset(nextOffset);
       setError(false);
     } catch {
@@ -69,37 +72,29 @@ export function AccountDataClient({
       return;
     setBusy(true);
     try {
-      const response = await fetch('/api/account/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, confirm: true }),
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        toast.error(
-          t(
-            body.error === 'reauthentication_required'
-              ? 'reauthRequired'
-              : body.error === 'account_operation_forbidden'
-                ? 'forbidden'
-                : 'operationFailed'
-          )
-        );
-        return;
-      }
+      await apiPost('/api/account/data', { kind, confirm: true });
       if (kind === 'delete') setDeleting(true);
       await load(0);
-    } catch {
-      toast.error(t('operationFailed'));
+    } catch (error) {
+      toast.error(
+        t(
+          isApiError(error) && error.message === 'reauthentication_required'
+            ? 'reauthRequired'
+            : isApiError(error) &&
+                error.message === 'account_operation_forbidden'
+              ? 'forbidden'
+              : 'operationFailed'
+        )
+      );
     } finally {
       setBusy(false);
     }
   }
   async function download(id: string) {
     try {
-      const response = await fetch(`/api/account/data/${id}/download`);
-      if (!response.ok) throw new Error();
-      const { url } = await response.json();
+      const { url } = await apiGet<{ url: string }>(
+        `/api/account/data/${id}/download`
+      );
       window.location.assign(url);
     } catch {
       toast.error(t('downloadFailed'));
@@ -180,7 +175,7 @@ export function AccountDataClient({
           )}
           {job.status === 'completed' &&
             job.kind === 'export' &&
-            (Date.parse(job.expires_at ?? '') > Date.now() ? (
+            (Date.parse(job.expires_at ?? '') > now ? (
               <Button disabled={deleting} onClick={() => download(job.id)}>
                 {t('download')}
               </Button>

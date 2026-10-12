@@ -294,7 +294,7 @@ export default function NotebookPageClient({
         setListBusy(false);
       }
     },
-    [cursor, notebook.id, order, query]
+    [cursor, notebook.id, order, query, tFeature]
   );
 
   // Refetch page 1 whenever the ordering changes (and once on mount).

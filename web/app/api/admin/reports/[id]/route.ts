@@ -115,7 +115,12 @@ async function context(
         parts: (problem.parts ?? []).map((part: any) => ({
           index: part.index,
           content: part.content,
-          options: part.answer_config?.options,
+          choices: part.answer_config?.choices?.map(
+            (choice: { id: string; text: string }) => ({
+              id: choice.id,
+              text: choice.text,
+            })
+          ),
         })),
         assets,
       };

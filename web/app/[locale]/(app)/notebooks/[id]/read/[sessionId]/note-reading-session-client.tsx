@@ -113,7 +113,7 @@ export default function NoteReadingSessionClient({
     : 100;
   const heading = useMemo(
     () => session.notebook_titles.join('、') || tFeature('noteReading'),
-    [session.notebook_titles]
+    [session.notebook_titles, tFeature]
   );
 
   const refreshSession = useCallback(async () => {
@@ -134,7 +134,7 @@ export default function NoteReadingSessionClient({
     }
     setSession(result.data.session);
     return result.data.session;
-  }, []);
+  }, [tFeature]);
 
   const updateStatus = useCallback(
     async (status: 'active' | 'paused' | 'completed' | 'abandoned') => {
@@ -162,7 +162,7 @@ export default function NoteReadingSessionClient({
         expires_at: result.data!.session.expires_at,
       }));
     },
-    []
+    [tFeature]
   );
 
   const completeIfNeeded = useCallback(
@@ -201,7 +201,7 @@ export default function NoteReadingSessionClient({
       }
       return true;
     },
-    [completeIfNeeded, refreshSession]
+    [completeIfNeeded, refreshSession, tFeature]
   );
 
   const sendObservation = useCallback(
@@ -316,7 +316,7 @@ export default function NoteReadingSessionClient({
         setBusy(false);
       }
     },
-    [reconcile]
+    [reconcile, tFeature]
   );
 
   const submit = useCallback(
@@ -382,7 +382,14 @@ export default function NoteReadingSessionClient({
     } else {
       void reconcile(stored);
     }
-  }, [completeIfNeeded, expired, initialSession, reconcile, sendObservation]);
+  }, [
+    completeIfNeeded,
+    expired,
+    initialSession,
+    reconcile,
+    sendObservation,
+    tFeature,
+  ]);
 
   useEffect(() => {
     const retry = () => {

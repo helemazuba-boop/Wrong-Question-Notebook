@@ -107,6 +107,7 @@ export async function processTodoReminders(
           },
           JSON.stringify({
             id: notification.id,
+            url: subscription.locale === 'en' ? '/en/todos' : '/todos',
             title: subscription.locale === 'en' ? 'Todo reminder' : '待办提醒',
             body: todo.title,
           }),

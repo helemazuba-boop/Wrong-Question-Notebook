@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { apiGet, apiPost, apiDelete, apiPatch } from '@/lib/api-client';
 
 type Reminder = {
   id: string;
@@ -11,22 +12,32 @@ type Reminder = {
   read_at: string | null;
   todo_push_deliveries?: Array<{ status: string }>;
 };
+const subscribeCapabilities = () => () => {};
+const browserSupportsPush = () =>
+  typeof window !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  'PushManager' in window &&
+  'Notification' in window;
 export function TodoReminderSettings() {
   const t = useTranslations('Todos');
   const locale = useLocale();
-  const [supported, setSupported] = useState(false),
-    [enabled, setEnabled] = useState(false),
+  const supported = useSyncExternalStore(
+    subscribeCapabilities,
+    browserSupportsPush,
+    () => false
+  );
+  const [enabled, setEnabled] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const [notifications, setNotifications] = useState<Reminder[]>([]),
     [offset, setOffset] = useState(0);
   async function load(nextOffset = offset) {
     try {
-      const response = await fetch(`/api/reminders?offset=${nextOffset}`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) throw new Error();
-      setNotifications((await response.json()).notifications);
+      const result = await apiGet<{ notifications: Reminder[] }>(
+        `/api/reminders?offset=${nextOffset}`,
+        { cache: 'no-store' }
+      );
+      setNotifications(result.notifications);
       setOffset(nextOffset);
       setError(false);
     } catch {
@@ -34,11 +45,6 @@ export function TodoReminderSettings() {
     }
   }
   useEffect(() => {
-    setSupported(
-      'serviceWorker' in navigator &&
-        'PushManager' in window &&
-        'Notification' in window
-    );
     void load(0);
     void navigator.serviceWorker
       ?.getRegistration('/')
@@ -61,19 +67,16 @@ export function TodoReminderSettings() {
       await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
       if (enabled && subscription) {
-        const response = await fetch('/api/reminders/subscription', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
+        await apiDelete('/api/reminders/subscription', {
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
-        if (!response.ok) throw new Error();
         await subscription.unsubscribe();
         setEnabled(false);
         return;
       }
-      const response = await fetch('/api/reminders/subscription');
-      if (!response.ok) throw new Error();
-      const { publicKey } = await response.json();
+      const { publicKey } = await apiGet<{ publicKey: string | null }>(
+        '/api/reminders/subscription'
+      );
       if (!publicKey) {
         toast.error(t('pushNotConfigured'));
         return;
@@ -87,18 +90,15 @@ export function TodoReminderSettings() {
         applicationServerKey: publicKey,
       });
       const json = subscription.toJSON();
-      const saved = await fetch('/api/reminders/subscription', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      try {
+        await apiPost('/api/reminders/subscription', {
           endpoint: json.endpoint,
           keys: json.keys,
           locale,
-        }),
-      });
-      if (!saved.ok) {
+        });
+      } catch (error) {
         await subscription.unsubscribe();
-        throw new Error();
+        throw error;
       }
       setEnabled(true);
     } catch {
@@ -108,12 +108,9 @@ export function TodoReminderSettings() {
     }
   }
   async function markRead(id: string) {
-    const response = await fetch('/api/reminders', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    if (!response.ok) {
+    try {
+      await apiPatch('/api/reminders', { id });
+    } catch {
       toast.error(t('reminderUnavailable'));
       return;
     }
