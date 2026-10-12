@@ -1882,5 +1882,25 @@
     "dismiss": "驳回举报",
     "hide": "暂停分享",
     "restore": "恢复分享"
+  },
+  "Todos": {
+    "reminderSettings": "待办提醒",
+    "pushDescription": "开启浏览器通知后，即使关闭 WQN 也可收到提醒。到期提醒也会显示在下方。",
+    "inboxOnly": "此浏览器不支持推送通知。打开 WQN 时可在这里查看到期提醒。",
+    "enablePush": "开启通知",
+    "disablePush": "关闭通知",
+    "reminderInbox": "到期提醒",
+    "noReminders": "暂无提醒",
+    "markRead": "标为已读",
+    "pushNotConfigured": "服务器尚未配置浏览器推送，提醒列表仍可使用。",
+    "permissionDenied": "请在浏览器设置中允许通知。",
+    "reminderUnavailable": "提醒服务暂不可用",
+    "retry": "重试",
+    "previous": "上一页",
+    "next": "下一页",
+    "pushFailed": "浏览器推送失败",
+    "pushAccepted": "推送服务已接受",
+    "pushCancelled": "任务变更后已取消推送",
+    "pushPending": "浏览器推送排队中"
   }
 }

@@ -1882,5 +1882,25 @@
     "dismiss": "Dismiss report",
     "hide": "Pause sharing",
     "restore": "Restore sharing"
+  },
+  "Todos": {
+    "reminderSettings": "Todo reminders",
+    "pushDescription": "Enable browser notifications to receive reminders while WQN is closed. Reminders also appear below.",
+    "inboxOnly": "This browser does not support push notifications. Due reminders appear here when you open WQN.",
+    "enablePush": "Enable notifications",
+    "disablePush": "Disable notifications",
+    "reminderInbox": "Due reminders",
+    "noReminders": "No reminders yet.",
+    "markRead": "Mark read",
+    "pushNotConfigured": "Browser notifications are not configured on this server. The reminder inbox remains available.",
+    "permissionDenied": "Allow notifications in browser settings to enable reminders.",
+    "reminderUnavailable": "Reminder service is unavailable.",
+    "retry": "Retry",
+    "previous": "Previous",
+    "next": "Next",
+    "pushFailed": "Browser push failed",
+    "pushAccepted": "Accepted by the push provider",
+    "pushCancelled": "Push cancelled after task changed",
+    "pushPending": "Browser push queued"
   }
 }

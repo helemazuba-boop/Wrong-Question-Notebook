@@ -38,6 +38,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { TodoReminderSettings } from '@/components/todo-reminder-settings';
 
 type StatusFilter = TodoStatus | 'all';
 
@@ -228,6 +229,7 @@ export default function TodosPageClient({
       />
 
       <div className="grid gap-3 md:grid-cols-3">
+        <TodoReminderSettings />
         <Card className="rounded-lg shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardTitle className="flex items-center justify-between text-sm">
