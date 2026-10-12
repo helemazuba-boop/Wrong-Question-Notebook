@@ -565,6 +565,11 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
           </div>
 
           <SheetFooter className="flex-col gap-2 px-4 pb-4">
+            <Button asChild variant="outline">
+              <Link href="/account" onClick={() => setOpen(false)}>
+                {t('accountData')}
+              </Link>
+            </Button>
             {['moderator', 'admin', 'super_admin'].includes(
               initialProfile?.user_role ?? ''
             ) && (

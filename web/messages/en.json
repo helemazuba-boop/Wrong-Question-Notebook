@@ -1332,7 +1332,8 @@
     "failedToRemove": "Failed to remove avatar",
     "failedToSave": "Failed to save profile",
     "usernameRequired": "Username is required",
-    "adminPanel": "Administration"
+    "adminPanel": "Administration",
+    "accountData": "Account data"
   },
   "Upload": {
     "title": "Upload Photo",
@@ -1902,5 +1903,42 @@
     "pushAccepted": "Accepted by the push provider",
     "pushCancelled": "Push cancelled after task changed",
     "pushPending": "Browser push queued"
+  },
+  "AccountData": {
+    "title": "Account data",
+    "description": "Export your data or request account deletion.",
+    "reauthTitle": "Confirm your identity",
+    "reauthDescription": "Sign in again within five minutes before requesting an export or deletion. Refreshing a session does not count as signing in again.",
+    "password": "Password",
+    "authenticate": "Verify password",
+    "authenticated": "Identity confirmed.",
+    "authFailed": "Could not verify your password.",
+    "loginAgain": "Sign in again with your login provider",
+    "reauthRequired": "Sign in again before continuing.",
+    "exportTitle": "Full account export",
+    "exportDescription": "The private .tar.gz archive includes all owned module records and owned storage files. Third-party asset references remain references. Archives expire after seven days. Exports above the configured 512 MB capacity fail explicitly and do not publish a partial archive.",
+    "requestExport": "Request export",
+    "confirmExport": "Prepare a private export of your account data?",
+    "deleteTitle": "Delete account",
+    "deleteDescription": "Deletion permanently removes your account, owned module data and storage files. Existing copies made by other users remain. Your account is disabled immediately while retryable cleanup runs. Export anything you need first.",
+    "requestDelete": "Request deletion",
+    "confirmDelete": "Permanently delete your account and owned data? This cannot be undone.",
+    "deletionPending": "Your account is disabled while deletion runs. You can view progress here.",
+    "statusUnavailable": "Operation status is unavailable.",
+    "retry": "Retry",
+    "completed": "Completed",
+    "failed": "Failed — request a new export to retry.",
+    "cancelled": "Cancelled",
+    "running": "Processing",
+    "pending": "Queued",
+    "retrying": "Retrying cleanup",
+    "deleted": "Your account and owned data have been deleted.",
+    "expired": "Export expired. Request a new export.",
+    "download": "Download archive",
+    "downloadFailed": "Download is unavailable or the export has expired.",
+    "operationFailed": "Could not request this operation. Check for an existing job and retry.",
+    "forbidden": "This operation is unavailable. Transfer the super administrator role before deleting that account.",
+    "previous": "Previous",
+    "next": "Next"
   }
 }

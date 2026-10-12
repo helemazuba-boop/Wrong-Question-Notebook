@@ -90,7 +90,8 @@ async function context(
       for (const asset of problem.assets ?? []) {
         if (
           typeof asset.path !== 'string' ||
-          !asset.path.startsWith(`${set.user_id}/`) ||
+          (!asset.path.startsWith(`${set.user_id}/`) &&
+            !asset.path.startsWith(`user/${set.user_id}/`)) ||
           asset.path
             .split('/')
             .some(

@@ -842,158 +842,26 @@ export async function removeUserQuotaOverride(
  * Delete user completely (admin only) - includes all related data and storage
  */
 export async function deleteUser(userId: string): Promise<boolean> {
-  const serviceSupabase = createServiceClient();
-
   try {
-    // 1. Delete all user's storage files first
-    await deleteUserStorageFiles(userId);
-
-    // 2. Delete user's subjects (this will cascade to problems, tags, etc.)
-    const { error: subjectsError } = await serviceSupabase
-      .from('subjects')
-      .delete()
-      .eq('user_id', userId);
-
-    if (subjectsError) {
-      logger.error('Error deleting user subjects', subjectsError, {
-        component: 'UserManagement',
-        action: 'deleteUser',
-        userId,
-      });
-      // Continue anyway, as this might be due to RLS policies
-    }
-
-    // 3. Delete user's attempts
-    const { error: attemptsError } = await serviceSupabase
-      .from('attempts')
-      .delete()
-      .eq('user_id', userId);
-
-    if (attemptsError) {
-      console.error('Error deleting user attempts:', attemptsError);
-      // Continue anyway
-    }
-
-    // 4. Delete user's activity logs
-    const { error: activityError } = await serviceSupabase
-      .from('user_activity_log')
-      .delete()
-      .eq('user_id', userId);
-
-    if (activityError) {
-      logger.error('Error deleting user activity logs', activityError, {
-        component: 'UserManagement',
-        action: 'deleteUser',
-        userId,
-      });
-      // Continue anyway
-    }
-
-    // 5. Delete user profile (this should cascade delete any remaining related records)
-    const { error: profileError } = await serviceSupabase
-      .from('user_profiles')
-      .delete()
-      .eq('id', userId);
-
-    if (profileError) {
-      logger.error('Error deleting user profile', profileError, {
-        component: 'UserManagement',
-        action: 'deleteUser',
-        userId,
-      });
-      return false;
-    }
-
-    // 6. Finally, delete user from auth (this requires service role)
-    const { error: authError } =
-      await serviceSupabase.auth.admin.deleteUser(userId);
-
-    if (authError) {
-      logger.error('Error deleting auth user', authError, {
-        component: 'UserManagement',
-        action: 'deleteUser',
-        userId,
-      });
-      return false;
-    }
-
-    await logUserActivity('admin.user.delete', 'user_profile', userId);
-
+    const actor = await getAuthenticatedPrincipal(await createClient());
+    if (!actor.user) return false;
+    const { error } = await (createServiceClient() as any).rpc(
+      'enqueue_account_data_job',
+      { p_user_id: userId, p_actor_id: actor.user.id, p_kind: 'delete' }
+    );
+    if (error) throw error;
+    await logUserActivity(
+      'admin.user.delete_requested',
+      'user_profile',
+      userId
+    );
     return true;
   } catch (error) {
-    logger.error('Error deleting user', error, {
+    logger.error('Account deletion request failed', error, {
       component: 'UserManagement',
       action: 'deleteUser',
       userId,
     });
     return false;
-  }
-}
-
-/**
- * Delete all storage files for a user (recursive)
- */
-async function deleteUserStorageFiles(userId: string): Promise<void> {
-  const serviceSupabase = createServiceClient();
-
-  try {
-    // Recursively delete all files in the user's directory
-    await deleteDirectoryRecursive(`user/${userId}`);
-
-    async function deleteDirectoryRecursive(path: string) {
-      const { data: items, error: listError } = await serviceSupabase.storage
-        .from('problem-uploads')
-        .list(path, {
-          limit: DATABASE_CONSTANTS.PAGINATION.MAX_LIMIT,
-          offset: 0,
-        });
-
-      if (listError) {
-        logger.error(`Error listing directory ${path}`, listError, {
-          component: 'UserManagement',
-          action: 'deleteDirectoryRecursive',
-          path,
-        });
-        return;
-      }
-
-      if (!items || items.length === 0) {
-        return;
-      }
-
-      const filesToDelete: string[] = [];
-
-      for (const item of items) {
-        const itemPath = `${path}/${item.name}`;
-
-        if (item.metadata?.mimetype) {
-          // It's a file
-          filesToDelete.push(itemPath);
-        } else {
-          // It's a directory, recurse
-          await deleteDirectoryRecursive(itemPath);
-        }
-      }
-
-      // Delete all files in this directory
-      if (filesToDelete.length > 0) {
-        const { error: deleteError } = await serviceSupabase.storage
-          .from('problem-uploads')
-          .remove(filesToDelete);
-
-        if (deleteError) {
-          logger.error(`Error deleting files in ${path}`, deleteError, {
-            component: 'UserManagement',
-            action: 'deleteDirectoryRecursive',
-            path,
-          });
-        }
-      }
-    }
-  } catch (error) {
-    logger.error('Error in deleteUserStorageFiles', error, {
-      component: 'UserManagement',
-      action: 'deleteUserStorageFiles',
-    });
   }
 }

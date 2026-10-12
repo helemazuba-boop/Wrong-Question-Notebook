@@ -37,6 +37,7 @@ PYTHON
   done
   [[ "$count" -ge 4 ]] || { echo 'Missing SQL contract tests' >&2; exit 1; }
   node "$web_root/scripts/ci/account-authorization-smoke.mjs" "$ci_workdir/status.json"
+  node "$web_root/scripts/ci/account-data-test.mjs" "$ci_workdir/status.json"
 elif [[ "$action" == upgrade ]]; then
   base=${WQN_MIGRATION_BASE_SHA:-$(cat "$repo_root/.github/ci-migration-baseline.txt")}
   git -C "$repo_root" cat-file -e "$base^{commit}"

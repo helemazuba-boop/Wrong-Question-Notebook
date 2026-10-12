@@ -27,6 +27,13 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           version: 2.120.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install account lifecycle test dependencies
+        run: npm ci --prefix web
       - name: Verify isolated stack allocation and cleanup guards
         run: python3 -m unittest discover -s web/scripts/ci -p '*_test.py'
       - name: Apply migrations from an empty database

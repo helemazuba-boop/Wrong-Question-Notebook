@@ -167,7 +167,13 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json({ message: 'User deleted successfully' });
+    return NextResponse.json(
+      {
+        message:
+          'Account deletion queued; the account is disabled while cleanup runs',
+      },
+      { status: 202 }
+    );
   } catch (error) {
     console.error('Error deleting user:', error);
     return NextResponse.json(

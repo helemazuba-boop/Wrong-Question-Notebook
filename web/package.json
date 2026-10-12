@@ -83,6 +83,7 @@
     "sharp": "^0.35.5",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
+    "tar": "^7.5.22",
     "tiptap-extension-resizable-image": "^2.0.0",
     "ts-fsrs": "5.4.1",
     "web-push": "^3.6.7",

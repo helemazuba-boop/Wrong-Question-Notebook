@@ -1332,7 +1332,8 @@
     "failedToRemove": "移除头像失败",
     "failedToSave": "保存资料失败",
     "usernameRequired": "用户名为必填项",
-    "adminPanel": "管理后台"
+    "adminPanel": "管理后台",
+    "accountData": "账号数据"
   },
   "Upload": {
     "title": "上传照片",
@@ -1902,5 +1903,42 @@
     "pushAccepted": "推送服务已接受",
     "pushCancelled": "任务变更后已取消推送",
     "pushPending": "浏览器推送排队中"
+  },
+  "AccountData": {
+    "title": "账号数据",
+    "description": "导出你的数据，或申请注销账号。",
+    "reauthTitle": "确认身份",
+    "reauthDescription": "申请导出或注销前，请在五分钟内重新登录。刷新会话不等于重新登录。",
+    "password": "密码",
+    "authenticate": "验证密码",
+    "authenticated": "身份已确认",
+    "authFailed": "密码验证失败",
+    "loginAgain": "使用原登录方式重新登录",
+    "reauthRequired": "请重新登录后继续",
+    "exportTitle": "全量账号导出",
+    "exportDescription": "私有 .tar.gz 压缩包包含本人拥有的各模块记录及存储文件；第三方附件保留引用。导出七天后过期。超出服务器配置的 512 MB 容量时会明确失败，不会发布不完整压缩包。",
+    "requestExport": "申请导出",
+    "confirmExport": "准备本账号的私有数据导出？",
+    "deleteTitle": "注销账号",
+    "deleteDescription": "注销将永久删除账号、本人各模块数据及存储文件。其他用户已复制的内容保留。清理任务可重试，申请后账号立即停用。请先导出需要保留的数据。",
+    "requestDelete": "申请注销",
+    "confirmDelete": "永久删除账号及本人数据？此操作无法撤销。",
+    "deletionPending": "注销正在处理，账号已停用，可在此查看进度。",
+    "statusUnavailable": "任务状态暂不可用",
+    "retry": "重试",
+    "completed": "已完成",
+    "failed": "失败，请重新申请导出重试",
+    "cancelled": "已取消",
+    "running": "处理中",
+    "pending": "排队中",
+    "retrying": "清理重试中",
+    "deleted": "账号及本人数据已删除",
+    "expired": "导出已过期，请重新申请",
+    "download": "下载压缩包",
+    "downloadFailed": "下载不可用或导出已过期",
+    "operationFailed": "申请失败，请检查是否已有进行中的任务并重试。",
+    "forbidden": "无法执行此操作。超级管理员账号需先转交角色再注销。",
+    "previous": "上一页",
+    "next": "下一页"
   }
 }
