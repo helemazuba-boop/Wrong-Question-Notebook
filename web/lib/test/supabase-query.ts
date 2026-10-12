@@ -14,6 +14,7 @@ const methods = [
   'is',
   'not',
   'lt',
+  'gt',
   'gte',
   'order',
   'limit',

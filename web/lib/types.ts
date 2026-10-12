@@ -411,12 +411,13 @@ export interface ExtractedProblemData {
 // =====================================================
 
 export interface OnboardingStatus {
-  hasSubject: boolean;
-  hasProblem: boolean;
-  hasReviewed: boolean;
-  firstSubjectId: string | null;
-  firstProblemId: string | null;
-  firstProblemSubjectId: string | null;
+  scenario: 'problems' | 'notes' | 'words' | null;
+  hasContainer: boolean;
+  hasContent: boolean;
+  hasPracticed: boolean;
+  containerHref: string;
+  contentHref: string;
+  practiceHref: string;
 }
 
 // =====================================================

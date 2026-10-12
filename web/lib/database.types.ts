@@ -3886,6 +3886,8 @@ export type Database = {
           last_login_at: string | null;
           last_name: string | null;
           onboarding_completed_at: string | null;
+          onboarding_scenario: string | null;
+          onboarding_dismissed_at: string | null;
           region: string | null;
           timezone: string | null;
           updated_at: string | null;
@@ -3904,6 +3906,8 @@ export type Database = {
           last_login_at?: string | null;
           last_name?: string | null;
           onboarding_completed_at?: string | null;
+          onboarding_scenario?: string | null;
+          onboarding_dismissed_at?: string | null;
           region?: string | null;
           timezone?: string | null;
           updated_at?: string | null;
@@ -3922,6 +3926,8 @@ export type Database = {
           last_login_at?: string | null;
           last_name?: string | null;
           onboarding_completed_at?: string | null;
+          onboarding_scenario?: string | null;
+          onboarding_dismissed_at?: string | null;
           region?: string | null;
           timezone?: string | null;
           updated_at?: string | null;

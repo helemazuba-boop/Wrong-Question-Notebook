@@ -23,11 +23,13 @@ export default async function LocaleAppLayout({
     if (user) {
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('onboarding_completed_at, timezone')
+        .select('onboarding_completed_at, onboarding_dismissed_at, timezone')
         .eq('id', user.id)
         .single();
 
-      showOnboarding = profile?.onboarding_completed_at === null;
+      showOnboarding =
+        profile?.onboarding_completed_at === null &&
+        profile?.onboarding_dismissed_at === null;
       currentTimezone = profile?.timezone ?? null;
     }
   } catch {
