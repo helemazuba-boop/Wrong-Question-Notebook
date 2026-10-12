@@ -1,4 +1,8 @@
 'use client';
+import {
+  useTranslations as useFeatureTranslations,
+  useLocale as useFeatureLocale,
+} from 'next-intl';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -100,30 +104,6 @@ type NoteView = {
 
 type NoteListOrder = 'stable' | 'updated_desc' | 'title';
 
-const ORDER_LABELS: Record<NoteListOrder, string> = {
-  stable: '稳定顺序',
-  updated_desc: '最近更新',
-  title: '标题',
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  ai: 'AI 创建',
-  user: '手动创建',
-  import: '导入',
-};
-
-function formatDateTime(value: string) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return '时间未知';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-}
-
 export default function NotebookPageClient({
   notebook: initialNotebook,
   initialNotes,
@@ -137,6 +117,30 @@ export default function NotebookPageClient({
   initialRecentReads: RecentNoteRead[];
   initialResumableSession: WebNoteStudySessionSummary | null;
 }) {
+  const tFeature = useFeatureTranslations('Notes');
+  const featureLocale = useFeatureLocale();
+  const ORDER_LABELS: Record<NoteListOrder, string> = {
+    stable: tFeature('stableOrder'),
+    updated_desc: tFeature('recentlyUpdated'),
+    title: tFeature('title'),
+  };
+  const SOURCE_LABELS: Record<string, string> = {
+    ai: tFeature('createdByAi'),
+    user: tFeature('createdManually'),
+    import: tFeature('import'),
+  };
+  function formatDateTime(value: string) {
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return tFeature('unknownTime');
+    return new Intl.DateTimeFormat(featureLocale, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  }
+
   const router = useRouter();
   const from = useSearchParams().get('from');
   const backHref = from && isSafeInternalHref(from) ? from : '/subjects';
@@ -200,7 +204,7 @@ export default function NotebookPageClient({
       return;
     }
     if (!readSummary.total) {
-      toast.info('先添加一篇笔记，再开始阅读');
+      toast.info(tFeature('addANoteBeforeStartingAReading'));
       return;
     }
     setReadingBusy(true);
@@ -217,7 +221,9 @@ export default function NotebookPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.data?.session_id) {
-        throw new Error(payload?.error?.message || '开始阅读失败');
+        throw new Error(
+          payload?.error?.message || tFeature('couldNotStartReading')
+        );
       }
       const sessionId = payload.data.session_id as string;
       setResumableSession({
@@ -244,7 +250,11 @@ export default function NotebookPageClient({
         )
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '开始阅读失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotStartReading')
+      );
     } finally {
       setReadingBusy(false);
     }
@@ -269,7 +279,7 @@ export default function NotebookPageClient({
           `/api/notebooks/${notebook.id}/notes?${params.toString()}`,
           { cache: 'no-store' }
         );
-        if (!response.ok) throw new Error('加载笔记失败');
+        if (!response.ok) throw new Error(tFeature('couldNotLoadNotes'));
         const payload = await response.json();
         const data = payload.data || {};
         const pageNotes: NoteView[] = data.notes || [];
@@ -277,7 +287,9 @@ export default function NotebookPageClient({
         setCursor(data.next_cursor ?? null);
         setHasMore(Boolean(data.has_more));
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : '加载笔记失败');
+        toast.error(
+          error instanceof Error ? error.message : tFeature('couldNotLoadNotes')
+        );
       } finally {
         setListBusy(false);
       }
@@ -307,16 +319,26 @@ export default function NotebookPageClient({
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || '更新 AI 授权失败');
+        throw new Error(
+          payload?.message || tFeature('couldNotUpdateAiPermissions')
+        );
       }
       setAiAccess({
         can_read: enabled,
         can_create: enabled,
         can_update: false,
       });
-      toast.success(enabled ? '已授权 AI 写入' : '已取消 AI 授权');
+      toast.success(
+        enabled
+          ? tFeature('aiCanNowCreateNotes')
+          : tFeature('aiPermissionRemoved')
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新 AI 授权失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotUpdateAiPermissions')
+      );
     } finally {
       setAiBusy(false);
     }
@@ -325,7 +347,7 @@ export default function NotebookPageClient({
   async function createNote(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim() || !content.trim()) {
-      toast.error('请输入标题和内容');
+      toast.error(tFeature('enterATitleAndContent'));
       return;
     }
     setCreateBusy(true);
@@ -337,13 +359,13 @@ export default function NotebookPageClient({
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || '创建笔记失败');
+        throw new Error(payload?.message || tFeature('couldNotCreateTheNote'));
       }
       const payload = await response.json().catch(() => null);
       setCreateOpen(false);
       setTitle('');
       setContent('');
-      toast.success('笔记已创建，可在此添加图片');
+      toast.success(tFeature('noteCreatedYouCanNowAddImages'));
       await loadPage({ reset: true });
       router.refresh();
       // Images can only be attached to an existing note (the storage path
@@ -354,7 +376,11 @@ export default function NotebookPageClient({
         openEdit(created as NoteView);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建笔记失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotCreateTheNote')
+      );
     } finally {
       setCreateBusy(false);
     }
@@ -379,7 +405,7 @@ export default function NotebookPageClient({
   async function handleImageUpload(files: FileList) {
     if (!editNote || files.length === 0) return;
     if (editAssets.length + files.length > 4) {
-      toast.error('每条笔记最多 4 张图片');
+      toast.error(tFeature('eachNoteSupportsUpToFourImages'));
       return;
     }
     setImageBusy(true);
@@ -396,13 +422,19 @@ export default function NotebookPageClient({
         );
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(payload?.message || '图片处理失败');
+          throw new Error(
+            payload?.message || tFeature('couldNotProcessTheImage')
+          );
         }
         applyNotePayload(payload);
       }
-      toast.success('图片已添加（预览即墨水屏效果）');
+      toast.success(tFeature('imageAddedThePreviewMatchesTheE'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '图片上传失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotUploadTheImage')
+      );
     } finally {
       setImageBusy(false);
       if (imageInputRef.current) imageInputRef.current.value = '';
@@ -419,12 +451,16 @@ export default function NotebookPageClient({
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '删除图片失败');
+        throw new Error(payload?.message || tFeature('couldNotDeleteTheImage'));
       }
       applyNotePayload(payload);
-      toast.success('图片已删除');
+      toast.success(tFeature('imageDeleted'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '删除图片失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotDeleteTheImage')
+      );
     } finally {
       setImageBusy(false);
     }
@@ -434,7 +470,7 @@ export default function NotebookPageClient({
     event.preventDefault();
     if (!editNote) return;
     if (!editTitle.trim() || !editContent.trim()) {
-      toast.error('请输入标题和内容');
+      toast.error(tFeature('enterATitleAndContent'));
       return;
     }
     setEditBusy(true);
@@ -455,20 +491,22 @@ export default function NotebookPageClient({
       if (response.status === 409) {
         // Revision conflict: another writer won. Reload so the user edits the
         // current version instead of silently overwriting it.
-        toast.error('这条笔记已被其他地方修改，已为你重新加载最新内容');
+        toast.error(tFeature('thisNoteChangedElsewhereTheLatestContent'));
         setEditNote(null);
         await loadPage({ reset: true });
         return;
       }
       if (!response.ok) {
-        throw new Error(payload?.message || '保存笔记失败');
+        throw new Error(payload?.message || tFeature('couldNotSaveTheNote'));
       }
-      toast.success('笔记已更新');
+      toast.success(tFeature('noteUpdated'));
       setEditNote(null);
       await loadPage({ reset: true });
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '保存笔记失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotSaveTheNote')
+      );
     } finally {
       setEditBusy(false);
     }
@@ -477,7 +515,7 @@ export default function NotebookPageClient({
   async function submitSettings(event: React.FormEvent) {
     event.preventDefault();
     if (!settingsTitle.trim()) {
-      toast.error('请输入笔记本名称');
+      toast.error(tFeature('enterANotebookName'));
       return;
     }
     setSettingsBusy(true);
@@ -493,12 +531,14 @@ export default function NotebookPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (response.status === 409) {
-        toast.error('笔记本已被修改，请刷新后重试');
+        toast.error(tFeature('thisNotebookChangedElsewhereRefreshAndRetry'));
         router.refresh();
         return;
       }
       if (!response.ok) {
-        throw new Error(payload?.message || '保存笔记本失败');
+        throw new Error(
+          payload?.message || tFeature('couldNotSaveTheNotebook')
+        );
       }
       const updated = payload.data?.notebook;
       setNotebook(prev => ({
@@ -507,11 +547,15 @@ export default function NotebookPageClient({
         description: updated?.description ?? null,
         revision: updated?.revision ?? prev.revision + 1,
       }));
-      toast.success('笔记本已更新');
+      toast.success(tFeature('notebookUpdated'));
       setSettingsOpen(false);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '保存笔记本失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotSaveTheNotebook')
+      );
     } finally {
       setSettingsBusy(false);
     }
@@ -525,7 +569,8 @@ export default function NotebookPageClient({
           description={
             <span className="space-y-1">
               <span className="block">
-                {notebook.subject_name || '未分类'} / 空白笔记本 · 版本 v
+                {notebook.subject_name || tFeature('uncategorized')}{' '}
+                {tFeature('notebookRevisionV')}
                 {notebook.revision}
               </span>
               {notebook.description ? (
@@ -537,7 +582,7 @@ export default function NotebookPageClient({
             <>
               <Button variant="outline" onClick={() => router.push(backHref)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                返回笔记本架
+                {tFeature('backToShelf')}
               </Button>
               <Button
                 variant="outline"
@@ -548,7 +593,7 @@ export default function NotebookPageClient({
                 }}
               >
                 <Settings2 className="mr-2 h-4 w-4" />
-                笔记本设置
+                {tFeature('notebookSettings')}
               </Button>
               <Button
                 variant="outline"
@@ -557,14 +602,14 @@ export default function NotebookPageClient({
               >
                 <PlayCircle className="mr-2 h-4 w-4" />
                 {readingBusy
-                  ? '正在准备...'
+                  ? tFeature('preparing')
                   : resumableSession
-                    ? '继续阅读'
-                    : '开始阅读'}
+                    ? tFeature('continueReading')
+                    : tFeature('startReading')}
               </Button>
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                新笔记
+                {tFeature('newNote')}
               </Button>
             </>
           }
@@ -575,24 +620,31 @@ export default function NotebookPageClient({
             <CardHeader className="border-b p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
-                  <CardTitle className="text-base">笔记概览</CardTitle>
+                  <CardTitle className="text-base">
+                    {tFeature('noteOverview')}
+                  </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    空白笔记用于沉淀知识点、摘要和 AI
-                    会话结果，不参与错题复习算法。
+                    {tFeature('notesStoreKnowledgeSummariesAndAiConversation')}
                   </p>
                 </div>
-                <Badge variant="secondary">空白笔记</Badge>
+                <Badge variant="secondary">{tFeature('notes')}</Badge>
               </div>
             </CardHeader>
             <CardContent className="grid gap-3 p-5 sm:grid-cols-4">
-              <NotebookMetric label="总笔记" value={readSummary.total} />
-              <NotebookMetric label="未读" value={readSummary.unread_count} />
               <NotebookMetric
-                label="阅读中"
+                label={tFeature('totalNotes')}
+                value={readSummary.total}
+              />
+              <NotebookMetric
+                label={tFeature('unread')}
+                value={readSummary.unread_count}
+              />
+              <NotebookMetric
+                label={tFeature('reading')}
                 value={readSummary.reading_count}
               />
               <NotebookMetric
-                label="已读"
+                label={tFeature('read')}
                 value={readSummary.completed_count}
               />
             </CardContent>
@@ -605,9 +657,11 @@ export default function NotebookPageClient({
                   <Bot className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <CardTitle className="text-base">AI 授权</CardTitle>
+                  <CardTitle className="text-base">
+                    {tFeature('aiPermissions')}
+                  </CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    控制 WQN NOTE 4 AI 会话是否能向这个笔记本写入知识点。
+                    {tFeature('allowWqnNote4AiConversationsTo')}
                   </p>
                 </div>
               </div>
@@ -621,7 +675,9 @@ export default function NotebookPageClient({
                     <Lock className="h-4 w-4 text-muted-foreground" />
                   )}
                   <span className="text-sm font-medium">
-                    {aiAccess.can_create ? '已允许写入' : '未授权写入'}
+                    {aiAccess.can_create
+                      ? tFeature('writingAllowed')
+                      : tFeature('writingNotAllowed')}
                   </span>
                 </div>
                 <Switch
@@ -632,8 +688,8 @@ export default function NotebookPageClient({
               </div>
               <div className="rounded-md bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
                 {aiAccess.can_create
-                  ? 'AI 可读取这个笔记本的授权状态，并在会话中创建新笔记；不会自动修改已有笔记。'
-                  : '关闭后，AI 会话不会把内容写入这个笔记本，你仍然可以手动新增笔记。'}
+                  ? tFeature('aiCanCheckThisNotebookSPermissions')
+                  : tFeature('whenDisabledAiConversationsCannotCreateNotes')}
               </div>
             </CardContent>
           </Card>
@@ -644,17 +700,25 @@ export default function NotebookPageClient({
             <CardHeader className="border-b p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <CardTitle className="text-base">最近阅读</CardTitle>
+                  <CardTitle className="text-base">
+                    {tFeature('recentReading')}
+                  </CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Web 与 NOTE 4 共用同一阅读记录。
+                    {tFeature('webAndNote4ShareTheSame')}
                   </p>
                 </div>
                 {resumableSession?.current_note_title ||
                 readSummary.last_note_title ? (
                   <Badge variant="outline">
                     {resumableSession?.current_note_title
-                      ? `继续位置：${resumableSession.current_note_title}`
-                      : `上次读过：${readSummary.last_note_title}`}
+                      ? tFeature('continueAt', {
+                          value0: String(
+                            resumableSession.current_note_title ?? ''
+                          ),
+                        })
+                      : tFeature('lastRead', {
+                          value0: String(readSummary.last_note_title ?? ''),
+                        })}
                   </Badge>
                 ) : null}
               </div>
@@ -675,7 +739,7 @@ export default function NotebookPageClient({
                         ? 'NOTE 4'
                         : item.actor === 'web'
                           ? 'Web'
-                          : '已同步'}
+                          : tFeature('synced')}
                     </p>
                   </div>
                   <Badge
@@ -683,7 +747,9 @@ export default function NotebookPageClient({
                       item.state === 'completed' ? 'secondary' : 'outline'
                     }
                   >
-                    {item.state === 'completed' ? '已读' : '阅读中'}
+                    {item.state === 'completed'
+                      ? tFeature('read')
+                      : tFeature('reading')}
                   </Badge>
                 </div>
               ))}
@@ -704,12 +770,12 @@ export default function NotebookPageClient({
               <Input
                 value={query}
                 onChange={event => setQuery(event.target.value)}
-                placeholder="搜索标题或正文"
+                placeholder={tFeature('searchTitlesOrContent')}
                 className="pl-9"
               />
             </div>
             <Button type="submit" variant="outline" disabled={listBusy}>
-              搜索
+              {tFeature('search')}
             </Button>
           </form>
           <div className="flex items-center gap-1 rounded-md border p-1">
@@ -734,17 +800,18 @@ export default function NotebookPageClient({
             </div>
             <div className="mx-auto mt-4 max-w-md space-y-2">
               <h3 className="text-lg font-semibold">
-                {query.trim() ? '没有匹配的笔记' : '还没有笔记'}
+                {query.trim()
+                  ? tFeature('noMatchingNotes')
+                  : tFeature('noNotesYet')}
               </h3>
               <p className="text-sm text-muted-foreground">
-                可以先手动新增一条笔记；如果开启 AI
-                授权，会话也可以把遗漏知识点稳定写到这里。
+                {tFeature('addANoteManuallyOrEnableAi')}
               </p>
             </div>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                新笔记
+                {tFeature('newNote')}
               </Button>
               {!aiAccess.can_create ? (
                 <Button
@@ -753,7 +820,7 @@ export default function NotebookPageClient({
                   onClick={() => updateAiAccess(true)}
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
-                  允许 AI 写入
+                  {tFeature('allowAiToCreateNotes')}
                 </Button>
               ) : null}
             </div>
@@ -761,9 +828,11 @@ export default function NotebookPageClient({
         ) : (
           <div className="mt-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">笔记列表</h2>
+              <h2 className="text-lg font-semibold">{tFeature('noteList')}</h2>
               <p className="text-sm text-muted-foreground">
-                已加载 {notes.length} 条 · {ORDER_LABELS[order]}
+                {tFeature('loaded')}
+                {notes.length} {tFeature('notes2')}
+                {ORDER_LABELS[order]}
               </p>
             </div>
             {notes.map(note => (
@@ -783,7 +852,9 @@ export default function NotebookPageClient({
                           {SOURCE_LABELS[note.source] || note.source}
                         </Badge>
                         {note.linked_problem_id ? (
-                          <Badge variant="secondary">关联错题</Badge>
+                          <Badge variant="secondary">
+                            {tFeature('linkedQuestion')}
+                          </Badge>
                         ) : null}
                         <Badge
                           variant={
@@ -793,10 +864,10 @@ export default function NotebookPageClient({
                           }
                         >
                           {note.read_state?.state === 'completed'
-                            ? '已读'
+                            ? tFeature('read')
                             : note.read_state?.state === 'reading'
-                              ? '阅读中'
-                              : '未读'}
+                              ? tFeature('reading')
+                              : tFeature('unread')}
                         </Badge>
                         <Badge variant="outline">v{note.revision}</Badge>
                       </div>
@@ -812,7 +883,7 @@ export default function NotebookPageClient({
                         onClick={() => openEdit(note)}
                       >
                         <Pencil className="mr-1 h-3.5 w-3.5" />
-                        编辑
+                        {tFeature('edit')}
                       </Button>
                       {note.linked_problem ? (
                         <Button size="sm" variant="ghost" asChild>
@@ -824,7 +895,7 @@ export default function NotebookPageClient({
                             }
                           >
                             <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                            关联错题
+                            {tFeature('linkedQuestion')}
                           </Link>
                         </Button>
                       ) : null}
@@ -849,12 +920,12 @@ export default function NotebookPageClient({
                             setViewerActualSize(false);
                           }}
                           className="overflow-hidden rounded-md border border-gray-200 transition hover:opacity-80 dark:border-gray-700"
-                          title="点击全屏查看"
+                          title={tFeature('viewFullScreen')}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={`/api/files/${encodeURIComponent(asset.path)}`}
-                            alt="笔记图片"
+                            alt={tFeature('noteImage')}
                             className="aspect-[4/3] w-full bg-white object-contain"
                           />
                         </button>
@@ -863,9 +934,14 @@ export default function NotebookPageClient({
                   ) : null}
                 </CardContent>
                 <CardFooter className="border-t bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
-                  创建于 {formatDateTime(note.created_at)}
+                  {tFeature('created')}
+                  {formatDateTime(note.created_at)}
                   {note.read_state?.last_opened_at
-                    ? ` · 最近阅读 ${formatDateTime(note.read_state.last_opened_at)}`
+                    ? tFeature('lastRead2', {
+                        value0: String(
+                          formatDateTime(note.read_state.last_opened_at) ?? ''
+                        ),
+                      })
                     : ''}
                 </CardFooter>
               </Card>
@@ -877,7 +953,7 @@ export default function NotebookPageClient({
                   disabled={listBusy}
                   onClick={() => loadPage({ reset: false })}
                 >
-                  {listBusy ? '加载中...' : '加载更多'}
+                  {listBusy ? tFeature('loading') : tFeature('loadMore')}
                 </Button>
               </div>
             ) : null}
@@ -888,32 +964,33 @@ export default function NotebookPageClient({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新笔记</DialogTitle>
+            <DialogTitle>{tFeature('newNote')}</DialogTitle>
             <DialogDescription>
-              空白笔记只做记录，不参与错题复习和推荐算法。创建后会直接打开编辑窗口，可在那里添加图片（最多
-              4 张）。
+              {tFeature('notesStoreInformationAndDoNotAffect')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={createNote} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="note-title">标题</Label>
+              <Label htmlFor="note-title">{tFeature('title')}</Label>
               <Input
                 id="note-title"
                 value={title}
                 onChange={event => setTitle(event.target.value)}
                 maxLength={120}
-                placeholder="导数链式法则"
+                placeholder={tFeature('chainRuleForDerivatives')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="note-content">内容</Label>
+              <Label htmlFor="note-content">{tFeature('content')}</Label>
               <Textarea
                 id="note-content"
                 value={content}
                 onChange={event => setContent(event.target.value)}
                 maxLength={4000}
                 className="min-h-40"
-                placeholder="记录知识点、易错点或总结。"
+                placeholder={tFeature(
+                  'recordKnowledgeCommonMistakesOrASummary'
+                )}
               />
             </div>
             <DialogFooter>
@@ -923,10 +1000,10 @@ export default function NotebookPageClient({
                 onClick={() => setCreateOpen(false)}
                 disabled={createBusy}
               >
-                取消
+                {tFeature('cancel')}
               </Button>
               <Button type="submit" disabled={createBusy}>
-                {createBusy ? '创建中...' : '创建'}
+                {createBusy ? tFeature('creating') : tFeature('create')}
               </Button>
             </DialogFooter>
           </form>
@@ -939,14 +1016,14 @@ export default function NotebookPageClient({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>编辑笔记</DialogTitle>
+            <DialogTitle>{tFeature('editNote')}</DialogTitle>
             <DialogDescription>
-              保存时会校验版本，若他处已修改会提示重新加载。
+              {tFeature('savingChecksTheRevisionChangesMadeElsewhere')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitEdit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-note-title">标题</Label>
+              <Label htmlFor="edit-note-title">{tFeature('title')}</Label>
               <Input
                 id="edit-note-title"
                 value={editTitle}
@@ -955,7 +1032,7 @@ export default function NotebookPageClient({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-note-content">内容</Label>
+              <Label htmlFor="edit-note-content">{tFeature('content')}</Label>
               <Textarea
                 id="edit-note-content"
                 value={editContent}
@@ -966,7 +1043,11 @@ export default function NotebookPageClient({
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>图片（{editAssets.length}/4，预览即墨水屏效果）</Label>
+                <Label>
+                  {tFeature('images')}
+                  {editAssets.length}
+                  {tFeature('4PreviewMatchesTheEInkDisplay')}
+                </Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -975,14 +1056,14 @@ export default function NotebookPageClient({
                   onClick={() => imageInputRef.current?.click()}
                 >
                   <ImagePlus className="mr-1 h-4 w-4" />
-                  {imageBusy ? '处理中...' : '添加图片'}
+                  {imageBusy ? tFeature('processing') : tFeature('addImage')}
                 </Button>
               </div>
               <input
                 ref={imageInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                aria-label="笔记图片"
+                aria-label={tFeature('noteImage')}
                 multiple
                 className="hidden"
                 onChange={event =>
@@ -999,7 +1080,7 @@ export default function NotebookPageClient({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={`/api/files/${encodeURIComponent(asset.preview_path)}`}
-                        alt="墨水屏预览"
+                        alt={tFeature('eInkPreview')}
                         className="w-full aspect-[4/3] object-contain bg-white"
                       />
                       <Button
@@ -1009,7 +1090,7 @@ export default function NotebookPageClient({
                         disabled={imageBusy}
                         onClick={() => handleImageDelete(asset.image_id)}
                         className="absolute top-1 right-1 h-6 w-6 p-0 bg-white/80 hover:bg-white text-red-600"
-                        title="删除图片"
+                        title={tFeature('deleteImage')}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -1025,10 +1106,10 @@ export default function NotebookPageClient({
                 onClick={() => setEditNote(null)}
                 disabled={editBusy}
               >
-                取消
+                {tFeature('cancel')}
               </Button>
               <Button type="submit" disabled={editBusy}>
-                {editBusy ? '保存中...' : '保存'}
+                {editBusy ? tFeature('saving') : tFeature('save')}
               </Button>
             </DialogFooter>
           </form>
@@ -1038,14 +1119,15 @@ export default function NotebookPageClient({
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>笔记本设置</DialogTitle>
+            <DialogTitle>{tFeature('notebookSettings')}</DialogTitle>
             <DialogDescription>
-              重命名或修改描述。保存时校验版本 v{notebook.revision}。
+              {tFeature('renameOrChangeTheDescriptionSavingChecks')}
+              {notebook.revision}。
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={submitSettings} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="notebook-title">名称</Label>
+              <Label htmlFor="notebook-title">{tFeature('name')}</Label>
               <Input
                 id="notebook-title"
                 value={settingsTitle}
@@ -1054,14 +1136,16 @@ export default function NotebookPageClient({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notebook-description">描述</Label>
+              <Label htmlFor="notebook-description">
+                {tFeature('description')}
+              </Label>
               <Textarea
                 id="notebook-description"
                 value={settingsDescription}
                 onChange={event => setSettingsDescription(event.target.value)}
                 maxLength={1000}
                 className="min-h-24"
-                placeholder="可选：这个笔记本用来记录什么。"
+                placeholder={tFeature('optionalDescribeWhatThisNotebookIsFor')}
               />
             </div>
             <DialogFooter>
@@ -1071,10 +1155,10 @@ export default function NotebookPageClient({
                 onClick={() => setSettingsOpen(false)}
                 disabled={settingsBusy}
               >
-                取消
+                {tFeature('cancel')}
               </Button>
               <Button type="submit" disabled={settingsBusy}>
-                {settingsBusy ? '保存中...' : '保存'}
+                {settingsBusy ? tFeature('saving') : tFeature('save')}
               </Button>
             </DialogFooter>
           </form>
@@ -1097,7 +1181,7 @@ export default function NotebookPageClient({
                 variant={viewerShowEink ? 'outline' : 'secondary'}
                 onClick={() => setViewerShowEink(false)}
               >
-                原图
+                {tFeature('originalImage')}
               </Button>
               <Button
                 type="button"
@@ -1105,7 +1189,7 @@ export default function NotebookPageClient({
                 variant={viewerShowEink ? 'secondary' : 'outline'}
                 onClick={() => setViewerShowEink(true)}
               >
-                墨水屏预览
+                {tFeature('eInkPreview')}
               </Button>
               <Button
                 type="button"
@@ -1113,7 +1197,7 @@ export default function NotebookPageClient({
                 variant="outline"
                 onClick={() => setViewerActualSize(value => !value)}
               >
-                {viewerActualSize ? '适应屏幕' : '1:1 缩放'}
+                {viewerActualSize ? tFeature('fitScreen') : tFeature('11Zoom')}
               </Button>
               <a
                 href={`/api/files/${encodeURIComponent(
@@ -1123,7 +1207,7 @@ export default function NotebookPageClient({
                 rel="noreferrer"
                 className="text-xs text-gray-300 underline-offset-2 hover:underline"
               >
-                新标签打开
+                {tFeature('openInNewTab')}
               </a>
             </div>
             <Button
@@ -1149,7 +1233,9 @@ export default function NotebookPageClient({
               src={`/api/files/${encodeURIComponent(
                 viewerShowEink ? viewerAsset.preview_path : viewerAsset.path
               )}`}
-              alt={viewerShowEink ? '墨水屏预览' : '笔记图片'}
+              alt={
+                viewerShowEink ? tFeature('eInkPreview') : tFeature('noteImage')
+              }
               className={
                 viewerActualSize
                   ? 'mx-auto max-w-none cursor-zoom-out bg-white'

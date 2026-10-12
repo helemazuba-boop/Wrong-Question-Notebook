@@ -37,7 +37,7 @@ export default function InsightsPageClient({
   embedded = false,
 }: InsightsPageClientProps) {
   const router = useRouter();
-  const t = useTranslations('Statistics');
+  const t = useTranslations('Insights');
   const tCommon = useTranslations('Common');
   const [digest, setDigest] = useState<InsightDigest | null>(initialDigest);
   const [isGenerating, setIsGenerating] = useState(initialIsGenerating);

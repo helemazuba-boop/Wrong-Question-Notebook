@@ -1,4 +1,5 @@
 'use client';
+import { useTranslations as useFeatureTranslations } from 'next-intl';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -53,19 +54,6 @@ type ObservationResult = {
   progress: WebWordStudyEntry['progress'] | null;
 };
 
-function modeLabel(mode: WebWordStudySessionView['mode']) {
-  if (mode === 'sequential') return '顺序学习';
-  if (mode === 'dictionary') return '词典浏览';
-  return '智能复习';
-}
-
-function statusLabel(status: WebWordStudyEntry['progress']['status']) {
-  if (status === 'learning') return '学习中';
-  if (status === 'review') return '复习';
-  if (status === 'mastered') return '已掌握';
-  return '新词';
-}
-
 function isRetryableFailure(error: unknown) {
   return (
     error instanceof Error &&
@@ -85,6 +73,19 @@ function apiError(
 }
 
 export default function WordStudySessionClient({ initialSession }: Props) {
+  const tFeature = useFeatureTranslations('Words');
+  function modeLabel(mode: WebWordStudySessionView['mode']) {
+    if (mode === 'sequential') return tFeature('sequentialStudy');
+    if (mode === 'dictionary') return tFeature('dictionaryBrowsing');
+    return tFeature('smartReview');
+  }
+  function statusLabel(status: WebWordStudyEntry['progress']['status']) {
+    if (status === 'learning') return tFeature('learning');
+    if (status === 'review') return tFeature('review2');
+    if (status === 'mastered') return tFeature('mastered');
+    return tFeature('newWords');
+  }
+
   const router = useRouter();
   const [session, setSession] = useState(initialSession);
   const [revealed, setRevealed] = useState(false);
@@ -125,7 +126,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       : 100;
 
   const heading = useMemo(
-    () => session.deck_titles.join('、') || 'Word 学习',
+    () => session.deck_titles.join('、') || tFeature('vocabularyStudy'),
     [session.deck_titles]
   );
 
@@ -142,7 +143,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       session: WebWordStudySessionView;
     }> | null;
     if (!response.ok || !result?.ok || !result.data?.session) {
-      throw apiError(result, '恢复学习会话失败');
+      throw apiError(result, tFeature('couldNotRestoreTheStudySession'));
     }
     setSession(result.data.session);
     return result.data.session;
@@ -166,7 +167,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         >;
       }> | null;
       if (!response.ok || !result?.ok || !result.data?.session) {
-        throw apiError(result, '更新会话状态失败');
+        throw apiError(result, tFeature('couldNotUpdateSessionStatus'));
       }
       setSession(current => ({
         ...current,
@@ -191,9 +192,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         await updateStatus('completed');
         removeWordStudyStorage(localStorage, pendingWordSessionStorageKey());
       } catch {
-        setRecoveryMessage(
-          '学习内容已经全部提交，但完成状态尚未确认。页面会保留会话，稍后可重试。'
-        );
+        setRecoveryMessage(tFeature('allItemsWereSubmittedButCompletionHas'));
       } finally {
         setCompletionBusy(false);
       }
@@ -216,9 +215,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         pendingRef.current = null;
         setPending(null);
         setRevealed(false);
-        setRecoveryMessage(
-          '当前词已经由另一页面或先前请求确认，已同步云端结果并继续。'
-        );
+        setRecoveryMessage(tFeature('anotherPageOrAnEarlierRequestConfirmed'));
         await completeIfNeeded(latest.next_sequence);
         return true;
       }
@@ -230,9 +227,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         pendingRef.current = null;
         setPending(null);
         setRevealed(false);
-        setRecoveryMessage(
-          '本地待提交结果与云端当前题不一致，系统没有自动套用答案；已回到云端未完成词，请重新作答。'
-        );
+        setRecoveryMessage(tFeature('thePendingLocalResultDoesNotMatch'));
         return true;
       }
       return false;
@@ -257,9 +252,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         JSON.stringify(observation)
       );
       if (!stored) {
-        setRecoveryMessage(
-          '浏览器无法保存待提交结果。请保持页面打开，直到云端确认完成。'
-        );
+        setRecoveryMessage(tFeature('theBrowserCannotSaveThePendingResult'));
       }
 
       try {
@@ -283,7 +276,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         let { response, result } = await postObservation(effectiveObservation);
         const initialError =
           !response.ok || !result?.ok || !result.data
-            ? apiError(result, '提交学习结果失败')
+            ? apiError(result, tFeature('couldNotSubmitTheStudyResult'))
             : null;
         if (
           initialError &&
@@ -300,11 +293,14 @@ export default function WordStudySessionClient({ initialSession }: Props) {
             JSON.stringify(effectiveObservation)
           );
           ({ response, result } = await postObservation(effectiveObservation));
-          toast.warning('词条已发生变化，本次记录已安全跳过。');
+          toast.warning(tFeature('thisEntryChangedTheActionWasSafely'));
         }
 
         if (!response.ok || !result?.ok || !result.data) {
-          const error = apiError(result, '提交学习结果失败');
+          const error = apiError(
+            result,
+            tFeature('couldNotSubmitTheStudyResult')
+          );
           if (
             error.code === 'SEQUENCE_ALREADY_APPLIED' ||
             error.code === 'SEQUENCE_GAP'
@@ -375,11 +371,17 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         await completeIfNeeded(nextSequence);
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : '提交失败，请重试';
+          error instanceof Error
+            ? error.message
+            : tFeature('submissionFailedRetry');
         setRecoveryMessage(
           isRetryableFailure(error)
-            ? `${message}。结果已保存在本机，联网后可用同一请求继续提交。`
-            : `${message}。结果仍保留在当前单词，请重试或重新同步。`
+            ? tFeature('theResultIsSavedLocallyReconnectTo', {
+                value0: String(message ?? ''),
+              })
+            : tFeature('theResultRemainsOnTheCurrentWord', {
+                value0: String(message ?? ''),
+              })
         );
       } finally {
         requestInFlightRef.current = false;
@@ -422,9 +424,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
     if (Date.parse(initialSession.expires_at) <= Date.now()) {
       pendingRef.current = stored;
       setPending(stored);
-      setRecoveryMessage(
-        '浏览器中仍有一个未确认结果，但云端会话已经过期，系统没有把它套用到新会话。'
-      );
+      setRecoveryMessage(tFeature('aPendingLocalResultRemainsButThe'));
       return;
     }
 
@@ -440,14 +440,18 @@ export default function WordStudySessionClient({ initialSession }: Props) {
     if (disposition === 'invalid_gap') {
       pendingRef.current = stored;
       setPending(stored);
-      setRecoveryMessage('检测到本地与云端序列不一致，正在重新同步。');
+      setRecoveryMessage(
+        tFeature('localAndCloudSequencesDifferSynchronizingAgain')
+      );
       void reconcileWithServer(stored);
       return;
     }
     pendingRef.current = stored;
     setPending(stored);
     setRevealed(true);
-    setRecoveryMessage('发现上次未确认的学习结果，正在使用原请求恢复。');
+    setRecoveryMessage(
+      tFeature('restoringThePreviousUnconfirmedResultUsingThe')
+    );
     void sendObservation(stored);
   }, [
     completeIfNeeded,
@@ -537,7 +541,11 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       await updateStatus('active');
       setRecoveryMessage(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '恢复会话失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotRestoreTheSession')
+      );
     } finally {
       setBusy(false);
     }
@@ -545,7 +553,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
 
   async function pauseAndLeave() {
     if (pendingRef.current) {
-      setRecoveryMessage('当前学习结果尚未确认，请先重试后再暂停。');
+      setRecoveryMessage(tFeature('theCurrentResultIsNotConfirmedRetry'));
       return;
     }
     setBusy(true);
@@ -553,7 +561,11 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       await updateStatus('paused');
       router.push('/words');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '暂停会话失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotPauseTheSession')
+      );
     } finally {
       setBusy(false);
     }
@@ -561,17 +573,22 @@ export default function WordStudySessionClient({ initialSession }: Props) {
 
   async function abandonSession() {
     if (pendingRef.current) {
-      setRecoveryMessage('当前学习结果尚未确认，不能放弃会话。');
+      setRecoveryMessage(tFeature('theCurrentResultIsNotConfirmedYou'));
       return;
     }
-    if (!window.confirm('确认结束本次学习？已提交的进度会保留。')) return;
+    if (!window.confirm(tFeature('endThisStudySessionSubmittedProgressWill')))
+      return;
     setBusy(true);
     try {
       await updateStatus('abandoned');
       removeWordStudyStorage(localStorage, pendingWordSessionStorageKey());
       router.push('/words');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '结束会话失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotEndTheSession')
+      );
     } finally {
       setBusy(false);
     }
@@ -585,24 +602,32 @@ export default function WordStudySessionClient({ initialSession }: Props) {
             <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/10 text-green-600">
               <Check className="h-8 w-8" />
             </div>
-            <h1 className="text-2xl font-semibold">本次学习已完成</h1>
+            <h1 className="text-2xl font-semibold">
+              {tFeature('studySessionComplete')}
+            </h1>
             <p className="mt-2 text-muted-foreground">
-              已确认 {session.next_sequence} / {session.candidate_count} 个词。
-              {completionBusy ? ' 正在确认完成状态…' : ''}
+              {tFeature('confirmed')}
+              {session.next_sequence} / {session.candidate_count}{' '}
+              {tFeature('words')}
+              {completionBusy ? tFeature('confirmingCompletion') : ''}
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               <Badge variant="secondary">
-                认识 {session.result.known_count}
+                {tFeature('known')}
+                {session.result.known_count}
               </Badge>
               <Badge variant="destructive">
-                不认识 {session.result.unknown_count}
+                {tFeature('unknown')}
+                {session.result.unknown_count}
               </Badge>
               <Badge variant="outline">
-                跳过 {session.result.skipped_count}
+                {tFeature('skip')}
+                {session.result.skipped_count}
               </Badge>
               {session.result.looked_up_count ? (
                 <Badge variant="outline">
-                  查阅 {session.result.looked_up_count}
+                  {tFeature('lookUp')}
+                  {session.result.looked_up_count}
                 </Badge>
               ) : null}
             </div>
@@ -619,14 +644,16 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                   disabled={completionBusy}
                 >
                   <RotateCcw className="mr-2 h-4 w-4" />
-                  重试完成确认
+                  {tFeature('retryCompletion')}
                 </Button>
               ) : null}
               <Button asChild>
-                <Link href="/words">返回 Word</Link>
+                <Link href="/words">{tFeature('backToVocabulary')}</Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link href="/words/study/new">再学一组</Link>
+                <Link href="/words/study/new">
+                  {tFeature('studyAnotherGroup')}
+                </Link>
               </Button>
             </div>
           </CardContent>
@@ -641,9 +668,11 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         <Card>
           <CardContent className="flex flex-col items-center px-6 py-16 text-center">
             <Clock3 className="mb-4 h-10 w-10 text-muted-foreground" />
-            <h1 className="text-xl font-semibold">学习会话已过期</h1>
+            <h1 className="text-xl font-semibold">
+              {tFeature('studySessionExpired')}
+            </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              已提交的学习进度仍然保留，请创建一个新会话继续。
+              {tFeature('submittedProgressIsPreservedStartANew')}
             </p>
             {recoveryMessage ? (
               <>
@@ -664,13 +693,13 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       setRecoveryMessage(null);
                     }}
                   >
-                    清除本机过期待提交结果
+                    {tFeature('clearExpiredPendingLocalResult')}
                   </Button>
                 ) : null}
               </>
             ) : null}
             <Button className="mt-7" asChild>
-              <Link href="/words/study/new">开始新学习</Link>
+              <Link href="/words/study/new">{tFeature('startNewSession')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -683,9 +712,11 @@ export default function WordStudySessionClient({ initialSession }: Props) {
       <div className="section-container mx-auto max-w-3xl">
         <Card>
           <CardContent className="px-6 py-16 text-center">
-            <p className="font-medium">当前会话没有可用词条</p>
+            <p className="font-medium">
+              {tFeature('thisSessionHasNoAvailableEntries')}
+            </p>
             <Button className="mt-6" asChild>
-              <Link href="/words">返回 Word</Link>
+              <Link href="/words">{tFeature('backToVocabulary')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -701,17 +732,22 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         <Card>
           <CardContent className="flex flex-col items-center px-6 py-16 text-center">
             <BookOpen className="mb-4 h-10 w-10 text-muted-foreground" />
-            <h1 className="text-xl font-semibold">本次学习已结束</h1>
+            <h1 className="text-xl font-semibold">
+              {tFeature('studySessionEnded')}
+            </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              已确认 {session.next_sequence} / {session.candidate_count} 个词，
-              已提交的学习进度会保留。
+              {tFeature('confirmed')}
+              {session.next_sequence} / {session.candidate_count}{' '}
+              {tFeature('wordsSubmittedProgressIsPreserved')}
             </p>
             <div className="mt-7 flex gap-3">
               <Button asChild>
-                <Link href="/words">返回 Word</Link>
+                <Link href="/words">{tFeature('backToVocabulary')}</Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link href="/words/study/new">开始新学习</Link>
+                <Link href="/words/study/new">
+                  {tFeature('startNewSession')}
+                </Link>
               </Button>
             </div>
           </CardContent>
@@ -745,10 +781,10 @@ export default function WordStudySessionClient({ initialSession }: Props) {
             disabled={busy || needsResume}
           >
             <Pause className="mr-2 h-4 w-4" />
-            暂停
+            {tFeature('pause')}
           </Button>
           <Button variant="ghost" onClick={abandonSession} disabled={busy}>
-            结束
+            {tFeature('end')}
           </Button>
         </div>
       </div>
@@ -774,7 +810,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
               disabled={busy}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
-              {busy ? '提交中…' : '重试同一请求'}
+              {busy ? tFeature('submitting') : tFeature('retryTheSameRequest')}
             </Button>
           ) : (
             <Button
@@ -783,12 +819,14 @@ export default function WordStudySessionClient({ initialSession }: Props) {
               onClick={() =>
                 void refreshSession().catch(error =>
                   toast.error(
-                    error instanceof Error ? error.message : '同步失败'
+                    error instanceof Error
+                      ? error.message
+                      : tFeature('synchronizationFailed')
                   )
                 )
               }
             >
-              重新同步
+              {tFeature('synchronizeAgain')}
             </Button>
           )}
         </div>
@@ -796,12 +834,15 @@ export default function WordStudySessionClient({ initialSession }: Props) {
 
       {lastMistake ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-          <span>已加入错题：{lastMistake.problem_title}</span>
+          <span>
+            {tFeature('addedForQuestionReview')}
+            {lastMistake.problem_title}
+          </span>
           <Link
             className="text-primary hover:underline"
             href={`/problem-sets/${lastMistake.problem_set_id}/review?problemId=${lastMistake.problem_id}`}
           >
-            立即查看错题
+            {tFeature('viewQuestionNow')}
           </Link>
         </div>
       ) : null}
@@ -810,12 +851,15 @@ export default function WordStudySessionClient({ initialSession }: Props) {
         <Card className="border-primary/30">
           <CardContent className="flex flex-col items-center px-6 py-12 text-center">
             <BookOpen className="mb-4 h-10 w-10 text-primary" />
-            <h2 className="text-lg font-semibold">继续这次学习</h2>
+            <h2 className="text-lg font-semibold">
+              {tFeature('continueThisSession')}
+            </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              云端已经保存到第 {session.next_sequence} 个词。
+              {tFeature('cloudProgressIsSavedThroughItem')}
+              {session.next_sequence} {tFeature('words')}
             </p>
             <Button className="mt-6" onClick={resumeSession} disabled={busy}>
-              {busy ? '恢复中…' : '继续学习'}
+              {busy ? tFeature('restoring') : tFeature('continueLearning')}
             </Button>
           </CardContent>
         </Card>
@@ -831,7 +875,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                 <Link
                   href={`/problem-sets/${currentItem.mistake.problem_set_id}/review?problemId=${currentItem.mistake.problem_id}`}
                 >
-                  <Badge variant="destructive">错题</Badge>
+                  <Badge variant="destructive">{tFeature('question')}</Badge>
                 </Link>
               ) : null}
             </div>
@@ -848,7 +892,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
             {!revealed ? (
               <div className="flex min-h-[17rem] flex-col items-center justify-center text-center">
                 <p className="text-sm text-muted-foreground">
-                  先在心里回忆释义，再揭示答案。
+                  {tFeature('recallTheMeaningBeforeRevealingTheAnswer')}
                 </p>
                 <Button
                   size="lg"
@@ -856,17 +900,17 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                   onClick={() => setRevealed(true)}
                 >
                   <Eye className="mr-2 h-5 w-5" />
-                  揭示释义
+                  {tFeature('revealMeaning')}
                 </Button>
                 <p className="mt-3 text-xs text-muted-foreground">
-                  快捷键：空格
+                  {tFeature('shortcutSpace')}
                 </p>
               </div>
             ) : (
               <div className="space-y-6">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    释义
+                    {tFeature('meaning')}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap text-xl leading-8">
                     {currentItem.meaning}
@@ -880,7 +924,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                     <Separator />
                     <div>
                       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        例句
+                        {tFeature('example')}
                       </p>
                       <p className="mt-2 text-base leading-7">
                         {currentItem.example}
@@ -903,7 +947,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                     disabled={busy || Boolean(pending)}
                   >
                     <SkipForward className="mr-2 h-5 w-5" />
-                    跳过已移除词条
+                    {tFeature('skipRemovedEntry')}
                   </Button>
                 ) : session.mode === 'dictionary' ? (
                   <div className="grid gap-3 pt-4 sm:grid-cols-2">
@@ -914,7 +958,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       disabled={busy || Boolean(pending)}
                     >
                       <SkipForward className="mr-2 h-5 w-5" />
-                      跳过
+                      {tFeature('skip')}
                     </Button>
                     <Button
                       size="lg"
@@ -922,7 +966,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       disabled={busy || Boolean(pending)}
                     >
                       <Check className="mr-2 h-5 w-5" />
-                      下一个
+                      {tFeature('next2')}
                     </Button>
                   </div>
                 ) : (
@@ -934,7 +978,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       disabled={busy || Boolean(pending)}
                     >
                       <X className="mr-2 h-5 w-5" />
-                      不认识
+                      {tFeature('unknown')}
                       <span className="ml-2 text-xs opacity-70">1</span>
                     </Button>
                     <Button
@@ -944,7 +988,7 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       disabled={busy || Boolean(pending)}
                     >
                       <SkipForward className="mr-2 h-5 w-5" />
-                      跳过
+                      {tFeature('skip')}
                       <span className="ml-2 text-xs opacity-70">3</span>
                     </Button>
                     <Button
@@ -953,14 +997,14 @@ export default function WordStudySessionClient({ initialSession }: Props) {
                       disabled={busy || Boolean(pending)}
                     >
                       <Check className="mr-2 h-5 w-5" />
-                      认识
+                      {tFeature('known')}
                       <span className="ml-2 text-xs opacity-70">2</span>
                     </Button>
                   </div>
                 )}
                 {busy ? (
                   <p className="text-center text-sm text-muted-foreground">
-                    正在确认学习结果，确认前不会进入下一词…
+                    {tFeature('confirmingTheResultTheNextWordOpens')}
                   </p>
                 ) : null}
               </div>

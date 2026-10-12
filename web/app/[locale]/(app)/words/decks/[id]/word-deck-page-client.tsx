@@ -1,4 +1,8 @@
 'use client';
+import {
+  useTranslations as useFeatureTranslations,
+  useLocale as useFeatureLocale,
+} from 'next-intl';
 
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -506,26 +510,6 @@ function parseImportText(text: string): ParseResult {
   };
 }
 
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function delimiterLabel(delimiter: string) {
-  if (delimiter === '\t') return '制表符';
-  if (delimiter === ',') return '逗号';
-  if (delimiter === ';') return '分号';
-  if (delimiter === '|') return '竖线';
-  if (delimiter === 'json') return 'JSON';
-  return delimiter;
-}
-
 export default function WordDeckPageClient({
   deck,
   initialEntries,
@@ -535,6 +519,28 @@ export default function WordDeckPageClient({
   initialEntries: WordEntryView[];
   initialEntryCount: number | null;
 }) {
+  const featureLocale = useFeatureLocale();
+  function formatDate(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  }
+
+  const tFeature = useFeatureTranslations('Words');
+  function delimiterLabel(delimiter: string) {
+    if (delimiter === '\t') return tFeature('tab');
+    if (delimiter === ',') return tFeature('comma');
+    if (delimiter === ';') return tFeature('semicolon');
+    if (delimiter === '|') return tFeature('pipe');
+    if (delimiter === 'json') return 'JSON';
+    return delimiter;
+  }
+
   const router = useRouter();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -591,14 +597,16 @@ export default function WordDeckPageClient({
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '加载词条失败');
+        throw new Error(payload?.message || tFeature('couldNotLoadEntries'));
       }
       setEntries(payload?.data?.entries || []);
       setEntryCount(Number(payload?.data?.count || 0));
       setEntryPage(page);
       setAppliedEntryQuery(query.trim());
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载词条失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotLoadEntries')
+      );
     } finally {
       setEntryLoading(false);
     }
@@ -638,7 +646,7 @@ export default function WordDeckPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '保存词条失败');
+        throw new Error(payload?.message || tFeature('couldNotSaveTheEntry'));
       }
       const updated = payload?.data?.word as WordEntryView;
       setEntries(current =>
@@ -649,10 +657,14 @@ export default function WordDeckPageClient({
         )
       );
       setEditingEntry(null);
-      toast.success('词条已保存');
+      toast.success(tFeature('entrySaved'));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '保存词条失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotSaveTheEntry')
+      );
     } finally {
       setEditBusy(false);
     }
@@ -660,7 +672,12 @@ export default function WordDeckPageClient({
 
   async function deleteEntry() {
     if (!editingEntry) return;
-    if (!window.confirm(`确认删除「${editingEntry.word}」？`)) return;
+    if (
+      !window.confirm(
+        tFeature('delete', { value0: String(editingEntry.word ?? '') })
+      )
+    )
+      return;
     setEditBusy(true);
     try {
       const response = await fetch(`/api/words/${editingEntry.id}`, {
@@ -668,17 +685,21 @@ export default function WordDeckPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '删除词条失败');
+        throw new Error(payload?.message || tFeature('couldNotDeleteTheEntry'));
       }
       setEditingEntry(null);
-      toast.success('词条已删除');
+      toast.success(tFeature('entryDeleted'));
       await loadEntryPage(
         Math.min(entryPage, Math.max(0, pageCount - 2)),
         appliedEntryQuery
       );
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '删除词条失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotDeleteTheEntry')
+      );
     } finally {
       setEditBusy(false);
     }
@@ -702,7 +723,11 @@ export default function WordDeckPageClient({
   async function handleFile(file: File | null) {
     if (!file) return;
     if (file.size > MAX_IMPORT_FILE_BYTES) {
-      toast.error(`文件不能超过 ${MAX_IMPORT_FILE_BYTES / (1024 * 1024)} MB`);
+      toast.error(
+        tFeature('filesMustNotExceedMb', {
+          value0: String(MAX_IMPORT_FILE_BYTES / (1024 * 1024)),
+        })
+      );
       return;
     }
     const name = file.name.toLowerCase();
@@ -711,13 +736,13 @@ export default function WordDeckPageClient({
       try {
         workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       } catch {
-        toast.error('无法解析该 Excel 文件');
+        toast.error(tFeature('couldNotParseThisExcelFile'));
         return;
       }
       const firstSheet = workbook.SheetNames[0];
       const worksheet = firstSheet ? workbook.Sheets[firstSheet] : null;
       if (!worksheet) {
-        toast.error('Excel 文件中没有可读取的工作表');
+        toast.error(tFeature('thisExcelFileHasNoReadableWorksheet'));
         return;
       }
       const tableText = XLSX.utils.sheet_to_csv(worksheet, { FS: '\t' });
@@ -729,7 +754,7 @@ export default function WordDeckPageClient({
 
   async function submitImport() {
     if (!canImport) {
-      toast.error('系统词库不能直接导入');
+      toast.error(tFeature('youCannotImportIntoASystemDeck'));
       return;
     }
 
@@ -737,16 +762,22 @@ export default function WordDeckPageClient({
     try {
       result = parseImportText(text);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导入内容格式错误');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('invalidImportFormat')
+      );
       return;
     }
 
     if (result.entries.length === 0) {
-      toast.error('没有可导入的词条。请确认表格中至少有“单词”和“释义”两列。');
+      toast.error(tFeature('noEntriesToImportMakeSureThe'));
       return;
     }
     if (result.entries.length > MAX_IMPORT_ENTRIES) {
-      toast.error(`单次最多导入 ${MAX_IMPORT_ENTRIES} 条`);
+      toast.error(
+        tFeature('importAtMostEntriesAtATime', {
+          value0: String(MAX_IMPORT_ENTRIES ?? ''),
+        })
+      );
       return;
     }
 
@@ -759,15 +790,19 @@ export default function WordDeckPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '导入失败');
+        throw new Error(payload?.message || tFeature('importFailed'));
       }
       const importedCount = Number(payload?.data?.imported_count || 0);
       setLastImportedCount(importedCount);
-      toast.success(`已导入 ${importedCount} 条词条`);
+      toast.success(
+        tFeature('importedEntries', { value0: String(importedCount ?? '') })
+      );
       await loadEntryPage(0, appliedEntryQuery);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导入失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('importFailed')
+      );
     } finally {
       setBusy(false);
     }
@@ -776,13 +811,13 @@ export default function WordDeckPageClient({
   async function submitAddWord(event: FormEvent) {
     event.preventDefault();
     if (!canImport) {
-      toast.error('系统词库不能直接添加');
+      toast.error(tFeature('youCannotAddEntriesToASystem'));
       return;
     }
     const word = addWord.trim();
     const meaning = addMeaning.trim();
     if (!word || !meaning) {
-      toast.error('请填写单词和释义');
+      toast.error(tFeature('enterAWordAndItsMeaning'));
       return;
     }
     setAddBusy(true);
@@ -800,9 +835,9 @@ export default function WordDeckPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '添加失败');
+        throw new Error(payload?.message || tFeature('couldNotAddTheEntry'));
       }
-      toast.success(`已添加「${word}」`);
+      toast.success(tFeature('added', { value0: String(word ?? '') }));
       setAddWord('');
       setAddMeaning('');
       setAddPhonetic('');
@@ -812,7 +847,9 @@ export default function WordDeckPageClient({
       await loadEntryPage(0, appliedEntryQuery);
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '添加失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotAddTheEntry')
+      );
     } finally {
       setAddBusy(false);
     }
@@ -824,7 +861,7 @@ export default function WordDeckPageClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `复习：${entry.word}`,
+          title: tFeature('review', { value0: String(entry.word ?? '') }),
           description: entry.meaning,
           word_deck_id: deck.id,
           word_entry_id: entry.id,
@@ -832,11 +869,17 @@ export default function WordDeckPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || '创建 Todo 失败');
+        throw new Error(payload?.error || tFeature('couldNotCreateTheTodo'));
       }
-      toast.success(`已把「${entry.word}」加入 Todo`);
+      toast.success(
+        tFeature('addedToTodos2', { value0: String(entry.word ?? '') })
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建 Todo 失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotCreateTheTodo')
+      );
     }
   }
 
@@ -846,20 +889,20 @@ export default function WordDeckPageClient({
         title={deck.title}
         description={
           deck.description ||
-          '管理词库条目，并通过设备词库资源包同步到 WQN Note4。'
+          tFeature('manageVocabularyEntriesAndSyncDeviceVocabulary')
         }
         actions={
           <>
             <Button variant="outline" asChild>
               <Link href="/words">
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                返回 Word
+                {tFeature('backToVocabulary')}
               </Link>
             </Button>
             <Button asChild>
               <Link href={`/words/study/new?deck=${deck.id}`}>
                 <Play className="mr-2 h-4 w-4" />
-                开始学习
+                {tFeature('startLearning')}
               </Link>
             </Button>
           </>
@@ -870,7 +913,7 @@ export default function WordDeckPageClient({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">
-              词条数
+              {tFeature('entryCount')}
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">
@@ -880,23 +923,23 @@ export default function WordDeckPageClient({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">
-              类型
+              {tFeature('type')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Badge variant={deck.is_system ? 'default' : 'secondary'}>
-              {deck.is_system ? '系统词库' : '用户词库'}
+              {deck.is_system ? tFeature('systemDeck') : tFeature('userDeck')}
             </Badge>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">
-              归档
+              {tFeature('archive')}
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm font-medium">
-            {deck.subject_name || '未分类'}
+            {deck.subject_name || tFeature('uncategorized')}
           </CardContent>
         </Card>
         <Card>
@@ -915,10 +958,15 @@ export default function WordDeckPageClient({
         <Card>
           <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle>词条管理</CardTitle>
+              <CardTitle>{tFeature('vocabularyEntries')}</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                共 {entryCount} 条
-                {appliedEntryQuery ? `，正在搜索“${appliedEntryQuery}”` : ''}
+                {tFeature('total')}
+                {entryCount} {tFeature('entries')}
+                {appliedEntryQuery
+                  ? tFeature('searchingFor', {
+                      value0: String(appliedEntryQuery ?? ''),
+                    })
+                  : ''}
               </p>
             </div>
             <form
@@ -930,31 +978,33 @@ export default function WordDeckPageClient({
                 <Input
                   value={entryQuery}
                   onChange={event => setEntryQuery(event.target.value)}
-                  placeholder="搜索单词或释义"
+                  placeholder={tFeature('searchWordsOrMeanings')}
                   className="pl-9"
                 />
               </div>
               <Button type="submit" variant="outline" disabled={entryLoading}>
-                搜索
+                {tFeature('search')}
               </Button>
             </form>
           </CardHeader>
           <CardContent>
             {visibleEntries.length === 0 ? (
               <div className="rounded-md border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-                当前词库还没有词条。
+                {tFeature('thisDeckHasNoEntriesYet')}
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>单词</TableHead>
-                    <TableHead>音标</TableHead>
-                    <TableHead>释义</TableHead>
-                    <TableHead>词性</TableHead>
-                    <TableHead>例句</TableHead>
-                    <TableHead>进度</TableHead>
-                    <TableHead className="w-24">操作</TableHead>
+                    <TableHead>{tFeature('word')}</TableHead>
+                    <TableHead>{tFeature('phonetic')}</TableHead>
+                    <TableHead>{tFeature('meaning')}</TableHead>
+                    <TableHead>{tFeature('partOfSpeech')}</TableHead>
+                    <TableHead>{tFeature('example')}</TableHead>
+                    <TableHead>{tFeature('progress')}</TableHead>
+                    <TableHead className="w-24">
+                      {tFeature('actions')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -977,12 +1027,12 @@ export default function WordDeckPageClient({
                       <TableCell>
                         <Badge variant="outline">
                           {entry.progress?.status === 'learning'
-                            ? '学习中'
+                            ? tFeature('learning')
                             : entry.progress?.status === 'review'
-                              ? '复习'
+                              ? tFeature('review2')
                               : entry.progress?.status === 'mastered'
-                                ? '已掌握'
-                                : '新词'}
+                                ? tFeature('mastered')
+                                : tFeature('newWords')}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -991,7 +1041,9 @@ export default function WordDeckPageClient({
                             size="icon"
                             variant="ghost"
                             onClick={() => void createEntryTodo(entry)}
-                            aria-label={`为${entry.word}创建 Todo`}
+                            aria-label={tFeature('createATodoFor', {
+                              value0: String(entry.word ?? ''),
+                            })}
                           >
                             <ListTodo className="h-4 w-4" />
                           </Button>
@@ -1000,7 +1052,9 @@ export default function WordDeckPageClient({
                               size="icon"
                               variant="ghost"
                               onClick={() => openEntryEditor(entry)}
-                              aria-label={`编辑${entry.word}`}
+                              aria-label={tFeature('edit2', {
+                                value0: String(entry.word ?? ''),
+                              })}
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -1014,7 +1068,8 @@ export default function WordDeckPageClient({
             )}
             <div className="mt-4 flex items-center justify-between gap-3">
               <p className="text-sm text-muted-foreground">
-                第 {entryPage + 1} / {pageCount} 页
+                {tFeature('page')}
+                {entryPage + 1} / {pageCount} {tFeature('pageSuffix')}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -1026,7 +1081,7 @@ export default function WordDeckPageClient({
                   disabled={entryLoading || entryPage === 0}
                 >
                   <ChevronLeft className="mr-1 h-4 w-4" />
-                  上一页
+                  {tFeature('previous')}
                 </Button>
                 <Button
                   size="sm"
@@ -1036,7 +1091,7 @@ export default function WordDeckPageClient({
                   }
                   disabled={entryLoading || entryPage + 1 >= pageCount}
                 >
-                  下一页
+                  {tFeature('next')}
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Button>
               </div>
@@ -1046,7 +1101,7 @@ export default function WordDeckPageClient({
 
         <Card>
           <CardHeader>
-            <CardTitle>添加单词</CardTitle>
+            <CardTitle>{tFeature('addWord')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {canImport ? (
@@ -1054,7 +1109,8 @@ export default function WordDeckPageClient({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="add-word-word">
-                      单词 <span className="text-destructive">*</span>
+                      {tFeature('word')}
+                      <span className="text-destructive">*</span>
                     </Label>
                     <Input
                       id="add-word-word"
@@ -1065,7 +1121,9 @@ export default function WordDeckPageClient({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="add-word-phonetic">音标</Label>
+                    <Label htmlFor="add-word-phonetic">
+                      {tFeature('phonetic')}
+                    </Label>
                     <Input
                       id="add-word-phonetic"
                       value={addPhonetic}
@@ -1076,7 +1134,8 @@ export default function WordDeckPageClient({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="add-word-meaning">
-                    释义 <span className="text-destructive">*</span>
+                    {tFeature('meaning')}
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Textarea
                     id="add-word-meaning"
@@ -1087,17 +1146,21 @@ export default function WordDeckPageClient({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="add-word-pos">词性</Label>
+                  <Label htmlFor="add-word-pos">
+                    {tFeature('partOfSpeech')}
+                  </Label>
                   <Input
                     id="add-word-pos"
                     value={addPartOfSpeech}
                     onChange={event => setAddPartOfSpeech(event.target.value)}
                     maxLength={80}
-                    placeholder="可选，如 n. / v."
+                    placeholder={tFeature('optionalEGNV')}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="add-word-example">例句</Label>
+                  <Label htmlFor="add-word-example">
+                    {tFeature('example')}
+                  </Label>
                   <Textarea
                     id="add-word-example"
                     value={addExample}
@@ -1106,7 +1169,9 @@ export default function WordDeckPageClient({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="add-word-example-tr">例句翻译</Label>
+                  <Label htmlFor="add-word-example-tr">
+                    {tFeature('exampleTranslation')}
+                  </Label>
                   <Textarea
                     id="add-word-example-tr"
                     value={addExampleTranslation}
@@ -1117,12 +1182,12 @@ export default function WordDeckPageClient({
                   />
                 </div>
                 <Button type="submit" disabled={addBusy}>
-                  {addBusy ? '添加中...' : '添加单词'}
+                  {addBusy ? tFeature('adding') : tFeature('addWord')}
                 </Button>
               </form>
             ) : (
               <p className="text-sm text-muted-foreground">
-                系统词库由 WQN 云端维护，不能在这里直接添加。
+                {tFeature('systemDecksAreMaintainedByWqnYou')}
               </p>
             )}
           </CardContent>
@@ -1130,7 +1195,7 @@ export default function WordDeckPageClient({
 
         <Card>
           <CardHeader>
-            <CardTitle>导入词条</CardTitle>
+            <CardTitle>{tFeature('importEntries')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {canImport ? (
@@ -1138,14 +1203,13 @@ export default function WordDeckPageClient({
                 <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
                   <div className="mb-2 flex items-center font-medium text-foreground">
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
-                    Excel 表格导入
+                    {tFeature('importFromExcel')}
                   </div>
-                  从 Excel 复制整张表格后粘贴，或上传 CSV/TSV/JSON。表头可写
-                  “单词、释义、音标、例句、例句翻译、词性、标签”，没有表头时会自动识别。
+                  {tFeature('pasteATableCopiedFromExcelOr')}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="word-import-file">
-                    Excel / CSV / TSV / JSON 文件
+                    {tFeature('excelCsvTsvJsonFile')}
                   </Label>
                   <Input
                     id="word-import-file"
@@ -1157,32 +1221,36 @@ export default function WordDeckPageClient({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="word-import-text">粘贴导入内容</Label>
+                  <Label htmlFor="word-import-text">
+                    {tFeature('pasteContentToImport')}
+                  </Label>
                   <Textarea
                     id="word-import-text"
                     value={text}
                     onChange={event => previewImport(event.target.value)}
                     rows={12}
-                    placeholder={
-                      '单词\t释义\t音标\t例句\t例句翻译\nconsistent\t一致的；持续的\t/kənˈsɪstənt/\tShe is consistent in her work.\t她工作一直很稳定。'
-                    }
+                    placeholder={tFeature(
+                      'wordMeaningPhoneticExampleExampleTranslationConsistent'
+                    )}
                   />
                 </div>
                 <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
-                  单次最多 {MAX_IMPORT_ENTRIES} 条。当前识别：
-                  {parseResult.entries.length} 条可导入，
-                  {parseResult.skipped} 行跳过，分隔符{' '}
+                  {tFeature('importLimit')}
+                  {MAX_IMPORT_ENTRIES} {tFeature('entriesDetected')}
+                  {parseResult.entries.length} {tFeature('importableEntries')}
+                  {parseResult.skipped} {tFeature('skippedRowsDelimiter')}{' '}
                   {delimiterLabel(parseResult.delimiter)}
                   {parseResult.hasHeader
-                    ? '，已识别表头。'
-                    : '，按内容自动推断列。'}
+                    ? tFeature('headersRecognized')
+                    : tFeature('columnsInferredFromContent')}
                 </div>
                 {previewEntries.length > 0 ? (
                   <>
                     <Separator />
                     <div className="space-y-2">
                       <p className="text-sm font-medium">
-                        预览前 {previewEntries.length} 条
+                        {tFeature('previewFirst')}
+                        {previewEntries.length} {tFeature('entries')}
                       </p>
                       <div className="space-y-1 text-xs text-muted-foreground">
                         {previewEntries.map((entry, index) => (
@@ -1207,17 +1275,18 @@ export default function WordDeckPageClient({
                   ) : (
                     <FileUp className="mr-2 h-4 w-4" />
                   )}
-                  {busy ? '导入中...' : '导入到词库'}
+                  {busy ? tFeature('importing') : tFeature('importIntoDeck')}
                 </Button>
                 {lastImportedCount !== null ? (
                   <p className="text-sm text-muted-foreground">
-                    上次成功导入 {lastImportedCount} 条。
+                    {tFeature('lastSuccessfulImport')}
+                    {lastImportedCount} {tFeature('entries2')}
                   </p>
                 ) : null}
               </>
             ) : (
               <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                系统词库由 WQN 云端维护，不能在这里直接导入。
+                {tFeature('systemDecksAreMaintainedByWqnYou2')}
               </div>
             )}
           </CardContent>
@@ -1231,14 +1300,14 @@ export default function WordDeckPageClient({
         <DialogContent className="max-w-2xl">
           <form onSubmit={saveEntry}>
             <DialogHeader>
-              <DialogTitle>编辑词条</DialogTitle>
+              <DialogTitle>{tFeature('editEntry')}</DialogTitle>
               <DialogDescription>
-                修改会更新词库 revision；已有个人学习进度会保留。
+                {tFeature('editsUpdateTheDeckRevisionAndPreserve')}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="edit-word">单词</Label>
+                <Label htmlFor="edit-word">{tFeature('word')}</Label>
                 <Input
                   id="edit-word"
                   value={editWord}
@@ -1248,7 +1317,7 @@ export default function WordDeckPageClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-phonetic">音标</Label>
+                <Label htmlFor="edit-phonetic">{tFeature('phonetic')}</Label>
                 <Input
                   id="edit-phonetic"
                   value={editPhonetic}
@@ -1257,7 +1326,7 @@ export default function WordDeckPageClient({
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="edit-meaning">释义</Label>
+                <Label htmlFor="edit-meaning">{tFeature('meaning')}</Label>
                 <Textarea
                   id="edit-meaning"
                   value={editMeaning}
@@ -1267,7 +1336,7 @@ export default function WordDeckPageClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-pos">词性</Label>
+                <Label htmlFor="edit-pos">{tFeature('partOfSpeech')}</Label>
                 <Input
                   id="edit-pos"
                   value={editPartOfSpeech}
@@ -1276,7 +1345,7 @@ export default function WordDeckPageClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-example">例句</Label>
+                <Label htmlFor="edit-example">{tFeature('example')}</Label>
                 <Input
                   id="edit-example"
                   value={editExample}
@@ -1285,7 +1354,9 @@ export default function WordDeckPageClient({
                 />
               </div>
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="edit-example-translation">例句翻译</Label>
+                <Label htmlFor="edit-example-translation">
+                  {tFeature('exampleTranslation')}
+                </Label>
                 <Input
                   id="edit-example-translation"
                   value={editExampleTranslation}
@@ -1304,7 +1375,7 @@ export default function WordDeckPageClient({
                 disabled={editBusy}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                删除
+                {tFeature('delete2')}
               </Button>
               <div className="flex gap-2">
                 <Button
@@ -1312,10 +1383,10 @@ export default function WordDeckPageClient({
                   variant="outline"
                   onClick={() => setEditingEntry(null)}
                 >
-                  取消
+                  {tFeature('cancel')}
                 </Button>
                 <Button type="submit" disabled={editBusy}>
-                  {editBusy ? '保存中…' : '保存'}
+                  {editBusy ? tFeature('saving2') : tFeature('save')}
                 </Button>
               </div>
             </DialogFooter>

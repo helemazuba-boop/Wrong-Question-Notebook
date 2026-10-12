@@ -1,3 +1,4 @@
+import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
@@ -36,7 +37,9 @@ type DeckRow = {
 };
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: '词库管理' };
+  const tFeature = await getFeatureTranslations('Words');
+
+  return { title: tFeature('vocabularyManagement') };
 }
 
 function normalizeCount(value: DeckRow['word_entries']): number {

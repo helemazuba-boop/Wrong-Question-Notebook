@@ -1,3 +1,7 @@
+import {
+  getTranslations as getFeatureTranslations,
+  getLocale as getFeatureLocale,
+} from 'next-intl/server';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -8,21 +12,25 @@ import { requireUser } from '@/lib/supabase/requireUser';
 import { loadWrongWords } from '@/lib/words';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: 'Word 错词' };
-}
+  const tFeature = await getFeatureTranslations('Words');
 
-function formatDate(value: string) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return '时间未知';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
+  return { title: tFeature('vocabularyMistakes') };
 }
 
 export default async function WordMistakesPage() {
+  const tFeature = await getFeatureTranslations('Words');
+  const featureLocale = await getFeatureLocale();
+  function formatDate(value: string) {
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return tFeature('unknownTime');
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  }
+
   const { user, supabase } = await requireUser();
   if (!user) redirect('/auth/login?redirect=/words/mistakes');
   const { mistakes } = await loadWrongWords(supabase, user.id, { limit: 50 });
@@ -30,24 +38,26 @@ export default async function WordMistakesPage() {
   return (
     <div className="section-container space-y-6">
       <PageHeader
-        title="Word 错词"
-        description="在 Word 中确认“不认识”后会自动生成错题。这里保留词条入口，也可以直接进入错题复习。"
+        title={tFeature('vocabularyMistakes')}
+        description={tFeature('markingAWordAsUnknownCreatesA')}
         actions={
           <Link className="text-sm text-primary hover:underline" href="/words">
-            返回 Word
+            {tFeature('backToVocabulary')}
           </Link>
         }
       />
       <Card>
         <CardHeader>
-          <CardTitle>待巩固词条</CardTitle>
+          <CardTitle>{tFeature('wordsToPractice')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {mistakes.length === 0 ? (
             <div className="rounded-lg border border-dashed px-6 py-12 text-center">
-              <p className="font-medium">还没有 Word 错题</p>
+              <p className="font-medium">
+                {tFeature('noVocabularyMistakesYet')}
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                学习时确认“不认识”的词会自动出现在这里。
+                {tFeature('wordsMarkedAsUnknownDuringLearningWill')}
               </p>
             </div>
           ) : (
@@ -59,7 +69,7 @@ export default async function WordMistakesPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold">{item.word.word}</p>
-                    <Badge variant="destructive">错题</Badge>
+                    <Badge variant="destructive">{tFeature('question')}</Badge>
                     <Badge variant="outline">
                       {item.word.status || 'learning'}
                     </Badge>
@@ -68,14 +78,15 @@ export default async function WordMistakesPage() {
                     {item.word.meaning}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    最近进入错题：{formatDate(item.updated_at)}
+                    {tFeature('lastAddedForReview')}
+                    {formatDate(item.updated_at)}
                   </p>
                 </div>
                 <Link
                   className="text-sm text-primary hover:underline"
                   href={`/problem-sets/${item.problem_set_id}/review?problemId=${item.problem_id}`}
                 >
-                  进入错题复习
+                  {tFeature('reviewQuestion')}
                 </Link>
               </div>
             ))

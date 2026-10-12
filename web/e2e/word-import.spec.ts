@@ -23,7 +23,7 @@ for (const format of ['csv', 'xlsx']) {
       buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
     } else buffer = Buffer.from(rows.map(row => row.join(',')).join('\n'));
     await page
-      .getByLabel('Excel / CSV / TSV / JSON 文件', { exact: true })
+      .getByLabel('Excel / CSV / TSV / JSON file', { exact: true })
       .setInputFiles({
         name: `words.${format}`,
         mimeType:
@@ -32,20 +32,26 @@ for (const format of ['csv', 'xlsx']) {
             : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         buffer,
       });
-    await expect(page.getByText(/当前识别/)).toContainText(/2\s*条可导入/);
+    await expect(page.getByText(/Detected:/)).toContainText(
+      /2\s*importable entries/
+    );
     const response = page.waitForResponse(
       response =>
         response.url().endsWith(`/decks/${data.importDeckId}/import`) &&
         response.request().method() === 'POST'
     );
-    await page.getByRole('button', { name: '导入到词库', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Import into deck', exact: true })
+      .click();
     expect((await response).ok()).toBeTruthy();
-    await expect(page.getByText('上次成功导入 2 条。')).toBeVisible();
+    await expect(
+      page.getByText('Last successful import: 2 entries.')
+    ).toBeVisible();
     await expect(
       page.getByRole('cell', { name: 'durable', exact: true })
     ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: '导入到词库', exact: true })
+      page.getByRole('button', { name: 'Import into deck', exact: true })
     ).toBeEnabled();
     // Verify a fresh document and a real reload, independent of the original
     // tab's concurrent Next router.refresh streaming response.

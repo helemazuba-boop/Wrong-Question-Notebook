@@ -1,4 +1,8 @@
 'use client';
+import {
+  useTranslations as useFeatureTranslations,
+  useLocale as useFeatureLocale,
+} from 'next-intl';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
@@ -61,48 +65,27 @@ interface SubjectsPageClientProps {
   initialShelfItems: NotebookShelfItem[];
 }
 
-const typeLabels: Record<ShelfContentType, string> = {
-  problem_set: '错题本',
-  notebook: '空白笔记',
-  word_deck: '词库',
-};
-
-function formatUpdatedAt(value: string | null) {
-  if (!value) return '暂无更新';
-
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return '暂无更新';
-
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-}
-
-function createdMessage(kind: CreateKind) {
-  if (kind === 'notebook') return '空白笔记已创建';
-  if (kind === 'word_deck') return '词库已创建';
-  return '错题本已创建';
-}
-
-function createSubmitLabel(kind: CreateKind) {
-  if (kind === 'notebook') return '创建空白笔记';
-  if (kind === 'word_deck') return '创建词库';
-  return '创建错题本';
-}
-
-function defaultTitlePlaceholder(kind: CreateKind) {
-  if (kind === 'notebook') return '课堂摘记';
-  if (kind === 'word_deck') return '高中 3500';
-  return '函数错题本';
-}
-
 export default function SubjectsPageClient({
   initialSubjects,
   initialShelfItems,
 }: SubjectsPageClientProps) {
+  const tFeature = useFeatureTranslations('Notebooks');
+  function createdMessage(kind: CreateKind) {
+    if (kind === 'notebook') return tFeature('notebookCreated');
+    if (kind === 'word_deck') return tFeature('deckCreated');
+    return tFeature('questionNotebookCreated');
+  }
+  function createSubmitLabel(kind: CreateKind) {
+    if (kind === 'notebook') return tFeature('createNotebook');
+    if (kind === 'word_deck') return tFeature('createDeck');
+    return tFeature('createQuestionNotebook');
+  }
+  function defaultTitlePlaceholder(kind: CreateKind) {
+    if (kind === 'notebook') return tFeature('classNotes');
+    if (kind === 'word_deck') return tFeature('highSchoolVocabulary');
+    return tFeature('functionQuestions');
+  }
+
   const router = useRouter();
   const [subjects] = useState(() => sortSubjectsByPresetOrder(initialSubjects));
   const [items, setItems] = useState(initialShelfItems);
@@ -164,7 +147,7 @@ export default function SubjectsPageClient({
   async function refreshShelf() {
     const response = await fetch('/api/notebook-shelf', { cache: 'no-store' });
     if (!response.ok) {
-      throw new Error('刷新笔记本架失败');
+      throw new Error(tFeature('couldNotRefreshTheShelf'));
     }
     const payload = await response.json();
     setItems(payload.data?.items || []);
@@ -174,14 +157,14 @@ export default function SubjectsPageClient({
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (!createTitle.trim()) {
-      toast.error('请输入名称');
+      toast.error(tFeature('enterAName'));
       return;
     }
     if (
       createKind !== 'word_deck' &&
       (!createSubjectId || createSubjectId === '_none')
     ) {
-      toast.error('请选择归档位置');
+      toast.error(tFeature('chooseACategory'));
       return;
     }
 
@@ -229,7 +212,7 @@ export default function SubjectsPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '创建失败');
+        throw new Error(payload?.message || tFeature('couldNotCreate'));
       }
 
       setCreateOpen(false);
@@ -252,7 +235,9 @@ export default function SubjectsPageClient({
         );
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotCreate')
+      );
     } finally {
       setCreateBusy(false);
     }
@@ -276,7 +261,9 @@ export default function SubjectsPageClient({
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || '更新 AI 授权失败');
+        throw new Error(
+          payload?.message || tFeature('couldNotUpdateAiPermissions')
+        );
       }
       setItems(prev =>
         prev.map(prevItem =>
@@ -292,9 +279,17 @@ export default function SubjectsPageClient({
             : prevItem
         )
       );
-      toast.success(enabled ? '已允许 AI 写入' : '已取消 AI 授权');
+      toast.success(
+        enabled
+          ? tFeature('aiCanNowCreateNotes2')
+          : tFeature('aiPermissionRemoved')
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新 AI 授权失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotUpdateAiPermissions')
+      );
     } finally {
       setAccessBusyId(null);
     }
@@ -319,7 +314,7 @@ export default function SubjectsPageClient({
     }
     const readableCount = item.read_summary?.total ?? item.count;
     if (!readableCount) {
-      toast.info('先添加一篇笔记，再开始阅读');
+      toast.info(tFeature('addANoteBeforeStartingAReading'));
       return;
     }
     setReadingBusyId(item.id);
@@ -336,11 +331,17 @@ export default function SubjectsPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.data?.session_id) {
-        throw new Error(payload?.error?.message || '开始阅读失败');
+        throw new Error(
+          payload?.error?.message || tFeature('couldNotStartReading')
+        );
       }
       router.push(`/notebooks/${item.id}/read/${payload.data.session_id}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '开始阅读失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotStartReading')
+      );
     } finally {
       setReadingBusyId(null);
     }
@@ -361,12 +362,12 @@ export default function SubjectsPageClient({
     <>
       <div className="section-container">
         <PageHeader
-          title="笔记本架"
-          description="错题本、空白笔记和词库都放在这里。科目只用于筛选和整理，不是进入内容前必须经过的层级。"
+          title={tFeature('notebookShelf')}
+          description={tFeature('questionNotebooksNotesAndVocabularyDecksLive')}
           actions={
             <Button onClick={() => openCreateDialog()}>
               <Plus className="mr-2 h-4 w-4" />
-              新建
+              {tFeature('new')}
             </Button>
           }
         />
@@ -379,17 +380,19 @@ export default function SubjectsPageClient({
                 ref={searchInputRef}
                 value={query}
                 onChange={event => setQuery(event.target.value)}
-                placeholder="搜索错题本、空白笔记、词库或科目"
+                placeholder={tFeature(
+                  'searchQuestionNotebooksNotesDecksOrSubjects'
+                )}
                 className="pl-10"
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:w-[29rem]">
               <Select value={subjectFilter} onValueChange={setSubjectFilter}>
                 <SelectTrigger>
-                  <SelectValue placeholder="筛选科目" />
+                  <SelectValue placeholder={tFeature('filterBySubject')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部科目</SelectItem>
+                  <SelectItem value="all">{tFeature('allSubjects')}</SelectItem>
                   {subjects.map(subject => (
                     <SelectItem key={subject.id} value={subject.id}>
                       {subject.name}
@@ -402,13 +405,17 @@ export default function SubjectsPageClient({
                 onValueChange={value => setTypeFilter(value as TypeFilter)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="筛选类型" />
+                  <SelectValue placeholder={tFeature('filterByType')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部类型</SelectItem>
-                  <SelectItem value="problem_set">错题本</SelectItem>
-                  <SelectItem value="notebook">空白笔记</SelectItem>
-                  <SelectItem value="word_deck">词库</SelectItem>
+                  <SelectItem value="all">{tFeature('allTypes')}</SelectItem>
+                  <SelectItem value="problem_set">
+                    {tFeature('questionNotebook')}
+                  </SelectItem>
+                  <SelectItem value="notebook">{tFeature('notes')}</SelectItem>
+                  <SelectItem value="word_deck">
+                    {tFeature('vocabularyDeck')}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -417,12 +424,17 @@ export default function SubjectsPageClient({
           <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <SlidersHorizontal className="h-4 w-4" />
-              <span>当前显示 {filteredItems.length} 个</span>
-              {hasFilters ? <Badge variant="outline">已筛选</Badge> : null}
+              <span>
+                {tFeature('showing')}
+                {filteredItems.length} {tFeature('items2')}
+              </span>
+              {hasFilters ? (
+                <Badge variant="outline">{tFeature('filtered')}</Badge>
+              ) : null}
             </div>
             {hasFilters ? (
               <Button variant="ghost" size="sm" onClick={resetFilters}>
-                清除筛选
+                {tFeature('clearFilters')}
               </Button>
             ) : null}
           </div>
@@ -435,18 +447,20 @@ export default function SubjectsPageClient({
             </div>
             <div className="mx-auto mt-4 max-w-md space-y-2">
               <h3 className="text-lg font-semibold">
-                {items.length === 0 ? '笔记本架是空的' : '没有匹配内容'}
+                {items.length === 0
+                  ? tFeature('theShelfIsEmpty')
+                  : tFeature('noMatchingContent')}
               </h3>
               <p className="text-sm text-muted-foreground">
                 {items.length === 0
-                  ? '先建立一个错题本收纳题目、建立空白笔记记录知识，或创建词库导入单词。'
-                  : '换一个关键词、科目或类型筛选，通常能更快找到目标内容。'}
+                  ? tFeature('createAQuestionNotebookToCollectQuestions')
+                  : tFeature('tryAnotherKeywordSubjectOrContentType')}
               </p>
             </div>
             {items.length === 0 ? null : (
               <div className="mt-5 flex flex-wrap justify-center gap-2">
                 <Button variant="outline" onClick={resetFilters}>
-                  清除筛选
+                  {tFeature('clearFilters')}
                 </Button>
               </div>
             )}
@@ -473,9 +487,9 @@ export default function SubjectsPageClient({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建内容</DialogTitle>
+            <DialogTitle>{tFeature('newContent')}</DialogTitle>
             <DialogDescription>
-              选择类型并填写名称。创建后可以进入对应页面继续整理题目、笔记或词条。
+              {tFeature('chooseATypeAndANameThen')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4">
@@ -486,7 +500,7 @@ export default function SubjectsPageClient({
                 onClick={() => setCreateKind('problem_set')}
               >
                 <BookOpen className="mr-2 h-4 w-4" />
-                错题本
+                {tFeature('questionNotebook')}
               </Button>
               <Button
                 type="button"
@@ -494,7 +508,7 @@ export default function SubjectsPageClient({
                 onClick={() => setCreateKind('notebook')}
               >
                 <FileText className="mr-2 h-4 w-4" />
-                空白笔记
+                {tFeature('notes')}
               </Button>
               <Button
                 type="button"
@@ -502,11 +516,11 @@ export default function SubjectsPageClient({
                 onClick={() => setCreateKind('word_deck')}
               >
                 <BookA className="mr-2 h-4 w-4" />
-                词库
+                {tFeature('vocabularyDeck')}
               </Button>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notebook-title">名称</Label>
+              <Label htmlFor="notebook-title">{tFeature('name')}</Label>
               <Input
                 id="notebook-title"
                 value={createTitle}
@@ -516,17 +530,19 @@ export default function SubjectsPageClient({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notebook-subject">归档到</Label>
+              <Label htmlFor="notebook-subject">{tFeature('category')}</Label>
               <Select
                 value={createSubjectId}
                 onValueChange={setCreateSubjectId}
               >
                 <SelectTrigger id="notebook-subject">
-                  <SelectValue placeholder="选择归档位置" />
+                  <SelectValue placeholder={tFeature('chooseACategory2')} />
                 </SelectTrigger>
                 <SelectContent>
                   {createKind === 'word_deck' ? (
-                    <SelectItem value="_none">无科目</SelectItem>
+                    <SelectItem value="_none">
+                      {tFeature('noSubject')}
+                    </SelectItem>
                   ) : null}
                   {subjects.map(subject => (
                     <SelectItem key={subject.id} value={subject.id}>
@@ -537,24 +553,26 @@ export default function SubjectsPageClient({
               </Select>
               {subjects.length === 0 && createKind !== 'word_deck' ? (
                 <p className="text-xs text-muted-foreground">
-                  当前还没有可用科目，暂时无法创建内容。
+                  {tFeature('noSubjectsAreAvailableYetContentCannot')}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
                   {createKind === 'word_deck'
-                    ? '词库可以不指定科目；科目仅用于筛选和整理。'
-                    : '仅用于筛选和整理，不会形成新的页面层级。'}
+                    ? tFeature('vocabularyDecksCanHaveNoSubjectSubjects')
+                    : tFeature('usedForFilteringAndOrganizingContent')}
                 </p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notebook-description">描述</Label>
+              <Label htmlFor="notebook-description">
+                {tFeature('description')}
+              </Label>
               <Textarea
                 id="notebook-description"
                 value={createDescription}
                 onChange={event => setCreateDescription(event.target.value)}
                 maxLength={500}
-                placeholder="可选"
+                placeholder={tFeature('optional')}
               />
             </div>
             <DialogFooter>
@@ -564,13 +582,15 @@ export default function SubjectsPageClient({
                 onClick={() => setCreateOpen(false)}
                 disabled={createBusy}
               >
-                取消
+                {tFeature('cancel')}
               </Button>
               <Button
                 type="submit"
                 disabled={createBusy || subjects.length === 0}
               >
-                {createBusy ? '创建中...' : createSubmitLabel(createKind)}
+                {createBusy
+                  ? tFeature('creating')
+                  : createSubmitLabel(createKind)}
               </Button>
             </DialogFooter>
           </form>
@@ -595,6 +615,27 @@ function ShelfItemCard({
   onContinue: () => void;
   onAiAccessChange: (checked: boolean) => void;
 }) {
+  const tFeature = useFeatureTranslations('Notebooks');
+  const featureLocale = useFeatureLocale();
+  const typeLabels: Record<ShelfContentType, string> = {
+    problem_set: tFeature('questionNotebook'),
+    notebook: tFeature('notes'),
+    word_deck: tFeature('vocabularyDeck'),
+  };
+  function formatUpdatedAt(value: string | null) {
+    if (!value) return tFeature('noUpdatesYet');
+
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return tFeature('noUpdatesYet');
+
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  }
+
   const isProblemSet = item.type === 'problem_set';
   const isWordDeck = item.type === 'word_deck';
   const isAiWritable = Boolean(item.ai_access?.can_create);
@@ -640,7 +681,9 @@ function ShelfItemCard({
                 <Badge variant={isProblemSet ? 'default' : 'secondary'}>
                   {typeLabels[item.type]}
                 </Badge>
-                <Badge variant="outline">{item.subject_name || '未分类'}</Badge>
+                <Badge variant="outline">
+                  {item.subject_name || tFeature('uncategorized')}
+                </Badge>
               </div>
             </div>
           </div>
@@ -650,7 +693,7 @@ function ShelfItemCard({
               className="shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
             >
               <CheckCircle2 className="mr-1 h-3 w-3" />
-              AI 可写
+              {tFeature('aiWritingAllowed')}
             </Badge>
           ) : null}
         </div>
@@ -659,20 +702,26 @@ function ShelfItemCard({
         <p className="line-clamp-3 min-h-[3.75rem] text-sm leading-6 text-muted-foreground">
           {item.description ||
             (isProblemSet
-              ? '用于保存和复习这一类错题，适合集中整理练习记录。'
+              ? tFeature('collectRelatedQuestionsAndOrganizeTheirReview')
               : isWordDeck
-                ? '用于管理单词、释义和例句，设备会通过词库资源包同步到本地学习。'
-                : '用于记录知识点、摘要和临时想法，不参与错题复习流程。')}
+                ? tFeature('manageWordsMeaningsAndExamplesDeviceVocabulary')
+                : tFeature('recordKnowledgeSummariesAndIdeasOutsideThe'))}
         </p>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-md bg-muted/60 px-3 py-2">
             <p className="text-xs text-muted-foreground">
-              {isProblemSet ? '题目数' : isWordDeck ? '词条数' : '笔记数'}
+              {isProblemSet
+                ? tFeature('questionCount')
+                : isWordDeck
+                  ? tFeature('entryCount')
+                  : tFeature('noteCount')}
             </p>
             <p className="mt-1 font-semibold">{item.count}</p>
           </div>
           <div className="rounded-md bg-muted/60 px-3 py-2">
-            <p className="text-xs text-muted-foreground">更新</p>
+            <p className="text-xs text-muted-foreground">
+              {tFeature('updated')}
+            </p>
             <p className="mt-1 truncate font-medium">
               {formatUpdatedAt(item.updated_at)}
             </p>
@@ -681,13 +730,16 @@ function ShelfItemCard({
         {!isProblemSet && !isWordDeck && item.read_summary ? (
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <Badge variant="outline">
-              未读 {item.read_summary.unread_count}
+              {tFeature('unread')}
+              {item.read_summary.unread_count}
             </Badge>
             <Badge variant="outline">
-              阅读中 {item.read_summary.reading_count}
+              {tFeature('reading')}
+              {item.read_summary.reading_count}
             </Badge>
             <Badge variant="secondary">
-              已读 {item.read_summary.completed_count}
+              {tFeature('read')}
+              {item.read_summary.completed_count}
             </Badge>
           </div>
         ) : null}
@@ -705,16 +757,20 @@ function ShelfItemCard({
           >
             <PlayCircle className="mr-2 h-4 w-4" />
             {readingBusy
-              ? '正在准备...'
+              ? tFeature('preparing')
               : item.read_summary?.resumable_session_id
-                ? '继续阅读'
-                : '开始阅读'}
+                ? tFeature('continueReading')
+                : tFeature('startReading')}
           </Button>
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-sm font-medium">AI 写入授权</p>
+              <p className="text-sm font-medium">
+                {tFeature('aiWritingPermission')}
+              </p>
               <p className="text-xs text-muted-foreground">
-                {isAiWritable ? '已允许 AI 添加笔记' : '仅手动维护'}
+                {isAiWritable
+                  ? tFeature('aiCanCreateNotes')
+                  : tFeature('maintainedManually')}
               </p>
             </div>
             <Switch
@@ -727,8 +783,12 @@ function ShelfItemCard({
           item.read_summary?.last_note_title ? (
             <p className="truncate text-xs text-muted-foreground">
               {item.read_summary.resume_note_title
-                ? `继续位置：${item.read_summary.resume_note_title}`
-                : `上次读过：${item.read_summary.last_note_title}`}
+                ? tFeature('continueAt', {
+                    value0: String(item.read_summary.resume_note_title ?? ''),
+                  })
+                : tFeature('lastRead', {
+                    value0: String(item.read_summary.last_note_title ?? ''),
+                  })}
             </p>
           ) : null}
         </CardFooter>

@@ -1,3 +1,4 @@
+import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
@@ -9,7 +10,9 @@ import {
 import NoteReadingSessionClient from './note-reading-session-client';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: 'Note 阅读' };
+  const tFeature = await getFeatureTranslations('Notes');
+
+  return { title: tFeature('noteReading') };
 }
 
 export default async function NoteReadingSessionPage({

@@ -52,7 +52,7 @@ export default function SubjectInsightsClient({
   reviewSessions,
 }: SubjectInsightsClientProps) {
   const router = useRouter();
-  const t = useTranslations('Statistics');
+  const t = useTranslations('Insights');
   const [reviewingCluster, setReviewingCluster] = useState<string | null>(null);
 
   const safeColor =

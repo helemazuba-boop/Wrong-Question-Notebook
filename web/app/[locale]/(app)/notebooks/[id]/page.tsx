@@ -1,3 +1,4 @@
+import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -70,9 +71,11 @@ export async function generateMetadata({
 }: {
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
+  const tFeature = await getFeatureTranslations('Notes');
+
   const { id } = await params;
   const data = await loadNotebook(id);
-  return { title: data?.notebook.title || '笔记本' };
+  return { title: data?.notebook.title || tFeature('notebook') };
 }
 
 export default async function NotebookPage({

@@ -153,14 +153,16 @@ export async function startStudy(page: Page, data: Data) {
       () => document.documentElement.scrollWidth <= window.innerWidth + 1
     )
   ).toBeTruthy();
-  await page.getByLabel('本次数量', { exact: true }).click();
-  await page.getByRole('option', { name: /^10\s*词$/ }).click();
+  await page.getByLabel('Session size', { exact: true }).click();
+  await page.getByRole('option', { name: /^10\s*words$/ }).click();
   const response = page.waitForResponse(
     response =>
       response.url().endsWith('/api/words/study/sessions') &&
       response.request().method() === 'POST'
   );
-  await page.getByRole('button', { name: '开始学习', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Start learning', exact: true })
+    .click();
   const result = await response;
   expect(result.ok()).toBeTruthy();
   const body = await result.json();

@@ -7,32 +7,34 @@ test('create and edit a note, attach a real image and retain it after refresh', 
 }) => {
   await page.goto(`/en/notebooks/${data.notebookId}`);
   await page
-    .getByRole('button', { name: '新笔记', exact: true })
+    .getByRole('button', { name: 'New note', exact: true })
     .first()
     .click();
-  const createDialog = page.getByRole('dialog', { name: '新笔记' });
+  const createDialog = page.getByRole('dialog', { name: 'New note' });
   await createDialog
-    .getByLabel('标题', { exact: true })
+    .getByLabel('Title', { exact: true })
     .fill('Browser-created note');
   await createDialog
-    .getByLabel('内容', { exact: true })
+    .getByLabel('Content', { exact: true })
     .fill('Initial browser content');
   const createdResponse = page.waitForResponse(
     response =>
       response.url().endsWith(`/notebooks/${data.notebookId}/notes`) &&
       response.request().method() === 'POST'
   );
-  await createDialog.getByRole('button', { name: '创建', exact: true }).click();
+  await createDialog
+    .getByRole('button', { name: 'Create', exact: true })
+    .click();
   const created = await createdResponse;
   expect(created.ok()).toBeTruthy();
   const noteId = (await created.json()).data.note.id as string;
-  const editDialog = page.getByRole('dialog', { name: '编辑笔记' });
+  const editDialog = page.getByRole('dialog', { name: 'Edit note' });
   await expect(editDialog).toBeVisible();
   await editDialog
-    .getByLabel('标题', { exact: true })
+    .getByLabel('Title', { exact: true })
     .fill('Persisted browser note');
   await editDialog
-    .getByLabel('内容', { exact: true })
+    .getByLabel('Content', { exact: true })
     .fill('Updated browser content');
   const png = await sharp({
     create: { width: 64, height: 64, channels: 3, background: '#336699' },
@@ -45,21 +47,21 @@ test('create and edit a note, attach a real image and retain it after refresh', 
       response.request().method() === 'POST'
   );
   await editDialog
-    .getByLabel('笔记图片')
+    .getByLabel('Note image')
     .setInputFiles({ name: 'note.png', mimeType: 'image/png', buffer: png });
   const attached = await attachedResponse;
   expect(attached.ok()).toBeTruthy();
   const asset = (await attached.json()).data.note.assets[0];
-  await expect(editDialog.getByAltText('墨水屏预览')).toBeVisible();
+  await expect(editDialog.getByAltText('E-ink preview')).toBeVisible();
   await expect(
-    editDialog.getByRole('button', { name: '添加图片' })
+    editDialog.getByRole('button', { name: 'Add image' })
   ).toBeEnabled();
   const savedResponse = page.waitForResponse(
     response =>
       response.url().endsWith(`/notes/${noteId}`) &&
       response.request().method() === 'PATCH'
   );
-  await editDialog.getByRole('button', { name: '保存', exact: true }).click();
+  await editDialog.getByRole('button', { name: 'Save', exact: true }).click();
   expect((await savedResponse).ok()).toBeTruthy();
   await expect(editDialog).toBeHidden();
   const savedCard = page
@@ -79,10 +81,10 @@ test('create and edit a note, attach a real image and retain it after refresh', 
       .getByTestId('note-card')
       .filter({ hasText: 'Persisted browser note' });
     await expect(card).toContainText('Updated browser content');
-    await card.getByRole('button', { name: '编辑', exact: true }).click();
+    await card.getByRole('button', { name: 'Edit', exact: true }).click();
     const preview = persisted
-      .getByRole('dialog', { name: '编辑笔记' })
-      .getByAltText('墨水屏预览');
+      .getByRole('dialog', { name: 'Edit note' })
+      .getByAltText('E-ink preview');
     await expect
       .poll(() =>
         preview.evaluate(image => (image as HTMLImageElement).naturalWidth)
