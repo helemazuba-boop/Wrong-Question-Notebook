@@ -6,6 +6,7 @@ import {
 } from '@/lib/digest-generator';
 import { INSIGHT_CONSTANTS } from '@/lib/constants';
 import { logger } from '@/lib/logger';
+import { accountIsActive } from '@/lib/supabase/account-status';
 
 const CONCURRENCY_LIMIT = 3;
 
@@ -66,6 +67,7 @@ export async function GET(req: Request) {
     const usersToProcess: string[] = [];
 
     for (const userId of uniqueUserIds) {
+      if (!(await accountIsActive(supabase, userId))) continue;
       // Skip users with an active generation in progress
       const { data: generatingRow } = await supabase
         .from('insight_digests')
@@ -113,6 +115,7 @@ export async function GET(req: Request) {
 
     const processUser = async (userId: string): Promise<void> => {
       try {
+        if (!(await accountIsActive(supabase, userId))) return;
         await categoriseUncategorisedAttempts(
           userId,
           INSIGHT_CONSTANTS.BACKFILL_BATCH_SIZE

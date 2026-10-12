@@ -103,7 +103,7 @@ export async function exportAccount(
 ): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), 'wqn-export-'));
   try {
-    const { data, error } = await client.rpc('export_account_data', {
+    const { data, error } = await client.rpc('export_account_complete_data', {
       p_user_id: job.user_id,
     });
     if (error || !data || typeof data !== 'object')
@@ -299,8 +299,11 @@ export async function processAccountDataJobs(client: SupabaseClient<any>) {
     .update({ ...patch, lease_until: null })
     .eq('id', job.id)
     .eq('lease_id', job.lease_id)
-    .eq('status', 'running');
-  if (saved.error) throw new Error('Account job result persistence failed');
+    .eq('status', 'running')
+    .select('id')
+    .maybeSingle();
+  if (saved.error || !saved.data)
+    throw new Error('Account job result persistence failed');
   return { processed: 1, status: patch.status };
 }
 export async function cleanupExpiredAccountExports(

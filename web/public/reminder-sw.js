@@ -10,11 +10,15 @@ self.addEventListener('push', event => {
     self.registration.showNotification(message.title, {
       body: message.body,
       tag: `todo-reminder-${message.id}`,
-      data: { url: '/todos' },
+      data: { url: message.url === '/en/todos' ? '/en/todos' : '/todos' },
     })
   );
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.openWindow('/todos'));
+  event.waitUntil(
+    clients.openWindow(
+      event.notification.data?.url === '/en/todos' ? '/en/todos' : '/todos'
+    )
+  );
 });

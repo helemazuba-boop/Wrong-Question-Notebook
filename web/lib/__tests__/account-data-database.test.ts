@@ -84,6 +84,14 @@ describe.skipIf(!url || !key)(
         .upload(imagePath, 'original image', { contentType: 'image/png' });
       if (uploaded.error) throw uploaded.error;
       await insert('problems', {
+        user_id: users[0],
+        subject_id: subjectA,
+        title: 'Original',
+        status: 'needs_review',
+        parts: [{ index: 1, type: 'short_answer' }],
+        assets: [{ path: imagePath }],
+      });
+      await insert('problems', {
         id: copiedProblem,
         user_id: users[1],
         subject_id: subjectB,
@@ -142,6 +150,7 @@ describe.skipIf(!url || !key)(
         expect(exported.tables.todos).toHaveLength(1001);
         expect(exported.tables.notebook_notes).toHaveLength(1);
         expect(exported.tables.word_entries).toHaveLength(1);
+        expect(exported.tables.problem_mark_annotations).toHaveLength(1);
         expect(
           await readFile(
             join(folder, 'assets/problem-uploads', imagePath),

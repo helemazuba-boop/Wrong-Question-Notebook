@@ -78,7 +78,7 @@ describe('account data safety and recovery', () => {
     expect(deleteUser).not.toHaveBeenCalled();
   });
   it('does not reclassify a cleanup failure as completed and leaves deletion retryable', async () => {
-    const update = vi.fn(() => queryResult([]));
+    const update = vi.fn(() => queryResult({ id: 'job' }));
     const client = {
       rpc: vi
         .fn()

@@ -237,7 +237,7 @@ describe('admin user management', () => {
           params(SUBJECT_ID)
         )
       ).status
-    ).toBe(200);
+    ).toBe(202);
     expect(mocks.deleteUser).toHaveBeenCalledWith(SUBJECT_ID);
   });
 });
