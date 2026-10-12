@@ -607,30 +607,7 @@ export async function getUserContentStatistics(userId: string): Promise<{
 export async function getUserStorageUsage(
   userId: string
 ): Promise<{ totalBytes: number; fileCount: number }> {
-  const serviceSupabase = createServiceClient();
-  let totalBytes = 0;
-  let fileCount = 0;
-
-  async function listRecursive(path: string) {
-    const { data: items } = await serviceSupabase.storage
-      .from('problem-uploads')
-      .list(path, { limit: 1000 });
-
-    if (!items) return;
-
-    for (const item of items) {
-      const itemPath = `${path}/${item.name}`;
-      if (item.metadata?.size) {
-        totalBytes += item.metadata.size;
-        fileCount++;
-      } else if (!item.metadata?.mimetype) {
-        await listRecursive(itemPath);
-      }
-    }
-  }
-
-  await listRecursive(`user/${userId}`);
-  return { totalBytes, fileCount };
+  return getStorageUsage(`user/${userId}`);
 }
 
 /**
@@ -640,29 +617,47 @@ export async function getTotalStorageUsage(): Promise<{
   totalBytes: number;
   fileCount: number;
 }> {
+  return getStorageUsage('');
+}
+
+async function getStorageUsage(prefix: string): Promise<{
+  totalBytes: number;
+  fileCount: number;
+}> {
   const serviceSupabase = createServiceClient();
   let totalBytes = 0;
   let fileCount = 0;
 
   async function listRecursive(path: string) {
-    const { data: items } = await serviceSupabase.storage
-      .from('problem-uploads')
-      .list(path, { limit: 1000 });
+    const limit = 1000;
+    for (let offset = 0; ; offset += limit) {
+      const { data: items, error } = await serviceSupabase.storage
+        .from('problem-uploads')
+        .list(path, {
+          limit,
+          offset,
+          sortBy: { column: 'name', order: 'asc' },
+        });
+      if (error || !items)
+        throw new Error('Storage statistics are unavailable');
 
-    if (!items) return;
-
-    for (const item of items) {
-      const itemPath = path ? `${path}/${item.name}` : item.name;
-      if (item.metadata?.size) {
-        totalBytes += item.metadata.size;
-        fileCount++;
-      } else if (!item.metadata?.mimetype) {
-        await listRecursive(itemPath);
+      for (const item of items) {
+        const itemPath = path ? `${path}/${item.name}` : item.name;
+        if (item.id) {
+          const size = item.metadata?.size;
+          if (typeof size !== 'number' || !Number.isFinite(size) || size < 0)
+            throw new Error('Storage file size is unavailable');
+          totalBytes += size;
+          fileCount++;
+        } else {
+          await listRecursive(itemPath);
+        }
       }
+      if (items.length < limit) return;
     }
   }
 
-  await listRecursive('');
+  await listRecursive(prefix);
   return { totalBytes, fileCount };
 }
 

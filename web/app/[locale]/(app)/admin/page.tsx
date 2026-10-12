@@ -35,7 +35,7 @@ export default async function AdminDashboardPage() {
         recentActivity,
       };
     },
-    ['admin-dashboard'],
+    ['admin-dashboard', 'storage-files-v2'],
     {
       tags: [CACHE_TAGS.ADMIN_STATS, CACHE_TAGS.ADMIN_USERS],
       revalidate: CACHE_DURATIONS.ADMIN_STATS,
