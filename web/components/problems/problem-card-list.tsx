@@ -27,6 +27,7 @@ import {
 import { PROBLEM_CONSTANTS } from '@/lib/constants';
 import { Link } from '@/i18n/navigation';
 import { toast } from 'sonner';
+import { ProblemCollections } from '@/components/problems/problem-collections';
 
 const ITEMS_PER_PAGE = PROBLEM_CONSTANTS.MOBILE_CARD_LIST_PAGE_SIZE;
 
@@ -39,7 +40,9 @@ interface ProblemCardListProps {
   getRowHref?: (problem: Problem) => string;
   onEdit?: (problem: Problem) => void;
   onDelete: (problemId: string, problemTitle: string) => void;
-  onAddToSet: (problem: Problem) => void;
+  deleteLabel?: string;
+  canDelete?: boolean;
+  onAddToSet?: (problem: Problem) => void;
   isAddToSetMode?: boolean;
   hideStatusStrip?: boolean;
   onCopyToNotebook?: (problem: Problem) => void;
@@ -54,6 +57,8 @@ export default function ProblemCardList({
   getRowHref,
   onEdit,
   onDelete,
+  deleteLabel,
+  canDelete = true,
   onAddToSet,
   isAddToSetMode = false,
   hideStatusStrip = false,
@@ -151,6 +156,8 @@ export default function ProblemCardList({
                   )}
                 </div>
 
+                <ProblemCollections problem={problem} />
+
                 {/* Type + tags */}
                 <div className="flex flex-wrap gap-1 mb-2">
                   {[
@@ -209,7 +216,7 @@ export default function ProblemCardList({
                           {t('copyProblemId')}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        {!isAddToSetMode && (
+                        {!isAddToSetMode && onAddToSet && (
                           <DropdownMenuItem asChild>
                             <Link
                               href={`/subjects/${problem.subject_id}/problems/${problem.id}/review`}
@@ -234,7 +241,7 @@ export default function ProblemCardList({
                           <DropdownMenuItem
                             onClick={e => {
                               e.stopPropagation();
-                              onAddToSet(problem);
+                              onAddToSet?.(problem);
                             }}
                           >
                             {t('addToSet')}
@@ -250,7 +257,7 @@ export default function ProblemCardList({
                             {t('editProblem')}
                           </DropdownMenuItem>
                         )}
-                        {!isAddToSetMode && (
+                        {!isAddToSetMode && canDelete && (
                           <DropdownMenuItem
                             onClick={e => {
                               e.stopPropagation();
@@ -258,7 +265,7 @@ export default function ProblemCardList({
                             }}
                             className="text-destructive"
                           >
-                            {t('deleteProblem')}
+                            {deleteLabel ?? t('deleteProblem')}
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>

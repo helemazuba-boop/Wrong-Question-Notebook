@@ -57,6 +57,7 @@ interface CompactSearchFilterProps {
   selectedProblemIds?: string[];
   onBulkDelete?: (problemIds: string[]) => void;
   onBulkDeleteEnabled?: boolean;
+  bulkDeleteLabel?: string;
   onCreateSet?: (problemIds: string[]) => void;
   isSearching?: boolean;
   isAddToSetMode?: boolean;
@@ -85,6 +86,7 @@ export default function CompactSearchFilter({
   selectedProblemIds = [],
   onBulkDelete,
   onBulkDeleteEnabled = false,
+  bulkDeleteLabel,
   onCreateSet,
   isSearching = false,
   isAddToSetMode = false,
@@ -420,7 +422,7 @@ export default function CompactSearchFilter({
                 disabled={!onBulkDeleteEnabled}
                 className="text-destructive hover:bg-destructive/10"
               >
-                {tCommon('delete')}
+                {bulkDeleteLabel ?? tCommon('delete')}
               </Button>
             </div>
           )}

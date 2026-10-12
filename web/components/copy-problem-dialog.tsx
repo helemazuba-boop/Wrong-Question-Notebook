@@ -162,12 +162,12 @@ export default function CopyProblemDialog({
       const subjectName =
         subjects.find(s => s.id === subjectId)?.name ||
         newSubjectName.trim() ||
-        'notebook';
+        t('questionsLibrary');
 
       toast.success(
         t(result.tag_count > 0 ? 'addedToWithTags' : 'addedTo', {
           subject: subjectName,
-          tags: ` with ${result.tag_count} tags`,
+          count: result.tag_count,
         })
       );
       onOpenChange(false);

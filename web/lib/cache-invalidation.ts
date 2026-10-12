@@ -25,9 +25,12 @@ export async function revalidateUserSubjects(userId: string): Promise<void> {
 /**
  * Revalidate all problems cache for a specific user
  */
-export async function revalidateUserProblems(userId: string): Promise<void> {
+export async function revalidateUserProblems(
+  userId: string,
+  immediate = false
+): Promise<void> {
   const userProblemsTag = createUserCacheTag(CACHE_TAGS.USER_PROBLEMS, userId);
-  await revalidateTag(userProblemsTag, 'max');
+  await revalidateTag(userProblemsTag, immediate ? { expire: 0 } : 'max');
   await revalidateTag(CACHE_TAGS.PROBLEMS, 'max');
 }
 

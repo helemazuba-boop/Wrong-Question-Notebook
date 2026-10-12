@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
+import { useSearchParams } from 'next/navigation';
+import { appendFromParam, isSafeInternalHref } from '@/lib/navigation-context';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -136,6 +138,12 @@ export default function NotebookPageClient({
   initialResumableSession: WebNoteStudySessionSummary | null;
 }) {
   const router = useRouter();
+  const from = useSearchParams().get('from');
+  const backHref = from && isSafeInternalHref(from) ? from : '/subjects';
+  const notebookHref = appendFromParam(
+    `/notebooks/${initialNotebook.id}`,
+    backHref
+  );
   const [notebook, setNotebook] = useState(initialNotebook);
   const [notes, setNotes] = useState(initialNotes);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -184,7 +192,10 @@ export default function NotebookPageClient({
   async function startOrContinueReading() {
     if (resumableSession) {
       router.push(
-        `/notebooks/${notebook.id}/read/${resumableSession.session_id}`
+        appendFromParam(
+          `/notebooks/${notebook.id}/read/${resumableSession.session_id}`,
+          notebookHref
+        )
       );
       return;
     }
@@ -226,7 +237,12 @@ export default function NotebookPageClient({
         current_note_id: payload.data.items?.[0]?.item_id || null,
         current_note_title: null,
       });
-      router.push(`/notebooks/${notebook.id}/read/${sessionId}`);
+      router.push(
+        appendFromParam(
+          `/notebooks/${notebook.id}/read/${sessionId}`,
+          notebookHref
+        )
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '开始阅读失败');
     } finally {
@@ -519,10 +535,7 @@ export default function NotebookPageClient({
           }
           actions={
             <>
-              <Button
-                variant="outline"
-                onClick={() => router.push('/subjects')}
-              >
+              <Button variant="outline" onClick={() => router.push(backHref)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 返回笔记本架
               </Button>

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
+import { useSearchParams } from 'next/navigation';
+import { isSafeInternalHref } from '@/lib/navigation-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,6 +71,9 @@ export default function NoteReadingSessionClient({
   initialSession,
 }: Props) {
   const router = useRouter();
+  const from = useSearchParams().get('from');
+  const backHref =
+    from && isSafeInternalHref(from) ? from : `/notebooks/${notebookId}`;
   const [session, setSession] = useState(initialSession);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingWebNoteObservation | null>(
@@ -421,7 +426,7 @@ export default function NoteReadingSessionClient({
     try {
       if (!complete && session.status === 'active')
         await updateStatus('paused');
-      router.push(`/notebooks/${notebookId}`);
+      router.push(backHref);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '暂停失败');
     }
@@ -519,7 +524,7 @@ export default function NoteReadingSessionClient({
               “读完”只记录阅读完成，不代表掌握；你可以从笔记本再次开始阅读。
             </p>
             <Button className="w-full" asChild>
-              <Link href={`/notebooks/${notebookId}`}>返回笔记本详情</Link>
+              <Link href={backHref}>返回笔记本详情</Link>
             </Button>
           </CardContent>
         </Card>
@@ -535,7 +540,7 @@ export default function NoteReadingSessionClient({
               当前页面不会继续提交旧进度。返回笔记本即可建立新的阅读会话。
             </p>
             <Button className="w-full" asChild>
-              <Link href={`/notebooks/${notebookId}`}>返回笔记本</Link>
+              <Link href={backHref}>返回笔记本</Link>
             </Button>
           </CardContent>
         </Card>

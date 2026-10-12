@@ -117,7 +117,8 @@
     "discover": "Discover",
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
-    "mcp": "MCP"
+    "mcp": "MCP",
+    "notebooks": "Notebooks"
   },
   "Auth": {
     "welcomeBack": "Welcome back",
@@ -494,7 +495,7 @@
     "correct": "Correct!",
     "incorrect": "Incorrect",
     "problemOf": "Problem {current} of {total}",
-    "addToNotebook": "Add to Notebook",
+    "addToNotebook": "Copy to my questions",
     "signUpToSave": "Sign up to Save",
     "backToProblems": "Back to Problems",
     "backToSet": "Back to Wrong-Question Book",
@@ -566,7 +567,7 @@
     "copyProblemId": "Copy problem ID",
     "reviewProblem": "Review problem",
     "addToSet": "Add to Set",
-    "removeFromSet": "Remove from Set",
+    "removeFromSet": "Remove from this question notebook",
     "editProblem": "Edit problem",
     "deleteProblem": "Delete problem",
     "showingOf": "Showing {showing} of {total}",
@@ -586,9 +587,9 @@
     "yourNotebookShelf": "Your Notebook Shelf",
     "failedToCopyId": "Failed to copy problem ID",
     "deleteProblemTitle": "Delete Problem",
-    "deleteProblemMessage": "Are you sure you want to delete \"{title}\"? This action cannot be undone.",
+    "deleteProblemMessage": "Delete \"{title}\" from your library and every question notebook containing it? This cannot be undone.",
     "deleteProblemsTitle": "Delete Problems",
-    "deleteProblemsMessage": "Are you sure you want to delete {count, plural, one {# problem} other {# problems}}? This action cannot be undone.",
+    "deleteProblemsMessage": "Delete {count} questions from your library and every question notebook containing them? This cannot be undone.",
     "deleteAll": "Delete All",
     "noProblemSelectedForDeletion": "No problem selected for deletion",
     "problemDeletedSuccessfully": "Problem deleted successfully",
@@ -655,7 +656,12 @@
     "marksPending": "Still analysing this problem.",
     "marksEmpty": "No marks assigned yet.",
     "marksAi": "AI",
-    "marksYours": "Yours"
+    "marksYours": "Yours",
+    "removeFromSetConfirmation": "Remove {count} questions from this notebook? The questions remain in your library and other notebooks.",
+    "removeFromSetFailed": "Could not remove the questions. Please retry.",
+    "removedFromSet": "Removed {count} questions from this notebook. Original questions are preserved.",
+    "notCollected": "Not collected in a question notebook",
+    "collectedIn": "Collected in:"
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",
@@ -1473,8 +1479,8 @@
     "lastUpdated": "Last updated"
   },
   "CopyDialog": {
-    "copyProblemDescription": "Copy this problem to one of your notebooks.",
-    "copyProblemToNotebook": "Copy this problem to one of your notebooks.",
+    "copyProblemDescription": "Create a copy in your question library, classified by the selected subject.",
+    "copyProblemToNotebook": "Create a copy in your question library, classified by the selected subject.",
     "targetSubject": "Target Subject",
     "selectSubject": "Select a subject",
     "createNewSubject": "+ Create new subject",
@@ -1487,8 +1493,8 @@
     "failedToCreateSubject": "Failed to create subject",
     "pleaseSelectTargetSubject": "Please select a target subject",
     "failedToAddProblem": "Failed to add problem",
-    "addedTo": "Added to {subject}",
-    "addedToWithTags": "Added to {subject}{tags}",
+    "addedTo": "Copied to my questions ({subject})",
+    "addedToWithTags": "Copied to my questions ({subject}) with {count} tags",
     "failedToFetchSubjects": "Failed to fetch subjects",
     "copyToMyLibrary": "Copy to My Library",
     "createCopyInAccount": "Create a copy of this wrong-question book in your account.",
@@ -1500,12 +1506,13 @@
     "copying": "Copying...",
     "failedToCopy": "Failed to copy",
     "adding": "Adding...",
-    "addToNotebook": "Add to Notebook",
+    "addToNotebook": "Copy to my questions",
     "problemLimitReached": "Limit reached: {current}/{limit} problems in this subject",
     "problemLimitReachedWithCopy": "Limit reached: {current}/{limit} problems in this subject (trying to copy {copyCount})",
     "problemSetLimitReached": "Limit reached: {current}/{limit} wrong-question books",
     "subjectLimitReached": "Limit reached: {current}/{limit} subjects",
-    "subjectNameTooLong": "Subject name must be at most {max} characters"
+    "subjectNameTooLong": "Subject name must be at most {max} characters",
+    "questionsLibrary": "My questions"
   },
   "PrintDialog": {
     "title": "Print options",
@@ -1836,5 +1843,14 @@
       "invalid_client": "The application could not be identified.",
       "server_error": "Something went wrong while preparing the authorization code. Please try again."
     }
+  },
+  "Notebooks": {
+    "title": "Notebooks",
+    "description": "Your notes and reading notebooks, across all subjects.",
+    "empty": "No notebooks yet.",
+    "manageOnShelf": "Create and organize on the library shelf",
+    "pagination": "Notebook pages",
+    "previous": "Previous",
+    "next": "Next"
   }
 }

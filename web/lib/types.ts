@@ -59,6 +59,8 @@ export interface Problem {
   initial_idea_revision?: number | null;
   tags?: SimpleTag[];
   isInSet?: boolean;
+  /** Owner's collection memberships. Undefined means the list did not load them. */
+  collections?: Array<{ id: string; name: string }>;
 }
 
 export interface ProblemSetShare {

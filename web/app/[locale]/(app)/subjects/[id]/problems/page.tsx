@@ -68,8 +68,9 @@ async function loadData(subjectId: string) {
       const [{ data: problems }, { data: availableTags }] = await Promise.all([
         supabaseClient
           .from('problems')
-          .select('*')
+          .select('*, problem_set_problems(problem_sets(id, name))')
           .eq('subject_id', subjectId)
+          .eq('user_id', _userId)
           .order('created_at', { ascending: false }),
         supabaseClient
           .from('tags')
@@ -78,7 +79,12 @@ async function loadData(subjectId: string) {
           .order('name', { ascending: true }),
       ]);
 
-      const p = problems ?? [];
+      const p = (problems ?? []).map(problem => ({
+        ...problem,
+        collections: (problem.problem_set_problems ?? []).flatMap(link =>
+          link.problem_sets ? [link.problem_sets] : []
+        ),
+      }));
       const ids = p.map((x: any) => x.id);
       const tagsByProblem: Record<string, SimpleTag[]> = {};
 

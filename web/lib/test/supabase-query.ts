@@ -17,6 +17,7 @@ const methods = [
   'gte',
   'order',
   'limit',
+  'range',
   'insert',
   'update',
   'upsert',

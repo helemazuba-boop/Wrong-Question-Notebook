@@ -26,7 +26,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 type NavLabelKey =
-  'subjects' | 'words' | 'todos' | 'statistics' | 'discover' | 'esp32' | 'mcp';
+  | 'subjects'
+  | 'notebooks'
+  | 'words'
+  | 'todos'
+  | 'statistics'
+  | 'discover'
+  | 'esp32'
+  | 'mcp';
 
 type AppLink = {
   href: string;
@@ -44,7 +51,14 @@ const APP_LINKS: AppLink[] = [
     icon: BookOpen,
     iconBg: 'bg-amber-500/10 dark:bg-amber-500/20',
     iconColor: 'text-amber-600 dark:text-amber-400',
-    activeHrefs: ['/problem-sets', '/notebooks'],
+    activeHrefs: ['/problem-sets'],
+  },
+  {
+    href: '/notebooks',
+    labelKey: 'notebooks',
+    icon: BookOpen,
+    iconBg: 'bg-indigo-500/10 dark:bg-indigo-500/20',
+    iconColor: 'text-indigo-600 dark:text-indigo-400',
   },
   {
     href: '/words',

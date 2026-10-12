@@ -117,7 +117,8 @@
     "discover": "发现",
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
-    "mcp": "MCP 接入"
+    "mcp": "MCP 接入",
+    "notebooks": "笔记本"
   },
   "Auth": {
     "welcomeBack": "欢迎回来",
@@ -494,7 +495,7 @@
     "correct": "正确！",
     "incorrect": "错误",
     "problemOf": "第 {current} 题，共 {total} 题",
-    "addToNotebook": "添加到笔记本",
+    "addToNotebook": "复制到我的题库",
     "signUpToSave": "注册账号以保存",
     "backToProblems": "返回题目列表",
     "backToSet": "返回错题本",
@@ -566,7 +567,7 @@
     "copyProblemId": "复制题目 ID",
     "reviewProblem": "复习题目",
     "addToSet": "添加到集",
-    "removeFromSet": "移出题集",
+    "removeFromSet": "移出本错题本",
     "editProblem": "编辑题目",
     "deleteProblem": "删除题目",
     "showingOf": "显示 {showing} / {total}",
@@ -586,9 +587,9 @@
     "yourNotebookShelf": "笔记本架",
     "failedToCopyId": "复制题目 ID 失败",
     "deleteProblemTitle": "删除题目",
-    "deleteProblemMessage": "确定要删除「{title}」吗？此操作无法撤销。",
+    "deleteProblemMessage": "从题库及所有收录它的错题本中删除“{title}”？此操作无法撤销。",
     "deleteProblemsTitle": "删除题目",
-    "deleteProblemsMessage": "确定要删除 {count} 道题吗？此操作无法撤销。",
+    "deleteProblemsMessage": "从题库及所有相关错题本中删除 {count} 道题目？此操作无法撤销。",
     "deleteAll": "全部删除",
     "noProblemSelectedForDeletion": "未选择要删除的题目",
     "problemDeletedSuccessfully": "题目删除成功",
@@ -655,7 +656,12 @@
     "marksPending": "仍在分析这道题。",
     "marksEmpty": "尚未标注。",
     "marksAi": "AI",
-    "marksYours": "你的"
+    "marksYours": "你的",
+    "removeFromSetConfirmation": "将 {count} 道题目移出本错题本？题目仍保留在题库及其他已收录的错题本中。",
+    "removeFromSetFailed": "移出失败，请重试。",
+    "removedFromSet": "已移出 {count} 道题目，原题仍然保留。",
+    "notCollected": "尚未收录到错题本",
+    "collectedIn": "已收录："
   },
   "ProblemSets": {
     "title": "错题本",
@@ -1473,8 +1479,8 @@
     "lastUpdated": "最后更新于"
   },
   "CopyDialog": {
-    "copyProblemDescription": "将此题目复制到你的一个笔记本中。",
-    "copyProblemToNotebook": "将此题目复制到你的某个笔记本中。",
+    "copyProblemDescription": "将题目复制到你的题库，并按所选科目归类。",
+    "copyProblemToNotebook": "将题目复制到你的题库，并按所选科目归类。",
     "targetSubject": "目标科目",
     "selectSubject": "选择科目",
     "createNewSubject": "+ 创建新科目",
@@ -1487,8 +1493,8 @@
     "failedToCreateSubject": "创建科目失败",
     "pleaseSelectTargetSubject": "请选择目标科目",
     "failedToAddProblem": "添加题目失败",
-    "addedTo": "已添加到 {subject}",
-    "addedToWithTags": "已添加到 {subject}{tags}",
+    "addedTo": "已复制到我的题库（{subject}）",
+    "addedToWithTags": "已复制到我的题库（{subject}），包含 {count} 个标签",
     "failedToFetchSubjects": "加载科目失败",
     "copyToMyLibrary": "复制到我的错题本",
     "createCopyInAccount": "在你的账号中创建此错题本的副本。",
@@ -1500,12 +1506,13 @@
     "copying": "复制中...",
     "failedToCopy": "复制失败",
     "adding": "添加中...",
-    "addToNotebook": "添加到笔记本",
+    "addToNotebook": "复制到我的题库",
     "problemLimitReached": "已达上限：此科目中 {current}/{limit} 道题目",
     "problemLimitReachedWithCopy": "已达上限：此科目中 {current}/{limit} 道题目（尝试复制 {copyCount} 道）",
     "problemSetLimitReached": "已达上限：{current}/{limit} 个错题本",
     "subjectLimitReached": "已达上限：{current}/{limit} 个科目",
-    "subjectNameTooLong": "科目名称最多 {max} 个字符"
+    "subjectNameTooLong": "科目名称最多 {max} 个字符",
+    "questionsLibrary": "我的题库"
   },
   "PrintDialog": {
     "title": "打印选项",
@@ -1836,5 +1843,14 @@
       "invalid_client": "无法识别该应用。",
       "server_error": "生成授权码时出错，请重试。"
     }
+  },
+  "Notebooks": {
+    "title": "笔记本",
+    "description": "查看各科目下的笔记本与阅读内容。",
+    "empty": "暂无笔记本。",
+    "manageOnShelf": "前往书架创建与整理",
+    "pagination": "笔记本分页",
+    "previous": "上一页",
+    "next": "下一页"
   }
 }

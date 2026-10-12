@@ -12,6 +12,7 @@ import { ERROR_MESSAGES } from '@/lib/constants';
 import {
   revalidateUserProblemSets,
   revalidateProblemSet,
+  revalidateUserProblems,
 } from '@/lib/cache-invalidation';
 
 // Cache configuration for this route
@@ -259,6 +260,7 @@ async function addProblemsToSet(
     await Promise.all([
       revalidateUserProblemSets(user.id),
       revalidateProblemSet(id),
+      revalidateUserProblems(user.id, true),
     ]);
 
     return NextResponse.json(
@@ -377,6 +379,7 @@ async function removeProblemsFromSet(
     await Promise.all([
       revalidateUserProblemSets(user.id),
       revalidateProblemSet(id),
+      revalidateUserProblems(user.id, true),
     ]);
 
     return NextResponse.json(
