@@ -93,6 +93,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Account-authorization migrations now accept CRLF stored function bodies, including legacy note-study RPCs that remain executable by authenticated users in existing databases.
+
 - Block direct profile role escalation, enforce inactive-account authorization across Web, MCP and device credentials, and require explicit access to restricted shared reviews.
 - Restore administrator/moderator boundaries, revoke inactive MCP credentials and provide a controlled first-super-administrator bootstrap.
 - Stop AI work when quota checks fail, and show retryable Insights database errors while retaining the existing report.

@@ -113,6 +113,7 @@ end $$;
 revoke all on function public.require_active_account() from public;
 grant execute on function public.require_active_account() to anon, authenticated, service_role;
 
+-- BEGIN_ACTIVE_ACCOUNT_RPC_GUARD
 do $$
 declare target record; guarded text;
 begin
@@ -127,7 +128,8 @@ begin
     if target.lanname = 'sql' then
       guarded := E'select public.require_active_account();\n' || target.prosrc;
     elsif target.lanname = 'plpgsql' then
-      guarded := regexp_replace(target.prosrc, E'(^|\\n)([[:blank:]]*begin[[:blank:]]*\\n)',
+      -- Stored bodies can retain Windows CRLF even when the migration uses LF.
+      guarded := regexp_replace(target.prosrc, E'(^|\\n)([[:blank:]]*begin[[:blank:]]*\\r?\\n)',
         E'\\1\\2  perform public.require_active_account();\n', 'i');
       if guarded = target.prosrc then
         raise exception 'Missing account guard insertion point for %', target.oid::regprocedure;
@@ -138,3 +140,4 @@ begin
     execute replace(pg_get_functiondef(target.oid), target.prosrc, guarded);
   end loop;
 end $$;
+-- END_ACTIVE_ACCOUNT_RPC_GUARD

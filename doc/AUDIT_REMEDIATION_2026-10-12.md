@@ -96,3 +96,11 @@ node --env-file=.env.local scripts/bootstrap-super-admin.mjs <已有且活跃的
 - 数据库类型从本机完整迁移后的 public schema 重新生成，保留既有可空 RPC 参数与笔记排序触发器的插入约定。
 
 subjects 的容器/属性数据模型调整不在本轮。生产迁移、首次超级管理员创建及部署 cron/VAPID 配置均未对线上执行。提醒应用内渠道已实际验收；真实终端 Web Push 和 Android 原生后台通知不属于本轮已通过的验证。
+
+## 历史 CRLF 函数体的迁移兼容
+
+用户数据库在 `record_note_study_observation_v1` 报出 `Missing account guard insertion point`。原匹配要求 `begin` 后使用 LF，无法处理该历史函数保留的 CRLF。空库已撤销该 RPC 的 authenticated 授权，原 CI 没有覆盖旧库中仍开放该函数的情况。
+
+修正只允许匹配处的可选 CR，保留账号守卫及找不到插入点时的失败行为。回归测试在事务内恢复真实历史 RPC 的 authenticated 授权和无守卫 CRLF 函数体，执行迁移中的实际守卫代码，同时验证 LF、带空白的 CRLF、SQL 函数、活跃账号返回值、停用账号拒绝、无用户 JWT 的服务调用，以及所有 definer 的签名、owner、ACL 和 search_path 保持一致；最后回滚测试夹具。
+
+真实 PostgreSQL 中，旧代码已复现同一 RPC 的相同报错，新代码通过以上回归。完整数据库测试仍为 17 个文件、445 项通过，PostgREST 授权 smoke 与 Auth/Storage 导出注销集成也通过。回归纳入 clean/upgrade 数据库 CI；未对用户的远端数据库执行迁移。
