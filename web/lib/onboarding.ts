@@ -94,7 +94,7 @@ export async function loadOnboardingStatus(
       throw new Error('Onboarding notes are unavailable');
     const target = notebooks.data
       ? `/notebooks/${notebooks.data.id}`
-      : '/notebooks';
+      : '/subjects';
     return {
       ...empty,
       hasContainer: (notebooks.count ?? 0) > 0,

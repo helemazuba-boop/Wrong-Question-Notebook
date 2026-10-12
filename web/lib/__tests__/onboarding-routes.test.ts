@@ -59,6 +59,9 @@ describe('scenario onboarding', () => {
         hasContainer: false,
         hasContent: false,
         hasPracticed: false,
+        ...(scenario === 'notes'
+          ? { contentHref: '/subjects', practiceHref: '/subjects' }
+          : {}),
       });
     }
   );

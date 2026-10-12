@@ -64,27 +64,64 @@ test('onboarding persists the chosen workflow and distinguishes dismissal from c
   }
 });
 
-test('the notebook library preserves the return destination in a fresh document', async ({
+test('notebooks stay on the shelf and legacy list links return there', async ({
   page,
   data,
 }) => {
-  await page.goto('/en/notebooks');
-  await expect(
-    page.getByRole('heading', { name: 'Notebooks', exact: true })
-  ).toBeVisible();
-  await page
-    .getByRole('link', { name: data.notebookTitle, exact: true })
-    .click();
-  await expect(page).toHaveURL(/from=%2Fnotebooks/);
-  const fresh = await page.context().newPage();
-  try {
-    await fresh.goto(page.url());
-    await fresh
-      .getByRole('button', { name: 'Back to shelf', exact: true })
-      .click();
-    await expect(fresh).toHaveURL(/\/en\/notebooks(?:\?page=1)?$/);
-  } finally {
-    await fresh.close();
+  await page.setViewportSize({ width: 1664, height: 928 });
+  for (const locale of ['en', 'zh-CN']) {
+    const shelf = new RegExp(`/${locale}/subjects$`);
+    const shelfLabel = locale === 'en' ? 'Notebook Shelf' : '笔记本架';
+    await page.goto(`/${locale}/notebooks?page=2`);
+    await expect(page).toHaveURL(shelf);
+    await expect(
+      page.getByRole('heading', { name: /notebook shelf|笔记本架/i })
+    ).toBeVisible();
+    const navigation = page.getByRole('navigation').first();
+    await expect(navigation.locator('a[href$="/notebooks"]')).toHaveCount(0);
+    await page.getByText(data.notebookTitle, { exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/${locale}/notebooks/${data.notebookId}$`)
+    );
+    await expect(
+      navigation.getByRole('link', { name: shelfLabel, exact: true })
+    ).toHaveAttribute('aria-current', 'page');
+    const fresh = await page.context().newPage();
+    try {
+      for (const href of [
+        page.url(),
+        `${page.url()}?from=${encodeURIComponent('/notebooks?page=2')}`,
+      ]) {
+        await fresh.goto(href);
+        await fresh
+          .getByRole('button', {
+            name: locale === 'en' ? 'Back to shelf' : '返回笔记本架',
+            exact: true,
+          })
+          .click();
+        await expect(fresh).toHaveURL(shelf);
+        await expect(
+          fresh.getByText(data.notebookTitle, { exact: true })
+        ).toBeVisible();
+      }
+      await fresh.setViewportSize({ width: 390, height: 928 });
+      await fresh
+        .getByRole('button', {
+          name: locale === 'en' ? 'Open navigation' : '打开应用导航',
+          exact: true,
+        })
+        .click();
+      const menu = fresh.getByRole('menu');
+      await expect(
+        menu.getByRole('link', {
+          name: shelfLabel,
+          exact: true,
+        })
+      ).toBeVisible();
+      await expect(menu.locator('a[href$="/notebooks"]')).toHaveCount(0);
+    } finally {
+      await fresh.close();
+    }
   }
 });
 

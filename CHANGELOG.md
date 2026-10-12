@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Report moderation queues, question previews, sharing suspension/restoration and reporter-visible results with preserved review history.
 - Due-todo reminder inboxes and opt-in browser push, with leased delivery, retry and inactive-account checks. Browser push requires deployment VAPID configuration.
 - Private account exports containing owned records and files, plus queued self-service and administrator deletion with recovery and preservation of other users' copied assets.
-- A notebook library and onboarding workflows for questions, notes/reading and vocabulary; dismissing onboarding is recorded separately from completing learning steps.
+- Onboarding workflows for questions, notes/reading and vocabulary; dismissing onboarding is recorded separately from completing learning steps.
 
 - **Problem worksheet printing**
   - Print the whole problem set, or tick individual problems inside it, straight from the review page. The print dialog carries a scope radio (current problem / whole set) and a checkbox list with select-all and a selected count; the plain subject-review route, whose list holds navigation data alone, stays single-problem rather than offering a half-working picker.
@@ -93,6 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Keep note and reading notebooks on the Notebook Shelf; remove the separate notebook navigation and list, redirect legacy list links to the shelf, and highlight the shelf while viewing notebook details.
 - Administrator storage totals include empty files and all listing pages; listing or metadata failures no longer publish incomplete totals.
 - The admin dashboard uses the available desktop width, adapts cards to their container and scrolls with the page. Navigation, quick actions, empty activity states and actual file counts follow the selected language.
 - Account-authorization migrations now accept CRLF stored function bodies, including legacy note-study RPCs that remain executable by authenticated users in existing databases.

@@ -118,7 +118,6 @@
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
     "mcp": "MCP 接入",
-    "notebooks": "笔记本",
     "openNavigation": "打开应用导航"
   },
   "Auth": {
@@ -1875,13 +1874,6 @@
     }
   },
   "Notebooks": {
-    "title": "笔记本",
-    "description": "查看各科目下的笔记本与阅读内容。",
-    "empty": "暂无笔记本。",
-    "manageOnShelf": "前往书架创建与整理",
-    "pagination": "笔记本分页",
-    "previous": "上一页",
-    "next": "下一页",
     "shelf": {
       "title": "笔记本",
       "description": "描述",

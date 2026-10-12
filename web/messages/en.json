@@ -118,7 +118,6 @@
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
     "mcp": "MCP",
-    "notebooks": "Notebooks",
     "openNavigation": "Open navigation"
   },
   "Auth": {
@@ -1875,13 +1874,6 @@
     }
   },
   "Notebooks": {
-    "title": "Notebooks",
-    "description": "Your notes and reading notebooks, across all subjects.",
-    "empty": "No notebooks yet.",
-    "manageOnShelf": "Create and organize on the library shelf",
-    "pagination": "Notebook pages",
-    "previous": "Previous",
-    "next": "Next",
     "shelf": {
       "title": "Notebooks",
       "description": "Description",
