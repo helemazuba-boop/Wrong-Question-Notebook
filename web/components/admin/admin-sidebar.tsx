@@ -13,6 +13,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
+import { useTranslations } from 'next-intl';
 
 const adminNavItems = [
   {
@@ -20,6 +21,7 @@ const adminNavItems = [
     href: ROUTES.ADMIN.DASHBOARD,
     icon: LayoutDashboard,
   },
+  { title: 'Reports', href: '/admin/reports', icon: Shield },
   {
     title: 'Users',
     href: ROUTES.ADMIN.USERS,
@@ -48,6 +50,7 @@ interface AdminSidebarProps {
 }
 
 export function AdminSidebar({ onNavigate, role }: AdminSidebarProps) {
+  const tReports = useTranslations('Reports');
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -80,6 +83,8 @@ export function AdminSidebar({ onNavigate, role }: AdminSidebarProps) {
           .filter(
             item =>
               role === 'super_admin' ||
+              (item.href === '/admin/reports' &&
+                ['moderator', 'admin'].includes(role)) ||
               (role === 'admin' &&
                 item.href !== ROUTES.ADMIN.SETTINGS &&
                 item.href !== ROUTES.ADMIN.ANNOUNCEMENTS)
@@ -106,7 +111,9 @@ export function AdminSidebar({ onNavigate, role }: AdminSidebarProps) {
                       : 'text-gray-400 dark:text-gray-500'
                   )}
                 />
-                {item.title}
+                {item.href === '/admin/reports'
+                  ? tReports('adminTitle')
+                  : item.title}
               </Link>
             );
           })}

@@ -11,6 +11,7 @@ import type { ProblemSetStats, UserSocialState } from '@/lib/types';
 import { toast } from 'sonner';
 import { useState } from 'react';
 import { ReportDialog } from './report-dialog';
+import { Link } from '@/i18n/navigation';
 import { formatCount } from '@/lib/format-utils';
 
 interface SocialActionsBarProps {
@@ -31,6 +32,7 @@ export function SocialActionsBar({
   isOwner,
 }: SocialActionsBarProps) {
   const t = useTranslations('Social');
+  const tReports = useTranslations('Reports');
   const {
     stats,
     liked,
@@ -121,6 +123,11 @@ export function SocialActionsBar({
           </Button>
         </Tooltip>
 
+        {isAuthenticated && (
+          <Link href="/reports" className="text-sm underline">
+            {tReports('historyTitle')}
+          </Link>
+        )}
         {/* Report button (not for owner) */}
         {isAuthenticated && !isOwner && (
           <>

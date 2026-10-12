@@ -239,6 +239,12 @@ export default function ProblemSetPageClient({
 
   return (
     <div className="section-container">
+      {problemSet.moderation_status === 'hidden' && (
+        <div role="alert" className="rounded-xl border p-4 mb-4">
+          <p>{t('sharingPaused')}</p>
+          <p>{problemSet.moderation_message}</p>
+        </div>
+      )}
       {/* Header */}
       <div className="page-header flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-1 items-center space-x-4">

@@ -37,6 +37,7 @@ import type { UserProfileType } from '@/lib/schemas';
 import { Loader2, Camera, X, Check, BarChart3, LogOut } from 'lucide-react';
 import { FILE_CONSTANTS } from '@/lib/constants';
 import { UsageLimitsDialog } from '@/components/usage-limits-dialog';
+import { Link } from '@/i18n/navigation';
 
 interface ProfileSheetProps {
   initialProfile: UserProfileType | null;
@@ -564,6 +565,22 @@ export function ProfileSheet({ initialProfile, email }: ProfileSheetProps) {
           </div>
 
           <SheetFooter className="flex-col gap-2 px-4 pb-4">
+            {['moderator', 'admin', 'super_admin'].includes(
+              initialProfile?.user_role ?? ''
+            ) && (
+              <Button asChild variant="outline">
+                <Link
+                  href={
+                    initialProfile?.user_role === 'moderator'
+                      ? '/admin/reports'
+                      : '/admin'
+                  }
+                  onClick={() => setOpen(false)}
+                >
+                  {t('adminPanel')}
+                </Link>
+              </Button>
+            )}
             <Button
               onClick={handleSave}
               disabled={saving || saved || !!usernameError || usernameChecking}

@@ -777,7 +777,8 @@
     "mySets": "My Sets",
     "favourites": "Favourites",
     "noFavouriteSets": "No saved wrong-question books yet",
-    "noFavouriteSetsDesc": "You have not saved any wrong-question books yet. Browse Discover to find public books worth keeping."
+    "noFavouriteSetsDesc": "You have not saved any wrong-question books yet. Browse Discover to find public books worth keeping.",
+    "sharingPaused": "Sharing is paused after moderation. Your original questions are preserved."
   },
   "Review": {
     "smart": "Smart",
@@ -1330,7 +1331,8 @@
     "fileTooLarge": "File too large. Maximum size is 2MB.",
     "failedToRemove": "Failed to remove avatar",
     "failedToSave": "Failed to save profile",
-    "usernameRequired": "Username is required"
+    "usernameRequired": "Username is required",
+    "adminPanel": "Administration"
   },
   "Upload": {
     "title": "Upload Photo",
@@ -1852,5 +1854,33 @@
     "pagination": "Notebook pages",
     "previous": "Previous",
     "next": "Next"
+  },
+  "Reports": {
+    "adminTitle": "Report review",
+    "historyTitle": "My reports",
+    "historyDescription": "Review progress and outcomes for your reports.",
+    "pending": "Pending",
+    "reviewed": "Reviewed",
+    "dismissed": "Dismissed",
+    "all": "All",
+    "resultMessage": "Feedback visible to the reporter and content owner",
+    "messageRequired": "Enter a result message before resolving a report.",
+    "confirmHide": "Pause sharing of this notebook? Questions will be preserved.",
+    "confirmDismiss": "Dismiss this report?",
+    "confirmRestore": "Restore sharing after review?",
+    "saved": "Report resolved.",
+    "resolutionFailed": "Could not resolve the report. Refresh and retry.",
+    "loadFailed": "Report data is unavailable.",
+    "retry": "Retry",
+    "emptyQueue": "No reports in this queue.",
+    "emptyHistory": "You have not submitted a report.",
+    "unavailableContent": "Reported notebook",
+    "viewContent": "Review reported questions",
+    "awaitingReview": "Awaiting review.",
+    "previous": "Previous",
+    "next": "Next",
+    "dismiss": "Dismiss report",
+    "hide": "Pause sharing",
+    "restore": "Restore sharing"
   }
 }

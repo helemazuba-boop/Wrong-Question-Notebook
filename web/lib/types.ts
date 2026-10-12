@@ -98,6 +98,8 @@ export interface ProblemSet {
   allow_copying: boolean;
   is_listed: boolean;
   discovery_subject: string | null;
+  moderation_status?: 'visible' | 'hidden';
+  moderation_message?: string | null;
 }
 
 // =====================================================

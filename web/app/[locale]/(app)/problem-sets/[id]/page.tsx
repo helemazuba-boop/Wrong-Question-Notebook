@@ -1,7 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
-import { getProblemSetWithFullData } from '@/lib/problem-set-utils';
+import {
+  getProblemSetWithFullData,
+  checkProblemSetAccess,
+} from '@/lib/problem-set-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { stripHtml } from '@/lib/html-sanitizer';
 import { getTranslations } from 'next-intl/server';
@@ -62,6 +65,27 @@ async function loadProblemSet(id: string) {
   const supabase = await createClient();
   const { user } = await requireUser();
 
+  // Content can be cached, but sharing/moderation authorization is checked on
+  // every request so revocation cannot be bypassed by an earlier cached page.
+  const accessClient = createServiceClient();
+  const { data: access, error: accessError } = await accessClient
+    .from('problem_sets')
+    .select('user_id, sharing_level, moderation_status, moderation_message')
+    .eq('id', id)
+    .maybeSingle();
+  if (accessError) throw new Error('Sharing status is unavailable');
+  if (
+    !access ||
+    !(await checkProblemSetAccess(
+      accessClient,
+      access,
+      user?.id ?? null,
+      user?.email ?? null,
+      id
+    ))
+  )
+    return null;
+
   if (user) {
     // Authenticated user: use their Supabase client with caching
     // Client captured by closure, NOT passed as an argument: unstable_cache
@@ -88,7 +112,14 @@ async function loadProblemSet(id: string) {
       }
     );
 
-    return await cachedLoadProblemSet(id, user.id, user.email || '');
+    const cached = await cachedLoadProblemSet(id, user.id, user.email || '');
+    return cached
+      ? {
+          ...cached,
+          moderation_status: access.moderation_status,
+          moderation_message: access.moderation_message,
+        }
+      : null;
   }
 
   // Anonymous user: use service client to bypass RLS, only public sets accessible

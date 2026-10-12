@@ -2655,28 +2655,52 @@ export type Database = {
           created_at: string;
           details: string | null;
           id: string;
-          problem_set_id: string;
+          previous_is_listed: boolean | null;
+          previous_sharing_level:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id: string | null;
           reason: string;
           reporter_user_id: string;
+          resolution_action: string | null;
+          result_message: string | null;
+          reviewed_at: string | null;
+          reviewed_by_user_id: string | null;
           status: string;
+          target_title: string | null;
         };
         Insert: {
           created_at?: string;
           details?: string | null;
           id?: string;
-          problem_set_id: string;
+          previous_is_listed?: boolean | null;
+          previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id?: string | null;
           reason: string;
           reporter_user_id: string;
+          resolution_action?: string | null;
+          result_message?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by_user_id?: string | null;
           status?: string;
+          target_title?: string | null;
         };
         Update: {
           created_at?: string;
           details?: string | null;
           id?: string;
-          problem_set_id?: string;
+          previous_is_listed?: boolean | null;
+          previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id?: string | null;
           reason?: string;
           reporter_user_id?: string;
+          resolution_action?: string | null;
+          result_message?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by_user_id?: string | null;
           status?: string;
+          target_title?: string | null;
         };
         Relationships: [
           {
@@ -2835,6 +2859,11 @@ export type Database = {
           id: string;
           is_listed: boolean;
           is_smart: boolean;
+          moderation_message: string | null;
+          moderation_previous_is_listed: boolean | null;
+          moderation_previous_sharing_level:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status: string;
           name: string;
           session_config: Json | null;
           sharing_level: Database['public']['Enums']['sharing_level'];
@@ -2853,6 +2882,11 @@ export type Database = {
           id?: string;
           is_listed?: boolean;
           is_smart?: boolean;
+          moderation_message?: string | null;
+          moderation_previous_is_listed?: boolean | null;
+          moderation_previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status?: string;
           name: string;
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
@@ -2871,6 +2905,11 @@ export type Database = {
           id?: string;
           is_listed?: boolean;
           is_smart?: boolean;
+          moderation_message?: string | null;
+          moderation_previous_is_listed?: boolean | null;
+          moderation_previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status?: string;
           name?: string;
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
@@ -4532,6 +4571,15 @@ export type Database = {
       };
     };
     Functions: {
+      resolve_problem_set_report: {
+        Args: {
+          p_action: string;
+          p_actor_user_id: string;
+          p_message: string;
+          p_report_id: string;
+        };
+        Returns: Json;
+      };
       activate_user_fsrs_parameter_set: {
         Args: { p_parameter_set_id: string; p_user_id: string };
         Returns: Json;
