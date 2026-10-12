@@ -143,19 +143,26 @@ describe('insights status', () => {
       digest: null,
     });
   });
-  it.fails(
-    '[AUD-13] does not turn a database read failure into an empty digest history',
-    async () => {
-      mocks.from.mockReturnValue(
-        queryResult(null, { message: 'database unavailable' })
-      );
-      const response = await GET();
-      expect(response.status).toBe(500);
-    }
-  );
+  it('[AUD-13] does not turn a database read failure into an empty digest history', async () => {
+    mocks.from.mockReturnValue(
+      queryResult(null, { message: 'database unavailable' })
+    );
+    const response = await GET();
+    expect(response.status).toBe(500);
+  });
 });
 
 describe('insights generation', () => {
+  it('does not allocate background work when the active-generation read fails', async () => {
+    mocks.from
+      .mockReturnValueOnce(queryResult())
+      .mockReturnValueOnce(
+        queryResult(null, { message: 'database unavailable' })
+      );
+    expect((await generate()).status).toBe(500);
+    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
   it('requires authentication before allocating background work', async () => {
     mocks.requireUser.mockResolvedValue({ user: null });
     expect((await generate()).status).toBe(401);

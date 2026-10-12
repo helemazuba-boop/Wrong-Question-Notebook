@@ -41,3 +41,7 @@ node --env-file=.env.local scripts/bootstrap-super-admin.mjs <已有且活跃的
 原有 SQL 契约测试通过；真实 PostgREST 的提权、正常资料修改、停用后的
 旧 JWT RPC/写入检查也通过。此 smoke 已接入 clean/upgrade 数据库 CI。
 现有 lint 有 167 项警告、0 errors。剩余两项 `it.fails` 在下一批修复。
+
+## 服务故障
+
+配额 RPC 故障会停止 AI 处理并保留待分类记录，后台任务按既有失败状态处理。Insights 状态和生成准入的数据库读错误返回 500；客户端保留原报告、显示故障与重试入口，且不应用已过期的轮询响应。AUD-04、AUD-13 已转为普通回归测试。

@@ -99,7 +99,8 @@
     "multiChoiceType": "Multiple Select",
     "fillBlankType": "Fill in the Blank",
     "essayType": "Extended Response",
-    "shortAnswerType": "Short Answer"
+    "shortAnswerType": "Short Answer",
+    "retry": "Retry"
   },
   "Navigation": {
     "subjects": "Notebook Shelf",
@@ -1096,7 +1097,8 @@
     "reportOverview": "Study Overview",
     "reportOverviewDesc": "Use one report to review problems, sessions, and mastery trends.",
     "aiAnalysis": "AI Analysis",
-    "aiAnalysisDesc": "Summarize error patterns, weak knowledge points, and the next review direction from your practice records."
+    "aiAnalysisDesc": "Summarize error patterns, weak knowledge points, and the next review direction from your practice records.",
+    "insightsStatusUnavailable": "Status is temporarily unavailable. Your previous report is preserved; retry to check progress."
   },
   "Admin": {
     "dashboard": "Dashboard",

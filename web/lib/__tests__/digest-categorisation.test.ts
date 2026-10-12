@@ -109,12 +109,11 @@ describe('digest categorisation backfill', () => {
     expect(await categoriseUncategorisedAttempts(TEST_USER.id, 5)).toBe(1);
     expect(mocks.ai).toHaveBeenCalledTimes(2);
   });
-  it.fails(
-    '[AUD-04] does not call AI when the quota backend is unavailable',
-    async () => {
-      mocks.quota.mockRejectedValue(new Error('quota backend unavailable'));
-      await categoriseUncategorisedAttempts(TEST_USER.id, 5);
-      expect(mocks.ai).not.toHaveBeenCalled();
-    }
-  );
+  it('[AUD-04] does not call AI when the quota backend is unavailable', async () => {
+    mocks.quota.mockRejectedValue(new Error('quota backend unavailable'));
+    await expect(
+      categoriseUncategorisedAttempts(TEST_USER.id, 5)
+    ).rejects.toThrow('quota is unavailable');
+    expect(mocks.ai).not.toHaveBeenCalled();
+  });
 });

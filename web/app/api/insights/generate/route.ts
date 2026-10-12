@@ -54,13 +54,23 @@ async function generateInsights(req: Request) {
     }
 
     // Check if a non-stale generation is still in progress
-    const { data: activeRow } = await supabase
+    const { data: activeRow, error: activeReadError } = await supabase
       .from('insight_digests')
       .select('id')
       .eq('user_id', user.id)
       .eq('status', 'generating')
       .limit(1)
       .maybeSingle();
+
+    if (activeReadError) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          'Insight status is unavailable. Please retry.',
+          500
+        ),
+        { status: 500 }
+      );
+    }
 
     if (activeRow) {
       return NextResponse.json(

@@ -99,7 +99,8 @@
     "multiChoiceType": "多选题",
     "fillBlankType": "填空题",
     "essayType": "解答题",
-    "shortAnswerType": "简答题"
+    "shortAnswerType": "简答题",
+    "retry": "重试"
   },
   "Navigation": {
     "subjects": "笔记本架",
@@ -1096,7 +1097,8 @@
     "reportOverview": "学习概览",
     "reportOverviewDesc": "用统一的报告看到题目、复习和掌握趋势。",
     "aiAnalysis": "AI 分析",
-    "aiAnalysisDesc": "根据你的练习记录总结错误模式、薄弱知识点和下一步复习方向。"
+    "aiAnalysisDesc": "根据你的练习记录总结错误模式、薄弱知识点和下一步复习方向。",
+    "insightsStatusUnavailable": "暂时无法读取生成状态。已有报告仍然保留，可重试查看进度。"
   },
   "Admin": {
     "dashboard": "仪表板",
