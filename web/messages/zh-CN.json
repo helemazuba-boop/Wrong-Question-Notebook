@@ -118,7 +118,8 @@
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
     "mcp": "MCP 接入",
-    "notebooks": "笔记本"
+    "notebooks": "笔记本",
+    "openNavigation": "打开应用导航"
   },
   "Auth": {
     "welcomeBack": "欢迎回来",
@@ -1172,7 +1173,7 @@
     "lastLogin": "上次登录",
     "neverLoggedIn": "从未登录",
     "region": "地区",
-    "files": "个文件",
+    "files": "{count, number} 个文件",
     "aiQuota": "AI 配额",
     "today": "今日",
     "noQuotaData": "暂无配额数据",
@@ -1293,7 +1294,16 @@
     "unknownError": "未知",
     "requeue": "重新入队",
     "refresh": "刷新",
-    "attemptCount": "重试次数"
+    "attemptCount": "重试次数",
+    "regularUserRole": "普通用户",
+    "unknownUser": "未知用户",
+    "manageUsersAction": "管理用户",
+    "manageUsersActionDesc": "查看和管理用户账号",
+    "viewActivityAction": "查看活动",
+    "viewActivityActionDesc": "浏览平台活动记录",
+    "announcementsActionDesc": "管理网站公告横幅",
+    "settingsActionDesc": "配置平台设置",
+    "problemMarksActionDesc": "查看标注队列状态"
   },
   "CookieConsent": {
     "weValuePrivacy": "我们重视你的隐私",

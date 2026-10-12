@@ -118,7 +118,8 @@
     "esp32": "WQN NOTE 4",
     "todos": "Todo",
     "mcp": "MCP",
-    "notebooks": "Notebooks"
+    "notebooks": "Notebooks",
+    "openNavigation": "Open navigation"
   },
   "Auth": {
     "welcomeBack": "Welcome back",
@@ -1172,7 +1173,7 @@
     "lastLogin": "Last Login",
     "neverLoggedIn": "Never logged in",
     "region": "Region",
-    "files": "files",
+    "files": "{count, plural, one {# file} other {# files}}",
     "aiQuota": "AI Quota",
     "today": "today",
     "noQuotaData": "No quota data",
@@ -1293,7 +1294,16 @@
     "unknownError": "Unknown",
     "requeue": "Requeue",
     "refresh": "Refresh",
-    "attemptCount": "attempts"
+    "attemptCount": "attempts",
+    "regularUserRole": "User",
+    "unknownUser": "Unknown User",
+    "manageUsersAction": "Manage Users",
+    "manageUsersActionDesc": "View and manage user accounts",
+    "viewActivityAction": "View Activity",
+    "viewActivityActionDesc": "Browse activity logs",
+    "announcementsActionDesc": "Manage site banners",
+    "settingsActionDesc": "System configuration",
+    "problemMarksActionDesc": "Annotation queue health"
   },
   "CookieConsent": {
     "weValuePrivacy": "We value your privacy",

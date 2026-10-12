@@ -93,6 +93,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Administrator storage totals include empty files and all listing pages; listing or metadata failures no longer publish incomplete totals.
+- The admin dashboard uses the available desktop width, adapts cards to their container and scrolls with the page. Navigation, quick actions, empty activity states and actual file counts follow the selected language.
 - Account-authorization migrations now accept CRLF stored function bodies, including legacy note-study RPCs that remain executable by authenticated users in existing databases.
 
 - Block direct profile role escalation, enforce inactive-account authorization across Web, MCP and device credentials, and require explicit access to restricted shared reviews.

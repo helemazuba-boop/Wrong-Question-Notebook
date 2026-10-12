@@ -1,5 +1,6 @@
 import { type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useFormatter } from 'next-intl';
 
 const colorVariants = {
   amber: {
@@ -58,32 +59,36 @@ export function StatCard({
   color,
 }: StatCardProps) {
   const v = colorVariants[color];
+  const format = useFormatter();
 
   return (
-    <div className={cn('admin-stat-card', v.card)}>
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-            {label}
-          </p>
-          <p className={cn('text-2xl font-bold', v.value)}>
-            {typeof value === 'number' ? value.toLocaleString() : value}
-          </p>
-          {sublabel && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {sublabel}
-            </p>
-          )}
-        </div>
+    <div className={cn('admin-stat-card min-w-0', v.card)}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-sm leading-5 font-medium text-gray-600 dark:text-gray-400">
+          {label}
+        </p>
         <div
           className={cn(
-            'w-10 h-10 rounded-xl flex items-center justify-center',
+            'w-9 h-9 shrink-0 rounded-xl flex items-center justify-center',
             v.icon
           )}
         >
           <Icon className={cn('w-5 h-5', v.iconColor)} />
         </div>
       </div>
+      <p
+        className={cn(
+          'mt-2 whitespace-nowrap text-2xl font-bold tabular-nums',
+          v.value
+        )}
+      >
+        {typeof value === 'number' ? format.number(value) : value}
+      </p>
+      {sublabel && (
+        <p className="mt-1 text-xs leading-5 break-words text-gray-500 dark:text-gray-400">
+          {sublabel}
+        </p>
+      )}
     </div>
   );
 }

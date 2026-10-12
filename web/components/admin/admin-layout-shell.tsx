@@ -23,35 +23,31 @@ export function AdminLayoutShell({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex h-screen admin-page-bg">
-      {/* Desktop sidebar */}
-      <div className="hidden lg:block w-[264px] flex-shrink-0">
-        <AdminSidebar role={role} />
-      </div>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <div className="admin-page-bg grid min-h-[calc(100dvh-4.0625rem)] grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="hidden min-w-0 lg:block">
+          <div className="sticky top-[4.0625rem]">
+            <AdminSidebar
+              role={role}
+              className="min-h-[calc(100dvh-4.0625rem)]"
+            />
+          </div>
+        </aside>
 
-      {/* Mobile sidebar */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="fixed top-3 left-3 z-40 lg:hidden rounded-xl bg-white/80 dark:bg-stone-900/80 backdrop-blur-sm shadow-sm border border-amber-200/40 dark:border-stone-700"
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-[264px] p-0">
-          <SheetTitle className="sr-only">{t('adminNavigation')}</SheetTitle>
-          <AdminSidebar role={role} onNavigate={() => setOpen(false)} />
-        </SheetContent>
-      </Sheet>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6 lg:p-8 pt-14 lg:pt-8 max-w-7xl mx-auto">
+        <div className="min-w-0 px-4 py-6 sm:px-6 xl:px-8">
+          <SheetTrigger asChild>
+            <Button variant="outline" className="mb-5 gap-2 lg:hidden">
+              <Menu className="h-4 w-4 shrink-0" />
+              {t('adminNavigation')}
+            </Button>
+          </SheetTrigger>
           {children}
         </div>
-      </main>
-    </div>
+      </div>
+      <SheetContent side="left" className="w-60 overflow-y-auto p-0">
+        <SheetTitle className="sr-only">{t('adminNavigation')}</SheetTitle>
+        <AdminSidebar role={role} onNavigate={() => setOpen(false)} />
+      </SheetContent>
+    </Sheet>
   );
 }
