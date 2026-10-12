@@ -8,6 +8,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   isSuperAdmin: vi.fn(),
+  isAdmin: vi.fn(),
   list: vi.fn(),
   profile: vi.fn(),
   currentProfile: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/user-management', () => ({
   isCurrentUserSuperAdmin: mocks.isSuperAdmin,
+  isCurrentUserAdmin: mocks.isAdmin,
   getAllUsersWithCount: mocks.list,
   getUserProfileWithServiceRole: mocks.profile,
   getUserProfile: mocks.currentProfile,
@@ -32,6 +34,7 @@ vi.mock('@/lib/supabase/auth-principal', () => ({
 import { GET as list } from '@/app/api/admin/users/route';
 import {
   GET as detail,
+  PATCH as update,
   DELETE as remove,
 } from '@/app/api/admin/users/[id]/route';
 import { PATCH as changeRole } from '@/app/api/admin/users/[id]/role/route';
@@ -39,6 +42,7 @@ import { PATCH as changeRole } from '@/app/api/admin/users/[id]/role/route';
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.isSuperAdmin.mockResolvedValue(true);
+  mocks.isAdmin.mockResolvedValue(true);
   mocks.principal.mockResolvedValue({ user: TEST_USER });
   mocks.profile.mockResolvedValue({ id: SUBJECT_ID, user_role: 'user' });
   mocks.currentProfile.mockResolvedValue({ user_role: 'super_admin' });
@@ -47,8 +51,52 @@ beforeEach(() => {
 });
 
 describe('admin user management', () => {
+  it('permits admin reads while retaining super-admin-only deletion', async () => {
+    mocks.isSuperAdmin.mockResolvedValue(false);
+    expect(
+      (
+        await detail(
+          request('/api/admin/users/id', undefined, 'GET'),
+          params(SUBJECT_ID)
+        )
+      ).status
+    ).toBe(200);
+    expect(
+      (
+        await remove(
+          request('/api/admin/users/id', undefined, 'DELETE'),
+          params(SUBJECT_ID)
+        )
+      ).status
+    ).toBe(401);
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+  it('rejects account privilege fields from an ordinary admin', async () => {
+    mocks.isSuperAdmin.mockResolvedValue(false);
+    expect(
+      (
+        await update(
+          request('/api/admin/users/id', { is_active: false }, 'PATCH'),
+          params(SUBJECT_ID)
+        )
+      ).status
+    ).toBe(403);
+    expect(mocks.updateProfile).not.toHaveBeenCalled();
+  });
+  it('rejects self role changes through the general profile endpoint', async () => {
+    expect(
+      (
+        await update(
+          request('/api/admin/users/id', { user_role: 'user' }, 'PATCH'),
+          params(TEST_USER.id)
+        )
+      ).status
+    ).toBe(403);
+    expect(mocks.updateProfile).not.toHaveBeenCalled();
+  });
   it('blocks ordinary accounts before listing any user data', async () => {
     mocks.isSuperAdmin.mockResolvedValue(false);
+    mocks.isAdmin.mockResolvedValue(false);
     expect(
       (await list(request('/api/admin/users', undefined, 'GET'))).status
     ).toBe(401);

@@ -7,6 +7,7 @@ import {
   isValidApiToken,
 } from '@/lib/api-token';
 import { getAppOrigin } from '@/lib/app-origin';
+import { accountIsActive } from '@/lib/supabase/account-status';
 import {
   OAUTH_ACCESS_TOKEN_PREFIX,
   getMcpResourceUri,
@@ -104,6 +105,27 @@ function tokenLookupFailedResponse(): NextResponse {
   );
 }
 
+async function accountRejection(
+  svc: ReturnType<typeof createServiceClient>,
+  userId: string
+): Promise<NextResponse | null> {
+  try {
+    return (await accountIsActive(svc, userId))
+      ? null
+      : NextResponse.json(
+          {
+            error: { code: 'account_disabled', message: 'Account is disabled' },
+          },
+          { status: 403 }
+        );
+  } catch {
+    return NextResponse.json(
+      { error: { message: 'Account status is unavailable' } },
+      { status: 503 }
+    );
+  }
+}
+
 /** Resolve a personal access token (wqn_mcp_*). */
 async function authenticateLegacyPatToken(
   svc: ReturnType<typeof createServiceClient>,
@@ -126,6 +148,9 @@ async function authenticateLegacyPatToken(
   if (!row) {
     return createApiTokenUnauthorizedResponse('Invalid access token');
   }
+
+  const rejection = await accountRejection(svc, row.user_id);
+  if (rejection) return rejection;
 
   // Best-effort usage timestamp; auth success never blocks on it.
   void svc
@@ -189,6 +214,9 @@ async function authenticateOAuthToken(
   if (!hasRequiredMcpScope(row.scope)) {
     return createApiTokenInsufficientScopeResponse();
   }
+
+  const rejection = await accountRejection(svc, row.user_id);
+  if (rejection) return rejection;
 
   void svc
     .from('oauth_tokens')

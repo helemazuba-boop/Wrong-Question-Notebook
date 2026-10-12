@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
-import { isCurrentUserSuperAdmin } from '@/lib/user-management';
+import { isCurrentUserModerator, getUserProfile } from '@/lib/user-management';
 import { AdminLayoutShell } from '@/components/admin/admin-layout-shell';
 import { ROUTES } from '@/lib/constants';
 import { getTranslations } from 'next-intl/server';
@@ -21,10 +21,15 @@ export default async function AdminLayout({
     redirect(ROUTES.AUTH.LOGIN);
   }
 
-  const isSuperAdmin = await isCurrentUserSuperAdmin();
-  if (!isSuperAdmin) {
+  const canManage = await isCurrentUserModerator();
+  if (!canManage) {
     redirect(ROUTES.SUBJECTS);
   }
 
-  return <AdminLayoutShell>{children}</AdminLayoutShell>;
+  const profile = await getUserProfile(user.id);
+  return (
+    <AdminLayoutShell role={profile?.user_role ?? 'user'}>
+      {children}
+    </AdminLayoutShell>
+  );
 }

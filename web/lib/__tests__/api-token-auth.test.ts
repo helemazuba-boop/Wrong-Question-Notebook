@@ -29,7 +29,11 @@ function mcpRequest(token: string): NextRequest {
 }
 
 function install(handler: FakeQueryHandler): FakeQueryCall[] {
-  return installFakeSupabase(mockFrom as never, handler);
+  return installFakeSupabase(mockFrom as never, call =>
+    call.table === 'user_profiles'
+      ? { data: { is_active: true }, error: null }
+      : handler(call)
+  );
 }
 
 beforeEach(() => {
@@ -61,7 +65,8 @@ describe('personal access tokens (wqn_mcp_)', () => {
 
     await authenticateMcpRequest(mcpRequest(PAT));
 
-    expect(calls.every(c => c.table === 'user_api_tokens')).toBe(true);
+    expect(calls.some(c => c.table === 'oauth_tokens')).toBe(false);
+    expect(calls.some(c => c.table === 'user_profiles')).toBe(true);
   });
 });
 

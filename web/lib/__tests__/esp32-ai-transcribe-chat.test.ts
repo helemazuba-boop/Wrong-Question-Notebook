@@ -148,11 +148,20 @@ beforeEach(() => {
   mockFetch.mockReset();
   vi.stubGlobal('fetch', mockFetch);
 
-  mockFrom.mockReturnValue({
-    select: mockSelect,
-    update: mockUpdate,
-    upsert: mockUpsert,
-  });
+  mockFrom.mockImplementation((table: string) =>
+    table === 'user_profiles'
+      ? {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { is_active: true },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      : { select: mockSelect, update: mockUpdate, upsert: mockUpsert }
+  );
   mockSelect.mockReturnValue({ eq: mockSelectEq });
   mockSelectEq.mockReturnValue({
     eq: mockSelectEq,

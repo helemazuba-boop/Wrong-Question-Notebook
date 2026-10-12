@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  isCurrentUserSuperAdmin,
-  getFilteredActivity,
-} from '@/lib/user-management';
+import { isCurrentUserAdmin, getFilteredActivity } from '@/lib/user-management';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const isSuperAdmin = await isCurrentUserSuperAdmin();
+    const isSuperAdmin = await isCurrentUserAdmin();
     if (!isSuperAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

@@ -87,7 +87,9 @@ async function checkAdminRole(userId: string) {
 
     return (
       profile &&
-      [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes(profile.user_role)
+      [USER_ROLES.MODERATOR, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes(
+        profile.user_role
+      )
     );
   } catch {
     return false;

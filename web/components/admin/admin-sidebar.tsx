@@ -44,9 +44,10 @@ const adminNavItems = [
 
 interface AdminSidebarProps {
   onNavigate?: () => void;
+  role: string;
 }
 
-export function AdminSidebar({ onNavigate }: AdminSidebarProps) {
+export function AdminSidebar({ onNavigate, role }: AdminSidebarProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -68,41 +69,47 @@ export function AdminSidebar({ onNavigate }: AdminSidebarProps) {
             <span className="font-semibold text-gray-900 dark:text-white text-sm">
               Admin Panel
             </span>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Super Admin
-            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{role}</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-1">
-        {adminNavItems.map(item => {
-          const active = isActive(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
-                active
-                  ? 'bg-amber-100/80 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-amber-50/60 dark:hover:bg-stone-800/50 hover:text-gray-900 dark:hover:text-gray-200'
-              )}
-            >
-              <item.icon
+        {adminNavItems
+          .filter(
+            item =>
+              role === 'super_admin' ||
+              (role === 'admin' &&
+                item.href !== ROUTES.ADMIN.SETTINGS &&
+                item.href !== ROUTES.ADMIN.ANNOUNCEMENTS)
+          )
+          .map(item => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
                 className={cn(
-                  'h-4 w-4',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
                   active
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-gray-400 dark:text-gray-500'
+                    ? 'bg-amber-100/80 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-amber-50/60 dark:hover:bg-stone-800/50 hover:text-gray-900 dark:hover:text-gray-200'
                 )}
-              />
-              {item.title}
-            </Link>
-          );
-        })}
+              >
+                <item.icon
+                  className={cn(
+                    'h-4 w-4',
+                    active
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-gray-400 dark:text-gray-500'
+                  )}
+                />
+                {item.title}
+              </Link>
+            );
+          })}
       </nav>
 
       {/* Footer */}

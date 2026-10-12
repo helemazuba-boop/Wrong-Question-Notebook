@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { accountIsActive } from './account-status';
 
 export interface AuthenticatedPrincipal {
   id: string;
@@ -23,6 +24,14 @@ export async function getAuthenticatedPrincipal(
       user: null,
       error: error ?? new Error('Unauthorised'),
     };
+  }
+
+  try {
+    if (!(await accountIsActive(supabase, subject))) {
+      return { user: null, error: new Error('Account is disabled') };
+    }
+  } catch (error) {
+    return { user: null, error: error as Error };
   }
 
   return {

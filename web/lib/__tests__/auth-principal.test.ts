@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { queryResult } from '@/lib/test/supabase-query';
 import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 
 describe('getAuthenticatedPrincipal', () => {
@@ -14,7 +15,10 @@ describe('getAuthenticatedPrincipal', () => {
     });
 
     await expect(
-      getAuthenticatedPrincipal({ auth: { getClaims } } as any)
+      getAuthenticatedPrincipal({
+        auth: { getClaims },
+        from: () => queryResult({ is_active: true }),
+      } as any)
     ).resolves.toEqual({
       user: {
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
 import {
   isCurrentUserSuperAdmin,
+  isCurrentUserAdmin,
   getUserProfile,
   getUserProfileWithServiceRole,
   updateUserProfile,
@@ -18,7 +19,7 @@ export async function GET(
 ) {
   try {
     // Check if user is admin
-    const isSuperAdmin = await isCurrentUserSuperAdmin();
+    const isSuperAdmin = await isCurrentUserAdmin();
     if (!isSuperAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -47,13 +48,23 @@ export async function PATCH(
 ) {
   try {
     // Check if user is admin
-    const isSuperAdmin = await isCurrentUserSuperAdmin();
+    const isSuperAdmin = await isCurrentUserAdmin();
     if (!isSuperAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
     const validatedData = UpdateUserProfileDto.parse(body);
+    if (
+      (validatedData.user_role !== undefined ||
+        validatedData.is_active !== undefined) &&
+      !(await isCurrentUserSuperAdmin())
+    ) {
+      return NextResponse.json(
+        { error: 'Protected account fields' },
+        { status: 403 }
+      );
+    }
 
     // Await params before using
     const { id } = await params;
@@ -82,6 +93,16 @@ export async function PATCH(
       );
     }
 
+    if (
+      id === user.id &&
+      (validatedData.user_role !== undefined ||
+        validatedData.is_active !== undefined)
+    ) {
+      return NextResponse.json(
+        { error: 'Cannot change your own account privileges' },
+        { status: 403 }
+      );
+    }
     const updatedUser = await updateUserProfile(id, validatedData);
     if (!updatedUser) {
       return NextResponse.json(

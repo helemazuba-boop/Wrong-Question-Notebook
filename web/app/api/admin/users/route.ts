@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  isCurrentUserSuperAdmin,
+  isCurrentUserAdmin,
   getAllUsersWithCount,
 } from '@/lib/user-management';
 import { createApiErrorResponse, handleAsyncError } from '@/lib/common-utils';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const isSuperAdmin = await isCurrentUserSuperAdmin();
+    const isSuperAdmin = await isCurrentUserAdmin();
     if (!isSuperAdmin) {
       return NextResponse.json(
         createApiErrorResponse(ERROR_MESSAGES.UNAUTHORIZED, 401),

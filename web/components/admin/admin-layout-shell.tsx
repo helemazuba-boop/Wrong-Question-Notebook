@@ -12,7 +12,13 @@ import {
 } from '@/components/ui/sheet';
 import { AdminSidebar } from './admin-sidebar';
 
-export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
+export function AdminLayoutShell({
+  children,
+  role,
+}: {
+  children: React.ReactNode;
+  role: string;
+}) {
   const t = useTranslations('Admin');
   const [open, setOpen] = useState(false);
 
@@ -20,7 +26,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen admin-page-bg">
       {/* Desktop sidebar */}
       <div className="hidden lg:block w-[264px] flex-shrink-0">
-        <AdminSidebar />
+        <AdminSidebar role={role} />
       </div>
 
       {/* Mobile sidebar */}
@@ -36,7 +42,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
         </SheetTrigger>
         <SheetContent side="left" className="w-[264px] p-0">
           <SheetTitle className="sr-only">{t('adminNavigation')}</SheetTitle>
-          <AdminSidebar onNavigate={() => setOpen(false)} />
+          <AdminSidebar role={role} onNavigate={() => setOpen(false)} />
         </SheetContent>
       </Sheet>
 

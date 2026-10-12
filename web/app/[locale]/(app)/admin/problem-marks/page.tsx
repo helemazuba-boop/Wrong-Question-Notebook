@@ -1,3 +1,5 @@
+import { isCurrentUserSuperAdmin } from '@/lib/user-management';
+import { notFound } from 'next/navigation';
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   ProblemMarksQueueClient,
@@ -7,6 +9,7 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function AdminProblemMarksPage() {
+  if (!(await isCurrentUserSuperAdmin())) notFound();
   const supabase = createServiceClient();
   const { data } = await supabase.rpc('problem_mark_annotation_health');
 

@@ -10,6 +10,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { FilterConfig } from '@/lib/types';
 import { appendFromParam, isSafeInternalHref } from '@/lib/navigation-context';
 import { readProblemInitialIdeas } from '@/lib/problem-initial-idea';
+import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 
 export async function generateMetadata({
   params,
@@ -38,6 +39,18 @@ async function loadProblemSet(id: string) {
     .single();
 
   if (problemSetError || !problemSet) {
+    return null;
+  }
+
+  if (
+    !(await checkProblemSetAccess(
+      queryClient,
+      problemSet,
+      user?.id ?? null,
+      user?.email ?? null,
+      id
+    ))
+  ) {
     return null;
   }
 

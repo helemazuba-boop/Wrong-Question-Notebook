@@ -38,19 +38,19 @@ select col_is_pk(
 select policies_are(
   'public',
   'canonical_subjects',
-  array['canonical_subjects_authenticated_select'],
+  array['active_account_required', 'canonical_subjects_authenticated_select'],
   'canonical subjects have only the authenticated read policy'
 );
 select policies_are(
   'public',
   'knowledge_marks',
-  array['knowledge_marks_authenticated_select'],
+  array['active_account_required', 'knowledge_marks_authenticated_select'],
   'knowledge marks have only the authenticated read policy'
 );
 select policies_are(
   'public',
   'problem_marks',
-  array['problem_marks_visible_problem_select', 'problem_marks_owner_insert', 'problem_marks_owner_update', 'problem_marks_owner_delete'],
+  array['active_account_required', 'problem_marks_visible_problem_select', 'problem_marks_owner_insert', 'problem_marks_owner_update', 'problem_marks_owner_delete'],
   'problem marks reuse problem visibility'
 );
 

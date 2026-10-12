@@ -160,20 +160,17 @@ describe('single-problem review through a shared set', () => {
       })
     ).rejects.toThrow('notFound');
   });
-  it.fails(
-    '[AUD-02] rejects a signed-in reader who has no grant to a limited set',
-    async () => {
-      // The repository RLS exposes limited set metadata to authenticated users.
-      // The normal access helper denies this fixture, but this page omits it.
-      mocks.userFrom.mockImplementation(table => {
-        if (table === 'problem_set_shares') return queryResult();
-        return queryResult(
-          table === 'subjects'
-            ? { name: 'Math' }
-            : { ...set, sharing_level: 'limited' }
-        );
-      });
-      await expect(page()).rejects.toThrow('notFound');
-    }
-  );
+  it('[AUD-02] rejects a signed-in reader who has no grant to a limited set', async () => {
+    // The repository RLS exposes limited set metadata to authenticated users.
+    // The normal access helper denies this fixture, but this page omits it.
+    mocks.userFrom.mockImplementation(table => {
+      if (table === 'problem_set_shares') return queryResult();
+      return queryResult(
+        table === 'subjects'
+          ? { name: 'Math' }
+          : { ...set, sharing_level: 'limited' }
+      );
+    });
+    await expect(page()).rejects.toThrow('notFound');
+  });
 });

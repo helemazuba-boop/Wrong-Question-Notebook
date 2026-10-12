@@ -3,6 +3,7 @@ import { createApiErrorResponse } from '@/lib/common-utils';
 import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { hashDeviceToken, isValidDeviceToken } from '@/lib/esp32-token';
+import { accountIsActive } from '@/lib/supabase/account-status';
 
 export interface Esp32DeviceAuthContext {
   userId: string;
@@ -75,6 +76,22 @@ export async function authenticateEsp32Device(
 
   if (!device) {
     return createEsp32DeviceUnauthorizedResponse('Invalid access token');
+  }
+
+  try {
+    if (!(await accountIsActive(svc, device.user_id))) {
+      // A disabled account is not an invalid pairing token. Preserve the
+      // device's credential so reactivation does not require pairing again.
+      return NextResponse.json(
+        createApiErrorResponse('Account is disabled', 403),
+        { status: 403 }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      createApiErrorResponse('Account status is unavailable', 503),
+      { status: 503 }
+    );
   }
 
   if (updateLastSeen) {

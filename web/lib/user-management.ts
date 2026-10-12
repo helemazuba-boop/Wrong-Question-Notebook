@@ -132,6 +132,22 @@ export async function isCurrentUserSuperAdmin(): Promise<boolean> {
   return profile?.user_role === 'super_admin' || false;
 }
 
+/** Reports are available to moderators and both administrator roles. */
+export async function isCurrentUserModerator(): Promise<boolean> {
+  const supabase = await createClient();
+  const { user } = await getAuthenticatedPrincipal(supabase);
+  if (!user) return false;
+  const { data, error } = await createServiceClient()
+    .from('user_profiles')
+    .select('user_role')
+    .eq('id', user.id)
+    .single();
+  return (
+    !error &&
+    ['moderator', 'admin', 'super_admin'].includes(data?.user_role ?? '')
+  );
+}
+
 /**
  * Get all users for admin management
  */
