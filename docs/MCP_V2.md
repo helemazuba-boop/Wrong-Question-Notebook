@@ -3,8 +3,10 @@
 Implemented locally on `feat/mcp-v2-foundation`, 2026-10-14. This replaces the
 external `/api/mcp` contract in one cutover. `initialize` advertises version
 `2.0.0`; `tools/list` publishes 43 tools with generated JSON Schema inputs and
-outputs. ESP32's eleven voice tools retain the separate v1 catalog, names,
-parameters, prompts and protocol. No firmware change is required.
+outputs. The first v2 cutover preserved the eleven legacy device voice tools.
+The subsequent approved ESP32 voice update narrows that separate surface to
+eight tools with injected context; see [ESP32_VOICE.md](ESP32_VOICE.md). The
+external 43-tool contract and device audio protocols remain separate.
 
 ## User tasks and boundaries
 

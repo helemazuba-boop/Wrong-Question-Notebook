@@ -12,6 +12,7 @@
 
 import { createHash, createHmac } from 'crypto';
 import { log } from './logger.ts';
+import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 
 const TOOL_TIMEOUT_MS = 12_000;
 
@@ -38,7 +39,8 @@ export async function executeToolOverHttp(
   secret: string,
   userId: string,
   deviceId: string,
-  args: ToolCallArgs
+  args: ToolCallArgs,
+  anchorAt?: string
 ): Promise<ToolExecResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TOOL_TIMEOUT_MS);
@@ -53,6 +55,7 @@ export async function executeToolOverHttp(
       device_id: deviceId,
       tool_name: args.name,
       raw_args: args.raw_args,
+      anchor_at: anchorAt,
     });
     const timestamp = Date.now().toString();
     const signature = createHmac('sha256', secret)
@@ -96,6 +99,48 @@ export async function executeToolOverHttp(
   } finally {
     clearTimeout(t);
   }
+}
+
+export async function fetchVoiceContext(
+  endpoint: string,
+  secret: string,
+  userId: string,
+  deviceId: string,
+  anchorAt = new Date().toISOString()
+): Promise<VoiceContext> {
+  const url = new URL(endpoint);
+  url.pathname = url.pathname.replace(/execute-tool$/, 'context');
+  const body = JSON.stringify({
+    user_id: userId,
+    device_id: deviceId,
+    anchor_at: anchorAt,
+  });
+  const timestamp = Date.now().toString();
+  const signature = createHmac('sha256', secret)
+    .update(timestamp)
+    .update('\n')
+    .update(body)
+    .digest('hex');
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${secret}`,
+      'x-wqn-internal-timestamp': timestamp,
+      'x-wqn-internal-signature': signature,
+    },
+    body,
+    signal: AbortSignal.timeout(5000),
+  });
+  const result = (await response.json()) as { data?: VoiceContext };
+  if (
+    !response.ok ||
+    !result.data ||
+    !Array.isArray(result.data.notebooks) ||
+    !Number.isFinite(Date.parse(result.data.now))
+  )
+    throw new Error('Voice context unavailable');
+  return result.data;
 }
 
 /**

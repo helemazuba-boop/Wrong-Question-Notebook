@@ -147,7 +147,8 @@ export class OperationExecutor {
   private timer: ReturnType<typeof setInterval> | null = null;
   constructor(
     readonly ctx: McpToolContext,
-    op: Operation
+    op: Operation,
+    private readonly commitRpc = 'commit_mcp_operation_v2'
   ) {
     this.op = op;
   }
@@ -179,7 +180,7 @@ export class OperationExecutor {
     this.committing = true;
     // An exception after this point is an unknown transport outcome. Never
     // persist "failed" from a client catch after a commit was attempted.
-    this.op = await operationRpc(this.ctx, 'commit_mcp_operation_v2', {
+    this.op = await operationRpc(this.ctx, this.commitRpc, {
       p_user_id: this.ctx.userId,
       p_operation_id: this.op.id,
       p_lease_token: this.op.lease_token,

@@ -9,7 +9,6 @@ import {
 } from './esp32-ai-asr-selection';
 import { runStepFunAsrSse } from './stepfun-asr';
 import {
-  listAuthorizedNotebooks,
   NotebookToolError,
   type NotebookAiAction,
   type NotebookToolContext,
@@ -24,9 +23,15 @@ import {
   type WordAiAction,
   type WordToolContext,
 } from '@/lib/words';
-import { findMcpTool, type McpToolContext } from '@/lib/mcp/tool-registry';
+import { buildAiToolExecutor } from '@/app/api/esp32/ai/transcribe-chat/v2-tools';
+import { loadVoiceContext } from './ai-tools/voice-context-server';
+import type { VoiceTimeContext } from './ai-tools/voice-context';
 import { isVoiceToolName } from '@/lib/mcp/tool-catalog';
-import { AI_TOOLS, AI_TOOL_PROMPT } from './ai-tools/voice-tools';
+import {
+  AI_TOOLS,
+  AI_TOOL_PROMPT,
+  appendAiToolPrompt,
+} from './ai-tools/voice-tools';
 export { AI_TOOLS, AI_TOOL_PROMPT };
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
@@ -308,17 +313,14 @@ function actionSummariesFrom(
 // the projected definitions in ai-tools/voice-tools.ts (single source with
 // the MCP registry and the v2 streaming path).
 function safeToolCallDisplay(name: string): string {
-  if (name === 'list_authorized_notebooks') return '读取授权笔记本';
+  if (name === 'list_problem_sets') return '读取错题本';
+  if (name === 'list_problem_set_problems') return '读取错题列表';
   if (name === 'create_notebook_note') return '写入笔记';
   if (name === 'search_user_problems') return '搜索错题';
   if (name === 'get_problem_detail') return '读取错题详情';
   if (name === 'list_todos') return '读取 Todo';
   if (name === 'create_todo') return '创建 Todo';
   if (name === 'update_todo_status') return '更新 Todo';
-  if (name === 'list_authorized_word_decks') return '读取词库';
-  if (name === 'create_word_deck') return '创建词库';
-  if (name === 'add_word_entry') return '添加单词';
-  if (name === 'search_words') return '查询单词';
   return name ? `调用工具：${name}` : '调用工具';
 }
 
@@ -933,59 +935,6 @@ async function runDashScopeAsr(
   return runParaformerAsr(config, input, tracker);
 }
 
-async function buildAuthorizedNotebookPrompt(
-  ctx?: NotebookToolContext
-): Promise<string> {
-  if (!ctx) {
-    return '当前请求没有用户笔记本上下文，不能调用笔记本或错题工具。';
-  }
-
-  try {
-    const result = await listAuthorizedNotebooks(ctx);
-    if (result.notebooks.length === 0) {
-      return '当前用户没有授权给 AI 的空白笔记本。';
-    }
-
-    const notebooks = result.notebooks.filter(
-      (notebook): notebook is NonNullable<typeof notebook> => notebook !== null
-    );
-    if (notebooks.length === 0) {
-      return '当前用户没有授权给 AI 的空白笔记本。';
-    }
-
-    const lines = notebooks.map(notebook => {
-      const permissions = [
-        notebook.permissions.can_read ? 'read' : '',
-        notebook.permissions.can_create ? 'create' : '',
-        notebook.permissions.can_update ? 'update' : '',
-      ]
-        .filter(Boolean)
-        .join(',');
-      return `- ${notebook.title} (${notebook.id}) 科目:${notebook.subject_name || '未分类'} 权限:${permissions || 'none'} 笔记数:${notebook.note_count}`;
-    });
-
-    return `当前用户授权给 AI 的空白笔记本：\n${lines.join('\n')}`;
-  } catch {
-    return '当前无法读取授权笔记本列表；除非工具调用成功，否则不要声称写入笔记。';
-  }
-}
-
-function parseToolArguments(raw: string | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    throw new NotebookToolError(
-      'invalid_tool_arguments',
-      'Tool arguments are not valid JSON',
-      400
-    );
-  }
-}
-
 function safeToolErrorPayload(error: unknown) {
   if (error instanceof NotebookToolError) {
     return {
@@ -1029,7 +978,9 @@ async function executeAiToolCall(
   ctx: Esp32AiToolContext | undefined,
   call: DashScopeToolCall,
   actions: Esp32AiAction[],
-  functionCalls?: Esp32AiFunctionCallSummary[]
+  functionCalls?: Esp32AiFunctionCallSummary[],
+  timeContext?: VoiceTimeContext,
+  requestId?: string
 ): Promise<unknown> {
   const name = call.function?.name || '';
   if (!ctx) {
@@ -1062,45 +1013,18 @@ async function executeAiToolCall(
     };
   }
 
-  const tool = findMcpTool(name);
-  if (!tool) {
-    functionCalls?.push({
-      name,
-      status: 'failed',
-      display: `未知工具：${name}`,
-    });
-    return {
-      success: false,
-      error: { code: 'unknown_tool', message: `Unknown tool: ${name}` },
-    };
-  }
-
   try {
-    const args = parseToolArguments(call.function?.arguments);
-    const parsed = tool.argsSchema.safeParse(args);
-    if (!parsed.success) {
-      const details = parsed.error.issues
-        .slice(0, 3)
-        .map(
-          issue => `${issue.path.join('.') || 'arguments'}: ${issue.message}`
-        )
-        .join('; ');
+    const executor = buildAiToolExecutor({ ...ctx, timeContext, requestId });
+    const executed = await executor(name, call.function?.arguments ?? '{}', {
+      callId: call.id ?? '',
+    });
+    if (!executed.ok)
       throw new NotebookToolError(
-        'invalid_tool_arguments',
-        `Invalid tool arguments: ${details}`,
+        executed.error?.code ?? 'tool_failed',
+        executed.error?.message ?? 'AI tool failed',
         400
       );
-    }
-    const toolCtx: McpToolContext = {
-      userId: ctx.userId,
-      conversationId: ctx.conversationId ?? null,
-      deviceId: ctx.deviceId ?? null,
-      supabase: ctx.supabase,
-    };
-    const result = await tool.handler(
-      toolCtx,
-      parsed.data as Record<string, unknown>
-    );
+    const result = executed.data;
 
     const action = extractAction(result);
     if (action) {
@@ -1167,7 +1091,10 @@ async function runDashScopeChat(
   const functionCalls: Esp32AiFunctionCallSummary[] = [];
   const startedAt = Date.now();
   tracker?.mark('chat', 'started');
-  const notebookPrompt = await buildAuthorizedNotebookPrompt(toolContext);
+  const voiceContext = toolContext
+    ? await loadVoiceContext(toolContext)
+    : undefined;
+  const voiceTurnId = mintConversationId();
   const activeConversationId = conversationId || mintConversationId();
   const priorTurns = userId
     ? await loadTurns(userId, activeConversationId)
@@ -1175,7 +1102,7 @@ async function runDashScopeChat(
   const messages: DashScopeRequestMessage[] = [
     {
       role: 'system',
-      content: `${config.systemPrompt}\n\n${AI_TOOL_PROMPT}\n\n${notebookPrompt}`,
+      content: appendAiToolPrompt(config.systemPrompt, voiceContext),
     },
   ];
   for (const turn of contextTurnsForLlm(priorTurns)) {
@@ -1270,7 +1197,9 @@ async function runDashScopeChat(
         toolContext,
         call,
         actions,
-        functionCalls
+        functionCalls,
+        voiceContext,
+        voiceTurnId
       );
       messages.push({
         role: 'tool',

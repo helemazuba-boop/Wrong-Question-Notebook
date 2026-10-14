@@ -64,7 +64,8 @@ export interface ChatStreamResult {
 export interface ToolExecutor {
   (
     name: string,
-    rawArgs: string
+    rawArgs: string,
+    meta?: { callId: string; requestId?: string }
   ): Promise<{
     ok: boolean;
     display: string;
@@ -184,7 +185,9 @@ export async function runPipelineChat(
       let result: Awaited<ReturnType<ToolExecutor>>;
       try {
         result = toolExecutor
-          ? await toolExecutor(call.function.name, call.function.arguments)
+          ? await toolExecutor(call.function.name, call.function.arguments, {
+              callId: call.id,
+            })
           : { ok: false, display: 'No tool executor registered' };
       } catch (err) {
         result = {

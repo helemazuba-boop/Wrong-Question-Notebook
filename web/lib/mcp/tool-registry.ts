@@ -1,4 +1,4 @@
-// Legacy v1 registry retained by the ESP32 voice chains. External /api/mcp
+// Legacy registry retained for shared handlers; device voice now has a focused adapter. External /api/mcp
 // uses v2-tools.ts and reuses selected read handlers from here.
 // lib/ai-tools/voice-tools.ts projects the shared
 // catalog entries (tool-catalog.ts) into OpenAI function definitions, and the

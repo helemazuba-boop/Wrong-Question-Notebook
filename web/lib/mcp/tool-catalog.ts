@@ -45,22 +45,50 @@ const NON_IDEMPOTENT_WRITE: ToolAnnotations = {
 // The exact set of tools the ESP32 voice chains expose to their LLM. Order
 // defines the order sent to the model.
 export const VOICE_TOOL_NAMES = [
-  'list_authorized_notebooks',
   'create_notebook_note',
+  'list_problem_sets',
+  'list_problem_set_problems',
   'search_user_problems',
   'get_problem_detail',
   'list_todos',
   'create_todo',
   'update_todo_status',
-  'list_authorized_word_decks',
-  'create_word_deck',
-  'add_word_entry',
-  'search_words',
 ] as const;
 
 export type VoiceToolName = (typeof VOICE_TOOL_NAMES)[number];
 
 export const TOOL_CATALOG = {
+  list_problem_sets: {
+    name: 'list_problem_sets',
+    description:
+      '分页列出用户的错题本及题目数量；先选错题本，再调用 list_problem_set_problems。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subject_id: { type: 'string' },
+        cursor: { type: 'string', pattern: '^(0|[1-9][0-9]{0,3}|10000)$' },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
+  list_problem_set_problems: {
+    name: 'list_problem_set_problems',
+    description:
+      '分页查看所选错题本的题目，支持智能错题本；按返回的 next_cursor 翻页，再用 get_problem_detail 读题。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        problem_set_id: { type: 'string' },
+        cursor: { type: 'string', pattern: '^(0|[1-9][0-9]{0,3}|10000)$' },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+      },
+      required: ['problem_set_id'],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
   list_authorized_notebooks: {
     name: 'list_authorized_notebooks',
     description:
