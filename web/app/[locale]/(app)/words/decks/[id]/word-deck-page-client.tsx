@@ -7,6 +7,7 @@ import {
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { PageHeader } from '@/components/page-header';
+import AiAccessPanel from './ai-access-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -909,6 +910,11 @@ export default function WordDeckPageClient({
         }
       />
 
+      <AiAccessPanel
+        deckId={deck.id}
+        system={deck.is_system}
+        initial={deck.ai_access}
+      />
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">

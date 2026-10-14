@@ -51,7 +51,11 @@ describe('personal access tokens (wqn_mcp_)', () => {
 
     const result = await authenticateMcpRequest(mcpRequest(PAT));
 
-    expect(result).toEqual({ userId: USER_ID, tokenId: 'pat-row' });
+    expect(result).toEqual({
+      userId: USER_ID,
+      tokenId: 'pat-row',
+      credentialKind: 'pat',
+    });
     expect(calls[0].table).toBe('user_api_tokens');
     expect(calls[0].filters).toContainEqual(['is', 'revoked_at', null]);
   });
@@ -92,7 +96,11 @@ describe('OAuth access tokens (wqn_oa_)', () => {
 
     const result = await authenticateMcpRequest(mcpRequest(OAUTH_ACCESS));
 
-    expect(result).toEqual({ userId: USER_ID, tokenId: 'oauth-row' });
+    expect(result).toEqual({
+      userId: USER_ID,
+      tokenId: 'oauth-row',
+      credentialKind: 'oauth',
+    });
     expect(calls[0].table).toBe('oauth_tokens');
   });
 

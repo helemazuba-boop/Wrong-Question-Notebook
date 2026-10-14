@@ -24,7 +24,8 @@ export async function getFilteredProblems(
   userId: string,
   subjectId: string,
   filterConfig: FilterConfig,
-  ownerUserId?: string
+  ownerUserId?: string,
+  page?: { offset: number; limit: number }
 ): Promise<Problem[]> {
   const effectiveUserId = ownerUserId ?? userId;
 
@@ -84,9 +85,13 @@ export async function getFilteredProblems(
     // No days filter but include_never_reviewed = true is the default (no additional filter)
   }
 
-  const { data, error } = await query.order('created_at', {
-    ascending: false,
-  });
+  query = query
+    .order('created_at', {
+      ascending: false,
+    })
+    .order('id', { ascending: false });
+  if (page) query = query.range(page.offset, page.offset + page.limit - 1);
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Failed to query problems: ${error.message}`);

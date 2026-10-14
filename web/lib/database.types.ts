@@ -1629,7 +1629,8 @@ export type Database = {
           id: string;
           problem_id: string;
           proposed_idea: string;
-          source_api_token_id: string;
+          source_api_token_id: string | null;
+          source_oauth_token_id: string | null;
           source_request_id: string;
           user_id: string;
         };
@@ -1643,7 +1644,8 @@ export type Database = {
           id?: string;
           problem_id: string;
           proposed_idea: string;
-          source_api_token_id: string;
+          source_api_token_id?: string | null;
+          source_oauth_token_id?: string | null;
           source_request_id: string;
           user_id: string;
         };
@@ -1657,7 +1659,8 @@ export type Database = {
           id?: string;
           problem_id?: string;
           proposed_idea?: string;
-          source_api_token_id?: string;
+          source_api_token_id?: string | null;
+          source_oauth_token_id?: string | null;
           source_request_id?: string;
           user_id?: string;
         };

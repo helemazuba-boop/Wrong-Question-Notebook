@@ -54,6 +54,9 @@ const htmlContent = z
 // survive parsing or every save would orphan the derived objects.
 const Asset = z.object({
   path: z.string(),
+  role: z
+    .enum(['question', 'answer', 'solution', 'student_work', 'other'])
+    .optional(),
   kind: z.enum(['image', 'pdf']).optional(),
   pipeline_version: z.string().max(64).optional(),
   image_id: z
@@ -181,6 +184,8 @@ export const ProblemPartSchema = z.object({
     .max(VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX)
     .optional(),
   answer_config: AnswerConfigSchema.nullable().optional(),
+  // Options are printed structure even when no official answer is available.
+  mcq_choices: z.array(MCQChoiceSchema).max(10).optional(),
 });
 
 // The shell holds 1..10 parts with contiguous 1-based indexes -- nesting is

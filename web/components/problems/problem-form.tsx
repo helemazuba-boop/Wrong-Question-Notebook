@@ -53,8 +53,7 @@ import { apiUrl } from '@/lib/api-utils';
 import { PenLine, Plus, ScanLine } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
-  buildDraftAnswerConfig,
-  buildDraftAnswerText,
+  serializePartDrafts,
   draftFromPart,
   makePartDraft,
   renumberDrafts,
@@ -506,8 +505,14 @@ export default function ProblemForm({
     setIsSubmitting(true);
 
     try {
-      const assets = problemAssets.map(asset => ({ path: asset.path }));
+      const assets = problemAssets.map(asset => ({
+        ...problem?.assets?.find(existing => existing.path === asset.path),
+        path: asset.path,
+      }));
       const solution_assets = solutionAssets.map(asset => ({
+        ...problem?.solution_assets?.find(
+          existing => existing.path === asset.path
+        ),
         path: asset.path,
       }));
 
@@ -527,25 +532,7 @@ export default function ProblemForm({
 
       // Assemble the shell from the homogeneous part cards. Indexes are
       // contiguous from 1; labels only make sense on multi-part shells.
-      const partsPayload: Record<string, unknown>[] = parts.map((draft, i) => {
-        const answerText = buildDraftAnswerText(draft)
-          .trim()
-          .substring(0, VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX);
-        const config = buildDraftAnswerConfig(draft);
-        const marks = draft.fullMarks.trim();
-        return {
-          index: i + 1,
-          type: draft.type,
-          ...(parts.length > 1 && draft.label.trim()
-            ? { label: draft.label.trim() }
-            : {}),
-          ...(marks !== '' && !isNaN(Number(marks))
-            ? { full_marks: Number(marks) }
-            : {}),
-          ...(answerText ? { correct_answer: answerText } : {}),
-          ...(config ? { answer_config: config } : {}),
-        };
-      });
+      const partsPayload = serializePartDrafts(parts);
 
       const source: Record<string, unknown> = {
         ...pendingIngestionSource,

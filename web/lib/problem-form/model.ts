@@ -12,12 +12,16 @@
  */
 
 import type { ProblemType } from '@/lib/schemas';
-import { ANSWER_CONFIG_CONSTANTS } from '@/lib/constants';
+import { ANSWER_CONFIG_CONSTANTS, VALIDATION_CONSTANTS } from '@/lib/constants';
 import type { MCQChoice, AnswerConfig, ProblemPart } from '@/lib/types';
 import type { ShortAnswerConfigValue } from '@/components/ui/short-answer-config';
 
 export interface PartDraft {
   type: ProblemType;
+  /** Keep imported part text when the owner edits other fields. */
+  content?: string;
+  /** An imported printed choice list need not have an official answer. */
+  allowMissingChoiceAnswer?: boolean;
   /** Display label, e.g. "(1)"; auto-renumbered until the user touches it. */
   label: string;
   labelTouched: boolean;
@@ -78,6 +82,11 @@ export function draftFromPart(part: ProblemPart, position: number): PartDraft {
   draft.fullMarks =
     part.full_marks !== undefined ? String(part.full_marks) : '';
   draft.answerText = part.correct_answer || '';
+  draft.content = part.content;
+  if (part.mcq_choices?.length) draft.choices = part.mcq_choices;
+  draft.allowMissingChoiceAnswer = Boolean(
+    part.mcq_choices?.length && !part.correct_answer && !part.answer_config
+  );
   const config = part.answer_config;
   if (config?.type === 'mcq') {
     draft.choices = config.choices;
@@ -193,6 +202,34 @@ export function buildDraftAnswerText(draft: PartDraft): string {
   return draft.answerText;
 }
 
+/** Serialize a Web edit without dropping printed structure or inventing answers. */
+export function serializePartDrafts(drafts: PartDraft[]): ProblemPart[] {
+  return drafts.map((draft, i) => {
+    const answer = buildDraftAnswerText(draft)
+      .trim()
+      .substring(0, VALIDATION_CONSTANTS.STRING_LIMITS.TEXT_BODY_MAX);
+    const config = buildDraftAnswerConfig(draft);
+    const marks = draft.fullMarks.trim();
+    return {
+      index: i + 1,
+      type: draft.type,
+      ...(drafts.length > 1 && draft.label.trim()
+        ? { label: draft.label.trim() }
+        : {}),
+      ...(marks !== '' && !isNaN(Number(marks))
+        ? { full_marks: Number(marks) }
+        : {}),
+      ...(draft.content ? { content: draft.content } : {}),
+      ...(['single_choice', 'multi_choice'].includes(draft.type) &&
+      draft.useChoicePicker
+        ? { mcq_choices: draft.choices }
+        : {}),
+      ...(answer ? { correct_answer: answer } : {}),
+      ...(config ? { answer_config: config } : {}),
+    };
+  });
+}
+
 /** After insert/remove: renumber every label the user never touched. */
 export function renumberDrafts(drafts: PartDraft[]): PartDraft[] {
   return drafts.map((draft, i) =>
@@ -213,13 +250,13 @@ export function validatePartDrafts(parts: PartDraft[]): PartDraftIssue[] {
   for (let i = 0; i < parts.length; i++) {
     const draft = parts[i];
     if (draft.type === 'single_choice' && draft.useChoicePicker) {
-      if (!draft.correctChoiceId) {
+      if (!draft.correctChoiceId && !draft.allowMissingChoiceAnswer) {
         issues.push({ partIndex: i, kind: 'correct_choice_required' });
         continue;
       }
     }
     if (draft.type === 'multi_choice' && draft.useChoicePicker) {
-      if (multiIdsOf(draft).length === 0) {
+      if (multiIdsOf(draft).length === 0 && !draft.allowMissingChoiceAnswer) {
         issues.push({ partIndex: i, kind: 'correct_choice_required' });
         continue;
       }

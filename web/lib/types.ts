@@ -197,6 +197,7 @@ export interface ReviewSessionSummary {
 }
 
 export interface Asset {
+  role?: 'question' | 'answer' | 'solution' | 'student_work' | 'other';
   path: string;
   kind?: 'image' | 'pdf';
 }
@@ -276,6 +277,7 @@ export interface ProblemPart {
   content?: string;
   correct_answer?: string;
   answer_config?: AnswerConfig | null;
+  mcq_choices?: MCQChoice[];
 }
 
 export interface ProblemSource {

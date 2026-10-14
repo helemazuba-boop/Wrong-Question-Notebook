@@ -215,7 +215,11 @@ function packRowOf(
     return null;
   }
   const parts = parsedParts.data.map(part => {
-    const choices = partChoicesOf(part.answer_config);
+    const choices = partChoicesOf(
+      part.mcq_choices?.length
+        ? { choices: part.mcq_choices }
+        : part.answer_config
+    );
     return {
       index: part.index,
       label: part.label ?? '',

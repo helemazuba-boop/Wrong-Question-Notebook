@@ -29,11 +29,12 @@ import {
 //                (user_api_tokens, long lived, revoked only by hand)
 //   - wqn_oa_*   OAuth 2.1 access token minted by this app's own
 //                authorization server (oauth_tokens, 1 hour, rotated)
-// Both resolve to the same context, so no MCP tool sees a difference.
+// Both resolve the same user. Credential kind is retained for FK provenance.
 
 export interface ApiTokenAuthContext {
   userId: string;
   tokenId: string;
+  credentialKind: 'pat' | 'oauth';
 }
 
 const BEARER_PREFIX = 'Bearer ';
@@ -167,7 +168,7 @@ async function authenticateLegacyPatToken(
       }
     });
 
-  return { userId: row.user_id, tokenId: row.id };
+  return { userId: row.user_id, tokenId: row.id, credentialKind: 'pat' };
 }
 
 /** Resolve an OAuth 2.1 access token (wqn_oa_*). */
@@ -232,7 +233,7 @@ async function authenticateOAuthToken(
       }
     });
 
-  return { userId: row.user_id, tokenId: row.id };
+  return { userId: row.user_id, tokenId: row.id, credentialKind: 'oauth' };
 }
 
 export async function authenticateMcpRequest(
