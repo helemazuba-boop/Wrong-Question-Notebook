@@ -113,7 +113,7 @@
     "prettier": "^3.9.9",
     "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "^5",
+    "typescript": "^7",
     "vitest": "^4.0.18"
   }
 }
