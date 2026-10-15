@@ -37,6 +37,7 @@ PYTHON
   done
   [[ "$count" -ge 4 ]] || { echo 'Missing SQL contract tests' >&2; exit 1; }
   python3 "$web_root/scripts/ci/account-guard-migration-test.py" "$ci_workdir/status.json"
+  node --test "$web_root/scripts/ci/__tests__/account-authorization-smoke.test.mjs"
   node "$web_root/scripts/ci/account-authorization-smoke.mjs" "$ci_workdir/status.json"
   node "$web_root/scripts/ci/account-data-test.mjs" "$ci_workdir/status.json"
 elif [[ "$action" == upgrade ]]; then

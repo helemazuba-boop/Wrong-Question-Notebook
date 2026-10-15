@@ -14,6 +14,7 @@ function client(key, token = key) {
   return async (path, method = 'GET', body) => {
     const response = await fetch(`${status.API_URL}${path}`, {
       method,
+      redirect: 'error',
       headers: {
         apikey: key,
         Authorization: `Bearer ${token}`,
