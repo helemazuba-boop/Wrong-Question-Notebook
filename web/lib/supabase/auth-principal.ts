@@ -11,7 +11,7 @@ export interface AuthenticatedPrincipal {
  * surface used by application routes. With asymmetric signing keys this uses
  * the SDK's cached JWKS and avoids a per-request GoTrue user lookup.
  */
-export async function getAuthenticatedPrincipal(
+export async function getVerifiedPrincipal(
   supabase: SupabaseClient<any>
 ): Promise<{
   user: AuthenticatedPrincipal | null;
@@ -26,14 +26,6 @@ export async function getAuthenticatedPrincipal(
     };
   }
 
-  try {
-    if (!(await accountIsActive(supabase, subject))) {
-      return { user: null, error: new Error('Account is disabled') };
-    }
-  } catch (error) {
-    return { user: null, error: error as Error };
-  }
-
   return {
     user: {
       id: subject,
@@ -41,4 +33,22 @@ export async function getAuthenticatedPrincipal(
     },
     error: null,
   };
+}
+
+/** Business routes additionally require an active account. */
+export async function getAuthenticatedPrincipal(
+  supabase: SupabaseClient<any>
+): ReturnType<typeof getVerifiedPrincipal> {
+  const principal = await getVerifiedPrincipal(supabase);
+  if (!principal.user) return principal;
+
+  try {
+    if (!(await accountIsActive(supabase, principal.user.id))) {
+      return { user: null, error: new Error('Account is disabled') };
+    }
+  } catch (error) {
+    return { user: null, error: error as Error };
+  }
+
+  return principal;
 }
