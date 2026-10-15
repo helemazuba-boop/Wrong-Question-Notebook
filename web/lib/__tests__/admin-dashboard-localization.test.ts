@@ -27,6 +27,7 @@ function render(locale: 'en' | 'zh-CN', fileCount: number) {
         null,
         createElement(AdminSidebar, { role: 'super_admin' }),
         createElement(DashboardClient, {
+          isSuperAdmin: true,
           userStats: {
             total_users: 12,
             active_users: 10,

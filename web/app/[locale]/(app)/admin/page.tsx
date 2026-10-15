@@ -1,4 +1,7 @@
-import { isCurrentUserAdmin } from '@/lib/user-management';
+import {
+  isCurrentUserAdmin,
+  isCurrentUserSuperAdmin,
+} from '@/lib/user-management';
 import { notFound } from 'next/navigation';
 import {
   getUserStatistics,
@@ -12,6 +15,7 @@ import { CACHE_DURATIONS, CACHE_TAGS } from '@/lib/cache-config';
 
 export default async function AdminDashboardPage() {
   if (!(await isCurrentUserAdmin())) notFound();
+  const isSuperAdmin = await isCurrentUserSuperAdmin();
   const cachedLoadDashboardData = unstable_cache(
     async () => {
       const [userStats, contentStats, storageStats, recentActivity] =
@@ -47,6 +51,7 @@ export default async function AdminDashboardPage() {
 
   return (
     <DashboardClient
+      isSuperAdmin={isSuperAdmin}
       userStats={userStats}
       contentStats={contentStats}
       storageStats={storageStats}

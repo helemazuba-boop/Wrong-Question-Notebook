@@ -18,6 +18,7 @@ import { UserStatisticsType } from '@/lib/schemas';
 import { formatBytes } from '@/lib/format-utils';
 
 interface DashboardClientProps {
+  isSuperAdmin: boolean;
   userStats: UserStatisticsType;
   contentStats: {
     total_problems: number;
@@ -33,6 +34,7 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({
+  isSuperAdmin,
   userStats,
   contentStats,
   storageStats,
@@ -145,7 +147,7 @@ export function DashboardClient({
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {t('quickActions')}
           </h2>
-          <QuickActions />
+          <QuickActions isSuperAdmin={isSuperAdmin} />
         </section>
       </div>
     </div>
