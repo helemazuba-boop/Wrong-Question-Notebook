@@ -103,7 +103,7 @@ select is(
 select policies_are(
   'public',
   'attempts',
-  array['attempts_owner_all', 'attempts_problem_owner_read'],
+  array['active_account_required', 'attempts_owner_all', 'attempts_problem_owner_read'],
   'attempts exposes only the owner-all and problem-owner-read policies'
 );
 

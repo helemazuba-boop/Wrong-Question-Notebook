@@ -1,5 +1,6 @@
-// MCP tool registry: the single tool table served by /api/mcp and consumed by
-// the ESP32 voice chains -- lib/ai-tools/voice-tools.ts projects the shared
+// Legacy registry retained for shared handlers; device voice now has a focused adapter. External /api/mcp
+// uses v2-tools.ts and reuses selected read handlers from here.
+// lib/ai-tools/voice-tools.ts projects the shared
 // catalog entries (tool-catalog.ts) into OpenAI function definitions, and the
 // voice adapter executes these same handlers.
 //
@@ -56,6 +57,7 @@ export interface McpToolContext {
   supabase: SupabaseClient<Database>;
   /** MCP credential row id (PAT or OAuth token). Absent on voice calls. */
   apiTokenId?: string;
+  credentialKind?: 'pat' | 'oauth';
   /** App origin used to build user-facing confirmation links. MCP only. */
   origin?: string;
   confirmationPath?: string;

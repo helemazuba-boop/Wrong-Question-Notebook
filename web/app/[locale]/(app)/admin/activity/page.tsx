@@ -1,7 +1,10 @@
+import { isCurrentUserAdmin } from '@/lib/user-management';
+import { notFound } from 'next/navigation';
 import { getFilteredActivity } from '@/lib/user-management';
 import { ActivityPageClient } from '@/components/admin/activity/activity-page-client';
 
 export default async function AdminActivityPage() {
+  if (!(await isCurrentUserAdmin())) notFound();
   const { activities, total_count } = await getFilteredActivity({
     limit: 20,
     offset: 0,

@@ -7,9 +7,11 @@ import {
   makePartDraft,
   multiIdsOf,
   renumberDrafts,
+  serializePartDrafts,
   validatePartDrafts,
   type PartDraft,
 } from '../problem-form/model';
+import { ProblemPartsSchema } from '../schemas';
 
 describe('problem-form model', () => {
   describe('multiIdsOf', () => {
@@ -144,6 +146,46 @@ describe('problem-form model', () => {
   });
 
   describe('draftFromPart round-trip', () => {
+    it.each(['single_choice', 'multi_choice'] as const)(
+      'keeps imported %s text and choices through a Web edit without inventing an answer',
+      type => {
+        const original = {
+          index: 1,
+          type,
+          content: '<p>Choose from this table.</p>',
+          mcq_choices: [
+            { id: 'A', text: 'first' },
+            { id: 'B', text: 'second' },
+          ],
+        };
+        const draft = draftFromPart(original, 1);
+        expect(validatePartDrafts([draft])).toEqual([]);
+        const saved = serializePartDrafts([draft]);
+        expect(saved).toEqual([original]);
+        expect(ProblemPartsSchema.safeParse(saved).success).toBe(true);
+        expect(buildDraftAnswerConfig(draft)).toBeNull();
+      }
+    );
+    it('keeps printed options consistent when the owner supplies an answer', () => {
+      const draft = draftFromPart(
+        {
+          index: 1,
+          type: 'single_choice',
+          mcq_choices: [
+            { id: 'A', text: 'first' },
+            { id: 'B', text: 'second' },
+          ],
+        },
+        1
+      );
+      draft.correctChoiceId = 'B';
+      const saved = serializePartDrafts([draft])[0];
+      expect(saved.correct_answer).toBe('B');
+      expect(saved.mcq_choices).toEqual(
+        saved.answer_config?.type === 'mcq' ? saved.answer_config.choices : null
+      );
+      expect(ProblemPartsSchema.safeParse([saved]).success).toBe(true);
+    });
     it('restores mcq config state', () => {
       const source: ProblemPartFixture = {
         type: 'single_choice',

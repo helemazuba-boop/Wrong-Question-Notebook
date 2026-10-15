@@ -210,13 +210,18 @@ function partLabelOf(part: ProblemPart): string {
 
 function choicesOf(part: ProblemPart): PrintChoice[] | null {
   const config = configOf(part);
-  if (!config) return null;
-  const type = config.type;
-  if (type !== 'mcq' && type !== 'multi_mcq') return null;
-  if (!Array.isArray(config.choices)) return null;
+  const choicePart =
+    part.type === 'single_choice' || part.type === 'multi_choice';
+  const values =
+    choicePart && part.mcq_choices?.length
+      ? part.mcq_choices
+      : config?.type === 'mcq' || config?.type === 'multi_mcq'
+        ? config.choices
+        : null;
+  if (!Array.isArray(values)) return null;
 
   const choices: PrintChoice[] = [];
-  for (const value of config.choices as unknown[]) {
+  for (const value of values as unknown[]) {
     if (!isRecord(value)) continue;
     const { id, text } = value;
     if (typeof id !== 'string' || id.length === 0) continue;

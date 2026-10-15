@@ -305,7 +305,7 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
   const { data, error } = await ctx.supabase
     .from('notebook_ai_access')
     .select(
-      'can_read, can_create, can_update, notebooks(id, title, description, subject_id, subjects(name), notebook_notes(count))'
+      'can_read, can_create, can_update, notebooks(id, user_id, archived_at, title, description, subject_id, subjects(name), notebook_notes(count))'
     )
     .eq('user_id', ctx.userId)
     .or('can_read.eq.true,can_create.eq.true,can_update.eq.true');
@@ -316,7 +316,12 @@ export async function listAuthorizedNotebooks(ctx: NotebookToolContext) {
     notebooks: (data || [])
       .map((row: any) => {
         const notebook = row.notebooks;
-        if (!notebook) return null;
+        if (
+          !notebook ||
+          notebook.archived_at ||
+          (notebook.user_id !== undefined && notebook.user_id !== ctx.userId)
+        )
+          return null;
         return {
           id: notebook.id,
           title: notebook.title,

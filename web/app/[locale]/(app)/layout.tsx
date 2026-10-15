@@ -4,6 +4,7 @@ import { AnnouncementBanner } from '@/components/announcement-banner';
 import { OnboardingProvider } from '@/components/onboarding/onboarding-provider';
 import { QueryProvider } from '@/components/providers/query-provider';
 import { TimezoneSync } from '@/components/timezone-sync';
+import { AppMain } from '@/components/app-main';
 import { requireUser } from '@/lib/supabase/requireUser';
 import '@/app/globals.css';
 
@@ -23,11 +24,13 @@ export default async function LocaleAppLayout({
     if (user) {
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('onboarding_completed_at, timezone')
+        .select('onboarding_completed_at, onboarding_dismissed_at, timezone')
         .eq('id', user.id)
         .single();
 
-      showOnboarding = profile?.onboarding_completed_at === null;
+      showOnboarding =
+        profile?.onboarding_completed_at === null &&
+        profile?.onboarding_dismissed_at === null;
       currentTimezone = profile?.timezone ?? null;
     }
   } catch {
@@ -41,9 +44,7 @@ export default async function LocaleAppLayout({
       <Navigation showAppLinks={true} sticky={true} />
       <OnboardingProvider showOnboarding={showOnboarding}>
         <QueryProvider>
-          <main id="main-content" className="page-container main-content">
-            {children}
-          </main>
+          <AppMain>{children}</AppMain>
         </QueryProvider>
       </OnboardingProvider>
     </div>

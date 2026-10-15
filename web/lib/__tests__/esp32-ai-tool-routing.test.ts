@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_TOOLS, AI_TOOL_PROMPT } from '@/lib/ai-tools/voice-tools';
-import { VOICE_TOOL_NAMES } from '@/lib/mcp/tool-catalog';
+import { TOOL_CATALOG, VOICE_TOOL_NAMES } from '@/lib/mcp/tool-catalog';
 import { findMcpTool } from '@/lib/mcp/tool-registry';
 import { applyAiToolSessionConfig } from '@/server/realtime-proxy/src/sessionConfig';
 import { injectToolResult } from '@/server/realtime-proxy/src/toolInterceptor';
@@ -19,8 +19,18 @@ describe('ESP32 AI tool routing', () => {
       const registryTool = findMcpTool(name);
       expect(projected).toBeDefined();
       expect(registryTool).toBeDefined();
-      expect(projected!.function.description).toBe(registryTool!.description);
-      expect(projected!.function.parameters).toEqual(registryTool!.inputSchema);
+      if (name === 'get_problem_detail')
+        expect(projected!.function.description).toContain('不表示');
+      else
+        expect(projected!.function.description).toBe(
+          TOOL_CATALOG[name].description
+        );
+      if (name !== 'create_todo')
+        expect(projected!.function.parameters).toEqual(
+          TOOL_CATALOG[name].inputSchema
+        );
+      else
+        expect(projected!.function.parameters.properties).toHaveProperty('due');
     }
   );
 
@@ -28,8 +38,9 @@ describe('ESP32 AI tool routing', () => {
     expect(AI_TOOL_PROMPT).toContain('create_notebook_note');
     expect(AI_TOOL_PROMPT).toContain('create_todo');
     expect(AI_TOOL_PROMPT).toContain('update_todo_status');
-    expect(AI_TOOL_PROMPT).toContain('create_word_deck');
-    expect(AI_TOOL_PROMPT).toContain('add_word_entry');
+    expect(AI_TOOL_PROMPT).not.toContain('create_word_deck');
+    expect(AI_TOOL_PROMPT).not.toContain('add_word_entry');
+    expect(AI_TOOL_PROMPT).toContain('list_problem_set_problems');
     // The pre-unification voice names must not resurface here.
     expect(AI_TOOL_PROMPT).not.toContain('add_word_to_deck');
     expect(AI_TOOL_PROMPT).not.toContain('list_word_decks');

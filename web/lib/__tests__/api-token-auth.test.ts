@@ -29,7 +29,11 @@ function mcpRequest(token: string): NextRequest {
 }
 
 function install(handler: FakeQueryHandler): FakeQueryCall[] {
-  return installFakeSupabase(mockFrom as never, handler);
+  return installFakeSupabase(mockFrom as never, call =>
+    call.table === 'user_profiles'
+      ? { data: { is_active: true }, error: null }
+      : handler(call)
+  );
 }
 
 beforeEach(() => {
@@ -47,7 +51,11 @@ describe('personal access tokens (wqn_mcp_)', () => {
 
     const result = await authenticateMcpRequest(mcpRequest(PAT));
 
-    expect(result).toEqual({ userId: USER_ID, tokenId: 'pat-row' });
+    expect(result).toEqual({
+      userId: USER_ID,
+      tokenId: 'pat-row',
+      credentialKind: 'pat',
+    });
     expect(calls[0].table).toBe('user_api_tokens');
     expect(calls[0].filters).toContainEqual(['is', 'revoked_at', null]);
   });
@@ -61,7 +69,8 @@ describe('personal access tokens (wqn_mcp_)', () => {
 
     await authenticateMcpRequest(mcpRequest(PAT));
 
-    expect(calls.every(c => c.table === 'user_api_tokens')).toBe(true);
+    expect(calls.some(c => c.table === 'oauth_tokens')).toBe(false);
+    expect(calls.some(c => c.table === 'user_profiles')).toBe(true);
   });
 });
 
@@ -87,7 +96,11 @@ describe('OAuth access tokens (wqn_oa_)', () => {
 
     const result = await authenticateMcpRequest(mcpRequest(OAUTH_ACCESS));
 
-    expect(result).toEqual({ userId: USER_ID, tokenId: 'oauth-row' });
+    expect(result).toEqual({
+      userId: USER_ID,
+      tokenId: 'oauth-row',
+      credentialKind: 'oauth',
+    });
     expect(calls[0].table).toBe('oauth_tokens');
   });
 

@@ -7,7 +7,10 @@ import {
   type NextRequest as NextRequestType,
 } from 'next/server';
 import { hasEnvVars } from '@/lib/server-utils';
-import { getAuthenticatedPrincipal } from '@/lib/supabase/auth-principal';
+import {
+  getAuthenticatedPrincipal,
+  getVerifiedPrincipal,
+} from '@/lib/supabase/auth-principal';
 import { ENV_VARS, USER_ROLES } from '@/lib/constants';
 
 const intlMiddleware = createNextIntlMiddleware(routing);
@@ -27,7 +30,8 @@ function stripLocaleFromPath(pathname: string): string {
 /** Verify the request identity using the access-token signature. */
 async function getUserFromRequest(
   request: NextRequestType,
-  cookieUpdater: (cookies: any[]) => void
+  cookieUpdater: (cookies: any[]) => void,
+  allowInactive = false
 ) {
   if (!hasEnvVars) return { user: null };
 
@@ -49,7 +53,9 @@ async function getUserFromRequest(
         },
       }
     );
-    const { user } = await getAuthenticatedPrincipal(supabase);
+    const { user } = await (allowInactive
+      ? getVerifiedPrincipal(supabase)
+      : getAuthenticatedPrincipal(supabase));
     return { user };
   } catch {
     return { user: null };
@@ -87,7 +93,9 @@ async function checkAdminRole(userId: string) {
 
     return (
       profile &&
-      [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes(profile.user_role)
+      [USER_ROLES.MODERATOR, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN].includes(
+        profile.user_role
+      )
     );
   } catch {
     return false;
@@ -159,9 +167,13 @@ export async function proxy(request: NextRequest) {
   const contentPath = stripLocaleFromPath(originalPathname);
 
   // Step 2: Check auth state
-  const { user } = await getUserFromRequest(request, cookies => {
-    cookiesToUpdate.push(...cookies);
-  });
+  const { user } = await getUserFromRequest(
+    request,
+    cookies => cookiesToUpdate.push(...cookies),
+    // A queued deletion disables the account immediately. Only this exact
+    // page may use its verified session to display the owner's job progress.
+    contentPath === '/account'
+  );
 
   // Apply collected cookies to any response returned from here on
   const applyCookies = (res: NextResponse) => {

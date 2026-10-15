@@ -17,6 +17,8 @@ import {
   type Esp32AiAsrProvider,
 } from '@/lib/esp32-ai-asr-selection';
 import { buildAiToolExecutor } from './v2-tools';
+import { loadVoiceContext } from '@/lib/ai-tools/voice-context-server';
+import { createServiceClient } from '@/lib/supabase-utils';
 import { appendAiToolPrompt } from '@/lib/ai-tools/voice-tools';
 
 export const RUNTIME_TAG = 'nodejs';
@@ -180,11 +182,19 @@ export async function handleV2Streaming(
       : undefined;
 
   let toolExecutor: ToolExecutor | undefined;
+  let systemPrompt = resolvedConfig.systemPrompt;
   if (authResult.userId) {
+    const voiceContext = await loadVoiceContext({
+      userId: authResult.userId,
+      supabase: createServiceClient(),
+    });
+    systemPrompt = appendAiToolPrompt(systemPrompt, voiceContext);
     const ctx = {
       userId: authResult.userId,
       conversationId: req.headers.get('x-wqn-conversation-id'),
       deviceId: authResult.deviceId,
+      requestId: req.headers.get('x-wqn-request-id') ?? undefined,
+      timeContext: voiceContext,
     };
     toolExecutor = buildAiToolExecutor(ctx);
   }
@@ -223,9 +233,7 @@ export async function handleV2Streaming(
         llmTimeoutMs: resolvedConfig.llmTimeoutMs,
         audioUrlTtlMs: resolvedConfig.audioUrlTtlMs,
         publicBaseUrl: resolvedConfig.publicBaseUrl,
-        systemPrompt: toolExecutor
-          ? appendAiToolPrompt(resolvedConfig.systemPrompt)
-          : resolvedConfig.systemPrompt,
+        systemPrompt,
         toolExecutor: toolExecutor,
         asrProvider: resolvedConfig.asrProvider,
         asrFallbackProvider: resolvedConfig.asrFallbackProvider,

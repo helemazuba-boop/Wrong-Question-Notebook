@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   userSets: vi.fn(),
   set: vi.fn(),
+  problems: vi.fn(),
 }));
 vi.mock('@/lib/supabase/requireUser', () => ({
   requireUser: mocks.requireUser,
@@ -26,6 +27,7 @@ vi.mock('@/lib/security-middleware', () => ({
 vi.mock('@/lib/cache-invalidation', () => ({
   revalidateUserProblemSets: mocks.userSets,
   revalidateProblemSet: mocks.set,
+  revalidateUserProblems: mocks.problems,
 }));
 import { DELETE } from '@/app/api/problem-sets/[id]/problems/route';
 
@@ -80,6 +82,7 @@ describe('removing a problem from a set', () => {
     expect(deletion.in).toHaveBeenCalledWith('problem_id', [PROBLEM_ID]);
     expect(mocks.userSets).toHaveBeenCalledWith(TEST_USER.id);
     expect(mocks.set).toHaveBeenCalledWith(SET_ID);
+    expect(mocks.problems).toHaveBeenCalledWith(TEST_USER.id, true);
   });
   it('does not acknowledge or refresh failed removals', async () => {
     mocks.from
@@ -88,5 +91,6 @@ describe('removing a problem from a set', () => {
     expect((await remove()).status).toBe(500);
     expect(mocks.userSets).not.toHaveBeenCalled();
     expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.problems).not.toHaveBeenCalled();
   });
 });

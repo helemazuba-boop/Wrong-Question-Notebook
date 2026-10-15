@@ -23,6 +23,7 @@ import { Link } from '@/i18n/navigation';
 import type { TranslatorProp } from '@/i18n/types';
 import { toast } from 'sonner';
 import { Problem, ProblemColumnDef, TableMeta } from '@/lib/types';
+import { ProblemCollections } from '@/components/problems/problem-collections';
 
 // Tag capsules component
 function TagCapsules({ tags }: { tags: { id: string; name: string }[] }) {
@@ -152,6 +153,7 @@ export function createColumns(
             title={title}
           >
             {title}
+            <ProblemCollections problem={row.original} />
           </div>
         );
       },

@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api-client';
 import { localizedApiErrorMessage } from '@/lib/error-codes';
 import type { TranslatorProp } from '@/i18n/types';
+import PendingOperations from './pending-operations';
 import {
   useCreateMcpToken,
   useMcpTokens,
@@ -141,6 +142,7 @@ export default function McpPageClient() {
         }
       />
 
+      <PendingOperations />
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <section className="landing-card border-emerald-200/40 from-emerald-50 to-teal-100/50 dark:border-emerald-800/30 dark:from-emerald-950/40 dark:to-teal-900/20">
           <div className="flex items-center gap-3">

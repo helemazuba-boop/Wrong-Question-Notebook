@@ -59,6 +59,8 @@ export interface Problem {
   initial_idea_revision?: number | null;
   tags?: SimpleTag[];
   isInSet?: boolean;
+  /** Owner's collection memberships. Undefined means the list did not load them. */
+  collections?: Array<{ id: string; name: string }>;
 }
 
 export interface ProblemSetShare {
@@ -96,6 +98,8 @@ export interface ProblemSet {
   allow_copying: boolean;
   is_listed: boolean;
   discovery_subject: string | null;
+  moderation_status?: 'visible' | 'hidden';
+  moderation_message?: string | null;
 }
 
 // =====================================================
@@ -193,6 +197,7 @@ export interface ReviewSessionSummary {
 }
 
 export interface Asset {
+  role?: 'question' | 'answer' | 'solution' | 'student_work' | 'other';
   path: string;
   kind?: 'image' | 'pdf';
 }
@@ -272,6 +277,7 @@ export interface ProblemPart {
   content?: string;
   correct_answer?: string;
   answer_config?: AnswerConfig | null;
+  mcq_choices?: MCQChoice[];
 }
 
 export interface ProblemSource {
@@ -407,12 +413,13 @@ export interface ExtractedProblemData {
 // =====================================================
 
 export interface OnboardingStatus {
-  hasSubject: boolean;
-  hasProblem: boolean;
-  hasReviewed: boolean;
-  firstSubjectId: string | null;
-  firstProblemId: string | null;
-  firstProblemSubjectId: string | null;
+  scenario: 'problems' | 'notes' | 'words' | null;
+  hasContainer: boolean;
+  hasContent: boolean;
+  hasPracticed: boolean;
+  containerHref: string;
+  contentHref: string;
+  practiceHref: string;
 }
 
 // =====================================================

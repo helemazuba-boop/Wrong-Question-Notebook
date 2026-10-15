@@ -413,6 +413,32 @@ describe('choices', () => {
 
     expect(sheet.problems[0].parts[0].choices).toBeNull();
   });
+  it.each(['single_choice', 'multi_choice'] as const)(
+    'prints %s options without supplying an absent official answer',
+    type => {
+      const sheet = buildPrintSheet(
+        [
+          problem({
+            id: 'p1',
+            parts: [
+              part({
+                index: 1,
+                type,
+                mcq_choices: CHOICES,
+                content: '<p>Printed question.</p>',
+              }),
+            ],
+          }),
+        ],
+        { placement: 'below', subjectName: '数学' }
+      );
+      expect(sheet.problems[0].parts[0].choices).toEqual(CHOICES);
+      expect(sheet.problems[0].parts[0].contentHtml).toBe(
+        '<p>Printed question.</p>'
+      );
+      expect(sheet.problems[0].parts[0].inlineAnswer).toBeNull();
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------

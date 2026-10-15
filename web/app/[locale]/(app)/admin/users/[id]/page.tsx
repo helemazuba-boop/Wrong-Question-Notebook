@@ -1,3 +1,4 @@
+import { isCurrentUserAdmin } from '@/lib/user-management';
 import { notFound } from 'next/navigation';
 import {
   getUserProfileWithServiceRole,
@@ -14,6 +15,7 @@ export default async function UserDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await isCurrentUserAdmin())) notFound();
   const { id } = await params;
 
   const [

@@ -1,42 +1,33 @@
-// v2-tools.ts
-// Voice-side adapter over the shared MCP tool registry. The tool definitions
-// sent to the device LLMs are projected from lib/mcp/tool-catalog.ts by
-// lib/ai-tools/voice-tools.ts; this file only bridges the streaming
-// pipeline's ToolExecutor callback (name + raw JSON args string) to the
-// registry handlers: registry-scoped tool resolution, zod validation, error
-// surfacing, and the device-facing {ok, display, data, action} envelope.
-//
-// Only the catalog's VOICE_TOOL_NAMES are executable here -- the registry
-// serves 38+ tools to external MCP clients, and the voice LLM must not be
-// able to reach (and pay for) the rest by hallucinating a name.
-
+// Device voice: eight focused tools, with server-owned context and receipts.
+import { randomUUID } from 'crypto';
 import { createServiceClient } from '@/lib/supabase-utils';
-import { logger } from '@/lib/logger';
+import { getAppOrigin } from '@/lib/app-origin';
 import { findMcpTool, type McpToolContext } from '@/lib/mcp/tool-registry';
 import { isVoiceToolName, type VoiceToolName } from '@/lib/mcp/tool-catalog';
+import { readV2 } from '@/lib/mcp/v2-readers';
+import { voiceArgsSchema } from '@/lib/ai-tools/voice-schemas';
+import { executeVoiceWrite, voiceRequestId } from '@/lib/ai-tools/voice-write';
+import type { VoiceTimeContext } from '@/lib/ai-tools/voice-context';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
 
 export interface V2ToolContext {
   userId: string;
   conversationId?: string | null;
   deviceId?: string | null;
+  requestId?: string;
+  timeContext?: VoiceTimeContext;
+  supabase?: McpToolContext['supabase'];
 }
-
-export interface VoiceToolError {
-  code: string;
-  message: string;
-}
-
-// Device-facing status strings rendered by the firmware (tool.result /
-// tool.done) and mirrored into the model context. Writes have a progress
-// phrasing (used on failure) and a past-tense phrasing (used on success);
-// reads share one phrasing. Keep the vocabulary the firmware already shows.
 const DISPLAY: Record<VoiceToolName, { progress: string; success: string }> = {
-  list_authorized_notebooks: {
-    progress: 'Reading authorized notebooks',
-    success: 'Reading authorized notebooks',
-  },
   create_notebook_note: { progress: 'Writing note', success: 'Note saved' },
+  list_problem_sets: {
+    progress: 'Reading problem sets',
+    success: 'Reading problem sets',
+  },
+  list_problem_set_problems: {
+    progress: 'Reading problems',
+    success: 'Reading problems',
+  },
   search_user_problems: {
     progress: 'Searching problems',
     success: 'Searching problems',
@@ -47,129 +38,107 @@ const DISPLAY: Record<VoiceToolName, { progress: string; success: string }> = {
   },
   list_todos: { progress: 'Reading todos', success: 'Reading todos' },
   create_todo: { progress: 'Creating todo', success: 'Todo created' },
-  update_todo_status: {
-    progress: 'Updating todo',
-    success: 'Todo updated',
-  },
-  list_authorized_word_decks: {
-    progress: 'Reading decks',
-    success: 'Reading decks',
-  },
-  create_word_deck: { progress: 'Creating deck', success: 'Deck created' },
-  add_word_entry: { progress: 'Adding word', success: 'Word added' },
-  search_words: { progress: 'Searching words', success: 'Searching words' },
+  update_todo_status: { progress: 'Updating todo', success: 'Todo updated' },
 };
-
-function displayFor(name: string, outcome: 'progress' | 'success'): string {
-  const entry = DISPLAY[name as VoiceToolName];
-  if (!entry) return 'Tool: ' + (name || 'unnamed');
-  return outcome === 'success' ? entry.success : entry.progress;
-}
-
-function failureDisplay(name: string): string {
-  return displayFor(name, 'progress') + ' failed';
-}
-
-// Summarise zod issues as "path: reason" pairs without echoing back the
-// offending values themselves.
-function invalidArgumentsMessage(
-  issues: readonly { path: readonly PropertyKey[]; message: string }[]
-): string {
-  return issues
-    .slice(0, 3)
-    .map(issue => `${issue.path.join('.') || 'arguments'}: ${issue.message}`)
-    .join('; ');
-}
-
-function errorPayload(error: unknown): VoiceToolError {
-  if (error && typeof error === 'object') {
-    const candidate = error as { code?: unknown; message?: unknown };
-    if (typeof candidate.message === 'string') {
-      return {
-        code:
-          typeof candidate.code === 'string'
-            ? candidate.code
-            : 'tool_execution_failed',
-        message: candidate.message,
-      };
-    }
-  }
-  return { code: 'tool_execution_failed', message: 'Tool execution failed' };
-}
-
 export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
   const toolCtx: McpToolContext = {
     userId: ctx.userId,
     conversationId: ctx.conversationId ?? null,
     deviceId: ctx.deviceId ?? null,
-    supabase: createServiceClient(),
+    origin: getAppOrigin(),
+    supabase: ctx.supabase ?? createServiceClient(),
   };
-  return async function execute(name: string, rawArgs: string) {
-    if (!name || !isVoiceToolName(name)) {
-      return { ok: false, display: 'Unknown tool: ' + (name || 'unnamed') };
-    }
-    const tool = findMcpTool(name);
-    if (!tool) {
-      // The catalog and the registry drifted -- a contract test locks them
-      // together, so this should never happen in a deployed build.
-      logger.error('Voice tool missing from MCP registry', {
-        component: 'Esp32VoiceTools',
-        toolName: name,
-      });
-      return { ok: false, display: failureDisplay(name) };
-    }
-
-    let args: Record<string, unknown> = {};
-    if (rawArgs) {
-      try {
-        const parsed = JSON.parse(rawArgs);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          args = parsed as Record<string, unknown>;
-        }
-      } catch {
-        // Unusable JSON falls through with empty args; the schema gate below
-        // rejects the call and the error text tells the model why.
-      }
-    }
-
-    const parsedArgs = tool.argsSchema.safeParse(args);
-    if (!parsedArgs.success) {
-      const message = `Invalid arguments: ${invalidArgumentsMessage(parsedArgs.error.issues)}`;
-      logger.warn('Voice tool arguments rejected', {
-        component: 'Esp32VoiceTools',
-        toolName: name,
-        userId: ctx.userId,
-        message,
-      });
-      return {
-        ok: false,
-        display: failureDisplay(name),
-        error: { code: 'invalid_arguments', message },
-      };
-    }
-
+  const turnId = ctx.requestId ?? randomUUID();
+  const fallbackTime: VoiceTimeContext = ctx.timeContext ?? {
+    now: new Date().toISOString(),
+    timezone: 'UTC',
+  };
+  return async (name, rawArgs, meta) => {
+    if (!isVoiceToolName(name))
+      return { ok: false, display: `Unknown tool: ${name || 'unnamed'}` };
+    const display = DISPLAY[name];
     try {
-      const data = await tool.handler(
-        toolCtx,
-        parsedArgs.data as Record<string, unknown>
-      );
-      const action =
-        data && typeof data === 'object' && !Array.isArray(data)
-          ? (data as { action?: unknown }).action
-          : undefined;
-      return { ok: true, display: displayFor(name, 'success'), data, action };
+      let input: unknown = {};
+      if (rawArgs)
+        try {
+          input = JSON.parse(rawArgs);
+        } catch {
+          return {
+            ok: false,
+            display: `${display.progress} failed`,
+            error: {
+              code: 'invalid_arguments',
+              message: 'Invalid JSON arguments',
+            },
+          };
+        }
+      const parsed = voiceArgsSchema(name).safeParse(input);
+      if (!parsed.success)
+        return {
+          ok: false,
+          display: `${display.progress} failed`,
+          error: {
+            code: 'invalid_arguments',
+            message: parsed.error.issues
+              .slice(0, 3)
+              .map(i => `${i.path.join('.')}: ${i.message}`)
+              .join('; '),
+          },
+        };
+      const args = parsed.data as Record<string, any>;
+      let data: Record<string, any>;
+      if (
+        ['create_notebook_note', 'create_todo', 'update_todo_status'].includes(
+          name
+        )
+      ) {
+        if (!ctx.deviceId || !meta?.callId)
+          throw Object.assign(
+            new Error('缺少设备或调用 ID，不能安全执行写入。'),
+            { code: 'write_identity_required' }
+          );
+        data = await executeVoiceWrite(
+          toolCtx,
+          name,
+          args,
+          meta.requestId ?? voiceRequestId(ctx.deviceId, turnId, meta.callId),
+          ctx.timeContext ?? fallbackTime
+        );
+      } else if (name === 'get_problem_detail') {
+        const result = (await readV2(toolCtx, name, args)) as Record<
+          string,
+          any
+        >;
+        data = { problem: result.item };
+      } else if (
+        name === 'list_problem_sets' ||
+        name === 'list_problem_set_problems'
+      ) {
+        const result = (await readV2(toolCtx, name, args)) as Record<
+          string,
+          any
+        >;
+        data = {
+          ...result,
+          [name === 'list_problem_sets' ? 'problem_sets' : 'problems']:
+            result.items,
+        };
+        delete data.items;
+      } else
+        data = (await findMcpTool(name)!.handler(toolCtx, args)) as Record<
+          string,
+          any
+        >;
+      return { ok: true, display: display.success, data, action: data.action };
     } catch (error) {
-      const payload = errorPayload(error);
-      logger.warn('Voice tool call failed', {
-        component: 'Esp32VoiceTools',
-        toolName: name,
-        userId: ctx.userId,
-        message: payload.message,
-      });
+      const e = error as { code?: string; message?: string };
       return {
         ok: false,
-        display: failureDisplay(name),
-        error: payload,
+        display: `${display.progress} failed`,
+        error: {
+          code: e.code ?? 'tool_execution_failed',
+          message: e.message ?? 'Tool execution failed',
+        },
       };
     }
   };

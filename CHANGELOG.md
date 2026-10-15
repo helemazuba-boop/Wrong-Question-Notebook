@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Report moderation queues, question previews, sharing suspension/restoration and reporter-visible results with preserved review history.
+- Due-todo reminder inboxes and opt-in browser push, with leased delivery, retry and inactive-account checks. Browser push requires deployment VAPID configuration.
+- Private account exports containing owned records and files, plus queued self-service and administrator deletion with recovery and preservation of other users' copied assets.
+- Onboarding workflows for questions, notes/reading and vocabulary; dismissing onboarding is recorded separately from completing learning steps.
+
 - **Problem worksheet printing**
   - Print the whole problem set, or tick individual problems inside it, straight from the review page. The print dialog carries a scope radio (current problem / whole set) and a checkbox list with select-all and a selected count; the plain subject-review route, whose list holds navigation data alone, stays single-problem rather than offering a half-working picker.
   - A worksheet is its own document now, not a state of the review screen. It is rendered into a portal on `<body>` and hidden on screen by a rule that sits _outside_ `@media print`, so the answer key and the solution text exist in exactly one place and nothing is left on screen. Print styling lives in its own file scoped under `.print-sheet`.
@@ -18,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **OpenCode session list reports which session is running**
   - `GET /api/esp32/agent/sessions` now reports each session's state as `outcome`: `running`, `succeeded`, `interrupted`, `failed`, or `unknown`. The device no longer needs one detail round-trip per session to find out which session has a run in flight, which is what lets its session picker and its hold-lock criterion work at all.
-  - The value is resolved in the gateway rather than copied from the upstream row: upstream writes `outcome` only once a run settles and leaves it absent while a session is idle, so "absent" alone cannot tell a running session from one that was never prompted. `running` therefore requires the session to be present in the active-session map the relay already reads; `unknown` is reported for anything the gateway cannot decide for, and it means *not* running. The device reads a missing field the same way, so a gateway that predates the field behaves identically.
+  - The value is resolved in the gateway rather than copied from the upstream row: upstream writes `outcome` only once a run settles and leaves it absent while a session is idle, so "absent" alone cannot tell a running session from one that was never prompted. `running` therefore requires the session to be present in the active-session map the relay already reads; `unknown` is reported for anything the gateway cannot decide for, and it means _not_ running. The device reads a missing field the same way, so a gateway that predates the field behaves identically.
   - Resolved in the gateway from two reads rather than mapped from the upstream row: running requires the session to be in the active-session map the relay already reads, a recognised settled value fills in the rest, and everything else is `unknown`. A failed active-session read degrades to `unknown` instead of failing the request, so the picker survives an upstream hiccup with a missing indicator rather than no list.
   - The access-check paths (session ownership re-checks, spawned-subagent listing) deliberately keep using the plain one-request listing and report no outcome, because they need ids and titles only — resolving the field there would add an upstream request per route to fill something nobody reads.
   - The `agent-gateway-v0` contract moves to 2.2 with the new field. The device-side copy, the schema, the manifest and the pinned `schema_sha256` are the same set of files as before and still move together, so a firmware build that sees a mismatched schema still fails rather than drifting.
@@ -55,6 +60,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Localize the shelf, notes, reading, todos, vocabulary and Insights interfaces in Chinese and English, including failure and session recovery messages.
+- Distinguish removing a question from a collection from deleting it, and preserve notebook return destinations across reloads.
+
 - **OpenCode gateway speaks the v2 upstream contract**
   - Move every upstream path under `/api` (`/api/session`, `/api/session/:id/prompt`, `/api/session/:id/permission/:rid/reply`, `/api/event`) and read the `{data}` response envelope everywhere.
   - Move the configured agent and model from the prompt request onto session creation (`POST /api/session` with `{location, agent, model:{id, providerID}}`); the v2 prompt request accepts only `text` plus `delivery`.
@@ -85,12 +93,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Keep note and reading notebooks on the Notebook Shelf; remove the separate notebook navigation and list, redirect legacy list links to the shelf, and highlight the shelf while viewing notebook details.
+- Administrator storage totals include empty files and all listing pages; listing or metadata failures no longer publish incomplete totals.
+- The admin dashboard uses the available desktop width, adapts cards to their container and scrolls with the page. Navigation, quick actions, empty activity states and actual file counts follow the selected language.
+- Account-authorization migrations now accept CRLF stored function bodies, including legacy note-study RPCs that remain executable by authenticated users in existing databases.
+
+- Block direct profile role escalation, enforce inactive-account authorization across Web, MCP and device credentials, and require explicit access to restricted shared reviews.
+- Restore administrator/moderator boundaries, revoke inactive MCP credentials and provide a controlled first-super-administrator bootstrap.
+- Stop AI work when quota checks fail, and show retryable Insights database errors while retaining the existing report.
+
 - **Desktop problem lists remain usable after creating or editing a problem**
   - Keep table membership defaults and translated columns stable so selection updates cannot trigger an endless render loop after dependency upgrades.
   - Give the mobile problem action menu an accessible name for assistive technology and browser automation.
 
 - **A second OpenCode session could not run while another one was streaming**
-  - The agent-run idempotency ledger required one in-flight run per *device*, so a prompt into any other session on the same device was answered `409 run_in_progress` for as long as the first run lasted. A device is meant to hold several sessions and to run several of them in the cloud — only its live display is single-flight — so the claim was coarse by one dimension. The unique in-flight index is now on `(device_id, session_id)` and the busy check asks about this session rather than the device, so each session gets its own claim while a second prompt into the _same_ session still collides.
+  - The agent-run idempotency ledger required one in-flight run per _device_, so a prompt into any other session on the same device was answered `409 run_in_progress` for as long as the first run lasted. A device is meant to hold several sessions and to run several of them in the cloud — only its live display is single-flight — so the claim was coarse by one dimension. The unique in-flight index is now on `(device_id, session_id)` and the busy check asks about this session rather than the device, so each session gets its own claim while a second prompt into the _same_ session still collides.
   - The invariant that wording was really protecting is intact, and measured rather than assumed: against a probe database, exactly one line of the claim path moves. A new prompt into a different session went from `busy` to `claimed`; a second prompt into the same session, the same-id attach replay, the fingerprint conflict, the terminal replay, the lease self-heal and the invalid-input rejection all return what they returned before.
   - Applying it over live data needs no cleanup: the index being replaced is unique on `device_id` alone among in-flight rows, so a device can hold at most one such row today, and a duplicate under the wider key would need two. `session_id` is `not null`, so the new key has no nulls-distinct escape hatch either.
 

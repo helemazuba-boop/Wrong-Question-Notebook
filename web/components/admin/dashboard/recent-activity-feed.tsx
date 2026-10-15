@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { formatRelativeTime } from '@/lib/common-utils';
 import { UserActivityLogType } from '@/lib/schemas';
+import { useLocale, useTranslations } from 'next-intl';
 
 type ActivityWithProfile = UserActivityLogType & {
   user_profiles?: {
@@ -15,10 +16,12 @@ interface RecentActivityFeedProps {
 }
 
 export function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
+  const t = useTranslations('Admin');
+  const locale = useLocale();
   if (activities.length === 0) {
     return (
       <p className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">
-        No recent activity
+        {t('noActivityRecorded')}
       </p>
     );
   }
@@ -30,7 +33,7 @@ export function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
         const displayName =
           profile?.username ||
           [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
-          'Unknown User';
+          t('unknownUser');
 
         return (
           <div
@@ -39,7 +42,7 @@ export function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
           >
             <div className="w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mt-2 flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-900 dark:text-gray-100">
+              <p className="break-words text-sm text-gray-900 dark:text-gray-100">
                 <span className="font-medium">{displayName}</span>
                 <span className="text-gray-500 dark:text-gray-400">
                   {' '}
@@ -47,7 +50,7 @@ export function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
                 </span>
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {formatRelativeTime(activity.created_at)}
+                {formatRelativeTime(activity.created_at, locale)}
               </p>
             </div>
             {activity.resource_type && (

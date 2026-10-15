@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
-  isCurrentUserSuperAdmin,
+  isCurrentUserAdmin,
   getUserStatistics,
   getContentStatistics,
   getTotalStorageUsage,
@@ -11,7 +11,7 @@ export const revalidate = 900; // 15 minutes
 
 export async function GET() {
   try {
-    const isSuperAdmin = await isCurrentUserSuperAdmin();
+    const isSuperAdmin = await isCurrentUserAdmin();
     if (!isSuperAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

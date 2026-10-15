@@ -10,6 +10,7 @@ import { ProblemStatus } from '@/lib/schemas';
 import { getProblemTypeDisplayName, getPartTypes } from '@/lib/common-utils';
 import { problemHasAutoMark, isPartAutoMarkable } from '@/lib/answer-marking';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
+import { convertMathTextToTipTapHtml } from '@/lib/math-to-tiptap';
 import AnswerInput from './answer-input';
 import SolutionReveal from './solution-reveal';
 import AttemptStatusForm, {
@@ -586,6 +587,20 @@ export default function ProblemReview({
                           <RichTextDisplay content={part.content} />
                         </div>
                       )}
+                      {!isChoicePart && part.mcq_choices?.length ? (
+                        <ul className="mb-2 space-y-2">
+                          {part.mcq_choices.map(choice => (
+                            <li key={choice.id} className="flex gap-2">
+                              <span>{choice.id}.</span>
+                              <RichTextDisplay
+                                content={convertMathTextToTipTapHtml(
+                                  choice.text
+                                )}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                       <AnswerInput
                         part={part}
                         value={

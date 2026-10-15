@@ -487,9 +487,16 @@ export async function categoriseUncategorisedAttempts(
         break;
       }
       allowedCount++;
-    } catch {
-      // Quota check failure should not block categorisation
-      allowedCount++;
+    } catch (error) {
+      logger.error('Categorisation quota check failed', error, {
+        component: 'DigestGenerator',
+        action: 'categoriseUncategorisedAttempts',
+        userId,
+      });
+      // No quota decision means no authorization to consume provider work.
+      // Leave the attempts uncategorised; the caller records a retryable job
+      // failure rather than generating a report from an incomplete backfill.
+      throw new Error('Categorisation quota is unavailable; retry later');
     }
   }
 

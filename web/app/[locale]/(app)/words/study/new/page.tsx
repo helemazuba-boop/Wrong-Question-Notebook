@@ -1,3 +1,4 @@
+import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
@@ -5,7 +6,9 @@ import { loadWordDecks } from '@/lib/words';
 import NewWordStudySessionClient from './new-word-study-session-client';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: '开始 Word 学习' };
+  const tFeature = await getFeatureTranslations('Words');
+
+  return { title: tFeature('startVocabularyStudy') };
 }
 
 export default async function NewWordStudySessionPage() {

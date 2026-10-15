@@ -19,13 +19,26 @@ async function getInsightStatus(req: Request) {
     const supabase = createServiceClient();
 
     // Fetch the latest digest row (any status)
-    const { data: latest } = await supabase
+    const { data: latest, error: readError } = await supabase
       .from('insight_digests')
       .select('*')
       .eq('user_id', user.id)
       .order('generated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (readError) {
+      logger.error('Failed to read insight status', readError, {
+        component: 'InsightsStatus',
+      });
+      return NextResponse.json(
+        createApiErrorResponse(
+          'Insight status is unavailable. Please retry.',
+          500
+        ),
+        { status: 500 }
+      );
+    }
 
     if (!latest) {
       return NextResponse.json(

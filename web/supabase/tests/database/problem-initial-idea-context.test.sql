@@ -21,13 +21,13 @@ select has_column(
 select policies_are(
   'public',
   'problem_user_contexts',
-  array['problem_user_contexts_owner_select'],
+  array['active_account_required', 'problem_user_contexts_owner_select'],
   'Problem contexts expose only their owner read policy'
 );
 select policies_are(
   'public',
   'problem_initial_idea_revisions',
-  array['problem_initial_idea_revisions_owner_select'],
+  array['active_account_required', 'problem_initial_idea_revisions_owner_select'],
   'initial idea revisions expose only their owner read policy'
 );
 select is(

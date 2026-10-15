@@ -34,6 +34,7 @@ COPY --from=deps --chown=wqn:wqn /app/package.json ./package.json
 # streaming path. Keep every specifier inside them alias-free.
 COPY --chown=wqn:wqn server/realtime-proxy/src ./server/realtime-proxy/src
 COPY --chown=wqn:wqn lib/ai-tools/voice-tools.ts ./lib/ai-tools/voice-tools.ts
+COPY --chown=wqn:wqn lib/ai-tools/voice-context.ts ./lib/ai-tools/voice-context.ts
 COPY --chown=wqn:wqn lib/mcp/tool-catalog.ts ./lib/mcp/tool-catalog.ts
 
 # The runtime only executes Node; remove npm and its unused dependency tree.

@@ -8,7 +8,7 @@ to StepFun's Realtime API for Flash-tier (real-time voice) AI sessions.
    │  ESP32   │  ─────────▶  │  Bun relay       │  ────────▶ │  StepFun        │
    │ firmware │  ◀─────────  │  (this service)  │  ◀──────── │  Realtime       │
    └──────────┘              │  – WFLV ↔ Re-   │             │  – PCM/Opus     │
-                             │    altime frames  │             │  – 11 tools     │
+                             │    altime frames  │             │  – 8 tools     │
                              │  – tool routing  │             │    via relay    │
                              │    via Next.js   │             └────────────────┘
                              └──────────────────┘
@@ -144,7 +144,10 @@ JSON events emitted by the server have `type` set to:
 The ESP32 device never sees tools. When StepFun responds with
 `response.function_call_arguments.done`, the server:
 
-1. POSTs `{ user_id, tool_name, raw_args }` to the Next.js endpoint
+The server injects authorized notebook targets and account-local time through
+`/api/esp32/ai/context` before each user turn. See [voice workflow](../../../docs/ESP32_VOICE.md).
+
+1. POSTs `{ request_id, user_id, device_id, tool_name, raw_args, anchor_at }` to the Next.js endpoint
    `/api/esp32/ai/execute-tool` (auth via shared secret).
 2. Receives `{ ok, display, action }`.
 3. Injects the result back upstream as:

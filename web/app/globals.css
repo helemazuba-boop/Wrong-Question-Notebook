@@ -591,7 +591,7 @@ html body[data-scroll-locked] {
      =================================== */
 
   .admin-page-bg {
-    @apply min-h-screen bg-gradient-to-br from-amber-50/60 via-white to-rose-50/40;
+    @apply bg-gradient-to-br from-amber-50/60 via-white to-rose-50/40;
     @apply dark:from-stone-950 dark:via-stone-900 dark:to-stone-950;
   }
 

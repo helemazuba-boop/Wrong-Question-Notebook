@@ -265,7 +265,8 @@ export async function loadResumableWebWordStudySessions(
 export async function loadWebWordStudySession(
   supabase: SupabaseClient<Database>,
   userId: string,
-  sessionId: string
+  sessionId: string,
+  options: { currentOnly?: boolean } = {}
 ): Promise<WebWordStudySessionView> {
   const { data: session, error: sessionError } = await supabase
     .from('study_sessions')
@@ -303,7 +304,13 @@ export async function loadWebWordStudySession(
     );
   }
 
-  const itemIds = parsedItems.data.map(item => item.item_id);
+  const selectedItems = options.currentOnly
+    ? parsedItems.data.slice(
+        Number(session.next_sequence),
+        Number(session.next_sequence) + 1
+      )
+    : parsedItems.data;
+  const itemIds = selectedItems.map(item => item.item_id);
   const scope = parseScope(session.scope);
   const deckTitles = await loadDeckTitles(supabase, scope.deck_ids);
   const entryRows: any[] = [];
@@ -326,7 +333,7 @@ export async function loadWebWordStudySession(
     userId,
     itemIds
   );
-  const items = parsedItems.data.map(item => {
+  const items = selectedItems.map(item => {
     const row = entryById.get(item.item_id);
     if (!row) {
       return {

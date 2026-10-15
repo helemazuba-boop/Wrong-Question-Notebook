@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { CreateProblemDto } from '@/lib/schemas';
+import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import {
   createApiErrorResponse,
   createApiSuccessResponse,
   handleAsyncError,
+  hasOnlyOwnedAssetPaths,
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES } from '@/lib/constants';
+
+const AssetBody = z.strictObject({
+  assets: CreateProblemDto.shape.assets.unwrap().max(100).optional(),
+  solution_assets: CreateProblemDto.shape.solution_assets
+    .unwrap()
+    .max(100)
+    .optional(),
+  expected_revision: z.number().int().positive().optional(),
+});
 
 export async function PATCH(
   req: Request,
@@ -37,7 +50,16 @@ export async function PATCH(
     );
   }
 
-  const { assets, solution_assets } = body;
+  const parsed = AssetBody.safeParse(body);
+  if (!parsed.success)
+    return NextResponse.json(createApiErrorResponse('Invalid assets', 400), {
+      status: 400,
+    });
+  const { assets, solution_assets, expected_revision } = parsed.data;
+  if (!hasOnlyOwnedAssetPaths(user.id, assets, solution_assets))
+    return NextResponse.json(createApiErrorResponse('Asset not owned', 403), {
+      status: 403,
+    });
 
   // Validate that at least one asset array is provided
   if (assets === undefined && solution_assets === undefined) {
@@ -51,16 +73,28 @@ export async function PATCH(
   }
 
   try {
+    const { data: current, error: readError } = await supabase
+      .from('problems')
+      .select('revision')
+      .eq('id', problemId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (readError || !current)
+      return NextResponse.json(
+        createApiErrorResponse('Problem not found', 404),
+        { status: 404 }
+      );
     // Update only the provided asset columns
     const updateData: Partial<{
       assets: Array<{ path: string }>;
       solution_assets: Array<{ path: string }>;
     }> = {};
     if (assets !== undefined) {
-      updateData.assets = assets;
+      updateData.assets = await deriveProblemImageAssets(assets);
     }
     if (solution_assets !== undefined) {
-      updateData.solution_assets = solution_assets;
+      updateData.solution_assets =
+        await deriveProblemImageAssets(solution_assets);
     }
 
     const { data: updated, error } = await supabase
@@ -68,10 +102,16 @@ export async function PATCH(
       .update(updateData)
       .eq('id', problemId)
       .eq('user_id', user.id)
+      .eq('revision', expected_revision ?? current.revision)
       .select('assets, solution_assets')
       .single();
 
     if (error) {
+      if (error.code === 'PGRST116')
+        return NextResponse.json(
+          createApiErrorResponse('Revision conflict', 409),
+          { status: 409 }
+        );
       return NextResponse.json(
         createApiErrorResponse(
           ERROR_MESSAGES.DATABASE_ERROR,

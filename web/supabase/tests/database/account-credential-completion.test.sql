@@ -1,0 +1,18 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select plan(7);
+insert into auth.users(id,email) values('a1250000-0000-4000-8000-000000000001','credential-completion@example.invalid');
+insert into public.user_api_tokens(user_id,name,token_hash) values('a1250000-0000-4000-8000-000000000001','Before disable',repeat('a',64));
+update public.user_profiles set is_active=false where id='a1250000-0000-4000-8000-000000000001';
+select ok((select revoked_at is not null from public.user_api_tokens where token_hash=repeat('a',64)),'deactivation revokes an existing credential');
+select throws_ok($$insert into public.user_api_tokens(user_id,name,token_hash) values('a1250000-0000-4000-8000-000000000001','After disable',repeat('b',64))$$,'42501','account_inactive','even service-backed issuance cannot mint an inactive account credential');
+update public.user_profiles set is_active=true where id='a1250000-0000-4000-8000-000000000001';
+select lives_ok($$insert into public.user_api_tokens(user_id,name,token_hash) values('a1250000-0000-4000-8000-000000000001','After recovery',repeat('c',64))$$,'recovered account can explicitly create a new credential');
+select ok(not has_function_privilege('authenticated','public.export_account_complete_data(uuid)','EXECUTE'),'full export service RPC is not directly exposed to a session');
+select public.enqueue_account_data_job('a1250000-0000-4000-8000-000000000001','a1250000-0000-4000-8000-000000000001','export');
+select public.claim_account_data_job();
+update public.account_data_jobs set attempts=3,lease_until=now()-interval '1 minute' where user_id='a1250000-0000-4000-8000-000000000001';
+select is((select count(*)::integer from public.claim_account_data_job()),0,'repeated platform timeouts do not loop forever');
+select is((select status from public.account_data_jobs where user_id='a1250000-0000-4000-8000-000000000001'),'failed','expired export lease has an explicit failure');
+select lives_ok($$select public.enqueue_account_data_job('a1250000-0000-4000-8000-000000000001','a1250000-0000-4000-8000-000000000001','delete')$$,'failed export releases the account slot for deletion');
+select * from finish();rollback;

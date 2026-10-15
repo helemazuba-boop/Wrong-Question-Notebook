@@ -1,4 +1,8 @@
 'use client';
+import {
+  useTranslations as useFeatureTranslations,
+  useLocale as useFeatureLocale,
+} from 'next-intl';
 
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -45,28 +49,29 @@ type Props = {
   initialSessions: WebWordStudySessionSummary[];
 };
 
-function formatActivity(value: string) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return '暂无记录';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-}
-
-function modeLabel(mode: WebWordStudySessionSummary['mode']) {
-  if (mode === 'sequential') return '顺序学习';
-  if (mode === 'dictionary') return '词典浏览';
-  return '智能复习';
-}
-
 export default function WordsPageClient({
   initialDecks,
   initialSummaries,
   initialSessions,
 }: Props) {
+  const tFeature = useFeatureTranslations('Words');
+  const featureLocale = useFeatureLocale();
+  function formatActivity(value: string) {
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return tFeature('noHistoryYet');
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  }
+  function modeLabel(mode: WebWordStudySessionSummary['mode']) {
+    if (mode === 'sequential') return tFeature('sequentialStudy');
+    if (mode === 'dictionary') return tFeature('dictionaryBrowsing');
+    return tFeature('smartReview');
+  }
+
   const router = useRouter();
   const [decks, setDecks] = useState(initialDecks);
   const [query, setQuery] = useState('');
@@ -123,10 +128,10 @@ export default function WordsPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '创建词库失败');
+        throw new Error(payload?.message || tFeature('couldNotCreateTheDeck'));
       }
       const deck = payload?.data?.deck as WordDeckItem | undefined;
-      toast.success('词库已创建');
+      toast.success(tFeature('deckCreated'));
       setCreateOpen(false);
       setCreateTitle('');
       setCreateDescription('');
@@ -137,7 +142,11 @@ export default function WordsPageClient({
         router.refresh();
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建词库失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotCreateTheDeck')
+      );
     } finally {
       setCreateBusy(false);
     }
@@ -164,17 +173,19 @@ export default function WordsPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '保存词库失败');
+        throw new Error(payload?.message || tFeature('couldNotSaveTheDeck'));
       }
       const updated = payload?.data?.deck as WordDeckItem;
       setDecks(current =>
         current.map(deck => (deck.id === updated.id ? updated : deck))
       );
       setEditingDeck(null);
-      toast.success('词库信息已保存');
+      toast.success(tFeature('deckDetailsSaved'));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '保存词库失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotSaveTheDeck')
+      );
     } finally {
       setEditBusy(false);
     }
@@ -182,7 +193,12 @@ export default function WordsPageClient({
 
   async function archiveDeck() {
     if (!editingDeck) return;
-    if (!window.confirm(`确认归档「${editingDeck.title}」？`)) return;
+    if (
+      !window.confirm(
+        tFeature('archive2', { value0: String(editingDeck.title ?? '') })
+      )
+    )
+      return;
     setEditBusy(true);
     try {
       const response = await fetch(`/api/words/decks/${editingDeck.id}`, {
@@ -190,14 +206,18 @@ export default function WordsPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || '归档词库失败');
+        throw new Error(payload?.message || tFeature('couldNotArchiveTheDeck'));
       }
       setDecks(current => current.filter(deck => deck.id !== editingDeck.id));
       setEditingDeck(null);
-      toast.success('词库已归档');
+      toast.success(tFeature('deckArchived'));
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '归档词库失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotArchiveTheDeck')
+      );
     } finally {
       setEditBusy(false);
     }
@@ -207,23 +227,23 @@ export default function WordsPageClient({
     <div className="section-container space-y-6">
       <PageHeader
         title="Word"
-        description="管理词库，并在 Web 与 WQN Note4 之间延续同一份学习进度。科目是可选分类，不影响学习。"
+        description={tFeature('manageDecksAndContinueTheSameLearning')}
         actions={
           <>
             <Button variant="outline" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              新建词库
+              {tFeature('newDeck')}
             </Button>
             <Button variant="ghost" asChild>
-              <Link href="/words/progress">学习进度</Link>
+              <Link href="/words/progress">{tFeature('learningProgress')}</Link>
             </Button>
             <Button variant="ghost" asChild>
-              <Link href="/words/mistakes">错词</Link>
+              <Link href="/words/mistakes">{tFeature('mistakes')}</Link>
             </Button>
             <Button asChild>
               <Link href="/words/study/new">
                 <Play className="mr-2 h-4 w-4" />
-                开始学习
+                {tFeature('startLearning')}
               </Link>
             </Button>
           </>
@@ -232,10 +252,10 @@ export default function WordsPageClient({
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['全部词条', totals.total],
-          ['今日到期', totals.due],
-          ['学习中', totals.learning],
-          ['已掌握', totals.mastered],
+          [tFeature('allEntries'), totals.total],
+          [tFeature('dueToday'), totals.due],
+          [tFeature('learning'), totals.learning],
+          [tFeature('mastered'), totals.mastered],
         ].map(([label, value]) => (
           <Card key={String(label)}>
             <CardHeader className="pb-2">
@@ -255,7 +275,7 @@ export default function WordsPageClient({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Clock3 className="h-4 w-4" />
-              继续未完成学习
+              {tFeature('continueUnfinishedStudy')}
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 lg:grid-cols-2">
@@ -266,7 +286,8 @@ export default function WordsPageClient({
               >
                 <div>
                   <p className="font-medium">
-                    {session.deck_titles.join('、') || 'Word 学习'}
+                    {session.deck_titles.join('、') ||
+                      tFeature('vocabularyStudy')}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {modeLabel(session.mode)} · {session.next_sequence}/
@@ -276,7 +297,7 @@ export default function WordsPageClient({
                 </div>
                 <Button asChild size="sm">
                   <Link href={`/words/study/${session.session_id}`}>
-                    继续学习
+                    {tFeature('continueLearning')}
                   </Link>
                 </Button>
               </div>
@@ -291,21 +312,21 @@ export default function WordsPageClient({
           <Input
             value={query}
             onChange={event => setQuery(event.target.value)}
-            placeholder="搜索词库"
+            placeholder={tFeature('searchDecks')}
             className="pl-9"
           />
         </div>
         <p className="text-sm text-muted-foreground">
-          {filteredDecks.length} 个可用词库
+          {filteredDecks.length} {tFeature('availableDecks')}
         </p>
       </div>
 
       {filteredDecks.length === 0 ? (
         <div className="rounded-lg border border-dashed px-6 py-16 text-center">
           <BookA className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-          <p className="font-medium">没有匹配的词库</p>
+          <p className="font-medium">{tFeature('noMatchingDecks')}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            新建一个无科目词库也可以直接开始。
+            {tFeature('youCanStartWithADeckThat')}
           </p>
         </div>
       ) : (
@@ -321,11 +342,11 @@ export default function WordsPageClient({
                         {deck.title}
                       </CardTitle>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                        {deck.description || '暂无说明'}
+                        {deck.description || tFeature('noDescription')}
                       </p>
                     </div>
                     <Badge variant={deck.is_system ? 'default' : 'secondary'}>
-                      {deck.is_system ? '系统' : '自建'}
+                      {deck.is_system ? tFeature('system') : tFeature('custom')}
                     </Badge>
                   </div>
                 </CardHeader>
@@ -334,19 +355,25 @@ export default function WordsPageClient({
                     <p className="text-lg font-semibold">
                       {summary?.total ?? deck.word_count}
                     </p>
-                    <p className="text-xs text-muted-foreground">词条</p>
+                    <p className="text-xs text-muted-foreground">
+                      {tFeature('entries3')}
+                    </p>
                   </div>
                   <div>
                     <p className="text-lg font-semibold">
                       {summary?.due_count ?? 0}
                     </p>
-                    <p className="text-xs text-muted-foreground">到期</p>
+                    <p className="text-xs text-muted-foreground">
+                      {tFeature('due2')}
+                    </p>
                   </div>
                   <div>
                     <p className="text-lg font-semibold">
                       {summary?.mastered_count ?? 0}
                     </p>
-                    <p className="text-xs text-muted-foreground">掌握</p>
+                    <p className="text-xs text-muted-foreground">
+                      {tFeature('mastery')}
+                    </p>
                   </div>
                 </CardContent>
                 <CardFooter className="mt-auto flex gap-2">
@@ -354,18 +381,20 @@ export default function WordsPageClient({
                     <Button asChild className="flex-1">
                       <Link href={`/words/study/new?deck=${deck.id}`}>
                         <Play className="mr-2 h-4 w-4" />
-                        学习
+                        {tFeature('study')}
                       </Link>
                     </Button>
                   ) : (
                     <Button className="flex-1" disabled>
-                      暂无词条
+                      {tFeature('noEntriesYet')}
                     </Button>
                   )}
                   <Button variant="outline" size="icon" asChild>
                     <Link
                       href={`/words/decks/${deck.id}`}
-                      aria-label={`管理${deck.title}`}
+                      aria-label={tFeature('manage', {
+                        value0: String(deck.title ?? ''),
+                      })}
                     >
                       <FolderOpen className="h-4 w-4" />
                     </Link>
@@ -375,7 +404,9 @@ export default function WordsPageClient({
                       variant="ghost"
                       size="icon"
                       onClick={() => openEdit(deck)}
-                      aria-label={`编辑${deck.title}`}
+                      aria-label={tFeature('edit2', {
+                        value0: String(deck.title ?? ''),
+                      })}
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
@@ -391,25 +422,27 @@ export default function WordsPageClient({
         <DialogContent>
           <form onSubmit={createDeck}>
             <DialogHeader>
-              <DialogTitle>新建词库</DialogTitle>
+              <DialogTitle>{tFeature('newDeck')}</DialogTitle>
               <DialogDescription>
-                科目保持为空也可以直接导入和学习。
+                {tFeature('youCanImportAndStudyWithoutAssigning')}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-5">
               <div className="space-y-2">
-                <Label htmlFor="word-deck-title">名称</Label>
+                <Label htmlFor="word-deck-title">{tFeature('name')}</Label>
                 <Input
                   id="word-deck-title"
                   value={createTitle}
                   onChange={event => setCreateTitle(event.target.value)}
-                  placeholder="高中 3500"
+                  placeholder={tFeature('highSchoolVocabulary')}
                   maxLength={80}
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="word-deck-description">说明</Label>
+                <Label htmlFor="word-deck-description">
+                  {tFeature('description2')}
+                </Label>
                 <Textarea
                   id="word-deck-description"
                   value={createDescription}
@@ -424,10 +457,10 @@ export default function WordsPageClient({
                 variant="outline"
                 onClick={() => setCreateOpen(false)}
               >
-                取消
+                {tFeature('cancel')}
               </Button>
               <Button type="submit" disabled={createBusy}>
-                {createBusy ? '创建中…' : '创建词库'}
+                {createBusy ? tFeature('creating2') : tFeature('createDeck')}
               </Button>
             </DialogFooter>
           </form>
@@ -441,14 +474,14 @@ export default function WordsPageClient({
         <DialogContent>
           <form onSubmit={saveDeck}>
             <DialogHeader>
-              <DialogTitle>编辑词库</DialogTitle>
+              <DialogTitle>{tFeature('editDeck')}</DialogTitle>
               <DialogDescription>
-                修改名称和说明不会改变已有学习进度。
+                {tFeature('changingTheNameOrDescriptionPreservesLearning')}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-5">
               <div className="space-y-2">
-                <Label htmlFor="edit-word-deck-title">名称</Label>
+                <Label htmlFor="edit-word-deck-title">{tFeature('name')}</Label>
                 <Input
                   id="edit-word-deck-title"
                   value={editTitle}
@@ -458,7 +491,9 @@ export default function WordsPageClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-word-deck-description">说明</Label>
+                <Label htmlFor="edit-word-deck-description">
+                  {tFeature('description2')}
+                </Label>
                 <Textarea
                   id="edit-word-deck-description"
                   value={editDescription}
@@ -474,7 +509,7 @@ export default function WordsPageClient({
                 onClick={archiveDeck}
                 disabled={editBusy}
               >
-                归档词库
+                {tFeature('archiveDeck')}
               </Button>
               <div className="flex gap-2">
                 <Button
@@ -482,10 +517,10 @@ export default function WordsPageClient({
                   variant="outline"
                   onClick={() => setEditingDeck(null)}
                 >
-                  取消
+                  {tFeature('cancel')}
                 </Button>
                 <Button type="submit" disabled={editBusy}>
-                  {editBusy ? '保存中…' : '保存'}
+                  {editBusy ? tFeature('saving2') : tFeature('save')}
                 </Button>
               </div>
             </DialogFooter>

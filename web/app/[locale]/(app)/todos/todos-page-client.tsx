@@ -1,4 +1,8 @@
 'use client';
+import {
+  useTranslations as useFeatureTranslations,
+  useLocale as useFeatureLocale,
+} from 'next-intl';
 
 import { useMemo, useState } from 'react';
 import { Link } from '@/i18n/navigation';
@@ -38,37 +42,13 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { TodoReminderSettings } from '@/components/todo-reminder-settings';
 
 type StatusFilter = TodoStatus | 'all';
 
 interface TodosPageClientProps {
   initialTodos: TodoListItem[];
   subjects: SubjectWithMetadata[];
-}
-
-const statusLabels: Record<StatusFilter, string> = {
-  all: '全部',
-  pending: '待办',
-  completed: '已完成',
-  cancelled: '已取消',
-};
-
-const priorityLabels: Record<TodoPriority, string> = {
-  low: '低',
-  normal: '普通',
-  high: '高',
-};
-
-function formatDateTime(value: string | null) {
-  if (!value) return '未设定';
-  const time = Date.parse(value);
-  if (Number.isNaN(time)) return '未设定';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(time));
 }
 
 function toDatetimeLocal(value: Date) {
@@ -86,6 +66,31 @@ export default function TodosPageClient({
   initialTodos,
   subjects,
 }: TodosPageClientProps) {
+  const tFeature = useFeatureTranslations('Todos');
+  const featureLocale = useFeatureLocale();
+  const statusLabels: Record<StatusFilter, string> = {
+    all: tFeature('all'),
+    pending: tFeature('pending'),
+    completed: tFeature('completed'),
+    cancelled: tFeature('cancelled'),
+  };
+  const priorityLabels: Record<TodoPriority, string> = {
+    low: tFeature('low'),
+    normal: tFeature('normal'),
+    high: tFeature('high'),
+  };
+  function formatDateTime(value: string | null) {
+    if (!value) return tFeature('notSet');
+    const time = Date.parse(value);
+    if (Number.isNaN(time)) return tFeature('notSet');
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(time));
+  }
+
   const [todos, setTodos] = useState(initialTodos);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [subjectFilter, setSubjectFilter] = useState('all');
@@ -129,7 +134,7 @@ export default function TodosPageClient({
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(payload?.error || 'Todo 刷新失败');
+      throw new Error(payload?.error || tFeature('couldNotRefreshTodos'));
     }
     setTodos(payload.data?.todos || []);
   }
@@ -137,7 +142,7 @@ export default function TodosPageClient({
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim()) {
-      toast.error('请输入 Todo 标题');
+      toast.error(tFeature('enterATodoTitle'));
       return;
     }
 
@@ -157,7 +162,7 @@ export default function TodosPageClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || 'Todo 创建失败');
+        throw new Error(payload?.error || tFeature('couldNotCreateTheTodo2'));
       }
 
       const created = payload.data?.todo as TodoListItem | undefined;
@@ -169,9 +174,13 @@ export default function TodosPageClient({
       setDueAt('');
       setReminderAt('');
       setCreateOpen(false);
-      toast.success('Todo 已创建');
+      toast.success(tFeature('todoCreated'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Todo 创建失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotCreateTheTodo2')
+      );
     } finally {
       setCreateBusy(false);
     }
@@ -187,7 +196,7 @@ export default function TodosPageClient({
       const response = await fetch(endpoint, { method: 'POST' });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.error || 'Todo 更新失败');
+        throw new Error(payload?.error || tFeature('couldNotUpdateTheTodo'));
       }
       const updated = payload.data?.todo as TodoListItem | undefined;
       if (updated) {
@@ -195,9 +204,15 @@ export default function TodosPageClient({
           current.map(todo => (todo.id === todoId ? updated : todo))
         );
       }
-      toast.success(status === 'completed' ? '已完成' : '已取消');
+      toast.success(
+        status === 'completed' ? tFeature('completed') : tFeature('cancelled')
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Todo 更新失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotUpdateTheTodo')
+      );
     } finally {
       setBusy(null);
     }
@@ -207,31 +222,34 @@ export default function TodosPageClient({
     <div className="space-y-6">
       <PageHeader
         title="Todo"
-        description="顶层行动清单。用于安排今天要处理的学习动作，AI 可以创建和更新，但不会删除 Todo。"
+        description={tFeature('planYourLearningActionsHereAiCan')}
         actions={
           <>
             <Button
               variant="outline"
               onClick={() =>
-                refreshTodos().catch(() => toast.error('刷新失败'))
+                refreshTodos().catch(() =>
+                  toast.error(tFeature('couldNotRefresh'))
+                )
               }
             >
               <RefreshCw className="mr-2 h-4 w-4" />
-              刷新
+              {tFeature('refresh')}
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              新建 Todo
+              {tFeature('newTodo')}
             </Button>
           </>
         }
       />
 
       <div className="grid gap-3 md:grid-cols-3">
+        <TodoReminderSettings />
         <Card className="rounded-lg shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardTitle className="flex items-center justify-between text-sm">
-              今日待办
+              {tFeature('todaySTodos')}
               <Circle className="h-4 w-4 text-amber-600" />
             </CardTitle>
             <div className="text-3xl font-semibold">{counts.pending}</div>
@@ -240,7 +258,7 @@ export default function TodosPageClient({
         <Card className="rounded-lg shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardTitle className="flex items-center justify-between text-sm">
-              已完成
+              {tFeature('completed')}
               <CheckCircle2 className="h-4 w-4 text-green-600" />
             </CardTitle>
             <div className="text-3xl font-semibold">{counts.completed}</div>
@@ -249,7 +267,7 @@ export default function TodosPageClient({
         <Card className="rounded-lg shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardTitle className="flex items-center justify-between text-sm">
-              已取消
+              {tFeature('cancelled')}
               <X className="h-4 w-4 text-muted-foreground" />
             </CardTitle>
             <div className="text-3xl font-semibold">{counts.cancelled}</div>
@@ -275,10 +293,10 @@ export default function TodosPageClient({
           </div>
           <Select value={subjectFilter} onValueChange={setSubjectFilter}>
             <SelectTrigger className="w-full md:w-48">
-              <SelectValue placeholder="全部科目" />
+              <SelectValue placeholder={tFeature('allSubjects')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部科目</SelectItem>
+              <SelectItem value="all">{tFeature('allSubjects')}</SelectItem>
               {subjects.map(subject => (
                 <SelectItem key={subject.id} value={subject.id}>
                   {subject.name}
@@ -292,9 +310,9 @@ export default function TodosPageClient({
             <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-center">
               <ListTodo className="h-8 w-8 text-muted-foreground" />
               <div>
-                <p className="font-medium">没有符合条件的 Todo</p>
+                <p className="font-medium">{tFeature('noMatchingTodos')}</p>
                 <p className="text-sm text-muted-foreground">
-                  新建一个行动项，或让 AI 帮你从对话中整理。
+                  {tFeature('createALearningActionOrAskAi')}
                 </p>
               </div>
             </div>
@@ -328,10 +346,14 @@ export default function TodosPageClient({
                   <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <CalendarClock className="h-3.5 w-3.5" />
-                      截止 {formatDateTime(todo.due_at)}
+                      {tFeature('due3')}
+                      {formatDateTime(todo.due_at)}
                     </span>
                     {todo.reminder_at ? (
-                      <span>提醒 {formatDateTime(todo.reminder_at)}</span>
+                      <span>
+                        {tFeature('reminder')}
+                        {formatDateTime(todo.reminder_at)}
+                      </span>
                     ) : null}
                   </div>
                   {todo.word_entry_id || todo.word_deck_id ? (
@@ -343,7 +365,7 @@ export default function TodosPageClient({
                           : `/words/decks/${todo.word_deck_id}`
                       }
                     >
-                      查看 Word 进度
+                      {tFeature('viewVocabularyProgress')}
                     </Link>
                   ) : null}
                 </div>
@@ -356,7 +378,7 @@ export default function TodosPageClient({
                         disabled={busy === todo.id}
                       >
                         <Check className="mr-2 h-4 w-4" />
-                        完成
+                        {tFeature('complete')}
                       </Button>
                       <Button
                         size="sm"
@@ -364,12 +386,12 @@ export default function TodosPageClient({
                         onClick={() => updateStatus(todo.id, 'cancelled')}
                         disabled={busy === todo.id}
                       >
-                        取消
+                        {tFeature('cancel')}
                       </Button>
                     </>
                   ) : (
                     <Button size="sm" variant="outline" disabled>
-                      已归档
+                      {tFeature('archived')}
                     </Button>
                   )}
                 </div>
@@ -382,41 +404,47 @@ export default function TodosPageClient({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新建 Todo</DialogTitle>
+            <DialogTitle>{tFeature('newTodo')}</DialogTitle>
             <DialogDescription>
-              Todo 用于安排要处理的学习动作，可以按科目归档。
+              {tFeature('todosOrganizeLearningActionsSubjectsAreOptional')}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleCreate}>
             <div className="space-y-2">
-              <Label htmlFor="todo-title">标题</Label>
+              <Label htmlFor="todo-title">{tFeature('title')}</Label>
               <Input
                 id="todo-title"
                 value={title}
                 onChange={event => setTitle(event.target.value)}
                 maxLength={120}
-                placeholder="例如：复习导数链式法则"
+                placeholder={tFeature(
+                  'exampleReviewTheChainRuleForDerivatives'
+                )}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="todo-description">说明</Label>
+              <Label htmlFor="todo-description">
+                {tFeature('description2')}
+              </Label>
               <Textarea
                 id="todo-description"
                 value={description}
                 onChange={event => setDescription(event.target.value)}
                 maxLength={2000}
-                placeholder="可选"
+                placeholder={tFeature('optional')}
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>科目</Label>
+                <Label>{tFeature('subject')}</Label>
                 <Select value={subjectId} onValueChange={setSubjectId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="不关联科目" />
+                    <SelectValue placeholder={tFeature('noSubject2')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">不关联科目</SelectItem>
+                    <SelectItem value="none">
+                      {tFeature('noSubject2')}
+                    </SelectItem>
                     {subjects.map(subject => (
                       <SelectItem key={subject.id} value={subject.id}>
                         {subject.name}
@@ -426,7 +454,7 @@ export default function TodosPageClient({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>优先级</Label>
+                <Label>{tFeature('priority')}</Label>
                 <Select
                   value={priority}
                   onValueChange={value => setPriority(value as TodoPriority)}
@@ -435,16 +463,16 @@ export default function TodosPageClient({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="low">低</SelectItem>
-                    <SelectItem value="normal">普通</SelectItem>
-                    <SelectItem value="high">高</SelectItem>
+                    <SelectItem value="low">{tFeature('low')}</SelectItem>
+                    <SelectItem value="normal">{tFeature('normal')}</SelectItem>
+                    <SelectItem value="high">{tFeature('high')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="todo-due">截止时间</Label>
+                <Label htmlFor="todo-due">{tFeature('dueTime')}</Label>
                 <Input
                   id="todo-due"
                   type="datetime-local"
@@ -454,7 +482,9 @@ export default function TodosPageClient({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="todo-reminder">提醒时间</Label>
+                <Label htmlFor="todo-reminder">
+                  {tFeature('reminderTime')}
+                </Label>
                 <Input
                   id="todo-reminder"
                   type="datetime-local"
@@ -470,10 +500,10 @@ export default function TodosPageClient({
                 variant="outline"
                 onClick={() => setCreateOpen(false)}
               >
-                关闭
+                {tFeature('close')}
               </Button>
               <Button type="submit" disabled={createBusy}>
-                创建
+                {tFeature('create')}
               </Button>
             </DialogFooter>
           </form>

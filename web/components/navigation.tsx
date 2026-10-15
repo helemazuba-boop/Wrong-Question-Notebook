@@ -30,7 +30,7 @@ export function Navigation({
           <Link
             href="/"
             aria-label={t('appName')}
-            className="group flex items-baseline gap-0 text-lg font-bold tracking-tight text-foreground"
+            className="group flex shrink-0 items-baseline gap-0 whitespace-nowrap text-lg font-bold tracking-tight text-foreground"
           >
             <WLogo className="h-7 w-7 text-amber-600 dark:text-amber-400 self-center shrink-0 transition-transform group-hover:scale-110" />
             <span className="hidden sm:inline text-lg -ml-0.5">
@@ -44,7 +44,7 @@ export function Navigation({
           {showAppLinks ? <AppNavLinks /> : null}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {hasEnvVars && <ProfileButton />}
           <LocaleSwitcher />
           <ThemeSwitcher />

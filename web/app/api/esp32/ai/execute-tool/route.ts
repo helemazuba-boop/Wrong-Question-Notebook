@@ -5,7 +5,7 @@
 // the WQN Flash Realtime relay (web/server/realtime-proxy/), which gates
 // access via `WQN_REALTIME_PROXY_SECRET` and forwards the original device
 // userId. This file deliberately reuses the existing `buildAiToolExecutor`
-// so we have exactly one source of truth for the 12 tool implementations.
+// so we have exactly one source of truth for the eight tool implementations.
 //
 // Why this endpoint exists:
 //   The Flash mode WS pipeline passes through the OpenAI Realtime upstream
@@ -32,6 +32,7 @@ import { createApiErrorResponse } from '@/lib/common-utils';
 import { logger } from '@/lib/logger';
 import { verifyInternalRequest } from '@/lib/internal-request-auth';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { loadVoiceContext } from '@/lib/ai-tools/voice-context-server';
 
 export const runtime = 'nodejs';
 
@@ -53,6 +54,7 @@ const BodySchema = z.object({
     .default(''),
   conversation_id: z.string().uuid().nullable().optional(),
   device_id: z.string().uuid(),
+  anchor_at: z.iso.datetime({ offset: true }).optional(),
 });
 
 function unauthorized(message: string) {
@@ -141,11 +143,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     userId: body.user_id,
     conversationId: body.conversation_id ?? null,
     deviceId: body.device_id ?? null,
+    requestId: body.request_id,
   };
   let result;
   try {
+    ctx.timeContext = await loadVoiceContext(
+      { userId: body.user_id, supabase: svc },
+      body.anchor_at
+    );
     const executor = buildAiToolExecutor(ctx);
-    result = await executor(body.tool_name, body.raw_args);
+    result = await executor(body.tool_name, body.raw_args, {
+      callId: body.request_id,
+      requestId: body.request_id,
+    });
   } catch (err) {
     logger.error('execute-tool threw', err, {
       component: 'FlashProxy.ExecuteTool',

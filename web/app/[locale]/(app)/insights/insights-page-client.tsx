@@ -37,10 +37,11 @@ export default function InsightsPageClient({
   embedded = false,
 }: InsightsPageClientProps) {
   const router = useRouter();
-  const t = useTranslations('Statistics');
+  const t = useTranslations('Insights');
   const tCommon = useTranslations('Common');
   const [digest, setDigest] = useState<InsightDigest | null>(initialDigest);
   const [isGenerating, setIsGenerating] = useState(initialIsGenerating);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [hasInsufficientData, setHasInsufficientData] = useState(false);
   const [activityProgress, setActivityProgress] = useState<{
     activity: ActivitySummary;
@@ -49,12 +50,16 @@ export default function InsightsPageClient({
   } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+  const pollEpochRef = useRef(0);
+  const pollBusyRef = useRef(false);
 
   const subjectMap = Object.fromEntries(
     subjects.map(s => [s.id, { name: s.name, color: s.color }])
   );
 
   const stopPolling = useCallback(() => {
+    pollEpochRef.current++;
+    pollBusyRef.current = false;
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -64,7 +69,9 @@ export default function InsightsPageClient({
 
   const startPolling = useCallback(() => {
     stopPolling();
+    const epoch = pollEpochRef.current;
     pollRef.current = setInterval(async () => {
+      if (pollBusyRef.current) return;
       pollCountRef.current++;
       if (pollCountRef.current > INSIGHT_CONSTANTS.MAX_POLL_ATTEMPTS) {
         setIsGenerating(false);
@@ -73,9 +80,13 @@ export default function InsightsPageClient({
         return;
       }
 
+      pollBusyRef.current = true;
       try {
         const res = await fetch(apiUrl('/api/insights/status'));
+        if (!res.ok) throw new Error('Status request failed');
         const json = await res.json();
+        if (epoch !== pollEpochRef.current) return;
+        setStatusUnavailable(false);
         const data = json.data ?? json;
 
         if (data.status === 'completed' && data.digest) {
@@ -90,7 +101,10 @@ export default function InsightsPageClient({
         }
         // 'generating' → keep polling
       } catch {
-        // Network error — keep polling
+        if (epoch === pollEpochRef.current) setStatusUnavailable(true);
+        // Retain the previous report and keep retrying within the poll budget.
+      } finally {
+        if (epoch === pollEpochRef.current) pollBusyRef.current = false;
       }
     }, INSIGHT_CONSTANTS.GENERATION_POLL_INTERVAL_MS);
   }, [stopPolling, t, tCommon]);
@@ -114,6 +128,7 @@ export default function InsightsPageClient({
   }, [digest]);
 
   async function handleGenerate() {
+    setStatusUnavailable(false);
     setIsGenerating(true);
     setHasInsufficientData(false);
     setActivityProgress(null);
@@ -177,6 +192,24 @@ export default function InsightsPageClient({
         <PageHeader title={t('insights')} description={t('insightsSubtitle')} />
       ) : null}
 
+      {statusUnavailable && (
+        <div
+          role="alert"
+          className="rounded-xl border p-4 flex items-center justify-between gap-3"
+        >
+          <p>{t('insightsStatusUnavailable')}</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setIsGenerating(true);
+              startPolling();
+            }}
+          >
+            {tCommon('retry')}
+          </Button>
+        </div>
+      )}
+
       {/* Empty / Generating / Insufficient data states */}
       {(!digest || isGenerating || hasInsufficientData) && (
         <EmptyInsightsState
@@ -190,139 +223,141 @@ export default function InsightsPageClient({
       )}
 
       {/* Digest content */}
-      {digest && !isGenerating && !hasInsufficientData && (
-        <>
-          {/* Digest Header */}
-          <DigestHeader
-            headline={digest.headline}
-            generatedAt={digest.generated_at}
-            onRegenerate={handleGenerate}
-            isGenerating={isGenerating}
-            digestTier={digest.digest_tier}
-            t={t}
-            tCommon={tCommon}
-          />
+      {digest &&
+        (!isGenerating || statusUnavailable) &&
+        !hasInsufficientData && (
+          <>
+            {/* Digest Header */}
+            <DigestHeader
+              headline={digest.headline}
+              generatedAt={digest.generated_at}
+              onRegenerate={handleGenerate}
+              isGenerating={isGenerating}
+              digestTier={digest.digest_tier}
+              t={t}
+              tCommon={tCommon}
+            />
 
-          {/* Summary stat cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <HeroStatCard
-              icon={BookOpen}
-              value={Object.keys(subjectHealth).length}
-              label={t('subjects')}
-              color="blue"
-            />
-            <HeroStatCard
-              icon={AlertTriangle}
-              value={digest.weak_spots?.length ?? 0}
-              label={t('weakSpots')}
-              color="rose"
-            />
-            <HeroStatCard
-              icon={Layers}
-              value={Object.values(digest.topic_clusters ?? {}).reduce(
-                (sum, arr) => sum + arr.length,
-                0
+            {/* Summary stat cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <HeroStatCard
+                icon={BookOpen}
+                value={Object.keys(subjectHealth).length}
+                label={t('subjects')}
+                color="blue"
+              />
+              <HeroStatCard
+                icon={AlertTriangle}
+                value={digest.weak_spots?.length ?? 0}
+                label={t('weakSpots')}
+                color="rose"
+              />
+              <HeroStatCard
+                icon={Layers}
+                value={Object.values(digest.topic_clusters ?? {}).reduce(
+                  (sum, arr) => sum + arr.length,
+                  0
+                )}
+                label={t('topicClusters')}
+                color="amber"
+              />
+              <HeroStatCard
+                icon={Sparkles}
+                value={
+                  digest.digest_tier === 'mastery'
+                    ? t('mastery')
+                    : digest.digest_tier === 'narrow'
+                      ? t('preliminary')
+                      : t('full')
+                }
+                label={t('analysisDepth')}
+                color={
+                  digest.digest_tier === 'mastery'
+                    ? 'emerald'
+                    : digest.digest_tier === 'narrow'
+                      ? 'amber'
+                      : 'orange'
+                }
+              />
+            </div>
+
+            {/* Bento grid: Error patterns + Subject cards */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Error Pattern Summary */}
+              {digest.error_pattern_summary && (
+                <div className="lg:col-span-5 lg:flex lg:flex-col">
+                  <div className="lg:sticky lg:top-20 shrink-0">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 dark:bg-amber-500/20">
+                        <TrendingUp className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        {t('errorPatterns')}
+                      </h3>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200/40 bg-gradient-to-br from-amber-50/50 to-orange-50/30 p-5 dark:border-amber-800/30 dark:from-amber-950/20 dark:to-orange-950/10">
+                      <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                        {digest.error_pattern_summary}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Decorative notebook filler — stretches to match subject column */}
+                  <div className="mt-4 hidden lg:block flex-1 rounded-2xl border border-amber-200/20 dark:border-amber-900/20 overflow-hidden min-h-[3rem]">
+                    <div className="ruled-lines h-full relative opacity-60">
+                      <NotebookPen className="absolute bottom-4 right-4 h-10 w-10 text-amber-300/40 dark:text-amber-700/30 -rotate-12" />
+                    </div>
+                  </div>
+                </div>
               )}
-              label={t('topicClusters')}
-              color="amber"
-            />
-            <HeroStatCard
-              icon={Sparkles}
-              value={
-                digest.digest_tier === 'mastery'
-                  ? t('mastery')
-                  : digest.digest_tier === 'narrow'
-                    ? t('preliminary')
-                    : t('full')
-              }
-              label={t('analysisDepth')}
-              color={
-                digest.digest_tier === 'mastery'
-                  ? 'emerald'
-                  : digest.digest_tier === 'narrow'
-                    ? 'amber'
-                    : 'orange'
-              }
-            />
-          </div>
 
-          {/* Bento grid: Error patterns + Subject cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Error Pattern Summary */}
-            {digest.error_pattern_summary && (
-              <div className="lg:col-span-5 lg:flex lg:flex-col">
-                <div className="lg:sticky lg:top-20 shrink-0">
+              {/* Subject Overview */}
+              {Object.keys(subjectHealth).length > 0 && (
+                <div
+                  className={
+                    digest.error_pattern_summary
+                      ? 'lg:col-span-7'
+                      : 'lg:col-span-12'
+                  }
+                >
                   <div className="flex items-center gap-2 mb-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 dark:bg-amber-500/20">
-                      <TrendingUp className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 dark:bg-blue-500/20">
+                      <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                     </div>
                     <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      {t('errorPatterns')}
+                      {t('subjectOverview')}
                     </h3>
                   </div>
-                  <div className="rounded-2xl border border-amber-200/40 bg-gradient-to-br from-amber-50/50 to-orange-50/30 p-5 dark:border-amber-800/30 dark:from-amber-950/20 dark:to-orange-950/10">
-                    <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                      {digest.error_pattern_summary}
-                    </p>
+                  <div
+                    className={`grid grid-cols-1 gap-3 ${
+                      digest.error_pattern_summary
+                        ? 'sm:grid-cols-2'
+                        : 'sm:grid-cols-2 lg:grid-cols-3'
+                    }`}
+                  >
+                    {Object.entries(subjectHealth).map(
+                      ([subjectId, healthSummary]) => (
+                        <SubjectHealthCard
+                          key={subjectId}
+                          subjectName={
+                            subjectMap[subjectId]?.name || tCommon('noData')
+                          }
+                          subjectColor={subjectMap[subjectId]?.color ?? null}
+                          healthSummary={healthSummary}
+                          topicClusters={digest.topic_clusters?.[subjectId]}
+                          weakSpotCount={weakSpotCountBySubject[subjectId] ?? 0}
+                          onViewDetails={() =>
+                            router.push(`/insights/${subjectId}`)
+                          }
+                          t={t}
+                        />
+                      )
+                    )}
                   </div>
                 </div>
-                {/* Decorative notebook filler — stretches to match subject column */}
-                <div className="mt-4 hidden lg:block flex-1 rounded-2xl border border-amber-200/20 dark:border-amber-900/20 overflow-hidden min-h-[3rem]">
-                  <div className="ruled-lines h-full relative opacity-60">
-                    <NotebookPen className="absolute bottom-4 right-4 h-10 w-10 text-amber-300/40 dark:text-amber-700/30 -rotate-12" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Subject Overview */}
-            {Object.keys(subjectHealth).length > 0 && (
-              <div
-                className={
-                  digest.error_pattern_summary
-                    ? 'lg:col-span-7'
-                    : 'lg:col-span-12'
-                }
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 dark:bg-blue-500/20">
-                    <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                    {t('subjectOverview')}
-                  </h3>
-                </div>
-                <div
-                  className={`grid grid-cols-1 gap-3 ${
-                    digest.error_pattern_summary
-                      ? 'sm:grid-cols-2'
-                      : 'sm:grid-cols-2 lg:grid-cols-3'
-                  }`}
-                >
-                  {Object.entries(subjectHealth).map(
-                    ([subjectId, healthSummary]) => (
-                      <SubjectHealthCard
-                        key={subjectId}
-                        subjectName={
-                          subjectMap[subjectId]?.name || tCommon('noData')
-                        }
-                        subjectColor={subjectMap[subjectId]?.color ?? null}
-                        healthSummary={healthSummary}
-                        topicClusters={digest.topic_clusters?.[subjectId]}
-                        weakSpotCount={weakSpotCountBySubject[subjectId] ?? 0}
-                        onViewDetails={() =>
-                          router.push(`/insights/${subjectId}`)
-                        }
-                        t={t}
-                      />
-                    )
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+              )}
+            </div>
+          </>
+        )}
     </div>
   );
 }

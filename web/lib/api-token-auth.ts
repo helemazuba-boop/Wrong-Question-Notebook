@@ -7,6 +7,7 @@ import {
   isValidApiToken,
 } from '@/lib/api-token';
 import { getAppOrigin } from '@/lib/app-origin';
+import { accountIsActive } from '@/lib/supabase/account-status';
 import {
   OAUTH_ACCESS_TOKEN_PREFIX,
   getMcpResourceUri,
@@ -28,11 +29,12 @@ import {
 //                (user_api_tokens, long lived, revoked only by hand)
 //   - wqn_oa_*   OAuth 2.1 access token minted by this app's own
 //                authorization server (oauth_tokens, 1 hour, rotated)
-// Both resolve to the same context, so no MCP tool sees a difference.
+// Both resolve the same user. Credential kind is retained for FK provenance.
 
 export interface ApiTokenAuthContext {
   userId: string;
   tokenId: string;
+  credentialKind: 'pat' | 'oauth';
 }
 
 const BEARER_PREFIX = 'Bearer ';
@@ -104,6 +106,27 @@ function tokenLookupFailedResponse(): NextResponse {
   );
 }
 
+async function accountRejection(
+  svc: ReturnType<typeof createServiceClient>,
+  userId: string
+): Promise<NextResponse | null> {
+  try {
+    return (await accountIsActive(svc, userId))
+      ? null
+      : NextResponse.json(
+          {
+            error: { code: 'account_disabled', message: 'Account is disabled' },
+          },
+          { status: 403 }
+        );
+  } catch {
+    return NextResponse.json(
+      { error: { message: 'Account status is unavailable' } },
+      { status: 503 }
+    );
+  }
+}
+
 /** Resolve a personal access token (wqn_mcp_*). */
 async function authenticateLegacyPatToken(
   svc: ReturnType<typeof createServiceClient>,
@@ -127,6 +150,9 @@ async function authenticateLegacyPatToken(
     return createApiTokenUnauthorizedResponse('Invalid access token');
   }
 
+  const rejection = await accountRejection(svc, row.user_id);
+  if (rejection) return rejection;
+
   // Best-effort usage timestamp; auth success never blocks on it.
   void svc
     .from('user_api_tokens')
@@ -142,7 +168,7 @@ async function authenticateLegacyPatToken(
       }
     });
 
-  return { userId: row.user_id, tokenId: row.id };
+  return { userId: row.user_id, tokenId: row.id, credentialKind: 'pat' };
 }
 
 /** Resolve an OAuth 2.1 access token (wqn_oa_*). */
@@ -190,6 +216,9 @@ async function authenticateOAuthToken(
     return createApiTokenInsufficientScopeResponse();
   }
 
+  const rejection = await accountRejection(svc, row.user_id);
+  if (rejection) return rejection;
+
   void svc
     .from('oauth_tokens')
     .update({ last_used_at: new Date().toISOString() })
@@ -204,7 +233,7 @@ async function authenticateOAuthToken(
       }
     });
 
-  return { userId: row.user_id, tokenId: row.id };
+  return { userId: row.user_id, tokenId: row.id, credentialKind: 'oauth' };
 }
 
 export async function authenticateMcpRequest(

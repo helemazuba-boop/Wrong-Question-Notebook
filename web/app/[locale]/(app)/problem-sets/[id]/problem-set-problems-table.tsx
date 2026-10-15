@@ -48,6 +48,7 @@ export default function ProblemSetProblemsTable({
 }: ProblemSetProblemsTableProps) {
   const router = useRouter();
   const t = useTranslations('Problems');
+  const tCommon = useTranslations('Common');
   const isMobile = useIsMobile();
   const { initialFilters, updateUrl } = useFilterParams();
 
@@ -209,7 +210,7 @@ export default function ProblemSetProblemsTable({
       );
 
       if (!response.ok) {
-        let errorMessage = 'Failed to remove problems from set';
+        let errorMessage = t('removeFromSetFailed');
         try {
           const error = await response.json();
           errorMessage = error.message || errorMessage;
@@ -222,12 +223,10 @@ export default function ProblemSetProblemsTable({
       onProblemsRemoved(problemIds);
       setSelectedProblems([]);
       setResetSelection(true);
-      toast.success(
-        `Removed ${problemIds.length} problem${problemIds.length !== 1 ? 's' : ''} from set`
-      );
+      toast.success(t('removedFromSet', { count: problemIds.length }));
     } catch (error) {
       console.error('Error removing problems:', error);
-      toast.error('Failed to remove problems from set');
+      toast.error(t('removeFromSetFailed'));
     } finally {
       setRemoveDialog({ open: false, problemIds: [], count: 0 });
     }
@@ -282,6 +281,7 @@ export default function ProblemSetProblemsTable({
         selectedProblemIds={selectedProblems.map(p => p.id)}
         onBulkDelete={isOwner && !isSmart ? handleRemoveFromSet : undefined}
         onBulkDeleteEnabled={isOwner && !isSmart}
+        bulkDeleteLabel={t('removeFromSet')}
         isSelectMode={isSelectMode}
         onSelectModeChange={isOwner && !isSmart ? setIsSelectMode : undefined}
         hideStatusFilter={!isOwner}
@@ -299,12 +299,13 @@ export default function ProblemSetProblemsTable({
           onRowClick={handleRowClick}
           getRowHref={getRowHref}
           hideStatusStrip={!isOwner}
+          deleteLabel={t('removeFromSet')}
+          canDelete={isOwner && !isSmart}
           onDelete={
             isOwner && !isSmart
               ? (id: string) => handleRemoveFromSet([id])
               : () => {}
           }
-          onAddToSet={() => {}}
           onCopyToNotebook={
             showCopyAction
               ? (problem: Problem) =>
@@ -338,10 +339,10 @@ export default function ProblemSetProblemsTable({
         isOpen={removeDialog.open}
         onCancel={() => setRemoveDialog(prev => ({ ...prev, open: false }))}
         onConfirm={handleConfirmRemove}
-        title="Remove Problems from Set"
-        message={`Are you sure you want to remove ${removeDialog.count} problem${removeDialog.count !== 1 ? 's' : ''} from this problem set?`}
-        confirmText="Remove"
-        cancelText="Cancel"
+        title={t('removeFromSet')}
+        message={t('removeFromSetConfirmation', { count: removeDialog.count })}
+        confirmText={t('removeFromSet')}
+        cancelText={tCommon('cancel')}
         variant="destructive"
       />
 

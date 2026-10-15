@@ -18,6 +18,7 @@ import { UserStatisticsType } from '@/lib/schemas';
 import { formatBytes } from '@/lib/format-utils';
 
 interface DashboardClientProps {
+  isSuperAdmin: boolean;
   userStats: UserStatisticsType;
   contentStats: {
     total_problems: number;
@@ -33,6 +34,7 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({
+  isSuperAdmin,
   userStats,
   contentStats,
   storageStats,
@@ -58,7 +60,7 @@ export function DashboardClient({
         <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
           {t('users')}
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-4">
           <StatCard
             icon={Users}
             value={userStats.total_users}
@@ -95,7 +97,7 @@ export function DashboardClient({
         <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
           {t('content')}
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-4">
           <StatCard
             icon={FileQuestion}
             value={contentStats.total_problems}
@@ -131,22 +133,22 @@ export function DashboardClient({
       </div>
 
       {/* Bottom row: Activity + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,28rem),1fr))] gap-6">
         {/* Recent Activity */}
-        <div className="admin-section-card">
+        <section className="admin-section-card min-w-0">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {t('recentActivityTitle')}
           </h2>
           <RecentActivityFeed activities={recentActivity} />
-        </div>
+        </section>
 
         {/* Quick Actions */}
-        <div className="admin-section-card">
+        <section className="admin-section-card min-w-0">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {t('quickActions')}
           </h2>
-          <QuickActions />
-        </div>
+          <QuickActions isSuperAdmin={isSuperAdmin} />
+        </section>
       </div>
     </div>
   );

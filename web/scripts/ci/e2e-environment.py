@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import secrets
 import shlex
 import sys
 from urllib.parse import urlparse
@@ -28,12 +29,13 @@ values = {
     'NODE_EXTRA_CA_CERTS': str(local / 'certs/ca.crt'),
     'PLAYWRIGHT_FIREFOX_POLICIES_JSON': str(local / 'certs/firefox-policies.json'),
     'NEXT_TELEMETRY_DISABLED': '1',
+    'CRON_SECRET': secrets.token_urlsafe(32),
     'WQN_E2E_SUPABASE_PORT': str(api.port),
 }
 os.umask(0o077)
 (local / 'e2e.env').write_text(''.join(f'export {key}={shlex.quote(value)}\n' for key, value in values.items()))
 if os.getenv('GITHUB_ENV'):
-    for credential in (public_key, server_key):
+    for credential in (public_key, server_key, values['CRON_SECRET']):
         print(f'::add-mask::{credential}', flush=True)
     with open(os.environ['GITHUB_ENV'], 'a') as handle:
         handle.write(''.join(f'{key}={value}\n' for key, value in values.items()))

@@ -15,6 +15,14 @@
     {
       "path": "/api/cron/problem-marks-annotate",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/todo-reminders",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/account-data",
+      "schedule": "* * * * *"
     }
   ]
 }

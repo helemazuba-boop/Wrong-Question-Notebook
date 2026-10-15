@@ -37,10 +37,12 @@ import {
 } from './types.ts';
 import {
   executeToolOverHttp,
+  fetchVoiceContext,
   injectToolResult,
   type ToolCallArgs,
 } from './toolInterceptor.ts';
 import { applyAiToolSessionConfig } from './sessionConfig.ts';
+import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 
 type DeviceWs = {
   send(data: string | Buffer | Uint8Array, opts?: { binary?: boolean }): void;
@@ -268,7 +270,7 @@ interface PendingToolCall {
  * (StepFun streams function_call_arguments across multiple deltas) and
  * downlink seq numbering.
  */
-class RelaySession {
+export class RelaySession {
   // Mutable downlink seq counter (24-bit wraparound, ESP32 doesn't care).
   private downstreamSeq = 0;
 
@@ -290,6 +292,10 @@ class RelaySession {
   // readyState guard in onDeviceFrame silently drops session.update, and
   // StepFun never learns the audio format / voice / instructions.
   private pendingTextFrames: Buffer[] = [];
+  private voiceContext?: VoiceContext;
+  private baseInstructions = '';
+  private sessionConfiguration: Promise<void> = Promise.resolve();
+  private turnGeneration = 0;
 
   // [audio-pacing] Downlink audio pacing: buffer frames and drain at 1x
   // realtime speed so the ESP32's 256KB ringbuffer doesn't overflow when
@@ -342,6 +348,7 @@ class RelaySession {
   public shutdown(reason: string, fields?: Record<string, unknown>) {
     if (this.closed) return;
     this.closed = true;
+    this.turnGeneration++;
     clearInterval(this.idleInterval);
     clearInterval(this.pingInterval);
     // [audio-pacing] Stop the drain timer so queued frames don't fire after close.
@@ -433,18 +440,23 @@ class RelaySession {
     // rewriting `session.update` so ESP32 can keep sending its model id
     // verbatim (it's currently the literal "wqn-flash-v2", which StepFun
     // would reject as an unknown model).
-    let text = buf.toString('utf8');
+    const text = buf.toString('utf8');
     let deviceEventType = 'unknown';
     try {
       const evt = JSON.parse(text);
       if (evt && typeof evt.type === 'string') deviceEventType = evt.type;
       if (evt && evt.type === 'session.update') {
-        text = this.rewriteSessionUpdate(evt);
-        log.info('forwarding session.update to upstream', {
-          session: evt.session,
-        });
-        sendJson(this.deviceWs, { type: 'state', stage: 'session.negotiated' });
+        this.baseInstructions =
+          typeof evt.session?.instructions === 'string'
+            ? evt.session.instructions
+            : '';
+        this.sessionConfiguration = this.configureSession(evt);
+        return;
+      } else if (evt && evt.type === 'response.create') {
+        void this.beginTurn(evt);
+        return;
       } else if (evt && evt.type === 'response.cancel') {
+        this.turnGeneration++;
         // [barge-in-fix] Device barge-in: drop queued downlink audio so the stale
         // tail of the previous response doesn't keep filling the device ringbuffer
         // (root cause of post-barge-in ringbuf full / dropped frames).
@@ -489,7 +501,7 @@ class RelaySession {
             this.upstream.send(
               JSON.stringify({ type: 'input_audio_buffer.commit' })
             );
-            this.upstream.send(JSON.stringify({ type: 'response.create' }));
+            void this.beginTurn({ type: 'response.create' });
           }
         } catch (err) {
           log.warn('upstream commit/response send failed', {
@@ -546,31 +558,65 @@ class RelaySession {
   }
 
   private flushPendingTextFrames() {
-    if (this.pendingTextFrames.length === 0) return;
-    log.info('flushing buffered text frames to upstream', {
-      count: this.pendingTextFrames.length,
-    });
-    for (const buf of this.pendingTextFrames) {
-      let text = buf.toString('utf8');
-      try {
-        const evt = JSON.parse(text);
-        if (evt && evt.type === 'session.update') {
-          text = this.rewriteSessionUpdate(evt);
-          sendJson(this.deviceWs, {
-            type: 'state',
-            stage: 'session.negotiated',
-          });
-        }
-      } catch {
-        /* not JSON, passthrough */
-      }
-      try {
-        this.upstream.send(text);
-      } catch (err) {
-        log.warn('failed to flush buffered text frame', { err: String(err) });
-      }
-    }
+    const frames = this.pendingTextFrames;
     this.pendingTextFrames = [];
+    for (const frame of frames) this.onDeviceFrame(frame, false);
+  }
+
+  private async configureSession(evt: any) {
+    try {
+      if (this.config.executeToolUrl && this.config.proxySecret)
+        this.voiceContext = await fetchVoiceContext(
+          this.config.executeToolUrl,
+          this.config.proxySecret,
+          this.device.userId,
+          this.device.deviceId
+        );
+      if (this.closed) return;
+      this.upstream.send(this.rewriteSessionUpdate(evt));
+      sendJson(this.deviceWs, { type: 'state', stage: 'session.negotiated' });
+    } catch (error) {
+      if (!this.closed)
+        sendJson(this.deviceWs, {
+          type: 'error',
+          ...makeError('internal', 'Voice context unavailable', 'context'),
+        });
+      log.warn('voice context load failed', { err: String(error) });
+    }
+  }
+
+  private async beginTurn(evt: Record<string, unknown>) {
+    const generation = ++this.turnGeneration,
+      anchorAt = new Date().toISOString();
+    try {
+      await this.sessionConfiguration;
+      if (this.config.executeToolUrl && this.config.proxySecret) {
+        const context = await fetchVoiceContext(
+          this.config.executeToolUrl,
+          this.config.proxySecret,
+          this.device.userId,
+          this.device.deviceId,
+          anchorAt
+        );
+        if (this.closed || generation !== this.turnGeneration) return;
+        this.voiceContext = context;
+        this.upstream.send(
+          this.rewriteSessionUpdate({
+            type: 'session.update',
+            session: { instructions: this.baseInstructions },
+          })
+        );
+      }
+      if (!this.closed && generation === this.turnGeneration)
+        this.upstream.send(JSON.stringify(evt));
+    } catch (error) {
+      if (!this.closed && generation === this.turnGeneration)
+        sendJson(this.deviceWs, {
+          type: 'error',
+          ...makeError('internal', 'Voice context unavailable', 'context'),
+        });
+      log.warn('voice turn context load failed', { err: String(error) });
+    }
   }
 
   private rewriteSessionUpdate(evt: any): string {
@@ -582,7 +628,8 @@ class RelaySession {
     // server-owned definitions when the internal executor is configured.
     const session = applyAiToolSessionConfig(
       { ...(evt.session ?? {}) },
-      Boolean(this.config.executeToolUrl && this.config.proxySecret)
+      Boolean(this.config.executeToolUrl && this.config.proxySecret),
+      this.voiceContext
     );
     if (
       typeof session.voice === 'string' &&
@@ -796,8 +843,10 @@ class RelaySession {
       this.config.proxySecret,
       this.device.userId,
       this.device.deviceId,
-      call
+      call,
+      this.voiceContext?.now
     );
+    if (this.closed) return;
 
     // Forward result back upstream.
     injectToolResult(

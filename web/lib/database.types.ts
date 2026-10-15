@@ -1,3 +1,5 @@
+// Generated from the public schema. Preserve nullable SQL RPC arguments and
+// the trigger-assigned notebook_notes.Insert.sort_index when regenerating.
 export type Json =
   | string
   | number
@@ -9,6 +11,57 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      account_data_jobs: {
+        Row: {
+          archive_path: string | null;
+          attempts: number;
+          completed_at: string | null;
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          kind: string;
+          last_error: string | null;
+          lease_id: string | null;
+          lease_until: string | null;
+          next_attempt_at: string;
+          requested_by: string;
+          status: string;
+          user_id: string;
+        };
+        Insert: {
+          archive_path?: string | null;
+          attempts?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind: string;
+          last_error?: string | null;
+          lease_id?: string | null;
+          lease_until?: string | null;
+          next_attempt_at?: string;
+          requested_by: string;
+          status?: string;
+          user_id: string;
+        };
+        Update: {
+          archive_path?: string | null;
+          attempts?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind?: string;
+          last_error?: string | null;
+          lease_id?: string | null;
+          lease_until?: string | null;
+          next_attempt_at?: string;
+          requested_by?: string;
+          status?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       admin_settings: {
         Row: {
           created_at: string | null;
@@ -307,30 +360,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      external_provider_rate_limits: {
-        Row: {
-          bucket_start: string;
-          request_count: number;
-          scope: string;
-          updated_at: string;
-          window_seconds: number;
-        };
-        Insert: {
-          bucket_start: string;
-          request_count: number;
-          scope: string;
-          updated_at?: string;
-          window_seconds: number;
-        };
-        Update: {
-          bucket_start?: string;
-          request_count?: number;
-          scope?: string;
-          updated_at?: string;
-          window_seconds?: number;
-        };
-        Relationships: [];
-      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -620,6 +649,30 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      external_provider_rate_limits: {
+        Row: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at: string;
+          window_seconds: number;
+        };
+        Insert: {
+          bucket_start: string;
+          request_count: number;
+          scope: string;
+          updated_at?: string;
+          window_seconds: number;
+        };
+        Update: {
+          bucket_start?: string;
+          request_count?: number;
+          scope?: string;
+          updated_at?: string;
+          window_seconds?: number;
+        };
+        Relationships: [];
       };
       fsrs_authority_cutover_snapshots: {
         Row: {
@@ -1341,13 +1394,6 @@ export type Database = {
             referencedRelation: 'oauth_clients';
             referencedColumns: ['client_id'];
           },
-          {
-            foreignKeyName: 'oauth_authorization_codes_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: false;
-            referencedRelation: 'users';
-            referencedColumns: ['id'];
-          },
         ];
       };
       oauth_clients: {
@@ -1436,13 +1482,6 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: 'oauth_clients';
             referencedColumns: ['client_id'];
-          },
-          {
-            foreignKeyName: 'oauth_tokens_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: false;
-            referencedRelation: 'users';
-            referencedColumns: ['id'];
           },
         ];
       };
@@ -1590,7 +1629,8 @@ export type Database = {
           id: string;
           problem_id: string;
           proposed_idea: string;
-          source_api_token_id: string;
+          source_api_token_id: string | null;
+          source_oauth_token_id: string | null;
           source_request_id: string;
           user_id: string;
         };
@@ -1604,7 +1644,8 @@ export type Database = {
           id?: string;
           problem_id: string;
           proposed_idea: string;
-          source_api_token_id: string;
+          source_api_token_id?: string | null;
+          source_oauth_token_id?: string | null;
           source_request_id: string;
           user_id: string;
         };
@@ -1618,7 +1659,8 @@ export type Database = {
           id?: string;
           problem_id?: string;
           proposed_idea?: string;
-          source_api_token_id?: string;
+          source_api_token_id?: string | null;
+          source_oauth_token_id?: string | null;
           source_request_id?: string;
           user_id?: string;
         };
@@ -1867,9 +1909,34 @@ export type Database = {
           },
         ];
       };
+      problem_mark_enqueue_errors: {
+        Row: {
+          error_text: string;
+          id: number;
+          occurred_at: string;
+          problem_id: string;
+          semantic_revision: number | null;
+        };
+        Insert: {
+          error_text: string;
+          id?: never;
+          occurred_at?: string;
+          problem_id: string;
+          semantic_revision?: number | null;
+        };
+        Update: {
+          error_text?: string;
+          id?: never;
+          occurred_at?: string;
+          problem_id?: string;
+          semantic_revision?: number | null;
+        };
+        Relationships: [];
+      };
       problem_marks: {
         Row: {
           created_at: string;
+          is_user_override: boolean;
           mark_key: string;
           part_index: number | null;
           problem_id: string;
@@ -1880,6 +1947,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          is_user_override?: boolean;
           mark_key: string;
           part_index?: number | null;
           problem_id: string;
@@ -1890,6 +1958,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          is_user_override?: boolean;
           mark_key?: string;
           part_index?: number | null;
           problem_id?: string;
@@ -2655,28 +2724,52 @@ export type Database = {
           created_at: string;
           details: string | null;
           id: string;
-          problem_set_id: string;
+          previous_is_listed: boolean | null;
+          previous_sharing_level:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id: string | null;
           reason: string;
           reporter_user_id: string;
+          resolution_action: string | null;
+          result_message: string | null;
+          reviewed_at: string | null;
+          reviewed_by_user_id: string | null;
           status: string;
+          target_title: string | null;
         };
         Insert: {
           created_at?: string;
           details?: string | null;
           id?: string;
-          problem_set_id: string;
+          previous_is_listed?: boolean | null;
+          previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id?: string | null;
           reason: string;
           reporter_user_id: string;
+          resolution_action?: string | null;
+          result_message?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by_user_id?: string | null;
           status?: string;
+          target_title?: string | null;
         };
         Update: {
           created_at?: string;
           details?: string | null;
           id?: string;
-          problem_set_id?: string;
+          previous_is_listed?: boolean | null;
+          previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          problem_set_id?: string | null;
           reason?: string;
           reporter_user_id?: string;
+          resolution_action?: string | null;
+          result_message?: string | null;
+          reviewed_at?: string | null;
+          reviewed_by_user_id?: string | null;
           status?: string;
+          target_title?: string | null;
         };
         Relationships: [
           {
@@ -2835,6 +2928,11 @@ export type Database = {
           id: string;
           is_listed: boolean;
           is_smart: boolean;
+          moderation_message: string | null;
+          moderation_previous_is_listed: boolean | null;
+          moderation_previous_sharing_level:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status: string;
           name: string;
           session_config: Json | null;
           sharing_level: Database['public']['Enums']['sharing_level'];
@@ -2853,6 +2951,11 @@ export type Database = {
           id?: string;
           is_listed?: boolean;
           is_smart?: boolean;
+          moderation_message?: string | null;
+          moderation_previous_is_listed?: boolean | null;
+          moderation_previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status?: string;
           name: string;
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
@@ -2871,6 +2974,11 @@ export type Database = {
           id?: string;
           is_listed?: boolean;
           is_smart?: boolean;
+          moderation_message?: string | null;
+          moderation_previous_is_listed?: boolean | null;
+          moderation_previous_sharing_level?:
+            Database['public']['Enums']['sharing_level'] | null;
+          moderation_status?: string;
           name?: string;
           session_config?: Json | null;
           sharing_level?: Database['public']['Enums']['sharing_level'];
@@ -3076,6 +3184,36 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      push_subscriptions: {
+        Row: {
+          auth: string;
+          created_at: string;
+          endpoint: string;
+          id: string;
+          locale: string;
+          p256dh: string;
+          user_id: string;
+        };
+        Insert: {
+          auth: string;
+          created_at?: string;
+          endpoint: string;
+          id?: string;
+          locale?: string;
+          p256dh: string;
+          user_id: string;
+        };
+        Update: {
+          auth?: string;
+          created_at?: string;
+          endpoint?: string;
+          id?: string;
+          locale?: string;
+          p256dh?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       qr_upload_sessions: {
         Row: {
@@ -3437,6 +3575,32 @@ export type Database = {
           },
         ];
       };
+      subject_canonical_aliases: {
+        Row: {
+          alias: string;
+          canonical_key: string;
+          source: string;
+        };
+        Insert: {
+          alias: string;
+          canonical_key: string;
+          source?: string;
+        };
+        Update: {
+          alias?: string;
+          canonical_key?: string;
+          source?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'subject_canonical_aliases_canonical_key_fkey';
+            columns: ['canonical_key'];
+            isOneToOne: false;
+            referencedRelation: 'canonical_subjects';
+            referencedColumns: ['stable_key'];
+          },
+        ];
+      };
       subjects: {
         Row: {
           canonical_subject_key: string | null;
@@ -3509,6 +3673,98 @@ export type Database = {
             columns: ['subject_id'];
             isOneToOne: false;
             referencedRelation: 'subjects';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      todo_notifications: {
+        Row: {
+          created_at: string;
+          id: string;
+          read_at: string | null;
+          reminder_at: string;
+          title: string;
+          todo_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          read_at?: string | null;
+          reminder_at: string;
+          title: string;
+          todo_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          read_at?: string | null;
+          reminder_at?: string;
+          title?: string;
+          todo_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'todo_notifications_todo_id_fkey';
+            columns: ['todo_id'];
+            isOneToOne: false;
+            referencedRelation: 'todos';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      todo_push_deliveries: {
+        Row: {
+          attempts: number;
+          id: string;
+          last_error: string | null;
+          lease_id: string | null;
+          lease_until: string | null;
+          next_attempt_at: string;
+          notification_id: string;
+          sent_at: string | null;
+          status: string;
+          subscription_id: string;
+        };
+        Insert: {
+          attempts?: number;
+          id?: string;
+          last_error?: string | null;
+          lease_id?: string | null;
+          lease_until?: string | null;
+          next_attempt_at?: string;
+          notification_id: string;
+          sent_at?: string | null;
+          status?: string;
+          subscription_id: string;
+        };
+        Update: {
+          attempts?: number;
+          id?: string;
+          last_error?: string | null;
+          lease_id?: string | null;
+          lease_until?: string | null;
+          next_attempt_at?: string;
+          notification_id?: string;
+          sent_at?: string | null;
+          status?: string;
+          subscription_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'todo_push_deliveries_notification_id_fkey';
+            columns: ['notification_id'];
+            isOneToOne: false;
+            referencedRelation: 'todo_notifications';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'todo_push_deliveries_subscription_id_fkey';
+            columns: ['subscription_id'];
+            isOneToOne: false;
+            referencedRelation: 'push_subscriptions';
             referencedColumns: ['id'];
           },
         ];
@@ -3847,6 +4103,8 @@ export type Database = {
           last_login_at: string | null;
           last_name: string | null;
           onboarding_completed_at: string | null;
+          onboarding_dismissed_at: string | null;
+          onboarding_scenario: string | null;
           region: string | null;
           timezone: string | null;
           updated_at: string | null;
@@ -3865,6 +4123,8 @@ export type Database = {
           last_login_at?: string | null;
           last_name?: string | null;
           onboarding_completed_at?: string | null;
+          onboarding_dismissed_at?: string | null;
+          onboarding_scenario?: string | null;
           region?: string | null;
           timezone?: string | null;
           updated_at?: string | null;
@@ -3883,6 +4143,8 @@ export type Database = {
           last_login_at?: string | null;
           last_name?: string | null;
           onboarding_completed_at?: string | null;
+          onboarding_dismissed_at?: string | null;
+          onboarding_scenario?: string | null;
           region?: string | null;
           timezone?: string | null;
           updated_at?: string | null;
@@ -3917,6 +4179,38 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [];
+      };
+      user_word_scheduler_settings: {
+        Row: {
+          active_cutover_id: string | null;
+          authority_mode: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          active_cutover_id?: string | null;
+          authority_mode?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          active_cutover_id?: string | null;
+          authority_mode?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'user_word_scheduler_settings_active_cutover_fkey';
+            columns: ['active_cutover_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_progress_authority_cutovers';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       word_change_log: {
         Row: {
@@ -4236,6 +4530,8 @@ export type Database = {
       };
       word_progress: {
         Row: {
+          authority_algorithm: string;
+          authority_projection_revision: number | null;
           correct_streak: number;
           created_at: string;
           due_at: string | null;
@@ -4253,6 +4549,8 @@ export type Database = {
           word_entry_id: string;
         };
         Insert: {
+          authority_algorithm?: string;
+          authority_projection_revision?: number | null;
           correct_streak?: number;
           created_at?: string;
           due_at?: string | null;
@@ -4270,6 +4568,8 @@ export type Database = {
           word_entry_id: string;
         };
         Update: {
+          authority_algorithm?: string;
+          authority_projection_revision?: number | null;
           correct_streak?: number;
           created_at?: string;
           due_at?: string | null;
@@ -4289,6 +4589,291 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'word_progress_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_progress_authority_cutover_snapshots: {
+        Row: {
+          created_at: string;
+          cutover_id: string;
+          fsrs_projection_revision: number;
+          previous_authority_algorithm: string | null;
+          previous_authority_projection_revision: number | null;
+          previous_correct_streak: number | null;
+          previous_due_at: string | null;
+          previous_interval_days: number | null;
+          previous_known_count: number | null;
+          previous_lapses: number | null;
+          previous_last_reviewed_at: string | null;
+          previous_reviewed_count: number | null;
+          previous_status: string | null;
+          previous_unknown_count: number | null;
+          progress_existed: boolean;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          cutover_id: string;
+          fsrs_projection_revision: number;
+          previous_authority_algorithm?: string | null;
+          previous_authority_projection_revision?: number | null;
+          previous_correct_streak?: number | null;
+          previous_due_at?: string | null;
+          previous_interval_days?: number | null;
+          previous_known_count?: number | null;
+          previous_lapses?: number | null;
+          previous_last_reviewed_at?: string | null;
+          previous_reviewed_count?: number | null;
+          previous_status?: string | null;
+          previous_unknown_count?: number | null;
+          progress_existed: boolean;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          created_at?: string;
+          cutover_id?: string;
+          fsrs_projection_revision?: number;
+          previous_authority_algorithm?: string | null;
+          previous_authority_projection_revision?: number | null;
+          previous_correct_streak?: number | null;
+          previous_due_at?: string | null;
+          previous_interval_days?: number | null;
+          previous_known_count?: number | null;
+          previous_lapses?: number | null;
+          previous_last_reviewed_at?: string | null;
+          previous_reviewed_count?: number | null;
+          previous_status?: string | null;
+          previous_unknown_count?: number | null;
+          progress_existed?: boolean;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_authority_cutover_snapshots_cutover_id_fkey';
+            columns: ['cutover_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_progress_authority_cutovers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'word_progress_authority_cutover_snapshots_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_progress_authority_cutovers: {
+        Row: {
+          cancelled_at: string | null;
+          cutover_at: string;
+          id: string;
+          status: string;
+          user_id: string;
+          word_count: number;
+        };
+        Insert: {
+          cancelled_at?: string | null;
+          cutover_at?: string;
+          id?: string;
+          status?: string;
+          user_id: string;
+          word_count: number;
+        };
+        Update: {
+          cancelled_at?: string | null;
+          cutover_at?: string;
+          id?: string;
+          status?: string;
+          user_id?: string;
+          word_count?: number;
+        };
+        Relationships: [];
+      };
+      word_progress_fsrs_projection: {
+        Row: {
+          card_initialized: boolean;
+          difficulty: number | null;
+          fsrs_state: string | null;
+          lapses: number | null;
+          last_event_id: string | null;
+          last_reviewed_at: string | null;
+          learning_step_index: number | null;
+          library_name: string;
+          library_version: string;
+          next_review_at: string | null;
+          projection_revision: number;
+          reps: number | null;
+          scheduled_days: number | null;
+          scheduler_algorithm: string;
+          stability: number | null;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          updated_at: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          card_initialized: boolean;
+          difficulty?: number | null;
+          fsrs_state?: string | null;
+          lapses?: number | null;
+          last_event_id?: string | null;
+          last_reviewed_at?: string | null;
+          learning_step_index?: number | null;
+          library_name?: string;
+          library_version?: string;
+          next_review_at?: string | null;
+          projection_revision: number;
+          reps?: number | null;
+          scheduled_days?: number | null;
+          scheduler_algorithm?: string;
+          stability?: number | null;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          updated_at?: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          card_initialized?: boolean;
+          difficulty?: number | null;
+          fsrs_state?: string | null;
+          lapses?: number | null;
+          last_event_id?: string | null;
+          last_reviewed_at?: string | null;
+          learning_step_index?: number | null;
+          library_name?: string;
+          library_version?: string;
+          next_review_at?: string | null;
+          projection_revision?: number;
+          reps?: number | null;
+          scheduled_days?: number | null;
+          scheduler_algorithm?: string;
+          stability?: number | null;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          updated_at?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_fsrs_projection_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_progress_projection_jobs: {
+        Row: {
+          attempt_count: number;
+          dirty_from: string;
+          last_error_code: string | null;
+          lease_token: string | null;
+          lease_until: string | null;
+          next_retry_at: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          dirty_from: string;
+          last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          attempt_count?: number;
+          dirty_from?: string;
+          last_error_code?: string | null;
+          lease_token?: string | null;
+          lease_until?: string | null;
+          next_retry_at?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_projection_jobs_word_entry_id_fkey';
+            columns: ['word_entry_id'];
+            isOneToOne: false;
+            referencedRelation: 'word_entries';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      word_progress_projection_runs: {
+        Row: {
+          base_projection_revision: number;
+          completed_at: string | null;
+          error_code: string | null;
+          id: string;
+          lease_token: string;
+          reason: string;
+          started_at: string;
+          status: string;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Insert: {
+          base_projection_revision: number;
+          completed_at?: string | null;
+          error_code?: string | null;
+          id?: string;
+          lease_token: string;
+          reason?: string;
+          started_at?: string;
+          status?: string;
+          timeline_event_count: number;
+          timeline_fingerprint: string;
+          user_id: string;
+          word_entry_id: string;
+        };
+        Update: {
+          base_projection_revision?: number;
+          completed_at?: string | null;
+          error_code?: string | null;
+          id?: string;
+          lease_token?: string;
+          reason?: string;
+          started_at?: string;
+          status?: string;
+          timeline_event_count?: number;
+          timeline_fingerprint?: string;
+          user_id?: string;
+          word_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'word_progress_projection_runs_word_entry_id_fkey';
             columns: ['word_entry_id'];
             isOneToOne: false;
             referencedRelation: 'word_entries';
@@ -4532,6 +5117,15 @@ export type Database = {
       };
     };
     Functions: {
+      account_storage_objects: { Args: { p_user_id: string }; Returns: Json };
+      acquire_external_provider_rate_limit: {
+        Args: {
+          p_max_requests: number;
+          p_scope: string;
+          p_window_seconds?: number;
+        };
+        Returns: Json;
+      };
       activate_user_fsrs_parameter_set: {
         Args: { p_parameter_set_id: string; p_user_id: string };
         Returns: Json;
@@ -4561,12 +5155,20 @@ export type Database = {
           sealed_credential: Json;
         }[];
       };
+      bootstrap_super_admin: {
+        Args: { p_user_id: string };
+        Returns: undefined;
+      };
       bump_device_content_revision: {
         Args: { p_domain: string; p_scope_key: string };
         Returns: undefined;
       };
       can_view_problem: { Args: { p_problem_id: string }; Returns: boolean };
       cancel_fsrs_authority_cutover: {
+        Args: { p_cutover_id: string; p_user_id: string };
+        Returns: Json;
+      };
+      cancel_word_progress_fsrs_cutover: {
         Args: { p_cutover_id: string; p_user_id: string };
         Returns: Json;
       };
@@ -4579,17 +5181,30 @@ export type Database = {
         };
         Returns: Json;
       };
-      acquire_external_provider_rate_limit: {
-        Args: {
-          p_max_requests: number;
-          p_scope: string;
-          p_window_seconds?: number;
+      claim_account_data_job: {
+        Args: never;
+        Returns: {
+          archive_path: string | null;
+          attempts: number;
+          completed_at: string | null;
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          kind: string;
+          last_error: string | null;
+          lease_id: string | null;
+          lease_until: string | null;
+          next_attempt_at: string;
+          requested_by: string;
+          status: string;
+          user_id: string;
+        }[];
+        SetofOptions: {
+          from: '*';
+          to: 'account_data_jobs';
+          isOneToOne: false;
+          isSetofReturn: true;
         };
-        Returns: Json;
-      };
-      cancel_word_progress_fsrs_cutover: {
-        Args: { p_cutover_id: string; p_user_id: string };
-        Returns: Json;
       };
       claim_agent_run_request_v3: {
         Args: {
@@ -4600,7 +5215,7 @@ export type Database = {
           p_session_id: string;
         };
         Returns: {
-          error_code: string | null;
+          error_code: string;
           result: string;
         }[];
       };
@@ -4615,6 +5230,27 @@ export type Database = {
       claim_problem_review_projection_jobs: {
         Args: { p_lease_seconds?: number; p_limit?: number };
         Returns: Json;
+      };
+      claim_todo_push_deliveries: {
+        Args: { p_limit?: number };
+        Returns: {
+          attempts: number;
+          id: string;
+          last_error: string | null;
+          lease_id: string | null;
+          lease_until: string | null;
+          next_attempt_at: string;
+          notification_id: string;
+          sent_at: string | null;
+          status: string;
+          subscription_id: string;
+        }[];
+        SetofOptions: {
+          from: '*';
+          to: 'todo_push_deliveries';
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
       };
       claim_word_progress_projection_jobs: {
         Args: { p_lease_seconds?: number; p_limit?: number };
@@ -4817,6 +5453,16 @@ export type Database = {
         Args: { p_expected_projections: Json; p_user_id: string };
         Returns: Json;
       };
+      enqueue_account_data_job: {
+        Args: { p_actor_id: string; p_kind: string; p_user_id: string };
+        Returns: string;
+      };
+      enqueue_todo_reminders: { Args: { p_limit?: number }; Returns: number };
+      export_account_complete_data: {
+        Args: { p_user_id: string };
+        Returns: Json;
+      };
+      export_account_data: { Args: { p_user_id: string }; Returns: Json };
       fail_problem_mark_annotation: {
         Args: {
           p_error_code: string;
@@ -4826,7 +5472,12 @@ export type Database = {
         Returns: undefined;
       };
       fail_problem_mark_annotation_run: {
-        Args: { p_error_code: string; p_lease_token: string; p_run_id: string };
+        Args: {
+          p_error_code: string;
+          p_lease_token: string;
+          p_run_id: string;
+          p_terminal?: boolean;
+        };
         Returns: Json;
       };
       fail_problem_review_projection_job: {
@@ -4848,6 +5499,10 @@ export type Database = {
         Returns: boolean;
       };
       find_problem_by_asset: { Args: { p_path: string }; Returns: string };
+      foreign_account_asset_owners: {
+        Args: { p_path: string; p_user_id: string };
+        Returns: string[];
+      };
       generate_username_from_email: {
         Args: { p_email: string };
         Returns: string;
@@ -4954,6 +5609,24 @@ export type Database = {
           wrong_count: number;
         }[];
       };
+      get_recent_note_reads_v2: {
+        Args: {
+          p_limit?: number;
+          p_notebook_id?: string | null;
+          p_user_id: string;
+        };
+        Returns: {
+          actor: string;
+          completed_count: number;
+          last_completed_at: string;
+          last_opened_at: string;
+          note_id: string;
+          note_title: string;
+          notebook_id: string;
+          notebook_title: string;
+          state: string;
+        }[];
+      };
       get_recent_study_activity: {
         Args: { p_user_id: string };
         Returns: {
@@ -5032,24 +5705,6 @@ export type Database = {
           }
         | { Args: { p_user_id: string }; Returns: Json };
       get_user_storage_bytes: { Args: { p_user_id: string }; Returns: number };
-      get_recent_note_reads_v2: {
-        Args: {
-          p_limit?: number;
-          p_notebook_id?: string | null;
-          p_user_id: string;
-        };
-        Returns: {
-          actor: string;
-          completed_count: number;
-          last_completed_at: string | null;
-          last_opened_at: string;
-          note_id: string;
-          note_title: string;
-          notebook_id: string;
-          notebook_title: string;
-          state: string;
-        }[];
-      };
       get_web_note_study_session_v2: {
         Args: { p_session_id: string; p_user_id: string };
         Returns: Json;
@@ -5058,11 +5713,13 @@ export type Database = {
         Args: { p_user_id: string; p_user_tz?: string };
         Returns: Json;
       };
+      has_limited_set_grant: { Args: { p_set_id: string }; Returns: boolean };
       increment_copy_count: {
         Args: { p_problem_set_id: string };
         Returns: undefined;
       };
       inherit_problem_marks: { Args: { p_mappings: Json }; Returns: Json };
+      is_account_active: { Args: never; Returns: boolean };
       log_user_activity: {
         Args: {
           p_action: string;
@@ -5071,6 +5728,10 @@ export type Database = {
           p_resource_type?: string;
         };
         Returns: string;
+      };
+      prepare_account_identity_deletion: {
+        Args: { p_user_id: string };
+        Returns: undefined;
       };
       prepare_problem_mark_annotation: {
         Args: {
@@ -5096,6 +5757,7 @@ export type Database = {
         };
         Returns: Json;
       };
+      problem_mark_annotation_health: { Args: never; Returns: Json };
       problem_parts_valid: { Args: { p: Json }; Returns: boolean };
       prune_word_packs_v1: {
         Args: { p_deck_id: string };
@@ -5114,20 +5776,6 @@ export type Database = {
           p_request_id: string;
           p_sequence: number;
           p_session_id: string;
-          p_user_id: string;
-        };
-        Returns: Json;
-      };
-      record_web_note_study_observation_v2: {
-        Args: {
-          p_action: string;
-          p_item_id: string;
-          p_mode: string;
-          p_occurred_at: string;
-          p_request_id: string;
-          p_sequence: number;
-          p_session_id: string;
-          p_skip?: boolean;
           p_user_id: string;
         };
         Returns: Json;
@@ -5162,7 +5810,6 @@ export type Database = {
         };
         Returns: Json;
       };
-      problem_mark_annotation_health: { Args: never; Returns: Json };
       record_problem_set_copy: {
         Args: { p_problem_set_id: string; p_user_id: string };
         Returns: undefined;
@@ -5189,6 +5836,20 @@ export type Database = {
         };
         Returns: Json;
       };
+      record_web_note_study_observation_v2: {
+        Args: {
+          p_action: string;
+          p_item_id: string;
+          p_mode: string;
+          p_occurred_at: string;
+          p_request_id: string;
+          p_sequence: number;
+          p_session_id: string;
+          p_skip?: boolean;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       refresh_ranking_scores: { Args: never; Returns: undefined };
       refund_quota_usage: {
         Args: {
@@ -5198,8 +5859,23 @@ export type Database = {
         };
         Returns: number;
       };
-      replace_problem_tags: {
-        Args: { p_problem_id: string; p_tag_ids: string[] };
+      register_push_subscription: {
+        Args: {
+          p_auth: string;
+          p_endpoint: string;
+          p_locale: string;
+          p_p256dh: string;
+          p_user_id: string;
+        };
+        Returns: string;
+      };
+      rehome_account_asset: {
+        Args: {
+          p_new: string;
+          p_old: string;
+          p_owner_id: string;
+          p_recipient_id: string;
+        };
         Returns: undefined;
       };
       renew_problem_mark_annotation_lease: {
@@ -5210,9 +5886,31 @@ export type Database = {
         };
         Returns: Json;
       };
+      replace_asset_reference: {
+        Args: { p_new: string; p_old: string; p_value: Json };
+        Returns: Json;
+      };
+      replace_problem_tags: {
+        Args: { p_problem_id: string; p_tag_ids: string[] };
+        Returns: undefined;
+      };
       requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {
         Args: { p_problem_id: string };
+        Returns: Json;
+      };
+      require_active_account: { Args: never; Returns: undefined };
+      resolve_canonical_subject_key: {
+        Args: { p_name: string };
+        Returns: string;
+      };
+      resolve_problem_set_report: {
+        Args: {
+          p_action: string;
+          p_actor_user_id: string;
+          p_message: string;
+          p_report_id: string;
+        };
         Returns: Json;
       };
       seed_word_scheduler_settings: {

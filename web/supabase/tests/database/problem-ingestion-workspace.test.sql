@@ -24,7 +24,7 @@ select has_column(
 select policies_are(
   'public',
   'problem_ingestion_candidates',
-  array[
+  array['active_account_required',
     'problem_ingestion_candidates_owner_select',
     'problem_ingestion_candidates_owner_update'
   ],

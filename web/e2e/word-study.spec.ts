@@ -5,8 +5,10 @@ test('study answers advance cloud progress and survive refresh', async ({
   data,
 }) => {
   const id = await startStudy(page, data);
-  await page.getByRole('button', { name: '揭示释义', exact: true }).click();
-  await page.getByRole('button', { name: /^认识\s*2$/ }).click();
+  await page
+    .getByRole('button', { name: 'Reveal meaning', exact: true })
+    .click();
+  await page.getByRole('button', { name: /^Known\s*2$/ }).click();
   await expect.poll(() => observationCount(data, id)).toBe(1);
   await expect(page.getByText('2 / 2', { exact: true })).toBeVisible();
   await page.reload();
@@ -36,11 +38,13 @@ test('a committed answer with a lost response is recovered exactly once', async 
     }
     await route.abort('connectionreset');
   });
-  await page.getByRole('button', { name: '揭示释义', exact: true }).click();
-  await page.getByRole('button', { name: /^认识\s*2$/ }).click();
+  await page
+    .getByRole('button', { name: 'Reveal meaning', exact: true })
+    .click();
+  await page.getByRole('button', { name: /^Known\s*2$/ }).click();
   await expect.poll(() => observationCount(data, id)).toBe(1);
   await expect(
-    page.getByRole('button', { name: '重试同一请求', exact: true })
+    page.getByRole('button', { name: 'Retry the same request', exact: true })
   ).toBeVisible();
   expect(
     await page.evaluate(

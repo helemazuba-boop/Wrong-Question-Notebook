@@ -1,3 +1,4 @@
+import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/supabase/requireUser';
@@ -10,7 +11,9 @@ import {
 import WordsPageClient from './words-page-client';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: 'Word 学习' };
+  const tFeature = await getFeatureTranslations('Words');
+
+  return { title: tFeature('vocabularyStudy') };
 }
 
 export default async function WordsPage() {

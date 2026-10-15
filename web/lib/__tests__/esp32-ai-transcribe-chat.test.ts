@@ -148,11 +148,20 @@ beforeEach(() => {
   mockFetch.mockReset();
   vi.stubGlobal('fetch', mockFetch);
 
-  mockFrom.mockReturnValue({
-    select: mockSelect,
-    update: mockUpdate,
-    upsert: mockUpsert,
-  });
+  mockFrom.mockImplementation((table: string) =>
+    table === 'user_profiles'
+      ? {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { is_active: true },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      : { select: mockSelect, update: mockUpdate, upsert: mockUpsert }
+  );
   mockSelect.mockReturnValue({ eq: mockSelectEq });
   mockSelectEq.mockReturnValue({
     eq: mockSelectEq,
@@ -478,7 +487,7 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     const chatBody = JSON.parse(mockFetch.mock.calls[2][1].body);
     expect(chatBody.enable_thinking).toBe(true);
     expect(chatBody.thinking_budget).toBe(8192);
-    expect(chatBody.tools).toHaveLength(11);
+    expect(chatBody.tools).toHaveLength(8);
     expect(chatBody.tool_choice).toBe('auto');
     expect(chatBody.messages[0].content).toContain('validate key assumptions');
     expect(chatBody.messages[0].content).toContain(

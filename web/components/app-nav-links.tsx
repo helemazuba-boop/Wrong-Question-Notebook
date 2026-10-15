@@ -122,7 +122,7 @@ function NavLink({
       href={href}
       prefetch={false}
       className={cn(
-        'text-base text-muted-foreground hover:text-foreground transition-all duration-200 border-b-2 border-transparent pb-0.5 hover:border-amber-300/50 dark:hover:border-amber-700/50',
+        'shrink-0 whitespace-nowrap text-base text-muted-foreground hover:text-foreground transition-all duration-200 border-b-2 border-transparent pb-0.5 hover:border-amber-300/50 dark:hover:border-amber-700/50',
         active &&
           'text-foreground font-medium border-amber-500 dark:border-amber-400 hover:border-amber-500 dark:hover:border-amber-400'
       )}
@@ -182,23 +182,24 @@ function MobileNavLink({
 
 export function AppNavLinks() {
   const [open, setOpen] = useState(false);
+  const t = useTranslations('Navigation');
 
   return (
     <>
-      <div className="hidden items-center gap-6 md:flex">
+      <div className="hidden items-center gap-6 2xl:flex">
         {APP_LINKS.map(l => (
           <NavLink key={l.href} href={l.href} labelKey={l.labelKey} />
         ))}
       </div>
 
-      <div className="md:hidden">
+      <div className="shrink-0 2xl:hidden">
         <DropdownMenu open={open} onOpenChange={setOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
               size="icon"
               className="h-11 w-11 rounded-xl"
-              aria-label="Open navigation"
+              aria-label={t('openNavigation')}
             >
               <Menu className="h-4 w-4" />
             </Button>

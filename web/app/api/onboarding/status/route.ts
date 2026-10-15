@@ -1,83 +1,38 @@
 import { NextResponse } from 'next/server';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { withSecurity } from '@/lib/security-middleware';
-import {
-  createApiErrorResponse,
-  createApiSuccessResponse,
-  handleAsyncError,
-} from '@/lib/common-utils';
-import { ERROR_MESSAGES } from '@/lib/constants';
-import { OnboardingStatus } from '@/lib/types';
-
-async function getOnboardingStatus() {
+import { loadOnboardingStatus } from '@/lib/onboarding';
+import { z } from 'zod';
+async function status() {
   const { user, supabase } = await requireUser();
   if (!user) return unauthorised();
-
   try {
-    const [subjects, problems, reviewed, firstSubject, firstProblem] =
-      await Promise.all([
-        supabase
-          .from('subjects')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
-        supabase
-          .from('problems')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
-        supabase
-          .from('problems')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .not('last_reviewed_date', 'is', null),
-        supabase
-          .from('subjects')
-          .select('id')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('problems')
-          .select('id, subject_id')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-    const queryError =
-      subjects.error ||
-      problems.error ||
-      reviewed.error ||
-      firstSubject.error ||
-      firstProblem.error;
-
-    if (queryError) {
-      const errMsg = queryError.message;
-      return NextResponse.json(
-        createApiErrorResponse(ERROR_MESSAGES.DATABASE_ERROR, 500, errMsg),
-        { status: 500 }
-      );
-    }
-
-    const status: OnboardingStatus = {
-      hasSubject: (subjects.count ?? 0) > 0,
-      hasProblem: (problems.count ?? 0) > 0,
-      hasReviewed: (reviewed.count ?? 0) > 0,
-      firstSubjectId: firstSubject.data?.id ?? null,
-      firstProblemId: firstProblem.data?.id ?? null,
-      firstProblemSubjectId: firstProblem.data?.subject_id ?? null,
-    };
-
-    return NextResponse.json(createApiSuccessResponse(status));
-  } catch (error) {
-    const { message, status } = handleAsyncError(error);
-    return NextResponse.json(createApiErrorResponse(message, status), {
-      status,
+    return NextResponse.json({
+      data: await loadOnboardingStatus(supabase, user.id),
     });
+  } catch {
+    return NextResponse.json(
+      { error: 'Onboarding status unavailable' },
+      { status: 503 }
+    );
   }
 }
-
-export const GET = withSecurity(getOnboardingStatus, {
-  rateLimitType: 'readOnly',
-});
+async function choose(req: Request) {
+  const { user, supabase } = await requireUser();
+  if (!user) return unauthorised();
+  const parsed = z
+    .object({ scenario: z.enum(['problems', 'notes', 'words']) })
+    .strict()
+    .safeParse(await req.json().catch(() => null));
+  if (!parsed.success)
+    return NextResponse.json({ error: 'Invalid scenario' }, { status: 400 });
+  const { error } = await (supabase as any)
+    .from('user_profiles')
+    .update({ onboarding_scenario: parsed.data.scenario })
+    .eq('id', user.id);
+  return error
+    ? NextResponse.json({ error: 'Scenario save failed' }, { status: 503 })
+    : status();
+}
+export const GET = withSecurity(status, { rateLimitType: 'readOnly' });
+export const POST = withSecurity(choose, { rateLimitType: 'api' });

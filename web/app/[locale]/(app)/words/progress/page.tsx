@@ -1,3 +1,7 @@
+import {
+  getTranslations as getFeatureTranslations,
+  getLocale as getFeatureLocale,
+} from 'next-intl/server';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -13,34 +17,26 @@ import {
 } from '@/lib/word-study-web';
 
 export async function generateMetadata(): Promise<Metadata> {
-  return { title: 'Word 学习进度' };
+  const tFeature = await getFeatureTranslations('Words');
+
+  return { title: tFeature('vocabularyProgress') };
 }
 
-function formatDate(value: string) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return '时间未知';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-}
+async function ProgressCards({
+  overview,
+}: {
+  overview: WebWordProgressOverview;
+}) {
+  const tFeature = await getFeatureTranslations('Words');
 
-function actionLabel(action: string) {
-  if (action === 'known') return '认识';
-  if (action === 'unknown') return '不认识';
-  if (action === 'skipped') return '跳过';
-  if (action === 'looked_up') return '查阅';
-  return action;
-}
-
-function ProgressCards({ overview }: { overview: WebWordProgressOverview }) {
   const cards = [
-    ['词条总数', overview.totals.total],
-    ['今日到期', overview.totals.due_count],
-    ['学习中', overview.totals.learning_count + overview.totals.review_count],
-    ['已掌握', overview.totals.mastered_count],
+    [tFeature('totalEntries'), overview.totals.total],
+    [tFeature('dueToday'), overview.totals.due_count],
+    [
+      tFeature('learning'),
+      overview.totals.learning_count + overview.totals.review_count,
+    ],
+    [tFeature('mastered'), overview.totals.mastered_count],
   ];
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -59,6 +55,26 @@ function ProgressCards({ overview }: { overview: WebWordProgressOverview }) {
 }
 
 export default async function WordProgressPage() {
+  const tFeature = await getFeatureTranslations('Words');
+  const featureLocale = await getFeatureLocale();
+  function formatDate(value: string) {
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return tFeature('unknownTime');
+    return new Intl.DateTimeFormat(featureLocale, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp));
+  }
+  function actionLabel(action: string) {
+    if (action === 'known') return tFeature('known');
+    if (action === 'unknown') return tFeature('unknown');
+    if (action === 'skipped') return tFeature('skip');
+    if (action === 'looked_up') return tFeature('lookUp');
+    return action;
+  }
+
   const { user, supabase } = await requireUser();
   if (!user) redirect('/auth/login?redirect=/words/progress');
 
@@ -76,11 +92,11 @@ export default async function WordProgressPage() {
   return (
     <div className="section-container space-y-6">
       <PageHeader
-        title="Word 学习进度"
-        description="Web、MCP 与 WQN Note4 共用同一份词条进度；这里展示已经确认写入云端的结果。"
+        title={tFeature('vocabularyProgress')}
+        description={tFeature('webMcpAndWqnNote4ShareYour')}
         actions={
           <Link className="text-sm text-primary hover:underline" href="/words">
-            返回词库
+            {tFeature('backToDecks')}
           </Link>
         }
       />
@@ -89,12 +105,12 @@ export default async function WordProgressPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>各词库状态</CardTitle>
+            <CardTitle>{tFeature('progressByDeck')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {overview.decks.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                还没有可统计的词库。
+                {tFeature('noDecksToSummarizeYet')}
               </p>
             ) : (
               overview.decks.map(summary => (
@@ -105,18 +121,25 @@ export default async function WordProgressPage() {
                 >
                   <div>
                     <p className="font-medium">
-                      {deckTitleById.get(summary.deck_id) || '已移除词库'}
+                      {deckTitleById.get(summary.deck_id) ||
+                        tFeature('removedDeck')}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      新词 {summary.new_count} · 学习中 {summary.learning_count}{' '}
-                      · 复习 {summary.review_count} · 掌握{' '}
+                      {tFeature('newWords')}
+                      {summary.new_count} {tFeature('learning2')}
+                      {summary.learning_count} {tFeature('review3')}
+                      {summary.review_count} {tFeature('mastered2')}{' '}
                       {summary.mastered_count}
                     </p>
                   </div>
                   <Badge
                     variant={summary.due_count ? 'destructive' : 'secondary'}
                   >
-                    {summary.due_count ? `${summary.due_count} 到期` : '无到期'}
+                    {summary.due_count
+                      ? tFeature('due', {
+                          value0: String(summary.due_count ?? ''),
+                        })
+                      : tFeature('nothingDue')}
                   </Badge>
                 </Link>
               ))
@@ -126,11 +149,13 @@ export default async function WordProgressPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>最近学习</CardTitle>
+            <CardTitle>{tFeature('recentStudy')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {overview.recent_activity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">还没有学习记录。</p>
+              <p className="text-sm text-muted-foreground">
+                {tFeature('noStudyHistoryYet')}
+              </p>
             ) : (
               overview.recent_activity.map((activity, index) => (
                 <div
@@ -162,11 +187,13 @@ export default async function WordProgressPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>学习会话</CardTitle>
+          <CardTitle>{tFeature('studySessions')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {overview.recent_sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">还没有学习会话。</p>
+            <p className="text-sm text-muted-foreground">
+              {tFeature('noStudySessionsYet')}
+            </p>
           ) : (
             overview.recent_sessions.map(session => (
               <div
@@ -175,7 +202,8 @@ export default async function WordProgressPage() {
               >
                 <div>
                   <p className="font-medium">
-                    {session.deck_titles.join('、') || 'Word 学习'}
+                    {session.deck_titles.join('、') ||
+                      tFeature('vocabularyStudy')}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {session.status} · {session.next_sequence}/
@@ -189,7 +217,7 @@ export default async function WordProgressPage() {
                     className="text-sm text-primary hover:underline"
                     href={`/words/study/${session.session_id}`}
                   >
-                    查看会话
+                    {tFeature('viewSession')}
                   </Link>
                 ) : null}
               </div>

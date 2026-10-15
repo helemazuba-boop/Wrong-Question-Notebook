@@ -55,11 +55,20 @@ export async function checkLimitedAccess(
  */
 export async function checkProblemSetAccess(
   supabase: any,
-  problemSet: { user_id: string; sharing_level: string },
+  problemSet: {
+    user_id: string;
+    sharing_level: string;
+    moderation_status?: string;
+  },
   userId: string | null,
   userEmail: string | null,
   problemSetId: string
 ): Promise<boolean> {
+  if (
+    problemSet.moderation_status === 'hidden' &&
+    problemSet.user_id !== userId
+  )
+    return false;
   const isPublic = problemSet.sharing_level === 'public';
 
   // Anonymous users can only access public sets
@@ -118,7 +127,7 @@ export function transformProblemSetProblems(problemSetProblems: any[]): any[] {
 const PROBLEM_SET_COLUMNS = `
   id, user_id, subject_id, name, description, sharing_level,
   created_at, updated_at, is_smart, filter_config, session_config,
-  allow_copying, is_listed, discovery_subject
+  allow_copying, is_listed, discovery_subject, moderation_status, moderation_message
 `;
 
 /**

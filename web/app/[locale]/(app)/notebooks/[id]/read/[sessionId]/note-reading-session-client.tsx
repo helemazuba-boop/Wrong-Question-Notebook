@@ -1,7 +1,10 @@
 'use client';
+import { useTranslations as useFeatureTranslations } from 'next-intl';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
+import { useSearchParams } from 'next/navigation';
+import { isSafeInternalHref } from '@/lib/navigation-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -58,17 +61,22 @@ function apiError(
   });
 }
 
-function readStateLabel(item: WebNoteStudyItem) {
-  if (item.read_state.state === 'completed') return '读过';
-  if (item.read_state.state === 'reading') return '阅读中';
-  return '未读';
-}
-
 export default function NoteReadingSessionClient({
   notebookId,
   initialSession,
 }: Props) {
+  const tFeature = useFeatureTranslations('Notes');
+  function readStateLabel(item: WebNoteStudyItem) {
+    if (item.read_state.state === 'completed')
+      return tFeature('previouslyRead');
+    if (item.read_state.state === 'reading') return tFeature('reading');
+    return tFeature('unread');
+  }
+
   const router = useRouter();
+  const from = useSearchParams().get('from');
+  const backHref =
+    from && isSafeInternalHref(from) ? from : `/notebooks/${notebookId}`;
   const [session, setSession] = useState(initialSession);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingWebNoteObservation | null>(
@@ -104,8 +112,8 @@ export default function NoteReadingSessionClient({
       )
     : 100;
   const heading = useMemo(
-    () => session.notebook_titles.join('、') || 'Note 阅读',
-    [session.notebook_titles]
+    () => session.notebook_titles.join('、') || tFeature('noteReading'),
+    [session.notebook_titles, tFeature]
   );
 
   const refreshSession = useCallback(async () => {
@@ -122,11 +130,11 @@ export default function NoteReadingSessionClient({
       session: WebNoteStudySessionView;
     }> | null;
     if (!response.ok || !result?.ok || !result.data?.session) {
-      throw apiError(result, '恢复阅读会话失败');
+      throw apiError(result, tFeature('couldNotRestoreTheReadingSession'));
     }
     setSession(result.data.session);
     return result.data.session;
-  }, []);
+  }, [tFeature]);
 
   const updateStatus = useCallback(
     async (status: 'active' | 'paused' | 'completed' | 'abandoned') => {
@@ -145,7 +153,7 @@ export default function NoteReadingSessionClient({
         session: WebNoteStudySessionView;
       }> | null;
       if (!response.ok || !result?.ok || !result.data?.session) {
-        throw apiError(result, '更新阅读状态失败');
+        throw apiError(result, tFeature('couldNotUpdateReadingStatus'));
       }
       setSession(current => ({
         ...current,
@@ -154,7 +162,7 @@ export default function NoteReadingSessionClient({
         expires_at: result.data!.session.expires_at,
       }));
     },
-    []
+    [tFeature]
   );
 
   const completeIfNeeded = useCallback(
@@ -186,14 +194,14 @@ export default function NoteReadingSessionClient({
       pendingRef.current = null;
       setPending(null);
       if (disposition === 'already_applied') {
-        setMessage('这次阅读已在云端确认，已恢复到正确位置。');
+        setMessage(tFeature('thisReadingActionWasConfirmedInThe'));
         await completeIfNeeded(latest);
       } else {
-        setMessage('本地记录与云端位置不一致，未自动套用，已回到云端进度。');
+        setMessage(tFeature('localAndCloudPositionsDifferTheCloud'));
       }
       return true;
     },
-    [completeIfNeeded, refreshSession]
+    [completeIfNeeded, refreshSession, tFeature]
   );
 
   const sendObservation = useCallback(
@@ -212,7 +220,7 @@ export default function NoteReadingSessionClient({
       if (
         !writeNoteStudyStorage(localStorage, key, JSON.stringify(observation))
       ) {
-        setMessage('浏览器无法保存待提交状态，请保持页面打开直到云端确认。');
+        setMessage(tFeature('theBrowserCannotSaveThePendingAction'));
       }
       try {
         const postObservation = async (value: PendingWebNoteObservation) => {
@@ -237,7 +245,7 @@ export default function NoteReadingSessionClient({
         let { response, result } = await postObservation(effectiveObservation);
         const initialError =
           !response.ok || !result?.ok || !result.data?.session
-            ? apiError(result, '提交阅读记录失败')
+            ? apiError(result, tFeature('couldNotSubmitTheReadingAction'))
             : null;
         if (
           initialError &&
@@ -254,10 +262,13 @@ export default function NoteReadingSessionClient({
             JSON.stringify(effectiveObservation)
           );
           ({ response, result } = await postObservation(effectiveObservation));
-          toast.warning('笔记已发生变化，本次已安全跳过。');
+          toast.warning(tFeature('thisNoteChangedItWasSafelySkipped'));
         }
         if (!response.ok || !result?.ok || !result.data?.session) {
-          const error = apiError(result, '提交阅读记录失败');
+          const error = apiError(
+            result,
+            tFeature('couldNotSubmitTheReadingAction')
+          );
           if (
             error.code === 'SEQUENCE_ALREADY_APPLIED' ||
             error.code === 'SEQUENCE_GAP'
@@ -283,12 +294,21 @@ export default function NoteReadingSessionClient({
           const delay = noteStudyRetryDelayMs(retryFailuresRef.current);
           nextAutomaticRetryAtRef.current = Date.now() + delay;
           setMessage(
-            `${error instanceof Error ? error.message : '提交失败'}。记录仍保留在本机；连续失败 ${retryFailuresRef.current} 次，将在网络可用时退避重试。`
+            tFeature('theActionRemainsSavedLocallyAfterFailed', {
+              value0: String(
+                error instanceof Error
+                  ? error.message
+                  : (tFeature('submissionFailed') ?? '')
+              ),
+              value1: String(retryFailuresRef.current ?? ''),
+            })
           );
           scheduleAutomaticRetryRef.current?.();
         } else {
           setMessage(
-            error instanceof Error ? error.message : '云端状态同步失败'
+            error instanceof Error
+              ? error.message
+              : tFeature('couldNotSynchronizeCloudStatus')
           );
         }
       } finally {
@@ -296,7 +316,7 @@ export default function NoteReadingSessionClient({
         setBusy(false);
       }
     },
-    [reconcile]
+    [reconcile, tFeature]
   );
 
   const submit = useCallback(
@@ -349,9 +369,7 @@ export default function NoteReadingSessionClient({
     if (expired) {
       pendingRef.current = stored;
       setPending(stored);
-      setMessage(
-        '本机仍有未确认记录，但这个会话已经过期；系统不会把它套用到新会话。'
-      );
+      setMessage(tFeature('aPendingActionRemainsLocallyButThis'));
       return;
     }
     const disposition = dispositionForPendingNoteObservation(
@@ -359,12 +377,19 @@ export default function NoteReadingSessionClient({
       stored
     );
     if (disposition === 'retry') {
-      setMessage('发现上次未确认的阅读操作，正在使用同一请求恢复。');
+      setMessage(tFeature('restoringThePreviousUnconfirmedReadingActionUsing'));
       void sendObservation(stored);
     } else {
       void reconcile(stored);
     }
-  }, [completeIfNeeded, expired, initialSession, reconcile, sendObservation]);
+  }, [
+    completeIfNeeded,
+    expired,
+    initialSession,
+    reconcile,
+    sendObservation,
+    tFeature,
+  ]);
 
   useEffect(() => {
     const retry = () => {
@@ -415,15 +440,17 @@ export default function NoteReadingSessionClient({
 
   async function pauseAndLeave() {
     if (pendingRef.current || busy) {
-      toast.info('请等待当前阅读记录确认');
+      toast.info(tFeature('waitForTheCurrentReadingActionTo'));
       return;
     }
     try {
       if (!complete && session.status === 'active')
         await updateStatus('paused');
-      router.push(`/notebooks/${notebookId}`);
+      router.push(backHref);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '暂停失败');
+      toast.error(
+        error instanceof Error ? error.message : tFeature('couldNotPause')
+      );
     }
   }
 
@@ -432,7 +459,11 @@ export default function NoteReadingSessionClient({
       await updateStatus('active');
       await refreshSession();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '继续阅读失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotContinueReading')
+      );
     }
   }
 
@@ -444,18 +475,27 @@ export default function NoteReadingSessionClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `回顾笔记：${currentItem.title}`,
-          description: `来自笔记本「${currentItem.notebook_title}」`,
+          title: tFeature('reviewNote', {
+            value0: String(currentItem.title ?? ''),
+          }),
+          description: tFeature('fromNotebook', {
+            value0: String(currentItem.notebook_title ?? ''),
+          }),
           notebook_id: currentItem.notebook_id,
           note_id: currentItem.item_id,
           priority: 'normal',
         }),
       });
       const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(result?.message || '创建 Todo 失败');
-      toast.success('已加入 Todo');
+      if (!response.ok)
+        throw new Error(result?.message || tFeature('couldNotCreateTheTodo'));
+      toast.success(tFeature('addedToTodos'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建 Todo 失败');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : tFeature('couldNotCreateTheTodo')
+      );
     } finally {
       setTodoBusy(false);
     }
@@ -466,7 +506,7 @@ export default function NoteReadingSessionClient({
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <Button variant="outline" onClick={pauseAndLeave}>
           <ArrowLeft className="mr-2 h-4 w-4" />
-          返回笔记本
+          {tFeature('backToNotebook')}
         </Button>
         <div className="flex items-center gap-2">
           <Badge variant="outline">{heading}</Badge>
@@ -495,7 +535,7 @@ export default function NoteReadingSessionClient({
               onClick={() => void sendObservation(pending)}
             >
               <RotateCcw className="mr-1 h-3.5 w-3.5" />
-              重试
+              {tFeature('retry')}
             </Button>
           ) : null}
         </div>
@@ -506,20 +546,29 @@ export default function NoteReadingSessionClient({
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              本轮阅读完成
+              {tFeature('readingSessionComplete')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid grid-cols-3 gap-3 text-center">
-              <Result label="读完" value={session.result.completed_count} />
-              <Result label="稍后再看" value={session.result.opened_count} />
-              <Result label="已跳过" value={session.result.skipped_count} />
+              <Result
+                label={tFeature('finishedReading')}
+                value={session.result.completed_count}
+              />
+              <Result
+                label={tFeature('readLater')}
+                value={session.result.opened_count}
+              />
+              <Result
+                label={tFeature('skipped')}
+                value={session.result.skipped_count}
+              />
             </div>
             <p className="text-sm text-muted-foreground">
-              “读完”只记录阅读完成，不代表掌握；你可以从笔记本再次开始阅读。
+              {tFeature('finishingAnItemRecordsReadingCompletionNot')}
             </p>
             <Button className="w-full" asChild>
-              <Link href={`/notebooks/${notebookId}`}>返回笔记本详情</Link>
+              <Link href={backHref}>{tFeature('backToNotebookDetails')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -527,30 +576,32 @@ export default function NoteReadingSessionClient({
         <Card className="mx-auto max-w-xl">
           <CardHeader>
             <CardTitle>
-              {expired ? '阅读会话已过期' : '阅读会话已结束'}
+              {expired
+                ? tFeature('readingSessionExpired')
+                : tFeature('readingSessionEnded')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              当前页面不会继续提交旧进度。返回笔记本即可建立新的阅读会话。
+              {tFeature('thisPageWillNotSubmitFurtherProgress')}
             </p>
             <Button className="w-full" asChild>
-              <Link href={`/notebooks/${notebookId}`}>返回笔记本</Link>
+              <Link href={backHref}>{tFeature('backToNotebook')}</Link>
             </Button>
           </CardContent>
         </Card>
       ) : session.status === 'paused' ? (
         <Card className="mx-auto max-w-xl">
           <CardHeader>
-            <CardTitle>阅读已暂停</CardTitle>
+            <CardTitle>{tFeature('readingPaused')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              当前笔记没有被推进，继续后仍从这里开始。
+              {tFeature('theCurrentNoteHasNotAdvancedContinue')}
             </p>
             <Button className="w-full" onClick={resume}>
               <BookOpenCheck className="mr-2 h-4 w-4" />
-              继续阅读
+              {tFeature('continueReading')}
             </Button>
           </CardContent>
         </Card>
@@ -560,7 +611,8 @@ export default function NoteReadingSessionClient({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="mb-1 text-sm text-muted-foreground">
-                  {currentItem.notebook_title} · 第 {currentItem.ordinal + 1} 篇
+                  {currentItem.notebook_title} {tFeature('item')}
+                  {currentItem.ordinal + 1} {tFeature('items')}
                 </p>
                 <CardTitle className="text-xl">{currentItem.title}</CardTitle>
               </div>
@@ -587,7 +639,7 @@ export default function NoteReadingSessionClient({
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`/api/files/${encodeURIComponent(asset.path)}`}
-                      alt="笔记图片"
+                      alt={tFeature('noteImage')}
                       className="max-h-96 w-full object-contain"
                     />
                   </a>
@@ -606,7 +658,7 @@ export default function NoteReadingSessionClient({
                     }
                   >
                     <ExternalLink className="mr-2 h-4 w-4" />
-                    查看关联错题
+                    {tFeature('viewLinkedQuestion')}
                   </Link>
                 </Button>
               ) : null}
@@ -617,12 +669,12 @@ export default function NoteReadingSessionClient({
                   disabled={todoBusy}
                 >
                   <ListTodo className="mr-2 h-4 w-4" />
-                  {todoBusy ? '添加中...' : '加入 Todo'}
+                  {todoBusy ? tFeature('adding') : tFeature('addToTodos')}
                 </Button>
               ) : null}
               <Button variant="outline" onClick={pauseAndLeave} disabled={busy}>
                 <Pause className="mr-2 h-4 w-4" />
-                暂停并离开
+                {tFeature('pauseAndLeave')}
               </Button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -635,7 +687,9 @@ export default function NoteReadingSessionClient({
                 }
               >
                 <SkipForward className="mr-2 h-4 w-4" />
-                {currentItem.available ? '稍后再看 / 下一篇' : '跳过已移除笔记'}
+                {currentItem.available
+                  ? tFeature('readLaterNextNote')
+                  : tFeature('skipRemovedNote')}
               </Button>
               {currentItem.available ? (
                 <Button
@@ -644,20 +698,20 @@ export default function NoteReadingSessionClient({
                   onClick={() => submit('read_completed')}
                 >
                   <BookOpenCheck className="mr-2 h-4 w-4" />
-                  {busy ? '正在确认...' : '标记读完'}
+                  {busy ? tFeature('confirming') : tFeature('markAsRead')}
                 </Button>
               ) : null}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock3 className="h-3.5 w-3.5" />
-              只有云端确认后才会进入下一篇；直接关闭会保留当前位置。
+              {tFeature('theNextNoteOpensOnlyAfterCloud')}
             </div>
           </CardContent>
         </Card>
       ) : (
         <Card className="mx-auto max-w-xl">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            会话当前位置不可用，请返回笔记本重新开始。
+            {tFeature('theCurrentSessionPositionIsUnavailableReturn')}
           </CardContent>
         </Card>
       )}

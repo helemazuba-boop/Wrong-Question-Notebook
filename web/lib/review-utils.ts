@@ -12,6 +12,11 @@ import {
   ReviewSessionSummary,
 } from './types';
 
+type FilteredProblemRow = Database['public']['Tables']['problems']['Row'] & {
+  problem_tag?: { tags: { id: string; name: string } | null }[];
+  matching_tags?: unknown;
+};
+
 /**
  * Query problems matching filter criteria for a smart problem set.
  * Follows the same query pattern as /api/problems GET endpoint.
@@ -24,37 +29,29 @@ export async function getFilteredProblems(
   userId: string,
   subjectId: string,
   filterConfig: FilterConfig,
-  ownerUserId?: string
+  ownerUserId?: string,
+  page?: { offset: number; limit: number }
 ): Promise<Problem[]> {
   const effectiveUserId = ownerUserId ?? userId;
 
-  // Handle tag filtering via junction table
-  let problemIds: string[] | null = null;
-  if (filterConfig.tag_ids.length > 0) {
-    const { data: tagLinks } = await supabase
-      .from('problem_tag')
-      .select('problem_id')
-      .in('tag_id', filterConfig.tag_ids)
-      .eq('user_id', effectiveUserId);
-
-    problemIds = tagLinks?.map(link => link.problem_id) || [];
-    if (problemIds.length === 0) return [];
-  }
+  // Filter the parent query through the relation so the API row limit cannot
+  // truncate tag membership before the requested problem page is selected.
+  const hasTagFilter = filterConfig.tag_ids.length > 0;
+  const columns = hasTagFilter
+    ? '*,problem_tag(tags:tag_id(id,name)),matching_tags:problem_tag!inner(problem_id)'
+    : '*,problem_tag(tags:tag_id(id,name))';
 
   let query = supabase
     .from('problems')
-    .select(
-      `
-      *,
-      problem_tag(tags:tag_id(id, name))
-    `
-    )
+    .select(columns)
     .eq('user_id', effectiveUserId)
     .eq('subject_id', subjectId);
 
   // Filter by tag-matched problem IDs
-  if (problemIds) {
-    query = query.in('id', problemIds);
+  if (hasTagFilter) {
+    query = query
+      .in('matching_tags.tag_id', filterConfig.tag_ids)
+      .eq('matching_tags.user_id', effectiveUserId);
   }
 
   // Filter by status
@@ -84,22 +81,24 @@ export async function getFilteredProblems(
     // No days filter but include_never_reviewed = true is the default (no additional filter)
   }
 
-  const { data, error } = await query.order('created_at', {
-    ascending: false,
-  });
+  query = query
+    .order('created_at', {
+      ascending: false,
+    })
+    .order('id', { ascending: false });
+  if (page) query = query.range(page.offset, page.offset + page.limit - 1);
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Failed to query problems: ${error.message}`);
   }
 
   // Transform tags like /api/problems does
-  return (data || []).map(problem => {
-    const tags =
-      problem.problem_tag?.map((pt: any) => pt.tags).filter(Boolean) || [];
-    return {
-      ...problem,
-      tags,
-    };
+  return ((data || []) as unknown as FilteredProblemRow[]).map(row => {
+    const tags = row.problem_tag?.map(link => link.tags).filter(Boolean) || [];
+    const problem = { ...row, tags };
+    delete problem.matching_tags;
+    return problem;
   }) as unknown as Problem[];
 }
 
@@ -119,27 +118,24 @@ export async function getFilteredProblemsCount(
 ): Promise<number> {
   const effectiveUserId = ownerUserId ?? userId;
 
-  // Handle tag filtering via junction table
-  let problemIds: string[] | null = null;
-  if (filterConfig.tag_ids.length > 0) {
-    const { data: tagLinks } = await supabase
-      .from('problem_tag')
-      .select('problem_id')
-      .in('tag_id', filterConfig.tag_ids)
-      .eq('user_id', effectiveUserId);
-
-    problemIds = tagLinks?.map(link => link.problem_id) || [];
-    if (problemIds.length === 0) return 0;
-  }
+  const hasTagFilter = filterConfig.tag_ids.length > 0;
 
   let query = supabase
     .from('problems')
-    .select('id', { count: 'exact', head: true })
+    .select(
+      hasTagFilter ? 'id,matching_tags:problem_tag!inner(problem_id)' : 'id',
+      {
+        count: 'exact',
+        head: true,
+      }
+    )
     .eq('user_id', effectiveUserId)
     .eq('subject_id', subjectId);
 
-  if (problemIds) {
-    query = query.in('id', problemIds);
+  if (hasTagFilter) {
+    query = query
+      .in('matching_tags.tag_id', filterConfig.tag_ids)
+      .eq('matching_tags.user_id', effectiveUserId);
   }
 
   if (filterConfig.statuses.length > 0) {
