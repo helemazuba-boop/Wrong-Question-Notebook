@@ -61,14 +61,21 @@ async function context(
   if (!set) return NextResponse.json({ problems: [], hasMore: false });
   let problems: any[];
   if (set.is_smart && set.filter_config) {
-    const filtered = await getFilteredProblems(
-      client,
-      set.user_id,
-      set.subject_id,
-      set.filter_config as unknown as FilterConfig,
-      set.user_id
-    );
-    problems = filtered.slice(offset, offset + 51);
+    try {
+      problems = await getFilteredProblems(
+        client,
+        set.user_id,
+        set.subject_id,
+        set.filter_config as unknown as FilterConfig,
+        set.user_id,
+        { offset, limit: 51 }
+      );
+    } catch {
+      return NextResponse.json(
+        { error: 'Report context is unavailable' },
+        { status: 503 }
+      );
+    }
   } else {
     const { data, error } = await client
       .from('problem_set_problems')
