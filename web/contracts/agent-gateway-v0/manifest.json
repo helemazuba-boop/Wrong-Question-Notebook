@@ -48,6 +48,8 @@
     "question_options": 8,
     "question_frame_bytes": 10240,
     "sse_frame_bytes": 16384,
+    "sse_line_bytes": 16384,
+    "json_nesting_depth": 32,
     "sessions_listed": 12,
     "stream_socket_timeout_ms": 300000
   },

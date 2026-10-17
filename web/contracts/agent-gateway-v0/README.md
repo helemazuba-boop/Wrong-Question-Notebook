@@ -327,8 +327,8 @@ Server-side only. Either a per-user JSON map
 (`WQN_OPENCODE_ALLOWED_USER_IDS`, `WQN_OPENCODE_SERVER_URL`,
 `WQN_OPENCODE_DIRECTORY`, `WQN_OPENCODE_SERVER_USERNAME`,
 `WQN_OPENCODE_SERVER_PASSWORD`, `WQN_OPENCODE_AGENT`,
-`WQN_OPENCODE_PROVIDER_ID`, `WQN_OPENCODE_MODEL_ID`). Unconfigured or incomplete
-bindings fail closed with `503 disabled`; users outside the allowlist get `403
+`WQN_OPENCODE_MODEL`). Unconfigured or incomplete
+bindings (including a missing model) fail closed with `503 disabled`; users outside the allowlist get `403
 forbidden`.
 
 `WQN_OPENCODE_DIRECTORY` is the **only** tenant boundary and must be a string
@@ -337,3 +337,27 @@ worktree, not the binding's startup directory, so comparing the two client-side
 would drop every row. A misconfigured directory fails loudly (empty session
 list, every session action `404`) rather than leaking another tenant's
 sessions.
+
+
+Models use `provider/model#variant`. The former split model variables and
+`providerId`/`modelId` binding fields are rejected, including empty old keys;
+there is no migration fallback. A mapped binding requires `model` and can add
+`fallbackModel`, `fallbackEnabled`, and a complete `fallbackPolicy`.
+
+Automatic fallback is disabled by default. Provider 429 and explicit balance /
+quota exhaustion are fallback errors. Local WQN 429, budget exhaustion,
+authentication errors, cancellation, and unknown execution never trigger it.
+The native controller replaces at most one failed first HTTP model request,
+without admitting another prompt. Output, tool execution, shared depleted quota,
+user concurrency, and durable token/call/time budgets can veto the switch.
+`agent.status` with `status: retry` reports the actual backup; a later failure
+remains terminal. Reattachment observes the original execution.
+
+The implementation and deployment procedure are in
+[`server/opencode-control/README.md`](../../server/opencode-control/README.md).
+An explicit `request_id` is required for controlled fallback; the single-model
+path remains available to older firmware. Unsupported required form fields make
+the entire form abort-only. Single-choice device replies to multiselect fields
+become one-element arrays only when field constraints allow one selection.
+Long option identities use bounded hashes and are restored from authoritative
+form metadata; raw values are never truncated or guessed.

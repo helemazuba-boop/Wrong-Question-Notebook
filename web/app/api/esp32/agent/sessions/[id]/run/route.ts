@@ -22,8 +22,18 @@ import {
   OpenCodeSessionAccessError,
   resolveOpenCodeBinding,
   submitOpenCodePrompt,
+  inspectOpenCodeControlledRun,
+  switchOpenCodeModel,
+  loadOpenCodeSessionOutcome,
 } from '@/lib/opencode-agent-gateway';
 import { abandonQuestionSequences } from '@/lib/opencode-agent-question-sequence';
+import {
+  armOpenCodeTask,
+  openCodeControl,
+  captureOpenCodeTask,
+  finishObservedOpenCodeTask,
+  type OpenCodeTask,
+} from '@/lib/opencode-agent-control';
 
 export const runtime = 'nodejs';
 // Self-hosted `next start` ignores this hint; it documents the gateway's
@@ -193,6 +203,7 @@ export async function POST(
             writer.emit('agent.status', { session_id: id, status: 'idle' });
           });
         case 'attached': {
+          const observedTask = await captureOpenCodeTask(binding, id);
           // A retry of a run that is still in flight: watch it, never
           // resubmit. The upstream stream is live-only, exactly like the
           // events route.
@@ -200,14 +211,17 @@ export async function POST(
           return createSseResponse(async writer => {
             writer.emit('agent.attached', { session_id: id });
             try {
-              await relayOpenCodeEvents({
+              const outcome = await relayOpenCodeEvents({
                 upstream: upstream.body!,
                 writer,
                 sessionId: id,
-                mode: 'run',
+                mode: 'observe',
                 detail,
                 probe: createOpenCodePendingProbe(binding),
               });
+              await finishObservedOpenCodeTask(observedTask, outcome, () =>
+                loadOpenCodeSessionOutcome(binding, id)
+              );
             } catch {
               writer.emit('agent.error', {
                 session_id: id,
@@ -223,10 +237,62 @@ export async function POST(
       }
     }
 
+    let controlledTask: OpenCodeTask | null = null;
+    if (binding.modelPolicy.enabled && requestId !== null) {
+      try {
+        const needsFallback = await inspectOpenCodeControlledRun(binding, id);
+        controlledTask = await armOpenCodeTask(binding, {
+          userId: auth.userId,
+          deviceId: auth.deviceId,
+          requestId,
+          sessionId: id,
+        });
+        if (
+          controlledTask.state !== 'armed' ||
+          controlledTask.request_count > 0
+        )
+          throw new Error('A previous physical execution may still exist');
+        if (needsFallback || controlledTask.primary_cooling) {
+          await openCodeControl('fallback', {
+            taskId: controlledTask.id,
+            reason: 'model_unavailable',
+          });
+          await switchOpenCodeModel(binding, id);
+        } else {
+          await switchOpenCodeModel(binding, id, binding.modelPolicy.primary);
+        }
+      } catch {
+        if (
+          controlledTask?.state === 'armed' &&
+          controlledTask.request_count === 0
+        )
+          await openCodeControl('finish', {
+            taskId: controlledTask.id,
+            state: 'failed',
+          }).catch(() => undefined);
+        if (ownsClaim)
+          await completeAgentRunRequest({
+            deviceId: auth.deviceId,
+            requestId,
+            state: 'failed',
+            errorCode: 'control_unavailable',
+          });
+        throw new OpenCodeGatewayError(
+          'disabled',
+          'OpenCode controlled execution is unavailable',
+          503
+        );
+      }
+    }
     let upstream: Response;
     try {
       upstream = await openOpenCodeEventStream(binding, req.signal);
     } catch (error) {
+      if (controlledTask)
+        await openCodeControl('finish', {
+          taskId: controlledTask.id,
+          state: 'failed',
+        }).catch(() => undefined);
       if (ownsClaim && requestId !== null) {
         // Nothing was submitted, so a retry must not find an in_flight row
         // and attach to a run that does not exist.
@@ -253,13 +319,20 @@ export async function POST(
       let terminal: ReturnType<typeof terminalLedgerWrite> = null;
       try {
         try {
-          await submitOpenCodePrompt(binding, id, parsed.text, req.signal);
+          await submitOpenCodePrompt(
+            binding,
+            id,
+            parsed.text,
+            req.signal,
+            controlledTask?.id
+          );
         } catch {
           await upstream.body?.cancel().catch(() => undefined);
           writer.emit('agent.error', {
             session_id: id,
             message: 'OpenCode rejected the prompt',
           });
+          writer.emit('agent.status', { session_id: id, status: 'idle' });
           terminal = { state: 'failed', errorCode: 'submit_rejected' };
           return;
         }
@@ -286,6 +359,21 @@ export async function POST(
           terminal = { state: 'failed', errorCode: 'stream_disconnected' };
         }
       } finally {
+        if (controlledTask && terminal !== null) {
+          // Detaching a device is not proof that the upstream run stopped.
+          const state =
+            terminal.state === 'completed'
+              ? 'completed'
+              : ['execution_failed', 'interrupted'].includes(
+                    terminal.errorCode ?? ''
+                  )
+                ? 'failed'
+                : 'unknown';
+          await openCodeControl('finish', {
+            taskId: controlledTask.id,
+            state,
+          }).catch(() => undefined);
+        }
         // The run is over: any half-answered multi-field sequence belongs to
         // a form upstream has already settled or cancelled.
         if (terminal !== null) abandonQuestionSequences(id);

@@ -215,6 +215,8 @@ getv() {
   fi
 }
 
+hasv() { [[ -v "DOTENV[$1]" ]]; }
+
 get_build_override() {
   local key="$1"
   # Preserve the documented one-shot build proxy override. It cannot alter

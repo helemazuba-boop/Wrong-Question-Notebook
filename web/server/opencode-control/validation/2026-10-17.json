@@ -1,0 +1,100 @@
+{
+  "date": "2026-10-17",
+  "opencodeVersion": "2.0.16",
+  "scope": "Isolated Windows server and WSL PostgreSQL; no deployed device or production WQN endpoint",
+  "nativeFakeProvider": {
+    "results": [
+      {
+        "scenario": "429",
+        "outcome": "succeeded",
+        "physicalCalls": 2,
+        "ledgerCalls": 2,
+        "fallbackCount": 1
+      },
+      {
+        "scenario": "balance",
+        "outcome": "succeeded",
+        "physicalCalls": 2,
+        "ledgerCalls": 2,
+        "fallbackCount": 1
+      },
+      {
+        "scenario": "both429",
+        "outcome": "failed",
+        "physicalCalls": 2,
+        "ledgerCalls": 2,
+        "fallbackCount": 1
+      },
+      {
+        "scenario": "budget",
+        "outcome": "failed",
+        "physicalCalls": 1,
+        "ledgerCalls": 1,
+        "fallbackCount": 1
+      }
+    ]
+  },
+  "nativeStepFunStepPlan": {
+    "results": [
+      {
+        "scenario": "real",
+        "outcome": "succeeded",
+        "physicalCalls": 1,
+        "ledgerCalls": 1,
+        "fallbackCount": 0,
+        "usage": {
+          "cached_tokens": 320,
+          "prompt_tokens": 6978,
+          "completion_tokens": 28,
+          "total_tokens": 7006,
+          "prompt_tokens_details": {
+            "cached_tokens": 320
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      }
+    ]
+  },
+  "postgres": {
+    "version": "16.15",
+    "freshMigration": true,
+    "checksPassed": 34
+  },
+  "firmware": {
+    "idf": "5.5",
+    "build": "build-wsl",
+    "warnings": 0,
+    "m8": "passed",
+    "uiStackGate": "passed",
+    "agentRoundPolicyChecks": 1220,
+    "hil": "not run",
+    "sourceSha256": "9b13ab271610e98f09161ac5e07beb8054fcbc0cb550bda43fa3b5f5393b8dba",
+    "lineEndings": "Original LF preserved; CRLF-aware diff check passed"
+  },
+  "build": {
+    "compiler": "Webpack",
+    "environment": "non-secret validation values",
+    "turbopack": "blocked by host port-binding permission",
+    "passed": true,
+    "clientBundleSecrets": "passed",
+    "typeCheck": "passed",
+    "changedFileEslint": "passed"
+  },
+  "nativePluginSha256": "a8e817aac1bc6daea3690b1691388efae4c75e091f628fe723711085734e0fdf",
+  "sourceHashes": {
+    "web/lib/opencode-agent-gateway.ts": "62904c7a1bc3d3931248a80b06989d3671ed20a154bd0ef0e61cbdd06a2a59e0",
+    "web/lib/opencode-agent-events.ts": "615aa810f15c8428465453f5eceb1df889e3a6602a04479a822cb9e34cd394a0",
+    "web/lib/opencode-agent-policy.ts": "6bfe81c3d255e1e8d73f658728db42b963fa4d0bf7782c4fbf55874ec8d492e8",
+    "web/lib/opencode-agent-control.ts": "17baab11549323273c61dab9626d7f17a141135c514e0d875b482e7c43b60a10",
+    "web/supabase/migrations/20261017000000_opencode_budget_control.sql": "1ec71e2e2226d28a402becc854b21f3a95e8cd0039fe04e09c8086accef19a56"
+  },
+  "webTests": {
+    "filesPassed": 168,
+    "filesSkipped": 2,
+    "testsPassed": 1621,
+    "testsSkipped": 1
+  },
+  "nativeStepFunPluginSha256": "2167c88de072520eb84cb7cd75ded0ab24e420fb82b6fe609d3625b6dd260a0d"
+}

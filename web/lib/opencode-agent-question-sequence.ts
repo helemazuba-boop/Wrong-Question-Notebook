@@ -26,6 +26,8 @@ export const OPENCODE_QUESTION_FRAME_BUDGET_BYTES = 10 * 1024;
 export interface OpenCodeSequenceOption {
   value: string;
   label: string;
+  /** Full upstream identity; never included in a device frame. */
+  upstreamValue?: string;
 }
 
 export interface OpenCodeSequenceField {
@@ -33,6 +35,10 @@ export interface OpenCodeSequenceField {
   title: string;
   options: OpenCodeSequenceOption[];
   optionCount: number;
+  type?: string;
+  required?: boolean;
+  minItems?: number;
+  maxItems?: number;
 }
 
 /** The form shape this store needs; the gateway's projection satisfies it. */
@@ -40,6 +46,7 @@ export interface OpenCodeSequenceForm {
   id: string;
   title: string;
   fields: OpenCodeSequenceField[];
+  unsupportedRequired?: boolean;
 }
 
 export interface OpenCodeQuestionStep {
@@ -61,7 +68,7 @@ export interface OpenCodeQuestionSequence {
   fallback: OpenCodeSequenceField | null;
   /** Next unanswered step index. */
   current: number;
-  answers: Record<string, string>;
+  answers: Record<string, string | string[]>;
   updatedAt: number;
 }
 
@@ -70,7 +77,7 @@ export type OpenCodeQuestionRecordResult =
   | { status: 'stale' }
   | { status: 'invalid' }
   | { status: 'recorded' }
-  | { status: 'final'; answers: Record<string, string> };
+  | { status: 'final'; answers: Record<string, string | string[]> };
 
 /** A pathological form must not become a chain of dozens of asks. */
 const MAX_STEPS = 16;
@@ -94,11 +101,21 @@ function utf8Bytes(value: string): number {
  * fallback ask the user can abort.
  */
 function isAnswerableField(field: OpenCodeSequenceField): boolean {
+  if (field.type && field.type !== 'string' && field.type !== 'multiselect')
+    return false;
+  if (
+    field.type === 'multiselect' &&
+    ((field.minItems ?? 0) > 1 || (field.maxItems ?? 1) < 1)
+  )
+    return false;
   if (field.options.length < 1) return false;
   if (field.options.length > OPENCODE_QUESTION_OPTION_LIMIT) return false;
   return (
-    utf8Bytes(JSON.stringify(field.options)) <=
-    OPENCODE_QUESTION_FRAME_BUDGET_BYTES
+    utf8Bytes(
+      JSON.stringify(
+        field.options.map(({ value, label }) => ({ value, label }))
+      )
+    ) <= OPENCODE_QUESTION_FRAME_BUDGET_BYTES
   );
 }
 
@@ -133,7 +150,11 @@ export function beginOrGetQuestionSequence(
   if (existing) return existing;
   const answerable = form.fields.filter(isAnswerableField);
   // Too many steps is as unanswerable as none: the escape hatch is the ask.
-  const steps = answerable.length > MAX_STEPS ? [] : answerable;
+  const missingRequired =
+    form.unsupportedRequired ||
+    form.fields.some(field => field.required && !isAnswerableField(field));
+  const steps =
+    missingRequired || answerable.length > MAX_STEPS ? [] : answerable;
   const sequence: OpenCodeQuestionSequence = {
     sessionId,
     formId: form.id,
@@ -168,7 +189,9 @@ export function currentQuestionStep(
     index: sequence.current,
     fieldKey: field.fieldKey,
     title: field.title,
-    options: field.options.slice(0, OPENCODE_QUESTION_OPTION_LIMIT),
+    options: field.options
+      .slice(0, OPENCODE_QUESTION_OPTION_LIMIT)
+      .map(({ value, label }) => ({ value, label })),
     optionCount: field.optionCount,
     questionId: `${sequence.formId}#${sequence.current}`,
   };
@@ -187,7 +210,11 @@ export function recordQuestionAnswer(params: {
   }
   if (params.step > sequence.current) return { status: 'invalid' };
   const field = sequence.steps[sequence.current];
-  sequence.answers[field.fieldKey] = params.answer;
+  const option = field.options.find(option => option.value === params.answer);
+  if (!option) return { status: 'invalid' };
+  const value = option.upstreamValue ?? option.value;
+  sequence.answers[field.fieldKey] =
+    field.type === 'multiselect' ? [value] : value;
   sequence.current += 1;
   sequence.updatedAt = Date.now();
   if (sequence.current >= sequence.steps.length) {

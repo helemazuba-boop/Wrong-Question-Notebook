@@ -51,6 +51,7 @@ describe('OpenCode Agent session create route', () => {
         directory: '/workspaces/a',
         username: 'opencode',
         password: 'secret-a',
+        model: 'openai/gpt-test',
       },
     });
   });
@@ -143,6 +144,7 @@ describe('OpenCode Agent permission route', () => {
         directory: '/workspaces/a',
         username: 'opencode',
         password: 'secret-a',
+        model: 'openai/gpt-test',
       },
     });
   });
@@ -234,6 +236,7 @@ describe('OpenCode Agent observe events route', () => {
         directory: '/workspaces/a',
         username: 'opencode',
         password: 'secret-a',
+        model: 'openai/gpt-test',
       },
     });
   });
