@@ -70,8 +70,11 @@ APP_RUNTIME_KEYS=(
   WQN_OPENCODE_SERVER_PASSWORD
   WQN_OPENCODE_ALLOWED_USER_IDS
   WQN_OPENCODE_AGENT
-  WQN_OPENCODE_PROVIDER_ID
-  WQN_OPENCODE_MODEL_ID
+  WQN_OPENCODE_MODEL
+  WQN_OPENCODE_FALLBACK_MODEL
+  WQN_OPENCODE_FALLBACK_ENABLED
+  WQN_OPENCODE_FALLBACK_POLICY_JSON
+  WQN_OPENCODE_CONTROL_SECRET
   WQN_OPENCODE_USER_BINDINGS_JSON
   WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS
   WQN_OPENCODE_EVENT_MAX_DURATION_MS
@@ -193,6 +196,7 @@ make_forbidden_key_file() {
 
 make_runtime_env() {
   local component="$1" out="$2" key value
+  if [[ "$component" == app ]]; then validate_opencode_runtime_policy || return 1; fi
   : > "$out"
   chmod 600 "$out"
 
@@ -205,6 +209,24 @@ make_runtime_env() {
     fi
     printf '%s=%s\n' "$key" "$value" >> "$out"
   done < <(runtime_keys_for "$component")
+}
+
+validate_opencode_runtime_policy() {
+  local opencode_key opencode_value
+  for opencode_key in WQN_OPENCODE_PROVIDER_ID WQN_OPENCODE_MODEL_ID; do
+    if { declare -F hasv >/dev/null && hasv "$opencode_key"; } || [[ -n "$(getv "$opencode_key")" ]]; then
+      printf 'ERROR: Remove %s and configure WQN_OPENCODE_MODEL.\n' "$opencode_key" >&2
+      return 1
+    fi
+  done
+  local opencode_policy_dir
+  opencode_policy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../web/scripts" && pwd)"
+  {
+    for opencode_key in WQN_OPENCODE_SERVER_URL WQN_OPENCODE_MODEL WQN_OPENCODE_FALLBACK_MODEL WQN_OPENCODE_FALLBACK_ENABLED WQN_OPENCODE_FALLBACK_POLICY_JSON WQN_OPENCODE_CONTROL_SECRET WQN_OPENCODE_USER_BINDINGS_JSON; do
+      opencode_value="$(getv "$opencode_key")"
+      printf '%s\0%s\0' "$opencode_key" "$opencode_value"
+    done
+  } | node "$opencode_policy_dir/validate-opencode-env.mjs" --nul
 }
 
 make_env_hash_manifest() {

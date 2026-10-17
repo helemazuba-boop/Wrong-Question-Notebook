@@ -29,6 +29,9 @@ declare -A CFG=(
   [WQN_ESP32_AI_AUDIO_URL_SECRET]='audio-test-value'
   [WQN_OPENCODE_SERVER_URL]='http://opencode.example.test:4096'
   [WQN_OPENCODE_SERVER_PASSWORD]='secret-opencode-pass'
+  [WQN_OPENCODE_MODEL]='stepfun/step-3.7-flash'
+  [WQN_OPENCODE_FALLBACK_MODEL]='opencode/deepseek-v4.1-flash-free'
+  [WQN_OPENCODE_FALLBACK_ENABLED]='false'
   [ACR_PASSWORD]='must-not-be-runtime'
   [NEXT_SERVER_ACTIONS_ENCRYPTION_KEY]='must-not-be-runtime-either'
   [TARGET_DATABASE_URL]='postgresql://admin:test@127.0.0.1:65432/postgres'
@@ -38,6 +41,8 @@ getv() {
   local key="$1"
   printf '%s' "${CFG[$key]:-}"
 }
+
+hasv() { [[ -v "CFG[$1]" ]]; }
 
 # shellcheck source=deploy/release-env-policy.sh
 source "$DEPLOY_DIR/release-env-policy.sh"
@@ -74,6 +79,20 @@ assert_key "$TMP_DIR/app.env" AI_PROVIDER_API_KEY
 assert_key "$TMP_DIR/app.env" STEPFUN_API_KEY
 assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_URL
 assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_PASSWORD
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_MODEL
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_FALLBACK_MODEL
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_FALLBACK_ENABLED
+assert_no_key "$TMP_DIR/app.env" WQN_OPENCODE_PROVIDER_ID
+assert_no_key "$TMP_DIR/app.env" WQN_OPENCODE_MODEL_ID
+
+(
+  CFG[WQN_OPENCODE_PROVIDER_ID]=''
+  ! validate_opencode_runtime_policy >/dev/null 2>&1
+) || fail 'removed OpenCode provider key was accepted'
+(
+  CFG[WQN_OPENCODE_USER_BINDINGS_JSON]='{"user":{"providerId":"removed","modelId":"removed"}}'
+  ! validate_opencode_runtime_policy >/dev/null 2>&1
+) || fail 'removed OpenCode binding fields were accepted'
 assert_key "$TMP_DIR/realtime.env" SUPABASE_URL
 assert_key "$TMP_DIR/realtime.env" SUPABASE_SECRET_KEY
 assert_key "$TMP_DIR/realtime.env" STEP_API_KEY

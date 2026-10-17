@@ -94,33 +94,6 @@ export async function POST(
     await assertOpenCodeSessionAccess(binding, id);
     const { formId, step } = splitQuestionId(parsed.question_id);
 
-    if (step === null) {
-      // Legacy single-shot id. `Form.Answer` is a Record keyed by field id, and
-      // only the detail read exposes the field the projected options came
-      // from. A failed detail read falls back to the form id so the reply
-      // stays routable: dropping an answer the user already gave is worse than
-      // one that upstream may reject.
-      let fieldKey = parsed.question_id;
-      try {
-        const detail = await loadOpenCodeFormDetail(
-          binding,
-          id,
-          parsed.question_id
-        );
-        const answerable = detail?.fields.find(
-          field => field.options.length > 0
-        );
-        if (answerable?.fieldKey) fieldKey = answerable.fieldKey;
-      } catch {
-        // A form that cannot be described any more is usually one that was
-        // just answered or cancelled; upstream owns that verdict.
-      }
-      await replyOpenCodeQuestion(binding, id, parsed.question_id, {
-        [fieldKey]: parsed.answer,
-      });
-      return replied();
-    }
-
     let detail: OpenCodeFormState | null = null;
     try {
       detail = await loadOpenCodeFormDetail(binding, id, formId);
@@ -137,23 +110,14 @@ export async function POST(
       return replied();
     }
     if (!detail) {
-      // The form is unreadable or gone. A direct reply is the only remaining
-      // way to settle it; a 409 means it was already settled, which is the
-      // same outcome for the device.
-      try {
-        await replyOpenCodeQuestion(binding, id, formId, {
-          [formId]: parsed.answer,
-        });
-      } catch (error) {
-        if (
-          !(error instanceof OpenCodeGatewayError) ||
-          error.upstreamStatus !== 409
-        ) {
-          throw error;
-        }
-      }
+      // A token cannot be interpreted without authoritative form metadata.
+      // Never guess a field key or send an opaque device token upstream.
       completeQuestionSequence(id, formId);
-      return replied();
+      return jsonError(
+        'stale_question',
+        'Question must be reloaded before answering',
+        409
+      );
     }
 
     // Make sure the sequence exists (a restart between steps rebuilds it from
@@ -162,13 +126,13 @@ export async function POST(
     const recorded = recordQuestionAnswer({
       sessionId: id,
       formId,
-      step,
+      step: step ?? 0,
       answer: parsed.answer,
     });
     if (recorded.status === 'invalid') {
       return jsonError(
         'invalid_response',
-        'Question step is out of order',
+        'Question step or selected option is invalid',
         422
       );
     }

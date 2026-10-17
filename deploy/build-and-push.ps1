@@ -627,6 +627,9 @@ if ($DeployAliyun) {
     )
 }
 
+$script:EnvVars | ConvertTo-Json -Depth 20 -Compress | & node --experimental-strip-types (Join-Path $ProjectRoot "web/scripts/validate-opencode-env.mjs")
+if ($LASTEXITCODE -ne 0) { throw "OpenCode configuration validation failed" }
+
 $AcrServer = Get-EnvValue "ACR_SERVER"
 $AcrNamespace = Get-EnvValue "ACR_NAMESPACE"
 $AcrRepo = Get-EnvValue "ACR_REPO"
@@ -710,8 +713,11 @@ $script:RuntimeVarKeys = @(
     "WQN_OPENCODE_SERVER_PASSWORD",
     "WQN_OPENCODE_ALLOWED_USER_IDS",
     "WQN_OPENCODE_AGENT",
-    "WQN_OPENCODE_PROVIDER_ID",
-    "WQN_OPENCODE_MODEL_ID",
+    "WQN_OPENCODE_MODEL",
+    "WQN_OPENCODE_FALLBACK_MODEL",
+    "WQN_OPENCODE_FALLBACK_ENABLED",
+    "WQN_OPENCODE_FALLBACK_POLICY_JSON",
+    "WQN_OPENCODE_CONTROL_SECRET",
     "WQN_OPENCODE_USER_BINDINGS_JSON",
     "WQN_OPENCODE_EVENT_IDLE_TIMEOUT_MS",
     "WQN_OPENCODE_EVENT_MAX_DURATION_MS"

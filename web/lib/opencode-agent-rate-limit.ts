@@ -4,7 +4,7 @@ import { RATE_LIMIT_CONSTANTS } from '@/lib/constants';
 import { consumeRateLimit } from '@/lib/rate-limit';
 
 export type OpenCodeAgentRateLimitKind =
-  'sessions' | 'transcribe' | 'run' | 'permission' | 'events';
+  'sessions' | 'transcribe' | 'run' | 'permission' | 'events' | 'interrupt';
 
 const CONFIGURATIONS = {
   sessions: RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32AgentSessions,
@@ -12,6 +12,7 @@ const CONFIGURATIONS = {
   run: RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32AgentRun,
   permission: RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32AgentEvents,
   events: RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32AgentEvents,
+  interrupt: RATE_LIMIT_CONSTANTS.CONFIGURATIONS.esp32AgentEvents,
 } as const satisfies Record<
   OpenCodeAgentRateLimitKind,
   { windowMs: number; maxRequests: number }

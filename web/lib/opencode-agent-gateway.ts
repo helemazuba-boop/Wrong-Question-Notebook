@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 
 // Type-only: the gateway produces the values, the relay consumes them, and the
 // edge stays type-checked in both directions without either module importing
@@ -9,6 +10,11 @@ import {
   type OpenCodeHistoryDetail,
 } from '@/lib/opencode-agent-detail';
 import { clampCodePoints } from '@/lib/utf8-clamp';
+import {
+  parseOpenCodeModelPolicy,
+  type OpenCodeModelPolicy,
+  type OpenCodeBudget,
+} from '@/lib/opencode-agent-policy';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 // v2's /prompt is a fire-and-forget submit: measured against the live server
@@ -141,6 +147,7 @@ export interface OpenCodePermissionRequest {
 export interface OpenCodeQuestionOption {
   value: string;
   label: string;
+  upstreamValue?: string;
 }
 
 /** One visible field of a form, projected for the device. */
@@ -150,6 +157,10 @@ export interface OpenCodeQuestionField {
   options: OpenCodeQuestionOption[];
   /** Raw option count before the eight-option device cap. */
   optionCount: number;
+  type?: string;
+  required?: boolean;
+  minItems?: number;
+  maxItems?: number;
 }
 
 /**
@@ -163,6 +174,7 @@ export interface OpenCodeFormState {
   title: string;
   status: 'pending' | 'answered' | 'cancelled' | '';
   fields: OpenCodeQuestionField[];
+  unsupportedRequired?: boolean;
 }
 
 export type OpenCodeQuestionAnswerValue = string | number | boolean | string[];
@@ -178,8 +190,7 @@ export interface OpenCodeAgentBinding {
   username: string;
   password: string;
   agent?: string;
-  providerId?: string;
-  modelId?: string;
+  modelPolicy: OpenCodeModelPolicy;
 }
 
 export class OpenCodeGatewayError extends Error {
@@ -211,8 +222,10 @@ type RawBinding = Partial<{
   username: string;
   password: string;
   agent: string;
-  providerId: string;
-  modelId: string;
+  model: string;
+  fallbackModel: string;
+  fallbackEnabled: boolean;
+  fallbackPolicy: OpenCodeBudget;
 }>;
 
 function normalizeDirectory(value: string): string {
@@ -221,17 +234,55 @@ function normalizeDirectory(value: string): string {
 }
 
 function normalizeBinding(raw: RawBinding): OpenCodeAgentBinding | null {
+  if (
+    !raw ||
+    typeof raw !== 'object' ||
+    Array.isArray(raw) ||
+    ['baseUrl', 'directory', 'username', 'password', 'agent'].some(
+      key =>
+        raw[key as keyof RawBinding] !== undefined &&
+        typeof raw[key as keyof RawBinding] !== 'string'
+    )
+  )
+    return null;
   const baseUrl = (raw.baseUrl || '').trim().replace(/\/+$/, '');
   const directory = normalizeDirectory(raw.directory || '');
   if (!/^https?:\/\//i.test(baseUrl) || !directory) return null;
+  if (
+    Object.keys(raw).some(
+      key =>
+        ![
+          'baseUrl',
+          'directory',
+          'username',
+          'password',
+          'agent',
+          'model',
+          'fallbackModel',
+          'fallbackEnabled',
+          'fallbackPolicy',
+        ].includes(key)
+    )
+  )
+    return null;
+  let modelPolicy: OpenCodeModelPolicy;
+  try {
+    modelPolicy = parseOpenCodeModelPolicy({
+      model: raw.model,
+      fallbackModel: raw.fallbackModel,
+      fallbackEnabled: raw.fallbackEnabled,
+      fallbackPolicy: raw.fallbackPolicy,
+    });
+  } catch {
+    return null;
+  }
   return {
     baseUrl,
     directory,
     username: (raw.username || 'opencode').trim() || 'opencode',
     password: raw.password || '',
     agent: raw.agent?.trim() || undefined,
-    providerId: raw.providerId?.trim() || undefined,
-    modelId: raw.modelId?.trim() || undefined,
+    modelPolicy,
   };
 }
 
@@ -253,6 +304,16 @@ function bindingMap(): Record<string, RawBinding> {
 }
 
 export function resolveOpenCodeBinding(userId: string): OpenCodeAgentBinding {
+  if (
+    process.env.WQN_OPENCODE_PROVIDER_ID !== undefined ||
+    process.env.WQN_OPENCODE_MODEL_ID !== undefined
+  ) {
+    throw new OpenCodeGatewayError(
+      'disabled',
+      'Replace removed OpenCode variables with WQN_OPENCODE_MODEL',
+      503
+    );
+  }
   const mapped = bindingMap()[userId];
   if (mapped) {
     const binding = normalizeBinding(mapped);
@@ -283,14 +344,32 @@ export function resolveOpenCodeBinding(userId: string): OpenCodeAgentBinding {
     );
   }
 
+  let fallbackPolicy: OpenCodeBudget | undefined;
+  const enabled = process.env.WQN_OPENCODE_FALLBACK_ENABLED;
+  try {
+    if (enabled !== undefined && !['true', 'false'].includes(enabled))
+      throw new Error('Invalid fallback flag');
+    if (process.env.WQN_OPENCODE_FALLBACK_POLICY_JSON)
+      fallbackPolicy = JSON.parse(
+        process.env.WQN_OPENCODE_FALLBACK_POLICY_JSON
+      );
+  } catch {
+    throw new OpenCodeGatewayError(
+      'disabled',
+      'OpenCode fallback policy is invalid',
+      503
+    );
+  }
   const binding = normalizeBinding({
     baseUrl: process.env.WQN_OPENCODE_SERVER_URL,
     directory: process.env.WQN_OPENCODE_DIRECTORY,
     username: process.env.WQN_OPENCODE_SERVER_USERNAME,
     password: process.env.WQN_OPENCODE_SERVER_PASSWORD,
     agent: process.env.WQN_OPENCODE_AGENT,
-    providerId: process.env.WQN_OPENCODE_PROVIDER_ID,
-    modelId: process.env.WQN_OPENCODE_MODEL_ID,
+    model: process.env.WQN_OPENCODE_MODEL,
+    fallbackModel: process.env.WQN_OPENCODE_FALLBACK_MODEL,
+    fallbackEnabled: enabled === 'true',
+    fallbackPolicy,
   });
   if (!binding) {
     throw new OpenCodeGatewayError(
@@ -594,9 +673,7 @@ export async function createOpenCodeSession(
   // v2 moved the agent/model selection off the prompt request and onto session
   // creation: POST /api/session/:id/prompt only accepts `text` + `delivery`.
   if (binding.agent) body.agent = binding.agent;
-  if (binding.providerId && binding.modelId) {
-    body.model = { id: binding.modelId, providerID: binding.providerId };
-  }
+  body.model = binding.modelPolicy.primary;
   const response = await fetchUpstream(binding, '/api/session', {
     method: 'POST',
     headers: requestHeaders(binding, true),
@@ -638,7 +715,8 @@ export async function submitOpenCodePrompt(
   binding: OpenCodeAgentBinding,
   sessionId: string,
   text: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  taskId?: string
 ): Promise<void> {
   // The submit owns a controller that spans the whole request -- headers AND
   // the body read -- because fetchUpstream's own timer stops at the headers,
@@ -666,7 +744,16 @@ export async function submitOpenCodePrompt(
         // `delivery: 'steer'` hands the text to a run already in flight instead
         // of queueing behind it; 'queue' is the alternative. The agent and model
         // were fixed at session-creation time and are not accepted here.
-        body: JSON.stringify({ text, delivery: 'steer' }),
+        body: JSON.stringify({
+          text,
+          delivery: 'steer',
+          ...(taskId
+            ? {
+                id: `msg_wqn_${createHash('sha256').update(taskId).digest('hex')}`,
+                metadata: { wqn_task_id: taskId },
+              }
+            : {}),
+        }),
         cache: 'no-store',
       },
       timeoutMs,
@@ -711,6 +798,113 @@ export async function submitOpenCodePrompt(
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
+}
+
+/** Read-only readiness check; never uses a model request as a health probe. */
+export async function inspectOpenCodeControlledRun(
+  binding: OpenCodeAgentBinding,
+  sessionId: string
+): Promise<boolean> {
+  const plugins = await readDataRows(binding, '/api/plugin', 'plugins');
+  if (
+    !plugins.some(
+      plugin =>
+        plugin.id === 'wqn.agent-control.v1' &&
+        asRecord(plugin.state).status === 'active'
+    )
+  )
+    throw new OpenCodeGatewayError(
+      'disabled',
+      'Install the WQN OpenCode control plugin before enabling fallback',
+      503
+    );
+  const row = await readDataEnvelope(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}`,
+    'session model'
+  );
+  const selected = asRecord(row.model);
+  const { primary, fallback } = binding.modelPolicy;
+  if (
+    ![primary, fallback].some(
+      model =>
+        model &&
+        model.providerID === selected.providerID &&
+        model.id === selected.id &&
+        (model.variant ?? 'default') === (selected.variant ?? 'default')
+    )
+  )
+    throw new OpenCodeGatewayError(
+      'forbidden',
+      'Session model is outside the configured model policy',
+      403
+    );
+  const active = await listOpenCodeActiveSessions(binding);
+  if (active.includes(sessionId))
+    throw new OpenCodeGatewayError(
+      'upstream_error',
+      'Session is already running',
+      409
+    );
+  const descendants = [sessionId];
+  for (let cursor = 0; cursor < descendants.length; cursor++) {
+    const children = await listOpenCodeChildSessions(
+      binding,
+      descendants[cursor],
+      64
+    );
+    if (children.length >= 64 || descendants.length + children.length > 64)
+      throw new OpenCodeGatewayError(
+        'upstream_error',
+        'Session ancestry is too large for controlled admission',
+        409
+      );
+    for (const child of children) {
+      if (active.includes(child.id))
+        throw new OpenCodeGatewayError(
+          'upstream_error',
+          'A child session is still running',
+          409
+        );
+      if (!descendants.includes(child.id)) descendants.push(child.id);
+    }
+  }
+  const models = await readDataRows(binding, '/api/model', 'models');
+  const available = (ref: typeof primary) =>
+    models.some(
+      model =>
+        model.id === ref.id &&
+        model.providerID === ref.providerID &&
+        model.enabled === true &&
+        asRecord(model.capabilities).tools === true &&
+        (!ref.variant ||
+          (Array.isArray(model.variants) &&
+            model.variants.some(v => asRecord(v).id === ref.variant)))
+    );
+  if (!fallback || !available(fallback))
+    throw new OpenCodeGatewayError(
+      'disabled',
+      'Fallback model is unavailable or lacks tool support',
+      503
+    );
+  return !available(primary);
+}
+
+export async function switchOpenCodeModel(
+  binding: OpenCodeAgentBinding,
+  sessionId: string,
+  model = binding.modelPolicy.fallback
+): Promise<void> {
+  await fetchUpstream(
+    binding,
+    `/api/session/${encodeURIComponent(sessionId)}/model`,
+    {
+      method: 'POST',
+      headers: requestHeaders(binding, true),
+      body: JSON.stringify({ model }),
+      cache: 'no-store',
+    }
+  );
 }
 
 export async function replyOpenCodePermission(
@@ -1343,13 +1537,24 @@ function projectForm(
     160
   );
   const projected: OpenCodeQuestionField[] = [];
+  let unsupportedRequired = false;
   for (const rawField of fields) {
     const field = asRecord(rawField);
-    if (field.hidden === true) continue;
-    if (Array.isArray(field.when) && field.when.length > 0) continue;
+    if (
+      field.hidden === true ||
+      (Array.isArray(field.when) && field.when.length > 0)
+    ) {
+      if (field.required === true) unsupportedRequired = true;
+      continue;
+    }
     const fieldType = stringField(field, 'type');
     const rawOptions = Array.isArray(field.options) ? field.options : [];
     const options: OpenCodeQuestionOption[] = [];
+    const tokenize = rawOptions.some(
+      item =>
+        Array.from(stringField(asRecord(item), 'value', 'id', 'label')).length >
+        256
+    );
     if (fieldType === 'string' || fieldType === 'multiselect') {
       for (const rawOption of rawOptions) {
         const option = asRecord(rawOption);
@@ -1358,15 +1563,17 @@ function projectForm(
           stringField(option, 'id') ||
           stringField(option, 'label');
         if (!rawValue) continue;
-        // The device echoes this value back as the answer, and both the schema
-        // (`questionOption.value`) and the reply route cap it at 256 code
-        // points. Clamping here keeps the projection sendable; an option whose
-        // value is longer than that cannot be answered through the device at
-        // all.
-        const value = clampCodePoints(rawValue, 256);
+        // Never truncate an identity. Hash ALL values in a field containing a
+        // long value, so a literal short value cannot collide with its token.
+        const value = tokenize
+          ? `wqn_${createHash('sha256')
+              .update(JSON.stringify([sessionId, id, field.key, rawValue]))
+              .digest('hex')}`
+          : rawValue;
         options.push({
           value,
-          label: clampCodePoints(stringField(option, 'label') || value, 80),
+          label: clampCodePoints(stringField(option, 'label') || rawValue, 80),
+          ...(tokenize ? { upstreamValue: rawValue } : {}),
         });
       }
     }
@@ -1375,6 +1582,14 @@ function projectForm(
       title: clampCodePoints(stringField(field, 'title') || formTitle, 160),
       options,
       optionCount: options.length,
+      type: fieldType,
+      required: field.required === true,
+      ...(typeof field.minItems === 'number'
+        ? { minItems: field.minItems }
+        : {}),
+      ...(typeof field.maxItems === 'number'
+        ? { maxItems: field.maxItems }
+        : {}),
     });
   }
   if (projected.length === 0) {
@@ -1391,6 +1606,7 @@ function projectForm(
     title: formTitle,
     status,
     fields: projected,
+    ...(unsupportedRequired ? { unsupportedRequired: true } : {}),
   };
 }
 
@@ -1494,5 +1710,26 @@ export function createOpenCodePendingProbe(
     formDetail: (sessionId, formId) =>
       loadOpenCodeFormDetail(binding, sessionId, formId),
     sessionOutcome: sessionId => loadOpenCodeSessionOutcome(binding, sessionId),
+    ...(binding.modelPolicy.enabled
+      ? {
+          routing: async (sessionId: string) => {
+            const { openCodeControl, openCodeControlScope } =
+              await import('@/lib/opencode-agent-control');
+            const task = await openCodeControl<
+              | (import('@/lib/opencode-agent-control').OpenCodeTask & {
+                  error_kind: string;
+                })
+              | null
+            >('lookup', { scope: openCodeControlScope(binding), sessionId });
+            return task?.fallback_count && task.actual_model
+              ? {
+                  taskId: task.id,
+                  model: task.actual_model,
+                  reason: task.error_kind,
+                }
+              : null;
+          },
+        }
+      : {}),
   };
 }

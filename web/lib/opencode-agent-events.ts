@@ -196,6 +196,9 @@ export interface OpenCodePendingProbe {
     formId: string
   ): Promise<OpenCodePendingQuestion | null>;
   sessionOutcome(sessionId: string): Promise<string>;
+  routing?(
+    sessionId: string
+  ): Promise<{ taskId: string; model: string; reason: string } | null>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -229,10 +232,6 @@ function previewValue(value: unknown, max = 160): string {
     if (typeof field === 'string' && field) return clampCodePoints(field, max);
   }
   return '';
-}
-
-function sleep(ms: number): Promise<null> {
-  return new Promise(resolve => setTimeout(resolve, ms)).then(() => null);
 }
 
 /** Pages the pending text deltas sent so far for one (message, ordinal) part. */
@@ -879,12 +878,18 @@ async function observeRunEnded(input: {
   } catch {
     return false;
   }
-  if (!outcome) return false;
+  if (!['succeeded', 'failed', 'interrupted'].includes(outcome)) return false;
   // The attach is over, so nothing it armed can be answered any more. Both
   // slots go: one kind's ask left armed on a finished attach would hold the bar
   // against a run that is already done.
   state.pendingPermission = null;
   state.pendingQuestion = null;
+  if (outcome !== 'succeeded') {
+    writer.emit('agent.error', {
+      session_id: sessionId,
+      message: outcome === 'interrupted' ? '执行已中止' : 'OpenCode 执行失败',
+    });
+  }
   writer.emit('agent.status', { session_id: sessionId, status: 'idle' });
   return true;
 }
@@ -949,17 +954,42 @@ export async function relayOpenCodeEvents(input: {
   // would queue a second consumption and lose the chunk the first one yields.
   let pendingRead = reader.read();
   let tick = 0;
+  let nextPollAt = Date.now() + pollIntervalMs;
+  let routingNotice = '';
+  let routingPollAt = 0;
+  async function pollRouting(force = false) {
+    if (!probe?.routing || (!force && Date.now() < routingPollAt)) return;
+    routingPollAt = Date.now() + pollIntervalMs;
+    try {
+      const route = await probe.routing(input.sessionId);
+      if (route && route.taskId !== routingNotice) {
+        routingNotice = route.taskId;
+        input.writer.emit('agent.status', {
+          session_id: input.sessionId,
+          status: 'retry',
+          attempt: 1,
+          message: clampCodePoints(
+            `已切换至 ${route.model}（${route.reason}）`,
+            MAX_STATUS_MESSAGE_CHARS
+          ),
+        });
+      }
+    } catch {
+      /* accounting hooks independently fail closed */
+    }
+  }
+
   try {
     while (!input.writer.isClosed()) {
-      // OpenCode can stay silent for a whole LLM/tool stretch. One timer drives
-      // both the pending-ask poll and the heartbeat; a chunk always wins the
-      // race, so a busy run never pays for the poll.
-      const chunk = await Promise.race([pendingRead, sleep(pollIntervalMs)]);
-      if (chunk === null) {
+      // /event includes other sessions. Check the absolute deadline BEFORE
+      // reading: continuously ready unrelated bytes must not starve asks or
+      // recovery probes. Await each round so probes never overlap.
+      if (Date.now() >= nextPollAt) {
         tick += 1;
         if (tick % HEARTBEAT_EVERY_N_TICKS === 0) {
           input.writer.comment('keepalive');
         }
+        await pollRouting();
         if (probe) {
           await pollPendingAsks({
             probe,
@@ -977,8 +1007,18 @@ export async function relayOpenCodeEvents(input: {
           });
           if (ended) return 'observe_ended';
         }
+        nextPollAt = Date.now() + pollIntervalMs;
         continue;
       }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const chunk = await Promise.race([
+        pendingRead,
+        new Promise<null>(resolve => {
+          timer = setTimeout(() => resolve(null), nextPollAt - Date.now());
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (chunk === null) continue;
+      await pollRouting();
       pendingRead = reader.read();
       buffer += decoder.decode(chunk.value, { stream: !chunk.done });
       // An unbounded buffer is a memory leak waiting for a frame that never
@@ -1024,6 +1064,16 @@ export async function relayOpenCodeEvents(input: {
         if (data) {
           try {
             const event: unknown = JSON.parse(data);
+            const candidate = asRecord(event);
+            if (
+              asRecord(candidate.data).sessionID === input.sessionId &&
+              [
+                'session.execution.succeeded',
+                'session.execution.failed',
+                'session.execution.interrupted',
+              ].includes(String(candidate.type))
+            )
+              await pollRouting(true);
             const result = emitNormalizedOpenCodeEvent(
               input.writer,
               event,

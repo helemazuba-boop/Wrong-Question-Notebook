@@ -54,6 +54,7 @@ describe('OpenCode Agent capability routes', () => {
         directory: '/workspaces/a',
         username: 'opencode',
         password: 'secret-a',
+        model: 'openai/gpt-test',
       },
     });
   });
@@ -189,7 +190,7 @@ describe('OpenCode Agent capability routes', () => {
     });
   });
 
-  it('still answers by form id when the detail read fails', async () => {
+  it('refuses to guess an answer when authoritative form metadata is missing', async () => {
     fetchMock.mockResolvedValueOnce(ownedListResponse());
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ _tag: 'NotFound', message: 'gone' }), {
@@ -211,9 +212,8 @@ describe('OpenCode Agent capability routes', () => {
       { params: Promise.resolve({ id: 'ses_owned' }) }
     );
 
-    expect(response.status).toBe(200);
-    const [, init] = fetchMock.mock.calls[2] as [URL, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ answer: { frm_1: 'yes' } });
+    expect(response.status).toBe(409);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('collects a multi-field form one step at a time and submits once', async () => {
