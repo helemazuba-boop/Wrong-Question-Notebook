@@ -37,8 +37,9 @@ beforeEach(() => {
   process.env.WQN_OPENCODE_SERVER_PASSWORD = 'secret';
   process.env.WQN_OPENCODE_ALLOWED_USER_IDS = 'user-1';
   process.env.WQN_OPENCODE_AGENT = 'build';
-  process.env.WQN_OPENCODE_PROVIDER_ID = 'openai';
-  process.env.WQN_OPENCODE_MODEL_ID = 'gpt-test';
+  delete process.env.WQN_OPENCODE_PROVIDER_ID;
+  delete process.env.WQN_OPENCODE_MODEL_ID;
+  process.env.WQN_OPENCODE_MODEL = 'openai/gpt-test';
   delete process.env.WQN_OPENCODE_USER_BINDINGS_JSON;
 });
 
@@ -1188,7 +1189,7 @@ describe('OpenCode Agent gateway', () => {
       // Every visible field keeps its order and its own title (the form title
       // is a constant like "Questions"); non-option fields still project with
       // zero options so the device can step past them.
-      expect(forms[0].fields).toEqual([
+      expect(forms[0].fields).toMatchObject([
         {
           fieldKey: 'note',
           title: 'Pick a branch',
@@ -1235,7 +1236,7 @@ describe('OpenCode Agent gateway', () => {
       });
     });
 
-    it('clamps an over-long option value to the 256-code-point schema bound', async () => {
+    it('maps a long option identity without truncating the upstream value', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           data: [
@@ -1262,7 +1263,10 @@ describe('OpenCode Agent gateway', () => {
       // The device echoes `value` back as the answer, and both the schema and
       // the reply route cap it at 256 code points -- an unclamped projection
       // would be rejected on the way back in.
-      expect(forms[0].fields[0].options[0].value).toBe('😀'.repeat(256));
+      expect(forms[0].fields[0].options[0].value).toMatch(/^wqn_[0-9a-f]{64}$/);
+      expect(forms[0].fields[0].options[0].upstreamValue).toBe(
+        '😀'.repeat(300)
+      );
       expect(forms[0].fields[0].options[0].label).toBe('Long');
     });
 
