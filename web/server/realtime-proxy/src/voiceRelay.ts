@@ -828,9 +828,13 @@ export class RelaySession {
 
   private async handleToolCall(call: ToolCallArgs) {
     if (!call.call_id || !call.name) {
-      log.warn('dropped malformed tool call', { call });
+      log.warn('dropped malformed tool call', {
+        hasCallId: Boolean(call.call_id),
+        hasName: Boolean(call.name),
+      });
       return;
     }
+    const generation = this.turnGeneration;
     // Notify device UI that a tool is in flight.
     sendJson(this.deviceWs, {
       type: 'tool.start',
@@ -852,15 +856,21 @@ export class RelaySession {
     injectToolResult(
       { sendText: msg => this.upstream.send(msg) },
       call,
-      result
+      result,
+      generation === this.turnGeneration
     );
+    // Keep the durable result in provider history, but do not restart a
+    // cancelled response or overwrite a newer turn's device tool status.
+    if (generation !== this.turnGeneration) return;
 
     sendJson(this.deviceWs, {
-      type: 'tool.done',
+      type: result.ok ? 'tool.result' : 'tool.error',
       call_id: call.call_id,
+      tool_call_id: call.call_id,
       name: call.name,
       ok: result.ok,
       display: result.display,
+      error: result.error ?? null,
     });
   }
 }

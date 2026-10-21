@@ -148,5 +148,88 @@ describe('Flash trusted context ordering', () => {
       first.now
     );
     expect(context).toHaveBeenCalledTimes(1);
+    expect(h.device.sent.map(s => JSON.parse(s))).toContainEqual(
+      expect.objectContaining({
+        type: 'tool.result',
+        ok: true,
+        tool_call_id: 'call-1',
+        display: 'Todo created',
+      })
+    );
+  });
+  it('emits a firmware-readable failure event with its error code', async () => {
+    const h = setup();
+    execute.mockResolvedValue({
+      ok: false,
+      display: 'Writing note failed',
+      action: null,
+      error: {
+        code: 'notebook_permission_denied',
+        message: '请检查笔记本授权',
+      },
+    });
+    h.session.onUpstreamFrame(
+      Buffer.from(
+        JSON.stringify({
+          type: 'response.function_call_arguments.done',
+          call_id: 'failed-note',
+          name: 'create_notebook_note',
+          arguments: '{}',
+        })
+      ),
+      false
+    );
+    await settle();
+    expect(h.device.sent.map(s => JSON.parse(s))).toContainEqual(
+      expect.objectContaining({
+        type: 'tool.error',
+        ok: false,
+        tool_call_id: 'failed-note',
+        error: {
+          code: 'notebook_permission_denied',
+          message: '请检查笔记本授权',
+        },
+      })
+    );
+  });
+  it('keeps a late write receipt without restarting a cancelled response', async () => {
+    const h = setup();
+    let resolve!: (value: any) => void;
+    execute.mockReturnValue(
+      new Promise(r => {
+        resolve = r;
+      })
+    );
+    h.session.onUpstreamFrame(
+      Buffer.from(
+        JSON.stringify({
+          type: 'response.function_call_arguments.done',
+          call_id: 'cancelled-write',
+          name: 'create_notebook_note',
+          arguments: '{}',
+        })
+      ),
+      false
+    );
+    h.frame({ type: 'response.cancel' });
+    resolve({
+      ok: true,
+      display: 'Note saved',
+      data: { note: { id: 'saved-note' } },
+      action: null,
+    });
+    await settle();
+    const sent = h.upstream.sent.map(s => JSON.parse(s));
+    expect(sent.map(s => s.type)).toEqual([
+      'response.cancel',
+      'conversation.item.create',
+    ]);
+    expect(JSON.parse(sent[1].item.output)).toMatchObject({
+      ok: true,
+      data: { note: { id: 'saved-note' } },
+    });
+    expect(h.device.sent.map(s => JSON.parse(s).type)).not.toContain(
+      'tool.result'
+    );
   });
 });

@@ -1018,12 +1018,28 @@ async function executeAiToolCall(
     const executed = await executor(name, call.function?.arguments ?? '{}', {
       callId: call.id ?? '',
     });
-    if (!executed.ok)
-      throw new NotebookToolError(
-        executed.error?.code ?? 'tool_failed',
-        executed.error?.message ?? 'AI tool failed',
-        400
-      );
+    if (!executed.ok) {
+      functionCalls?.push({
+        name,
+        status: 'failed',
+        display: ['unknown_outcome', 'operation_in_progress'].includes(
+          executed.error?.code ?? ''
+        )
+          ? `${safeToolCallDisplay(name)}结果待确认`
+          : `${safeToolCallDisplay(name)}失败`,
+      });
+      return {
+        success: false,
+        error: {
+          ...executed.error,
+          code: executed.error?.code ?? 'tool_failed',
+          message:
+            executed.error?.code === 'database_error'
+              ? '工具数据库操作失败'
+              : (executed.error?.message ?? 'AI tool failed'),
+        },
+      };
+    }
     const result = executed.data;
 
     const action = extractAction(result);
@@ -1111,7 +1127,14 @@ async function runDashScopeChat(
   messages.push({ role: 'user', content: `用户语音转写：${transcript}` });
 
   let lastRequestId: string | null = null;
-  for (let round = 0; round < 4; round += 1) {
+  for (let round = 0; round <= 4; round += 1) {
+    const hasTools = Boolean(toolContext) && round < 4;
+    if (round === 4)
+      messages.push({
+        role: 'system',
+        content:
+          '本轮工具调用已达上限。请根据已有工具回执说明结果和未完成部分；没有成功回执的写入不能说已保存。不要继续调用工具。',
+      });
     tracker?.mark('chat_round', 'started', `round=${round + 1}`);
     const response = await fetchJsonWithTimeout<DashScopeChatResponse>(
       `${baseUrl || config.openAiBaseUrl}/chat/completions`,
@@ -1121,8 +1144,8 @@ async function runDashScopeChat(
         body: JSON.stringify({
           model: chatModel || config.chatModel,
           messages,
-          tools: toolContext ? AI_TOOLS : undefined,
-          tool_choice: toolContext ? 'auto' : undefined,
+          tools: hasTools ? AI_TOOLS : undefined,
+          tool_choice: hasTools ? 'auto' : undefined,
           stream: false,
           temperature: 0.3,
         }),
@@ -1133,7 +1156,7 @@ async function runDashScopeChat(
 
     lastRequestId = response.request_id || response.id || lastRequestId;
     const message = extractChatMessage(response);
-    const toolCalls = (message?.tool_calls || []).filter(
+    const toolCalls = (hasTools ? message?.tool_calls || [] : []).filter(
       call => call.type === 'function' || call.function?.name
     );
 

@@ -125,7 +125,7 @@ async def go(args):
                 msg = await asyncio.wait_for(ws.recv(), timeout=2)
                 if isinstance(msg, str):
                     saw_text = saw_text or '"text.delta"' in msg or '"audio_transcript' in msg
-                    if '"tool.done"' in msg or '"tool.start"' in msg:
+                    if any(f'"{event}"' in msg for event in ("tool.start", "tool.result", "tool.error")):
                         print(f"[smoke] tool event: {msg}", flush=True)
                 else:
                     # WFLV frame

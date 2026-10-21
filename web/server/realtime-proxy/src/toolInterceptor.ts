@@ -4,7 +4,7 @@
  * authoritative state via HTTP, then feeds the result back as an
  * assistant-injected `conversation.item.create + response.create`. The
  * Tool definitions and execution stay server-side. The ESP32 only receives
- * bounded tool.start/tool.done status events plus the final TTS response.
+ * bounded tool.start/tool.result/tool.error events plus the final TTS response.
  *
  * Why HTTP, not in-process: see
  *   web/app/api/esp32/ai/execute-tool/route.ts (header comment).
@@ -27,7 +27,7 @@ export interface ToolExecResult {
   display: string;
   data?: unknown;
   action: unknown;
-  error?: { code: string; message: string } | null;
+  error?: { code: string; message: string; retryable?: boolean } | null;
 }
 
 export interface Upstream {
@@ -44,11 +44,30 @@ export async function executeToolOverHttp(
 ): Promise<ToolExecResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TOOL_TIMEOUT_MS);
+  const requestId = `tool_${createHash('sha256')
+    .update(`${deviceId}\0${args.call_id}`)
+    .digest('hex')
+    .slice(0, 48)}`;
+  const writes = [
+    'create_notebook_note',
+    'create_todo',
+    'update_todo_status',
+  ].includes(args.name);
+  const transportFailure = (): ToolExecResult => ({
+    ok: false,
+    display: writes
+      ? 'Write result pending confirmation'
+      : 'Tool service unavailable',
+    action: null,
+    error: {
+      code: writes ? 'unknown_outcome' : 'tool_transport_failed',
+      message: writes
+        ? '未收到可靠的写入回执，原写入可能已执行。请勿另起调用重复新建。'
+        : '暂时无法连接工具服务，请稍后重试。',
+      retryable: true,
+    },
+  });
   try {
-    const requestId = `tool_${createHash('sha256')
-      .update(`${deviceId}\0${args.call_id}`)
-      .digest('hex')
-      .slice(0, 48)}`;
     const body = JSON.stringify({
       request_id: requestId,
       user_id: userId,
@@ -77,25 +96,50 @@ export async function executeToolOverHttp(
     const json = (await res.json().catch(() => ({}))) as {
       success?: boolean;
       result?: ToolExecResult;
-      error?: { message?: string };
+      error?: { code?: string };
     };
-    if (!res.ok || !json.success || !json.result) {
+    if (
+      !res.ok ||
+      !json.success ||
+      typeof json.result?.ok !== 'boolean' ||
+      typeof json.result?.display !== 'string'
+    ) {
+      const rejected =
+        !res.ok &&
+        ['unauthorized', 'bad_request', 'disabled'].includes(
+          json.error?.code ?? ''
+        );
       log.warn('tool exec failed', {
         toolName: args.name,
+        requestId,
         status: res.status,
-        err: json.error?.message,
+        errorCode: rejected ? json.error!.code : transportFailure().error!.code,
       });
-      return {
-        ok: false,
-        display: `Tool ${args.name} failed`,
-        action: null,
-      };
+      return rejected
+        ? {
+            ok: false,
+            display: `Tool ${args.name} failed`,
+            action: null,
+            error: {
+              code: json.error!.code!,
+              message:
+                json.error!.code === 'bad_request'
+                  ? '工具服务拒绝了请求格式，写入未执行。'
+                  : '语音工具服务校验未通过或未配置，写入未执行，请检查服务配置。',
+              retryable: false,
+            },
+          }
+        : transportFailure();
     }
     return json.result;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    log.warn('tool exec threw', { toolName: args.name, err: msg });
-    return { ok: false, display: `Tool ${args.name} failed`, action: null };
+  } catch {
+    log.warn('tool exec threw', {
+      toolName: args.name,
+      requestId,
+      errorCode: transportFailure().error!.code,
+      timedOut: ctrl.signal.aborted,
+    });
+    return transportFailure();
   } finally {
     clearTimeout(t);
   }
@@ -153,7 +197,8 @@ export async function fetchVoiceContext(
 export function injectToolResult(
   upstream: Upstream,
   args: ToolCallArgs,
-  result: ToolExecResult
+  result: ToolExecResult,
+  continueResponse = true
 ) {
   const toolItem = {
     type: 'conversation.item.create',
@@ -170,6 +215,7 @@ export function injectToolResult(
     },
   };
   upstream.sendText(JSON.stringify(toolItem));
+  if (!continueResponse) return;
   // Ask the model to keep talking so the user hears the result narrated
   // by the TTS layer.
   const trigger = {

@@ -144,6 +144,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     conversationId: body.conversation_id ?? null,
     deviceId: body.device_id ?? null,
     requestId: body.request_id,
+    supabase: svc,
   };
   let result;
   try {
