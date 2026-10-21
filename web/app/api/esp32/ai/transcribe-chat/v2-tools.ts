@@ -9,6 +9,7 @@ import { voiceArgsSchema } from '@/lib/ai-tools/voice-schemas';
 import { executeVoiceWrite, voiceRequestId } from '@/lib/ai-tools/voice-write';
 import type { VoiceTimeContext } from '@/lib/ai-tools/voice-context';
 import type { ToolExecutor } from '@/lib/sse-pipeline-chat';
+import { logger } from '@/lib/logger';
 
 export interface V2ToolContext {
   userId: string;
@@ -53,7 +54,7 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
     now: new Date().toISOString(),
     timezone: 'UTC',
   };
-  return async (name, rawArgs, meta) => {
+  const execute: ToolExecutor = async (name, rawArgs, meta) => {
     if (!isVoiceToolName(name))
       return { ok: false, display: `Unknown tool: ${name || 'unnamed'}` };
     const display = DISPLAY[name];
@@ -131,15 +132,55 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
         >;
       return { ok: true, display: display.success, data, action: data.action };
     } catch (error) {
-      const e = error as { code?: string; message?: string };
+      const e = error as {
+        code?: string;
+        message?: string;
+        retryable?: boolean;
+      };
       return {
         ok: false,
-        display: `${display.progress} failed`,
+        display: ['unknown_outcome', 'operation_in_progress'].includes(
+          e.code ?? ''
+        )
+          ? 'Write result pending confirmation'
+          : `${display.progress} failed`,
         error: {
           code: e.code ?? 'tool_execution_failed',
           message: e.message ?? 'Tool execution failed',
+          retryable: Boolean(e.retryable),
         },
       };
     }
+  };
+  return async (name, rawArgs, meta) => {
+    const startedAt = Date.now();
+    const identity = {
+      component: 'Esp32VoiceTool',
+      toolName: isVoiceToolName(name) ? name : 'unknown_tool',
+      userId: ctx.userId,
+      deviceId: ctx.deviceId,
+      requestId:
+        meta?.requestId ??
+        (ctx.deviceId && meta?.callId
+          ? voiceRequestId(ctx.deviceId, turnId, meta.callId)
+          : turnId),
+    };
+    logger.info('ESP32 voice tool started', identity);
+    const result = await execute(name, rawArgs, meta);
+    // Never log arguments, titles, content, model reasoning, or raw DB errors.
+    const errorCode = result.error?.code;
+    logger[result.ok ? 'info' : 'warn']('ESP32 voice tool completed', {
+      ...identity,
+      ok: result.ok,
+      elapsed_ms: Date.now() - startedAt,
+      errorCode:
+        errorCode && /^[a-z][a-z0-9_]{0,79}$/.test(errorCode)
+          ? errorCode
+          : result.ok
+            ? undefined
+            : 'tool_execution_failed',
+      retryable: result.error?.retryable ?? false,
+    });
+    return result;
   };
 }

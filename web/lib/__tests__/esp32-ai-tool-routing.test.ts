@@ -4,6 +4,9 @@ import { TOOL_CATALOG, VOICE_TOOL_NAMES } from '@/lib/mcp/tool-catalog';
 import { findMcpTool } from '@/lib/mcp/tool-registry';
 import { applyAiToolSessionConfig } from '@/server/realtime-proxy/src/sessionConfig';
 import { injectToolResult } from '@/server/realtime-proxy/src/toolInterceptor';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+import { voiceArgsSchema } from '@/lib/ai-tools/voice-schemas';
 
 describe('ESP32 AI tool routing', () => {
   it('exposes exactly the voice catalog subset in catalog order', () => {
@@ -25,14 +28,45 @@ describe('ESP32 AI tool routing', () => {
         expect(projected!.function.description).toBe(
           TOOL_CATALOG[name].description
         );
-      if (name !== 'create_todo')
+      if (!['create_todo', 'create_notebook_note'].includes(name))
         expect(projected!.function.parameters).toEqual(
           TOOL_CATALOG[name].inputSchema
         );
-      else
+      else if (name === 'create_todo')
         expect(projected!.function.parameters.properties).toHaveProperty('due');
+      else
+        expect(projected!.function.parameters.properties).not.toHaveProperty(
+          'client_request_id'
+        );
     }
   );
+
+  it('validates Note inputs consistently before any write, including absent links', () => {
+    const ajv = new Ajv({ strict: false });
+    addFormats(ajv);
+    const validate = ajv.compile(
+      AI_TOOLS.find(t => t.function.name === 'create_notebook_note')!.function
+        .parameters
+    );
+    const valid = {
+      notebook_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      title: '笔记',
+      content: '正文\n第二行',
+    };
+    for (const [args, accepted] of [
+      [valid, true],
+      [{ ...valid, linked_problem_id: null }, true],
+      [{ ...valid, title: ' '.repeat(4) }, false],
+      [{ ...valid, content: 'x'.repeat(4001) }, false],
+      [{ ...valid, notebook_id: 'invented-name' }, false],
+      [{ ...valid, client_request_id: 'model-generated' }, false],
+    ] as const) {
+      expect(Boolean(validate(args))).toBe(accepted);
+      expect(
+        voiceArgsSchema('create_notebook_note').safeParse(args).success
+      ).toBe(accepted);
+    }
+  });
 
   it('references only renamed-to-catalog tool names in the prompt', () => {
     expect(AI_TOOL_PROMPT).toContain('create_notebook_note');

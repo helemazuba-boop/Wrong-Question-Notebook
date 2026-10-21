@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { buildAiToolExecutor } from '@/app/api/esp32/ai/transcribe-chat/v2-tools';
+import { logger } from '@/lib/logger';
 const { read, write, list, search } = vi.hoisted(() => ({
   read: vi.fn(),
   write: vi.fn(),
@@ -29,7 +30,11 @@ const context = {
   requestId: 'turn_request_0001',
   timeContext: { now: '2026-10-14T15:30:00Z', timezone: 'Asia/Shanghai' },
 };
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(logger, 'info').mockImplementation(() => {});
+  vi.spyOn(logger, 'warn').mockImplementation(() => {});
+});
 describe('eight device voice tools', () => {
   it.each([
     'list_authorized_notebooks',
@@ -184,6 +189,36 @@ describe('eight device voice tools', () => {
       ok: false,
       error: { code: 'unknown_outcome' },
     });
-    expect(result.display).toContain('failed');
+    expect(result.display).toContain('pending confirmation');
+  });
+  it('logs the stable request and error code without private arguments or raw error messages', async () => {
+    write.mockRejectedValue({
+      code: 'invalid_insert_fields',
+      message: 'private DB detail',
+    });
+    const result = await buildAiToolExecutor(context)(
+      'create_notebook_note',
+      JSON.stringify({
+        notebook_id: user,
+        title: 'private title',
+        content: 'private body',
+      }),
+      { callId: 'note-call' }
+    );
+    expect(result.error?.code).toBe('invalid_insert_fields');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'ESP32 voice tool completed',
+      expect.objectContaining({
+        toolName: 'create_notebook_note',
+        requestId: expect.stringMatching(/^voice_[a-f0-9]{48}$/),
+        errorCode: 'invalid_insert_fields',
+        ok: false,
+      })
+    );
+    const logs = JSON.stringify([
+      vi.mocked(logger.info).mock.calls,
+      vi.mocked(logger.warn).mock.calls,
+    ]);
+    expect(logs).not.toMatch(/private title|private body|private DB detail/);
   });
 });

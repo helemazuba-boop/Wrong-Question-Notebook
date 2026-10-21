@@ -40,7 +40,14 @@ const CreateTodoSchema = z
       !(v.reminder && v.reminder_at !== undefined),
     '相对和绝对时间不能同时传入'
   );
+const CreateNoteSchema = z.strictObject({
+  notebook_id: z.uuid(),
+  title: z.string().trim().min(1).max(120),
+  content: z.string().trim().min(1).max(4000),
+  linked_problem_id: z.uuid().nullish(),
+});
 export function voiceArgsSchema(name: string) {
   if (name === 'create_todo') return CreateTodoSchema;
+  if (name === 'create_notebook_note') return CreateNoteSchema;
   return findMcpTool(name)!.argsSchema;
 }

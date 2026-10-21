@@ -81,6 +81,13 @@ The `{ok,display,data,action,error}` device tool envelope and existing audio
 protocols remain compatible. Firmware changes are limited to Flash default
 instructions; device clocks and provider credentials are not made authoritative.
 
+Notes store the conversation source in `metadata.source_conversation_id`, not
+as a table column. Flash emits firmware-compatible `tool.result` / `tool.error`
+events. Transport failures after a write was sent report `unknown_outcome`;
+they do not authorize another create call. See the
+[2026-10-21 voice audit](VOICE_MCP_AUDIT_20261021.md) for the reproduced defects,
+repair scope and the opt-in real PostgreSQL executor regression.
+
 ## Local validation
 
 - Full Web suite: 1,553 passed, 1 skipped; 160 files passed, 2 skipped.

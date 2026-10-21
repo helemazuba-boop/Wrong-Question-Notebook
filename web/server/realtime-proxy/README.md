@@ -135,7 +135,7 @@ JSON events emitted by the server have `type` set to:
 - `session.ready` — sent once after upstream handshake completes
 - `state` — heartbeat/stage markers (`session.negotiated`, `audio.complete`,
   `audio.last`, …)
-- `tool.start` / `tool.done` — tool call lifecycle (currently informational
+- `tool.start` / `tool.result` / `tool.error` — tool call lifecycle (currently informational
   only; firmware doesn't display them but logs them for diagnostics)
 - `error` — domain error before WS close
 

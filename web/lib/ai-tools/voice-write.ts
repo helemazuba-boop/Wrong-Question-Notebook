@@ -10,6 +10,7 @@ import {
   type Operation,
 } from '@/lib/mcp/v2-operations';
 import { resolveVoiceDate, type VoiceTimeContext } from './voice-context';
+import { NOTE_CONTENT_FORMAT } from '@/lib/note-content-format';
 export function voiceRequestId(
   deviceId: string,
   turnId: string,
@@ -86,7 +87,8 @@ export async function executeVoiceWrite(
             id: randomUUID(),
             user_id: ctx.userId,
             source: 'ai',
-            source_conversation_id: ctx.conversationId ?? null,
+            content_format: NOTE_CONTENT_FORMAT,
+            metadata: { source_conversation_id: ctx.conversationId ?? null },
             client_request_id: requestId,
           },
           time_context: time,

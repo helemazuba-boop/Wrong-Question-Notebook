@@ -71,7 +71,7 @@ export interface ToolExecutor {
     display: string;
     data?: unknown;
     action?: unknown;
-    error?: { code: string; message: string };
+    error?: { code: string; message: string; retryable?: boolean };
   }>;
 }
 
@@ -112,8 +112,16 @@ export async function runPipelineChat(
   const allActions: unknown[] = [];
   const functionCalls: ChatStreamResult['functionCalls'] = [];
 
-  for (let round = 0; round < 4; round += 1) {
-    const hasTools = Boolean(toolExecutor);
+  // Four tool rounds plus one narration-only round. A successful final write
+  // must not be discarded as "tool loop exceeded" before its receipt is read.
+  for (let round = 0; round <= 4; round += 1) {
+    const hasTools = Boolean(toolExecutor) && round < 4;
+    if (round === 4)
+      messages.push({
+        role: 'system',
+        content:
+          '本轮工具调用已达上限。请根据已有工具回执说明结果和未完成部分；没有成功回执的写入不能说已保存。不要继续调用工具。',
+      });
     const response = await fetchStreamingCompletion(
       config,
       messages,
