@@ -9,7 +9,7 @@ import {
 } from '@/lib/common-utils';
 import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 import { getFilteredProblems } from '@/lib/review-utils';
-import { FilterConfig } from '@/lib/types';
+import { FilterConfigSchema } from '@/lib/schemas';
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   revalidateUserProblemSets,
@@ -142,27 +142,28 @@ async function copyProblemSet(
 
     // Get source problems
     let sourceProblems: any[];
-    if (sourceProblemSet.is_smart && sourceProblemSet.filter_config) {
+    if (sourceProblemSet.is_smart) {
       // For smart sets, resolve the current matching problems
-      const rawFilter = sourceProblemSet.filter_config as Record<
-        string,
-        unknown
-      >;
-      const filterConfig: FilterConfig = {
-        tag_ids: (rawFilter.tag_ids as string[]) ?? [],
-        statuses: (rawFilter.statuses as FilterConfig['statuses']) ?? [],
-        problem_types:
-          (rawFilter.problem_types as FilterConfig['problem_types']) ?? [],
-        days_since_review:
-          (rawFilter.days_since_review as number | null) ?? null,
-        include_never_reviewed:
-          (rawFilter.include_never_reviewed as boolean) ?? true,
-      };
+      const filter = FilterConfigSchema.safeParse(
+        sourceProblemSet.filter_config
+      );
+      if (!filter.success) {
+        return NextResponse.json(
+          createApiErrorResponse(
+            'Smart problem set has an invalid filter_config',
+            400
+          ),
+          { status: 400 }
+        );
+      }
       sourceProblems = await getFilteredProblems(
         serviceClient,
         sourceProblemSet.user_id,
         sourceProblemSet.subject_id,
-        filterConfig,
+        {
+          ...filter.data,
+          days_since_review: filter.data.days_since_review ?? null,
+        },
         sourceProblemSet.user_id
       );
     } else {
