@@ -93,6 +93,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Restore ESP32 voice Note creation and replay by storing conversation provenance in note metadata. Align Flash tool completion events with Note4 firmware and preserve error reasons, uncertain write outcomes and cancellation state.
+- Let STD/PRO and legacy voice conversations narrate their tool receipts after reaching the tool round limit, and clarify Note parameters and failure recovery in the AI instructions.
 - Keep note and reading notebooks on the Notebook Shelf; remove the separate notebook navigation and list, redirect legacy list links to the shelf, and highlight the shelf while viewing notebook details.
 - Administrator storage totals include empty files and all listing pages; listing or metadata failures no longer publish incomplete totals.
 - The admin dashboard uses the available desktop width, adapts cards to their container and scrolls with the page. Navigation, quick actions, empty activity states and actual file counts follow the selected language.
