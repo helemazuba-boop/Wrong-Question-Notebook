@@ -116,6 +116,62 @@ describe('Flash trusted context ordering', () => {
     await settle();
     expect(h.upstream.sent).toEqual([]);
     expect(JSON.parse(h.device.sent[0]).type).toBe('error');
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
+    h.frame({ type: 'input_audio_buffer.commit' });
+    h.session.onDeviceFrame(Buffer.alloc(800), true);
+    expect(h.upstream.sent).toEqual([]);
+  });
+  it('closes both transports when initial context fails, even if error delivery throws', async () => {
+    const h = setup();
+    context.mockRejectedValue(new Error('context denied'));
+    h.device.send = () => {
+      throw new Error('device gone');
+    };
+    h.frame({ type: 'session.update', session: {} });
+    await settle();
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
+    h.frame({ type: 'conversation.item.create', item: {} });
+    expect(h.upstream.sent).toEqual([]);
+  });
+  it('does not send a late successful configuration after context failure closed the session', async () => {
+    const h = setup();
+    let resolve!: (value: any) => void;
+    context
+      .mockReturnValueOnce(
+        new Promise(r => {
+          resolve = r;
+        })
+      )
+      .mockRejectedValueOnce(new Error('account disabled'));
+    h.frame({ type: 'session.update', session: {} });
+    h.frame({ type: 'session.update', session: {} });
+    await settle();
+    resolve(first);
+    await settle();
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.sent).toEqual([]);
+  });
+  it('cannot cancel a pending context denial to keep forwarding', async () => {
+    const h = setup();
+    let reject!: (error: Error) => void;
+    context.mockReturnValueOnce(
+      new Promise((_, rejectPromise) => {
+        reject = rejectPromise;
+      })
+    );
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.frame({ type: 'response.cancel' });
+    reject(new Error('account disabled'));
+    await settle();
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
+    const previous = [...h.upstream.sent];
+    h.frame({ type: 'input_audio_buffer.commit' });
+    h.session.onDeviceFrame(Buffer.alloc(800), true);
+    expect(h.upstream.sent).toEqual(previous);
   });
   it('keeps the original clock through tool continuation', async () => {
     const h = setup();
