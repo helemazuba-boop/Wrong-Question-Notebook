@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/esp32/ai/transcribe-chat/route';
+import { _resetRateLimitStore } from '@/lib/rate-limit';
 import {
   MAX_AUDIO_BODY_BYTES,
   MAX_AUDIO_DURATION_MS,
@@ -111,6 +112,7 @@ function readSseEvents(body: string) {
 }
 
 beforeEach(() => {
+  _resetRateLimitStore();
   vi.clearAllMocks();
   delete process.env.WQN_ESP32_AI_ASR_PROVIDER;
   delete process.env.WQN_ESP32_AI_ASR_FALLBACK_PROVIDER;
@@ -884,6 +886,52 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     );
     expect(JSON.stringify(body)).not.toContain('do-not-return');
     expect(JSON.stringify(body)).not.toContain('tool-call-1');
+  });
+
+  it('ends legacy tool loops with a narration-only request', async () => {
+    mockAuthenticatedDevice();
+    await configureParaformerProvider();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ output: { task_id: 'task-limit' } }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        output: { task_status: 'SUCCEEDED', results: [{ text: '帮我查一下' }] },
+      }),
+    });
+    for (let i = 0; i < 4; i++)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: `call-${i}`,
+                    type: 'function',
+                    function: { name: 'unknown_tool', arguments: '{}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '工具暂时不可用，本轮未写入笔记。' } }],
+      }),
+    });
+    const response = await POST(createAudioRequest(createValidHeaders()));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.data.function_calls).toHaveLength(4);
+    expect(body.data.reply_text).toContain('未写入笔记');
+    expect(JSON.parse(mockFetch.mock.calls[6][1].body).tools).toBeUndefined();
   });
 
   it('maps DashScope ASR failures without exposing provider secrets', async () => {
