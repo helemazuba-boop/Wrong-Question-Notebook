@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpToolContext } from '@/lib/mcp/tool-registry';
 import { findMcpTool } from '@/lib/mcp/tool-registry';
 
 const createProblemMock = vi.hoisted(() => vi.fn());
+
+beforeEach(() => createProblemMock.mockClear());
 
 vi.mock('@/lib/problem-creation-service', async importOriginal => {
   const original =
@@ -111,7 +113,7 @@ describe('MCP create_problem tag alias', () => {
 
     await tool.handler(toolContext(), parsed.data as Record<string, unknown>);
 
-    const input = createProblemMock.mock.calls[1][2] as {
+    const input = createProblemMock.mock.calls[0][2] as {
       suggested_tags: { new_tag_names: string[] };
       parts: Array<{ answer_hint: { mcq_correct_choice_id: string } }>;
     };
