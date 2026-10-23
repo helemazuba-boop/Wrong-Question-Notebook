@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WQN Flash Realtime relay — bridges ESP32 wss to StepFun Realtime.",
+  "description": "WQN Flash Realtime relay \u2014 bridges ESP32 wss to StepFun Realtime.",
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.3",
+    "@supabase/supabase-js": "^2.118.0",
     "dotenv": "^18.0.8",
     "tsx": "4.23.15",
     "ws": "^8.22.0"
