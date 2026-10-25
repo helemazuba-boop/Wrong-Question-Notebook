@@ -7,6 +7,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { ERROR_MESSAGES } from './constants';
 import { getSupabaseServerEnvironment } from './supabase-server-config';
 import type { Database } from '@/lib/database.types';
+import { combineVoiceSignals, throwIfVoiceStopped } from './voice-operation';
 
 // =====================================================
 // Service Client Creation
@@ -16,13 +17,33 @@ import type { Database } from '@/lib/database.types';
  * Create service role client for admin operations
  * This bypasses RLS (Row Level Security) policies
  */
-export function createServiceClient() {
+export function createServiceClient(options: { signal?: AbortSignal } = {}) {
   const environment = getSupabaseServerEnvironment();
 
   return createSupabaseClient<Database>(
     environment.url,
     environment.secretKey,
     {
+      ...(options.signal
+        ? {
+            global: {
+              fetch: (
+                input: Parameters<typeof fetch>[0],
+                init?: RequestInit
+              ) => {
+                throwIfVoiceStopped(options.signal);
+                return fetch(input, {
+                  ...init,
+                  signal: combineVoiceSignals(
+                    options.signal,
+                    init?.signal ??
+                      (input instanceof Request ? input.signal : undefined)
+                  ),
+                });
+              },
+            },
+          }
+        : {}),
       auth: {
         autoRefreshToken: false,
         persistSession: false,

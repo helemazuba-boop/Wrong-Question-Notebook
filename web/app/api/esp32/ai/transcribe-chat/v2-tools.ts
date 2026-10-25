@@ -3,7 +3,11 @@ import { randomUUID } from 'crypto';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { getAppOrigin } from '@/lib/app-origin';
 import { findMcpTool, type McpToolContext } from '@/lib/mcp/tool-registry';
-import { isVoiceToolName, type VoiceToolName } from '@/lib/mcp/tool-catalog';
+import {
+  isVoiceToolName,
+  findCatalogTool,
+  type VoiceToolName,
+} from '@/lib/mcp/tool-catalog';
 import { readV2 } from '@/lib/mcp/v2-readers';
 import { voiceArgsSchema } from '@/lib/ai-tools/voice-schemas';
 import { executeVoiceWrite, voiceRequestId } from '@/lib/ai-tools/voice-write';
@@ -87,6 +91,17 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
           },
         };
       const args = parsed.data as Record<string, any>;
+      const executionSignal =
+        findCatalogTool(name)?.annotations?.readOnlyHint === true
+          ? meta?.signal
+          : meta?.writeSignal;
+      const executionCtx = executionSignal
+        ? {
+            ...toolCtx,
+            supabase:
+              ctx.supabase ?? createServiceClient({ signal: executionSignal }),
+          }
+        : toolCtx;
       let data: Record<string, any>;
       if (
         ['create_notebook_note', 'create_todo', 'update_todo_status'].includes(
@@ -99,14 +114,14 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
             { code: 'write_identity_required' }
           );
         data = await executeVoiceWrite(
-          toolCtx,
+          executionCtx,
           name,
           args,
           meta.requestId ?? voiceRequestId(ctx.deviceId, turnId, meta.callId),
           ctx.timeContext ?? fallbackTime
         );
       } else if (name === 'get_problem_detail') {
-        const result = (await readV2(toolCtx, name, args)) as Record<
+        const result = (await readV2(executionCtx, name, args)) as Record<
           string,
           any
         >;
@@ -115,7 +130,7 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
         name === 'list_problem_sets' ||
         name === 'list_problem_set_problems'
       ) {
-        const result = (await readV2(toolCtx, name, args)) as Record<
+        const result = (await readV2(executionCtx, name, args)) as Record<
           string,
           any
         >;
@@ -126,7 +141,7 @@ export function buildAiToolExecutor(ctx: V2ToolContext): ToolExecutor {
         };
         delete data.items;
       } else
-        data = (await findMcpTool(name)!.handler(toolCtx, args)) as Record<
+        data = (await findMcpTool(name)!.handler(executionCtx, args)) as Record<
           string,
           any
         >;

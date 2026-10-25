@@ -62,6 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Reuse immutable Note/Problem pack summaries across Manifest pages, with two concurrent builders, revision checks, smart-set clock/tag invalidation and uncached missing-image retries. Apply migration `20261024000100_device_manifest_summaries.sql` before deploying the readers; snapshot/410 and content-addressed downloads keep their existing wire format.
+- Bound v2 streaming voice context, ASR/fallback/polling and chat/tool rounds by shared cancellation and time budgets. Batch voice abort now cancels processing and drops stale frames. Started writes retain their original operation identity and receipt; an expired write with no confirmed receipt returns `unknown_outcome` without retrying it.
 - Localize the shelf, notes, reading, todos, vocabulary and Insights interfaces in Chinese and English, including failure and session recovery messages.
 - Distinguish removing a question from a collection from deleting it, and preserve notebook return destinations across reloads.
 

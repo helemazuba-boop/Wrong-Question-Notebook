@@ -1,23 +1,57 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { queryResult, TEST_USER } from '@/lib/test/supabase-query';
-
-const mocks = vi.hoisted(() => ({ from: vi.fn() }));
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: mocks.from }),
-}));
+import { TEST_USER } from '@/lib/test/supabase-query';
 import { authenticateDevice } from '@/server/realtime-proxy/src/auth';
 
+// Mock the HTTP boundary, not an SDK module ID: the relay has its own locked
+// Supabase installation, which may differ from the Web package's instance.
 const device = { id: 'device', user_id: TEST_USER.id, mac_address: 'AA' };
 const request = {
   headers: { authorization: `Bearer ${'a'.repeat(64)}` },
 } as IncomingMessage;
+let profile: unknown;
+let knownDevice: boolean;
+let statusError: 'response' | 'abort' | null;
+const calls: { url: URL; method: string }[] = [];
 
 beforeEach(() => {
-  vi.resetAllMocks();
+  profile = { is_active: true };
+  knownDevice = true;
+  statusError = null;
+  calls.length = 0;
   vi.stubGlobal(
     'fetch',
-    vi.fn(() => {
+    vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : 'GET');
+      calls.push({ url, method });
+      if (url.origin !== 'https://supabase.example.invalid') {
+        throw new Error('Unmocked network request');
+      }
+      if (url.pathname === '/rest/v1/user_profiles') {
+        if (statusError === 'abort')
+          throw new DOMException('offline', 'AbortError');
+        return new Response(
+          JSON.stringify(
+            statusError === 'response'
+              ? { message: 'offline', code: '42501' }
+              : profile === null
+                ? []
+                : [profile]
+          ),
+          {
+            status: statusError === 'response' ? 403 : 200,
+            headers: { 'content-type': 'application/json' },
+          }
+        );
+      }
+      if (url.pathname === '/rest/v1/esp32_devices') {
+        if (method === 'PATCH') return new Response(null, { status: 204 });
+        return new Response(JSON.stringify(knownDevice ? [device] : []), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       throw new Error('Unmocked network request');
     })
   );
@@ -30,52 +64,45 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const writes = () => calls.filter(call => call.method !== 'GET');
+
 describe('realtime device account gate', () => {
   it.each([false, null, 'unavailable'])(
     'rejects state %s before provider dispatch or usage update',
     async state => {
-      const credential = queryResult(device);
-      const profile = queryResult(
-        state === null ? null : { is_active: state },
-        state === 'unavailable' ? { message: 'offline' } : null
-      );
-      mocks.from.mockImplementation(table =>
-        table === 'user_profiles' ? profile : credential
-      );
+      profile = state === null ? null : { is_active: state };
+      statusError = state === 'unavailable' ? 'response' : null;
       await expect(authenticateDevice(request)).rejects.toMatchObject({
         code: state === 'unavailable' ? 'internal' : 'disabled',
       });
-      expect(profile.eq).toHaveBeenCalledWith('id', TEST_USER.id);
-      expect(credential.update).not.toHaveBeenCalled();
-      expect(credential.delete).not.toHaveBeenCalled();
+      expect(calls).toHaveLength(2);
+      expect(calls[1].url.searchParams.get('id')).toBe(`eq.${TEST_USER.id}`);
+      expect(writes()).toEqual([]);
     }
   );
-  it('does not turn a thrown status lookup into invalid pairing', async () => {
-    mocks.from.mockImplementation(table => {
-      if (table === 'user_profiles') throw new Error('offline');
-      return queryResult(device);
-    });
+  it('does not turn an aborted status lookup into invalid pairing', async () => {
+    statusError = 'abort';
     await expect(authenticateDevice(request)).rejects.toMatchObject({
       code: 'internal',
     });
+    expect(writes()).toEqual([]);
   });
   it('allows an active paired owner and preserves the device context', async () => {
-    const credential = queryResult(device);
-    mocks.from.mockImplementation(table =>
-      table === 'user_profiles' ? queryResult({ is_active: true }) : credential
-    );
     await expect(authenticateDevice(request)).resolves.toEqual({
-      userId: TEST_USER.id,
+      userId: device.user_id,
       deviceId: device.id,
       macAddress: device.mac_address,
     });
-    expect(credential.update).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].method).toBe('PATCH');
+    expect(writes()[0].url.searchParams.get('id')).toBe(`eq.${device.id}`);
   });
   it('keeps unknown tokens distinct from disabled accounts', async () => {
-    mocks.from.mockReturnValue(queryResult());
+    knownDevice = false;
     await expect(authenticateDevice(request)).rejects.toMatchObject({
       code: 'unauthorized',
     });
-    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
+    expect(writes()).toEqual([]);
   });
 });

@@ -14,6 +14,12 @@ import { SseEventIdGenerator } from './ai-stream';
 import { closeSseWithError, type Esp32AiErrorCode } from './ai-errors';
 import { Esp32AiProviderError } from './esp32-ai-provider';
 import { logger } from './logger';
+import {
+  createVoiceOperation,
+  combineVoiceSignals,
+  throwIfVoiceStopped,
+  VoiceOperationStopped,
+} from './voice-operation';
 import { runPipelineAsr } from './sse-pipeline-asr';
 import type { Esp32AiAsrProvider } from './esp32-ai-asr-selection';
 import { runPipelineChat, type ToolExecutor } from './sse-pipeline-chat';
@@ -24,6 +30,8 @@ import {
 } from './sse-pipeline-types';
 
 export interface RunStreamingPipelineOptions {
+  signal?: AbortSignal;
+  turnTimeoutMs?: number;
   writer: SseWriter;
   input: StreamingPipelineInput;
   asrModel: string;
@@ -58,6 +66,67 @@ export interface RunStreamingPipelineOptions {
 export async function runStreamingPipeline(
   options: RunStreamingPipelineOptions
 ): Promise<StreamingPipelineResult> {
+  const operation = createVoiceOperation(
+    options.turnTimeoutMs ?? options.asrTimeoutMs + options.llmTimeoutMs,
+    combineVoiceSignals(options.signal, options.writer.signal)
+  );
+  const started = performance.now();
+  let outcome = 'completed';
+  const observeStop = () =>
+    logger.info('ESP32 voice operation stop observed', {
+      component: 'Esp32AiTranscribeChat',
+      reason: (operation.signal.reason as VoiceOperationStopped)?.reason,
+      elapsed_ms: Math.round(performance.now() - started),
+    });
+  operation.signal.addEventListener('abort', observeStop, { once: true });
+  try {
+    throwIfVoiceStopped(operation.signal);
+    return await runScopedStreamingPipeline({
+      ...options,
+      signal: operation.signal,
+    });
+  } catch (error) {
+    outcome = error instanceof VoiceOperationStopped ? 'cancelled' : 'failed';
+    if (!(
+      error instanceof VoiceOperationStopped && error.reason === 'cancelled'
+    )) {
+      const code: Esp32AiErrorCode =
+        error instanceof Esp32AiProviderError
+          ? (error.code as Esp32AiErrorCode)
+          : error instanceof VoiceOperationStopped
+            ? 'chat_timeout'
+            : 'model_failed';
+      await closeSseWithError(
+        options.writer,
+        code,
+        error instanceof Error ? error.message : 'Voice pipeline failed',
+        {
+          stage:
+            code.startsWith('asr') || code === 'no_speech'
+              ? 'asr_pipeline'
+              : 'chat_pipeline',
+          latency_ms: Math.round(performance.now() - started),
+        }
+      );
+    }
+    throw error;
+  } finally {
+    operation.signal.removeEventListener('abort', observeStop);
+    operation.dispose();
+    logger.info('ESP32 voice operation settled', {
+      component: 'Esp32AiTranscribeChat',
+      outcome: operation.signal.aborted ? 'settled_after_stop' : outcome,
+      reason: operation.signal.aborted
+        ? (operation.signal.reason as VoiceOperationStopped)?.reason
+        : undefined,
+      elapsed_ms: Math.round(performance.now() - started),
+    });
+  }
+}
+
+async function runScopedStreamingPipeline(
+  options: RunStreamingPipelineOptions
+): Promise<StreamingPipelineResult> {
   const startedAt = Date.now();
   const idGen = new SseEventIdGenerator();
   const pusher = new PipelinePusher(options.writer, idGen, startedAt);
@@ -84,6 +153,7 @@ export async function runStreamingPipeline(
     asrResult = await runPipelineAsr(
       {
         asrProvider: options.asrProvider,
+        signal: options.signal,
         asrFallbackProvider: options.asrFallbackProvider,
         dashScopeApiKey: options.dashScopeApiKey,
         asrTaskUrl: options.asrTaskUrl,
@@ -107,7 +177,14 @@ export async function runStreamingPipeline(
       options.input.channels,
       pusher
     );
+    throwIfVoiceStopped(
+      options.signal,
+      () =>
+        new Esp32AiProviderError('asr_timeout', 'ASR deadline exceeded', 504)
+    );
   } catch (error) {
+    if (error instanceof VoiceOperationStopped && error.reason === 'cancelled')
+      throw error;
     const code: Esp32AiErrorCode =
       error instanceof Esp32AiProviderError
         ? (error.code as Esp32AiErrorCode)
@@ -116,15 +193,6 @@ export async function runStreamingPipeline(
       code,
       'asr_pipeline',
       String((error as Error)?.message || 'ASR failed')
-    );
-    await closeSseWithError(
-      options.writer,
-      code,
-      String((error as Error)?.message || 'ASR failed'),
-      {
-        stage: 'asr_pipeline',
-        latency_ms: Date.now() - startedAt,
-      }
     );
     throw error;
   }
@@ -149,9 +217,19 @@ export async function runStreamingPipeline(
   const baseUrl =
     tier === 'pro' ? options.openAiBaseUrlPro : options.openAiBaseUrlStd;
   const apiKey = tier === 'pro' ? options.chatApiKeyPro : options.chatApiKeyStd;
+  throwIfVoiceStopped(
+    options.signal,
+    () =>
+      new Esp32AiProviderError(
+        'chat_timeout',
+        'Voice turn deadline exceeded',
+        504
+      )
+  );
   const chat = await runPipelineChat(
     {
       apiKey,
+      signal: options.signal,
       baseUrl,
       model: chatModel,
       llmTimeoutMs: options.llmTimeoutMs,

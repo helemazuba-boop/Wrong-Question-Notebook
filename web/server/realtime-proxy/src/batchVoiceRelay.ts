@@ -32,6 +32,7 @@ interface ActiveTurn {
   totalBytes: number;
   state: 'RECEIVING' | 'HANDOFF' | 'PROCESSING';
   abortController: AbortController;
+  reader: ReadableStreamDefaultReader<Uint8Array> | null;
 }
 
 function sendSseEvent(
@@ -100,6 +101,7 @@ export async function handleBatchVoiceConnection(
     } catch {
       /* drop */
     }
+    void currentTurn.reader?.cancel().catch(() => {});
     currentTurn.pcmChunks = [];
     currentTurn.totalBytes = 0;
     currentTurn = null;
@@ -189,6 +191,7 @@ export async function handleBatchVoiceConnection(
               totalBytes: 0,
               state: 'RECEIVING',
               abortController: new AbortController(),
+              reader: null,
             };
 
             log.info('batch voice turn start', {
@@ -202,14 +205,18 @@ export async function handleBatchVoiceConnection(
           if (msg && msg.type === 'voice.turn.abort') {
             if (
               currentTurn !== null &&
-              currentTurn.requestId === msg.request_id &&
-              currentTurn.state === 'RECEIVING'
+              currentTurn.requestId === msg.request_id
             ) {
               log.info('batch voice turn aborted by device', {
                 deviceId: device.deviceId,
                 requestId: currentTurn.requestId,
+                state: currentTurn.state,
               });
+              const requestId = currentTurn.requestId;
               cleanupTurn('device_aborted');
+              sendSseEvent(deviceWs, 'turn.released', {
+                request_id: requestId,
+              });
             }
             return;
           }
@@ -386,6 +393,11 @@ export async function handleBatchVoiceConnection(
             signal: turn.abortController.signal,
           });
 
+          if (turn.abortController.signal.aborted || currentTurn !== turn) {
+            await response.body?.cancel().catch(() => {});
+            return;
+          }
+
           if (!response.ok || !response.body) {
             let errCode = 'model_failed';
             let errMessage = 'Internal pipeline failed';
@@ -397,16 +409,22 @@ export async function handleBatchVoiceConnection(
               const rawText = await response.text().catch(() => '');
               if (rawText) errMessage = rawText.slice(0, 200);
             }
-            sendSseError(deviceWs, errCode, errMessage, 'internal_handoff');
+            if (currentTurn === turn && !turn.abortController.signal.aborted)
+              sendSseError(deviceWs, errCode, errMessage, 'internal_handoff');
             return;
           }
 
           // Stream decoder to handle multi-byte UTF-8 boundaries safely across chunks
           const decoder = new TextDecoder('utf-8');
           const reader = response.body.getReader();
+          turn.reader = reader;
 
           while (true) {
             const { done, value } = await reader.read();
+            // A newer turn may be using this socket while an aborted request
+            // finishes. Never forward that request's late frames or receipts.
+            if (turn.abortController.signal.aborted || currentTurn !== turn)
+              break;
             if (done) {
               const tail = decoder.decode();
               if (tail && deviceWs.readyState === 1 /* OPEN */) {
@@ -422,7 +440,11 @@ export async function handleBatchVoiceConnection(
             }
           }
         } catch (err: any) {
-          if (err?.name !== 'AbortError') {
+          if (
+            currentTurn === turn &&
+            !turn.abortController.signal.aborted &&
+            err?.name !== 'AbortError'
+          ) {
             log.error('internal transcribe-chat stream error', {
               deviceId: device.deviceId,
               requestId: turn.requestId,
@@ -436,6 +458,8 @@ export async function handleBatchVoiceConnection(
             );
           }
         } finally {
+          turn.reader?.releaseLock();
+          turn.reader = null;
           if (currentTurn === turn) {
             const reqId = turn.requestId;
             cleanupTurn('turn_completed');

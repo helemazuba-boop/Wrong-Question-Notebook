@@ -22,8 +22,18 @@ import {
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
 import { AI_TOOLS } from './ai-tools/voice-tools';
+import { findCatalogTool } from './mcp/tool-catalog';
+import {
+  createVoiceOperation,
+  throwIfVoiceStopped,
+  waitForVoiceOperation,
+  cancelVoiceReaderOnAbort,
+  VoiceOperationStopped,
+} from './voice-operation';
 
 export interface ChatStreamConfig {
+  signal?: AbortSignal;
+  remainingMs?: () => number;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -65,7 +75,12 @@ export interface ToolExecutor {
   (
     name: string,
     rawArgs: string,
-    meta?: { callId: string; requestId?: string }
+    meta?: {
+      callId: string;
+      requestId?: string;
+      signal?: AbortSignal;
+      writeSignal?: AbortSignal;
+    }
   ): Promise<{
     ok: boolean;
     display: string;
@@ -81,6 +96,37 @@ export async function runPipelineChat(
   pusher: PipelinePusher,
   toolExecutor?: ToolExecutor
 ): Promise<ChatStreamResult> {
+  const operation = createVoiceOperation(config.llmTimeoutMs, config.signal);
+  try {
+    throwIfVoiceStopped(operation.signal);
+    return await runChatWithinBudget(
+      {
+        ...config,
+        signal: operation.signal,
+        remainingMs: operation.remainingMs,
+      },
+      input,
+      pusher,
+      toolExecutor
+    );
+  } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError('chat_timeout', 'Chat deadline exceeded', 504)
+    );
+    throw error;
+  } finally {
+    operation.dispose();
+  }
+}
+
+async function runChatWithinBudget(
+  config: ChatStreamConfig,
+  input: ChatStreamInput,
+  pusher: PipelinePusher,
+  toolExecutor?: ToolExecutor
+): Promise<ChatStreamResult> {
   const startedAt = Date.now();
   pusher.emitStage('chat_started');
 
@@ -90,7 +136,10 @@ export async function runPipelineChat(
   // here - it uses the realtime WS proxy with its own context management.
   const conversationId = input.conversationId || mintConversationId();
   const priorTurns = input.userId
-    ? await loadTurns(input.userId, conversationId)
+    ? await waitForVoiceOperation(
+        loadTurns(input.userId, conversationId, config.signal),
+        config.signal
+      )
     : [];
 
   const messages: Array<Record<string, unknown>> = [
@@ -115,6 +164,7 @@ export async function runPipelineChat(
   // Four tool rounds plus one narration-only round. A successful final write
   // must not be discarded as "tool loop exceeded" before its receipt is read.
   for (let round = 0; round <= 4; round += 1) {
+    throwIfVoiceStopped(config.signal);
     const hasTools = Boolean(toolExecutor) && round < 4;
     if (round === 4)
       messages.push({
@@ -144,15 +194,19 @@ export async function runPipelineChat(
       // appendTurns, so a same-visit follow-up sees this turn immediately.
       if (input.userId && fullReply) {
         const now = new Date().toISOString();
-        await appendTurns(
-          input.userId,
-          conversationId,
-          input.tier || 'std',
-          input.deviceId ?? null,
-          [
-            { role: 'user', content: input.transcript, created_at: now },
-            { role: 'assistant', content: fullReply, created_at: now },
-          ]
+        await waitForVoiceOperation(
+          appendTurns(
+            input.userId,
+            conversationId,
+            input.tier || 'std',
+            input.deviceId ?? null,
+            [
+              { role: 'user', content: input.transcript, created_at: now },
+              { role: 'assistant', content: fullReply, created_at: now },
+            ],
+            config.signal
+          ),
+          config.signal
         );
       }
       if (!fullReply) {
@@ -184,24 +238,78 @@ export async function runPipelineChat(
       tool_calls: response.toolCalls,
     });
     for (const call of response.toolCalls) {
+      throwIfVoiceStopped(config.signal);
       pusher.emitToolStart(
         call.id,
         call.function.name,
         response.toolCalls.indexOf(call)
       );
+      throwIfVoiceStopped(config.signal);
       const t0 = Date.now();
       let result: Awaited<ReturnType<ToolExecutor>>;
+      const readOnly =
+        findCatalogTool(call.function.name)?.annotations?.readOnlyHint === true;
+      // Disconnect cannot cancel a started write's receipt. Its independent
+      // finalization signal still expires at the original turn deadline.
+      const writeOperation = readOnly
+        ? undefined
+        : createVoiceOperation(config.remainingMs?.() ?? config.llmTimeoutMs);
+      let workStarted = false;
+      let stoppedAt: number | undefined;
+      const observeStop = () => {
+        stoppedAt = performance.now();
+      };
+      config.signal?.addEventListener('abort', observeStop, { once: true });
       try {
-        result = toolExecutor
-          ? await toolExecutor(call.function.name, call.function.arguments, {
+        throwIfVoiceStopped(writeOperation?.signal);
+        workStarted = true;
+        const work = toolExecutor
+          ? toolExecutor(call.function.name, call.function.arguments, {
               callId: call.id,
+              ...(readOnly
+                ? { signal: config.signal }
+                : { writeSignal: writeOperation?.signal }),
             })
-          : { ok: false, display: 'No tool executor registered' };
+          : Promise.resolve({
+              ok: false,
+              display: 'No tool executor registered',
+            });
+        result = await waitForVoiceOperation(
+          work,
+          readOnly ? config.signal : writeOperation?.signal
+        );
       } catch (err) {
+        if (readOnly && config.signal?.aborted) throw err;
+        if (writeOperation?.signal.aborted && !workStarted) throw err;
         result = {
           ok: false,
-          display: err instanceof Error ? err.message : 'tool failed',
+          display: writeOperation?.signal.aborted
+            ? 'Write result pending confirmation'
+            : err instanceof Error
+              ? err.message
+              : 'tool failed',
+          ...(writeOperation?.signal.aborted
+            ? {
+                data: { tool_call_id: call.id, outcome: 'unknown_outcome' },
+                error: {
+                  code: 'unknown_outcome',
+                  message:
+                    'Original write requires confirmation; do not create another operation.',
+                  retryable: true,
+                },
+              }
+            : {}),
         };
+      } finally {
+        writeOperation?.dispose();
+        config.signal?.removeEventListener('abort', observeStop);
+        if (stoppedAt !== undefined)
+          logger.info('ESP32 voice tool settled after stop', {
+            component: 'Esp32AiTranscribeChat',
+            call_id: call.id,
+            read_only: readOnly,
+            elapsed_after_stop_ms: Math.round(performance.now() - stoppedAt),
+          });
       }
       if (result.action) allActions.push(result.action);
       functionCalls.push({
@@ -215,12 +323,56 @@ export async function runPipelineChat(
         ok: result.ok,
         display: result.display,
         elapsed_ms: Date.now() - t0,
+        ...(result.error
+          ? {
+              error_code: /^[a-z][a-z0-9_]{0,79}$/.test(result.error.code)
+                ? result.error.code
+                : 'tool_execution_failed',
+            }
+          : {}),
       });
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         content: JSON.stringify(result),
       });
+      if (config.signal?.aborted) {
+        // Do not detach an executing write or start another tool/LLM round.
+        // The executor's request ledger and this exact receipt remain valid.
+        const replyText = functionCalls.map(call => call.display).join('\n');
+        if (input.userId) {
+          const now = new Date().toISOString();
+          await appendTurns(
+            input.userId,
+            conversationId,
+            input.tier || 'std',
+            input.deviceId ?? null,
+            [
+              { role: 'user', content: input.transcript, created_at: now },
+              { role: 'assistant', content: replyText, created_at: now },
+            ],
+            config.signal
+          );
+        }
+        pusher.emitStage('turn_stopped_after_tools', {
+          completed_tool_calls: functionCalls.length,
+          remaining_tool_calls:
+            response.toolCalls.length - response.toolCalls.indexOf(call) - 1,
+        });
+        return {
+          replyText,
+          conversationId,
+          requestId: lastRequestId,
+          model: config.model,
+          finishReason:
+            config.signal.reason instanceof VoiceOperationStopped
+              ? config.signal.reason.reason
+              : 'cancelled',
+          reasoningBytes: lastReasoningBytes,
+          actions: allActions,
+          functionCalls,
+        };
+      }
     }
   }
   throw new Esp32AiProviderError(
@@ -273,11 +425,9 @@ async function fetchStreamingCompletion(
     function: { name: string; arguments: string };
   }>;
 }> {
-  const controller = new AbortController();
-  const timer = setTimeout(function () {
-    controller.abort();
-  }, config.llmTimeoutMs);
+  const operation = createVoiceOperation(config.llmTimeoutMs, config.signal);
   try {
+    throwIfVoiceStopped(operation.signal);
     const body: Record<string, unknown> = {
       model: config.model,
       messages,
@@ -302,16 +452,19 @@ async function fetchStreamingCompletion(
         body.thinking_budget = config.thinkingBudget;
       }
     }
-    const r = await fetch(config.baseUrl + '/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + config.apiKey,
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const r = await waitForVoiceOperation(
+      fetch(config.baseUrl + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + config.apiKey,
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify(body),
+        signal: operation.signal,
+      }),
+      operation.signal
+    );
     if (!r.ok || !r.body) {
       const code =
         r.status === 429
@@ -325,9 +478,15 @@ async function fetchStreamingCompletion(
         code === 'provider_unavailable' ? 502 : r.status
       );
     }
-    return await consumeOpenAiSse(r.body, pusher, hasTools, replyPrefix);
+    return await consumeOpenAiSse(
+      r.body,
+      pusher,
+      hasTools,
+      replyPrefix,
+      operation.signal
+    );
   } finally {
-    clearTimeout(timer);
+    operation.dispose();
   }
 }
 
@@ -343,9 +502,11 @@ async function consumeOpenAiSse(
   body: ReadableStream<Uint8Array>,
   pusher: PipelinePusher,
   hasTools: boolean,
-  replyPrefix: string
+  replyPrefix: string,
+  signal?: AbortSignal
 ): Promise<ConsumedStream> {
   const reader = body.getReader();
+  const releaseReader = cancelVoiceReaderOnAbort(reader, signal);
   const decoder = new TextDecoder();
   let buf = '';
   let content = '';
@@ -415,15 +576,19 @@ async function consumeOpenAiSse(
       if (firstDeltaEmitted) pusher.closeSentence();
     }
   }
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buf += decoder.decode(chunk.value, { stream: true });
-    let nextEvent;
-    while ((nextEvent = takeNextSseEvent(buf)) !== null) {
-      handleEvent(nextEvent.event);
-      buf = nextEvent.rest;
+  try {
+    while (true) {
+      const chunk = await waitForVoiceOperation(reader.read(), signal);
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true });
+      let nextEvent;
+      while ((nextEvent = takeNextSseEvent(buf)) !== null) {
+        handleEvent(nextEvent.event);
+        buf = nextEvent.rest;
+      }
     }
+  } finally {
+    releaseReader();
   }
   finishReasoning();
   return {
