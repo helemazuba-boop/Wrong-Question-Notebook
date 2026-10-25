@@ -10,6 +10,7 @@ import {
   getFilteredProblemsCount,
 } from '@/lib/review-utils';
 import type { FilterConfig } from '@/lib/types';
+import { mapWithConcurrency } from '@/lib/map-with-concurrency';
 import { findMcpTool, type McpToolContext } from './tool-registry';
 import { ResourceDto, type McpV2ToolName } from './v2-contracts';
 import { McpV2Error, type JsonObject } from './v2-operations';
@@ -439,25 +440,43 @@ export async function readV2(
       .order('id', { ascending: false })
       .range(offset, offset + limit - 1);
     if (error) throw new McpV2Error('database_error', '错题集读取失败。', true);
-    const items = await Promise.all(
-      (data ?? []).map(async (set: any) =>
-        resource(
-          {
-            ...set,
-            subject_name: set.subjects?.name ?? '',
-            problem_count: set.is_smart
-              ? await getFilteredProblemsCount(
-                  ctx.supabase,
-                  ctx.userId,
-                  set.subject_id,
-                  filterOf(set)
-                )
-              : Number(set.problem_set_problems?.[0]?.count ?? 0),
-          },
-          'problem_set'
-        )
-      )
-    );
+    // Reuse exact results only inside this authorized request. No TTL or
+    // cross-user cache: changing content/permissions is visible next request.
+    const counts = new Map<string, Promise<number>>();
+    const items = await mapWithConcurrency(data ?? [], 2, async (set: any) => {
+      let problemCount = Number(set.problem_set_problems?.[0]?.count ?? 0);
+      if (set.is_smart) {
+        const filter = filterOf(set);
+        const key = JSON.stringify([
+          ctx.userId,
+          set.subject_id,
+          [...new Set(filter.tag_ids)].sort(),
+          [...new Set(filter.statuses)].sort(),
+          [...new Set(filter.problem_types)].sort(),
+          filter.days_since_review,
+          filter.include_never_reviewed,
+        ]);
+        let pending = counts.get(key);
+        if (!pending) {
+          pending = getFilteredProblemsCount(
+            ctx.supabase,
+            ctx.userId,
+            set.subject_id,
+            filter
+          );
+          counts.set(key, pending);
+        }
+        problemCount = await pending;
+      }
+      return resource(
+        {
+          ...set,
+          subject_name: set.subjects?.name ?? '',
+          problem_count: problemCount,
+        },
+        'problem_set'
+      );
+    });
     return page(items, {
       total: count ?? 0,
       has_more: offset + items.length < (count ?? 0),
