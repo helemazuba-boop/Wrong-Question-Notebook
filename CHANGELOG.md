@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Coalesce temporary voice-audio cleanup per process/directory, limit file metadata operations to four concurrent workers and reuse successful sweeps for 60 seconds. Signed URL expiry and explicit recording cleanup remain immediate; failed sweeps retry on the next upload.
 - Prepare word-study packs with at most two concurrent operations while retaining requested deck/snapshot order; settle started pack work before reporting failure and do not create a partial session.
 - Reuse equivalent smart-set exact counts within each MCP list request and limit count-query concurrency to two, preserving fresh results, page order and user/subject/filter isolation.
 - Reuse immutable Note/Problem pack summaries across Manifest pages, with two concurrent builders, revision checks, smart-set clock/tag invalidation and uncached missing-image retries. Apply migration `20261024000100_device_manifest_summaries.sql` before deploying the readers; snapshot/410 and content-addressed downloads keep their existing wire format.
