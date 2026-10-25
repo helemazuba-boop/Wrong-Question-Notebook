@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Compute each seeded vocabulary rank once per candidate sort, preserving the existing FNV hash, urgency buckets, UTF-8 tie breaks and deterministic study order without retaining a cross-request cache.
 - Coalesce temporary voice-audio cleanup per process/directory, limit file metadata operations to four concurrent workers and reuse successful sweeps for 60 seconds. Signed URL expiry and explicit recording cleanup remain immediate; failed sweeps retry on the next upload.
 - Prepare word-study packs with at most two concurrent operations while retaining requested deck/snapshot order; settle started pack work before reporting failure and do not create a partial session.
 - Reuse equivalent smart-set exact counts within each MCP list request and limit count-query concurrency to two, preserving fresh results, page order and user/subject/filter isolation.
