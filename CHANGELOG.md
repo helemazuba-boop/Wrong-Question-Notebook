@@ -93,6 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Accept database-valid seed account GUIDs in signed ESP32 voice context/tool requests while retaining signature, device-owner and active-account checks.
 - Restore ESP32 voice Note creation and replay by storing conversation provenance in note metadata. Align Flash tool completion events with Note4 firmware and preserve error reasons, uncertain write outcomes and cancellation state.
 - Let STD/PRO and legacy voice conversations narrate their tool receipts after reaching the tool round limit, and clarify Note parameters and failure recovery in the AI instructions.
 - Keep note and reading notebooks on the Notebook Shelf; remove the separate notebook navigation and list, redirect legacy list links to the shelf, and highlight the shelf while viewing notebook details.

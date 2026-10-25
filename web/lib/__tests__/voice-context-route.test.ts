@@ -84,6 +84,48 @@ describe('internal device voice context endpoint', () => {
     );
     expect(JSON.stringify(await response.json())).not.toContain(secret);
   });
+  it('accepts a persisted seeded user ID after signature and ownership checks', async () => {
+    const seededUser = '00000000-0000-0000-0000-000000000002';
+    const response = await POST(
+      request({ user_id: seededUser, device_id: device })
+    );
+    expect(response.status).toBe(200);
+    expect(eq).toHaveBeenCalledWith('user_id', seededUser);
+    expect(load).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: seededUser }),
+      undefined
+    );
+  });
+  it('still rejects seeded identities with invalid signatures or ownership', async () => {
+    const input = {
+      user_id: '00000000-0000-0000-0000-000000000002',
+      device_id: device,
+    };
+    expect((await POST(request(input, true, true))).status).toBe(401);
+    expect(from).not.toHaveBeenCalled();
+    maybeSingle.mockResolvedValue({ data: null, error: null });
+    expect((await POST(request(input))).status).toBe(401);
+    expect(load).not.toHaveBeenCalled();
+  });
+  it('keeps the disabled-account gate for a seeded identity', async () => {
+    load.mockRejectedValue(new Error('Account disabled'));
+    expect(
+      (
+        await POST(
+          request({
+            user_id: '00000000-0000-0000-0000-000000000002',
+            device_id: device,
+          })
+        )
+      ).status
+    ).toBe(403);
+  });
+  it('rejects malformed user IDs before querying ownership', async () => {
+    expect(
+      (await POST(request({ user_id: 'not-an-id', device_id: device }))).status
+    ).toBe(400);
+    expect(from).not.toHaveBeenCalled();
+  });
   it('rejects malformed payload and client-supplied permission snapshots', async () => {
     expect((await POST(request('bad-json'))).status).toBe(400);
     expect(

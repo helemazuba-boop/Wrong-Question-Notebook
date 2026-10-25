@@ -5,7 +5,8 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { loadVoiceContext } from '@/lib/ai-tools/voice-context-server';
 export const runtime = 'nodejs';
 const Body = z.strictObject({
-  user_id: z.uuid(),
+  // Persisted seed accounts use canonical PostgreSQL UUIDs without RFC bits.
+  user_id: z.guid(),
   device_id: z.uuid(),
   anchor_at: z.iso.datetime({ offset: true }).optional(),
 });
