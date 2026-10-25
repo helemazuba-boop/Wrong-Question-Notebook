@@ -2,6 +2,7 @@ import { isValidElement, type ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   queryResult,
+  pagedQueryResult,
   TEST_USER,
   SUBJECT_ID,
   SET_ID,
@@ -73,7 +74,7 @@ beforeEach(() => {
     if (table === 'problem_sets') return queryResult(set);
     if (table === 'subjects') return queryResult({ name: 'Math' });
     if (table === 'problem_set_problems')
-      return queryResult([{ problem_id: PROBLEM_ID, problems: problem }]);
+      return pagedQueryResult([{ problem_id: PROBLEM_ID, problems: problem }]);
     if (table === 'problem_tag') return queryResult([]);
     throw new Error(`Unexpected privileged query: ${table}`);
   });

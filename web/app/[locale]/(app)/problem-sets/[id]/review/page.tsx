@@ -11,6 +11,7 @@ import { FilterConfig } from '@/lib/types';
 import { appendFromParam, isSafeInternalHref } from '@/lib/navigation-context';
 import { readProblemInitialIdeas } from '@/lib/problem-initial-idea';
 import { checkProblemSetAccess } from '@/lib/problem-set-utils';
+import { readAllQueryPages } from '@/lib/query-pagination';
 
 export async function generateMetadata({
   params,
@@ -113,10 +114,13 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
   // Manual sets: fetch via junction table
   // Use service client for non-owner access to bypass RLS
   const queryClient = isOwner ? supabase : createServiceClient();
-  const { data: problemSetProblems } = await queryClient
-    .from('problem_set_problems')
-    .select(
-      `
+  const { data: problemSetProblems, error: memberError } =
+    await readAllQueryPages((offset, limit) =>
+      queryClient
+        .from('problem_set_problems')
+        .select(
+          `
+      id,
       problem_id,
       problems(
         id,
@@ -134,8 +138,13 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
         solution_assets
       )
     `
-    )
-    .eq('problem_set_id', problemSet.id);
+        )
+        .eq('problem_set_id', problemSet.id)
+        .order('added_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+    );
+  if (memberError) throw memberError;
 
   if (!problemSetProblems) {
     return [];
@@ -143,20 +152,29 @@ async function loadProblemSetProblems(problemSet: any, userId: string | null) {
 
   // Get tags for all problems
   const problemIds = problemSetProblems.map(p => p.problem_id);
-  const { data: tagLinks } = await queryClient
-    .from('problem_tag')
-    .select('problem_id, tags:tag_id ( id, name )')
-    .in('problem_id', problemIds);
-
   const tagsByProblem: Record<string, any[]> = {};
-  (tagLinks || []).forEach((link: any) => {
-    if (!tagsByProblem[link.problem_id]) {
-      tagsByProblem[link.problem_id] = [];
-    }
-    if (link.tags) {
-      tagsByProblem[link.problem_id].push(link.tags);
-    }
-  });
+  for (let start = 0; start < problemIds.length; start += 100) {
+    const { data: tagLinks, error: tagError } = await readAllQueryPages(
+      (offset, limit) =>
+        queryClient
+          .from('problem_tag')
+          .select('problem_id, tag_id, tags:tag_id(id,name)')
+          .in('problem_id', problemIds.slice(start, start + 100))
+          .order('problem_id', { ascending: true })
+          .order('tag_id', { ascending: true })
+          .range(offset, offset + limit - 1)
+    );
+    if (tagError) throw tagError;
+
+    (tagLinks || []).forEach((link: any) => {
+      if (!tagsByProblem[link.problem_id]) {
+        tagsByProblem[link.problem_id] = [];
+      }
+      if (link.tags) {
+        tagsByProblem[link.problem_id].push(link.tags);
+      }
+    });
+  }
 
   // Transform the data
   const problems = problemSetProblems.map((psp: any) => {

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
 import { withSecurity } from '@/lib/security-middleware';
 import {
@@ -11,6 +12,7 @@ import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 import { getFilteredProblems } from '@/lib/review-utils';
 import { FilterConfigSchema } from '@/lib/schemas';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { readAllQueryPages } from '@/lib/query-pagination';
 import {
   revalidateUserProblemSets,
   revalidateDiscovery,
@@ -76,19 +78,7 @@ async function copyProblemSet(
     // Fetch the source problem set
     const { data: sourceProblemSet, error: sourceError } = await serviceClient
       .from('problem_sets')
-      .select(
-        `
-        *,
-        problem_set_problems(
-          problem_id,
-          problems(
-            id, title, content, parts, source, is_optional, status, created_at,
-            solution_text, assets, solution_assets,
-            problem_tag(tags:tag_id(id, name))
-          )
-        )
-      `
-      )
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -167,8 +157,26 @@ async function copyProblemSet(
         sourceProblemSet.user_id
       );
     } else {
+      const { data: members, error: membersError } = await readAllQueryPages(
+        (offset, limit) =>
+          serviceClient
+            .from('problem_set_problems')
+            .select(
+              `id, problem_id, problems(
+            id, title, content, parts, source, is_optional, status, created_at,
+            solution_text, assets, solution_assets,
+            problem_tag(tags:tag_id(id,name))
+          )`
+            )
+            .eq('problem_set_id', id)
+            .eq('user_id', sourceProblemSet.user_id)
+            .order('added_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1)
+      );
+      if (membersError) throw membersError;
       sourceProblems =
-        sourceProblemSet.problem_set_problems
+        members
           ?.map((psp: any) => {
             const p = psp.problems;
             if (!p) return null;
@@ -238,28 +246,36 @@ async function copyProblemSet(
 
       if (uniqueTags.size > 0) {
         // Check which tags already exist in target subject by name
-        const tagNames = Array.from(uniqueTags.values());
-        const { data: existingTags } = await supabase
-          .from('tags')
-          .select('id, name')
-          .eq('subject_id', target_subject_id)
-          .in('name', tagNames);
-
-        const existingByName = new Map(
-          (existingTags || []).map((t: any) => [t.name, t.id])
-        );
+        const tagNames = [...new Set(uniqueTags.values())];
+        const existingByName = new Map<string, string>();
+        for (let start = 0; start < tagNames.length; start += 100) {
+          const names = tagNames.slice(start, start + 100);
+          const { data, error } = await readAllQueryPages((offset, limit) =>
+            supabase
+              .from('tags')
+              .select('id, name')
+              .eq('subject_id', target_subject_id)
+              .in('name', names)
+              .order('id', { ascending: true })
+              .range(offset, offset + limit - 1)
+          );
+          if (error) throw error;
+          for (const tag of data ?? []) existingByName.set(tag.name, tag.id);
+        }
 
         // Create missing tags
         const missingTags: {
+          id: string;
           name: string;
           subject_id: string;
           user_id: string;
         }[] = [];
         const sourceIdToName = new Map(uniqueTags.entries());
 
-        for (const [, tagName] of sourceIdToName) {
+        for (const tagName of tagNames) {
           if (!existingByName.has(tagName)) {
             missingTags.push({
+              id: randomUUID(),
               name: tagName,
               subject_id: target_subject_id,
               user_id: user.id,
@@ -267,19 +283,11 @@ async function copyProblemSet(
           }
         }
 
-        if (missingTags.length > 0) {
-          const { data: createdTags, error: tagCreateError } = await supabase
-            .from('tags')
-            .insert(missingTags)
-            .select('id, name');
-
-          if (tagCreateError) {
-            console.error('Failed to create tags:', tagCreateError);
-          }
-
-          (createdTags || []).forEach((t: any) => {
-            existingByName.set(t.name, t.id);
-          });
+        for (let start = 0; start < missingTags.length; start += 100) {
+          const batch = missingTags.slice(start, start + 100);
+          const { error } = await supabase.from('tags').insert(batch);
+          if (error) throw error;
+          for (const tag of batch) existingByName.set(tag.name, tag.id);
         }
 
         // Build source_tag_id -> new_tag_id mapping
@@ -312,12 +320,11 @@ async function copyProblemSet(
       solution_assets: p.solution_assets || [],
     }));
 
-    const { data: copiedProblems, error: insertError } = await supabase
+    const { error: insertError } = await supabase
       .from('problems')
-      .insert(problemInserts)
-      .select('id');
+      .insert(problemInserts);
 
-    if (insertError || !copiedProblems) {
+    if (insertError) {
       return NextResponse.json(
         createApiErrorResponse('Failed to copy problems', 500),
         { status: 500 }
@@ -443,7 +450,7 @@ async function copyProblemSet(
     return NextResponse.json(
       createApiSuccessResponse({
         problem_set_id: newProblemSet.id,
-        problem_count: copiedProblems.length,
+        problem_count: copiedProblemIds.length,
         tag_count: tagCount,
         marks: markInheritance,
       }),

@@ -55,7 +55,7 @@ const DESTINATION_IDS = [
 
 function builder(result: unknown) {
   const chain: any = {};
-  for (const method of ['select', 'eq', 'in', 'delete']) {
+  for (const method of ['select', 'eq', 'in', 'delete', 'order']) {
     chain[method] = vi.fn(() => chain);
   }
   chain.single = vi.fn().mockResolvedValue(result);
@@ -95,6 +95,22 @@ beforeEach(() => {
     problem_tag: [],
   }));
   const serviceFrom = vi.fn((table: string) => {
+    if (table === 'problem_set_problems') {
+      const all = duplicateProblems.map(problem => ({
+        id: problem.id,
+        problem_id: problem.id,
+        problems: problem,
+      }));
+      let page = all;
+      const query = builder({ data: all, error: null });
+      query.range = vi.fn((start: number, end: number) => {
+        page = all.slice(start, end + 1);
+        return query;
+      });
+      query.then = (resolve: (value: unknown) => unknown) =>
+        Promise.resolve({ data: page, error: null }).then(resolve);
+      return query;
+    }
     if (table !== 'problem_sets')
       throw new Error(`Unexpected service table: ${table}`);
     return builder({
@@ -127,7 +143,9 @@ beforeEach(() => {
     }
     if (table === 'problems') {
       const chain = builder({
-        data: DESTINATION_IDS.map(id => ({ id })),
+        // Inserts return minimal data; destination identities are allocated
+        // before the write and must not depend on a capped returning result.
+        data: null,
         error: null,
       });
       chain.insert = vi.fn((values: Array<Record<string, unknown>>) => {

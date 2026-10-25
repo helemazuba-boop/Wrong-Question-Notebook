@@ -12,6 +12,7 @@ import { getFilteredProblems } from '@/lib/review-utils';
 import { FilterConfig } from '@/lib/types';
 import { checkLimitedAccess } from '@/lib/problem-set-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { readAllQueryPages } from '@/lib/query-pagination';
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
@@ -105,16 +106,21 @@ async function getProblemSetProgress(
       // Manual set: query via junction table (use service client for non-owner access)
       const problemQueryClient = isOwner ? supabase : createServiceClient();
       const { data: problemSetProblems, error: problemsError } =
-        await problemQueryClient
-          .from('problem_set_problems')
-          .select(
-            `
+        await readAllQueryPages((offset, limit) =>
+          problemQueryClient
+            .from('problem_set_problems')
+            .select(
+              `
+          id,
           problems(
             status
           )
         `
-          )
-          .eq('problem_set_id', id);
+            )
+            .eq('problem_set_id', id)
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1)
+        );
 
       if (problemsError) {
         return NextResponse.json(

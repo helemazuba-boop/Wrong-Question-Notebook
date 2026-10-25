@@ -12,6 +12,7 @@ import { getFilteredProblems, applySessionConfig } from '@/lib/review-utils';
 import { FilterConfig, SessionConfig } from '@/lib/types';
 import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { readAllQueryPages } from '@/lib/query-pagination';
 
 async function startSession(
   req: Request,
@@ -116,10 +117,17 @@ async function startSession(
       );
     } else {
       // Manual set: get problems from problem_set_problems
-      const { data: pspData } = await supabase
-        .from('problem_set_problems')
-        .select('problem_id, problems(id, status)')
-        .eq('problem_set_id', id);
+      const { data: pspData, error: memberError } = await readAllQueryPages(
+        (offset, limit) =>
+          supabase
+            .from('problem_set_problems')
+            .select('id, problem_id, problems(id, status)')
+            .eq('problem_set_id', id)
+            .order('added_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1)
+      );
+      if (memberError) throw memberError;
 
       problems = (pspData || [])
         .map((psp: any) => psp.problems)

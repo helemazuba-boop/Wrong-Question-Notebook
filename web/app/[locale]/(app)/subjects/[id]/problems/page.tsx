@@ -12,6 +12,7 @@ import {
 } from '@/lib/cache-config';
 import { SimpleTag } from '@/lib/types';
 import { getTranslations } from 'next-intl/server';
+import { readAllQueryPages } from '@/lib/query-pagination';
 
 export async function generateMetadata({
   params,
@@ -65,19 +66,32 @@ async function loadData(subjectId: string) {
         };
 
       // Load problems and tags in parallel
-      const [{ data: problems }, { data: availableTags }] = await Promise.all([
-        supabaseClient
-          .from('problems')
-          .select('*, problem_set_problems(problem_sets(id, name))')
-          .eq('subject_id', subjectId)
-          .eq('user_id', _userId)
-          .order('created_at', { ascending: false }),
-        supabaseClient
-          .from('tags')
-          .select('id, name')
-          .eq('subject_id', subjectId)
-          .order('name', { ascending: true }),
+      const [
+        { data: problems, error: problemsError },
+        { data: availableTags, error: tagsError },
+      ] = await Promise.all([
+        readAllQueryPages((offset, limit) =>
+          supabaseClient
+            .from('problems')
+            .select('*, problem_set_problems(problem_sets(id, name))')
+            .eq('subject_id', subjectId)
+            .eq('user_id', _userId)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(offset, offset + limit - 1)
+        ),
+        readAllQueryPages((offset, limit) =>
+          supabaseClient
+            .from('tags')
+            .select('id, name')
+            .eq('subject_id', subjectId)
+            .order('name', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1)
+        ),
       ]);
+      if (problemsError) throw problemsError;
+      if (tagsError) throw tagsError;
 
       const p = (problems ?? []).map(problem => ({
         ...problem,
@@ -90,20 +104,29 @@ async function loadData(subjectId: string) {
 
       if (ids.length) {
         // Join problem_tag -> tags to collect tags per problem
-        const { data: links } = await supabaseClient
-          .from('problem_tag')
-          .select('problem_id, tags:tag_id ( id, name )')
-          .in('problem_id', ids);
+        for (let start = 0; start < ids.length; start += 100) {
+          const { data: links, error } = await readAllQueryPages(
+            (offset, limit) =>
+              supabaseClient
+                .from('problem_tag')
+                .select('problem_id, tag_id, tags:tag_id(id,name)')
+                .in('problem_id', ids.slice(start, start + 100))
+                .order('problem_id', { ascending: true })
+                .order('tag_id', { ascending: true })
+                .range(offset, offset + limit - 1)
+          );
+          if (error) throw error;
 
-        // Group by problem_id
-        (links ?? []).forEach((row: any) => {
-          if (!tagsByProblem[row.problem_id]) {
-            tagsByProblem[row.problem_id] = [];
-          }
-          if (row.tags) {
-            tagsByProblem[row.problem_id].push(row.tags);
-          }
-        });
+          // Group by problem_id
+          (links ?? []).forEach((row: any) => {
+            if (!tagsByProblem[row.problem_id]) {
+              tagsByProblem[row.problem_id] = [];
+            }
+            if (row.tags) {
+              tagsByProblem[row.problem_id].push(row.tags);
+            }
+          });
+        }
       }
 
       return {
