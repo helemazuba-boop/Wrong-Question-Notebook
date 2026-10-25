@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { createClient } from '@supabase/supabase-js';
 import { readAllQueryPages } from '@/lib/query-pagination';
 import { getFilteredProblems } from '@/lib/review-utils';
+import { buildNotePack } from '@/lib/note-packs';
 import { getProblemSetWithFullData } from '@/lib/problem-set-utils';
 import { TEST_USER, SUBJECT_ID, SET_ID } from '@/lib/test/supabase-query';
 import { NextResponse } from 'next/server';
@@ -179,6 +180,25 @@ it('does not publish a partial collection after a later page fails', async () =>
   await expect(
     getFilteredProblems(client as any, TEST_USER.id, SUBJECT_ID, filter)
   ).rejects.toThrow('later page unavailable');
+});
+
+it('note pack includes every note beyond a server row ceiling with stable SHA', async () => {
+  const first = await buildNotePack(client as any, TEST_USER.id, 'notebook');
+  const second = await buildNotePack(client as any, TEST_USER.id, 'notebook');
+  expect(first.entry_count).toBe(1505);
+  expect(first.sha256).toBe(second.sha256);
+  const lines = first.body
+    .split('\n')
+    .slice(1)
+    .map(line => JSON.parse(line));
+  expect(lines.map(row => row.note_id)).toEqual(rows.map(row => row.id));
+  for (const query of queries.filter(q =>
+    q.pathname.endsWith('/notebook_notes')
+  )) {
+    expect(query.searchParams.get('notebook_id')).toBe('eq.notebook');
+    expect(query.searchParams.get('user_id')).toBe(`eq.${TEST_USER.id}`);
+    expect(query.searchParams.get('order')).toBe('sort_index.asc,id.asc');
+  }
 });
 
 it('fails explicitly if an adapter ignores pagination instead of looping forever', async () => {

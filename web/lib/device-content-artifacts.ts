@@ -3,6 +3,13 @@ import { FILE_CONSTANTS } from '@/lib/constants';
 
 const BUCKET = FILE_CONSTANTS.STORAGE.BUCKET;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const ARTIFACT_TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function needsArtifactTouch(lastSeen: unknown): boolean {
+  const seen = typeof lastSeen === 'string' ? Date.parse(lastSeen) : NaN;
+  const age = Date.now() - seen;
+  return !Number.isFinite(age) || age < 0 || age >= ARTIFACT_TOUCH_INTERVAL_MS;
+}
 
 export class DeviceContentArtifactError extends Error {
   constructor(
@@ -39,7 +46,7 @@ export async function materializeDevicePackArtifact(input: {
   const bytes = Buffer.from(body, 'utf8');
   const { data: existing, error: lookupError } = await supabase
     .from('device_pack_artifacts')
-    .select('storage_path')
+    .select('storage_path,last_seen_at,revision,byte_size')
     .eq('user_id', userId)
     .eq('domain', domain)
     .eq('logical_id', logicalId)
@@ -68,27 +75,34 @@ export async function materializeDevicePackArtifact(input: {
       );
     }
   }
-  const { error: recordError } = await supabase
-    .from('device_pack_artifacts')
-    .upsert(
-      {
-        user_id: userId,
-        domain,
-        logical_id: logicalId,
-        revision,
-        sha256,
-        storage_path: existing?.storage_path ?? storagePath,
-        byte_size: bytes.length,
-        last_seen_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,domain,logical_id,sha256' }
-    );
-  if (recordError) {
-    throw new DeviceContentArtifactError(
-      'artifact_storage_error',
-      recordError.message,
-      500
-    );
+  if (
+    !existing ||
+    needsArtifactTouch(existing.last_seen_at) ||
+    Number(existing.revision) !== revision ||
+    Number(existing.byte_size) !== bytes.length
+  ) {
+    const { error: recordError } = await supabase
+      .from('device_pack_artifacts')
+      .upsert(
+        {
+          user_id: userId,
+          domain,
+          logical_id: logicalId,
+          revision,
+          sha256,
+          storage_path: existing?.storage_path ?? storagePath,
+          byte_size: bytes.length,
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,domain,logical_id,sha256' }
+      );
+    if (recordError) {
+      throw new DeviceContentArtifactError(
+        'artifact_storage_error',
+        recordError.message,
+        500
+      );
+    }
   }
   return existing?.storage_path ?? storagePath;
 }
@@ -192,13 +206,14 @@ export async function registerDeviceImageArtifacts(
     storage_path: `user/${userId}/device-images/${row.pixel_format}/${row.image_id}.wqni`,
   }));
   const existingPaths = new Map<string, string>();
+  const existingSeen = new Map<string, unknown>();
   for (let offset = 0; offset < immutableRows.length; offset += 100) {
     const ids = immutableRows
       .slice(offset, offset + 100)
       .map(row => row.image_id);
     const { data, error } = await supabase
       .from('device_image_artifacts')
-      .select('image_id, storage_path')
+      .select('image_id, storage_path, last_seen_at')
       .eq('user_id', userId)
       .in('image_id', ids);
     if (error) {
@@ -210,6 +225,7 @@ export async function registerDeviceImageArtifacts(
     }
     for (const row of data || []) {
       existingPaths.set(row.image_id, row.storage_path);
+      existingSeen.set(row.image_id, row.last_seen_at);
     }
   }
   const copyOne = async (
@@ -273,10 +289,15 @@ export async function registerDeviceImageArtifacts(
       > => result.kind === 'registered'
     )
     .map(result => result.row);
-  if (registered.length > 0) {
+  const changed = registered.filter(
+    row =>
+      existingPaths.get(row.image_id) !== row.storage_path ||
+      needsArtifactTouch(existingSeen.get(row.image_id))
+  );
+  if (changed.length > 0) {
     const now = new Date().toISOString();
     const { error } = await supabase.from('device_image_artifacts').upsert(
-      registered.map(row => ({
+      changed.map(row => ({
         user_id: userId,
         ...row,
         last_seen_at: now,
@@ -351,6 +372,22 @@ export async function loadDevicePackArtifact(input: {
     .from(BUCKET)
     .download(data.storage_path);
   if (downloadError || !blob) {
+    if (isMissingStorageObject(downloadError)) {
+      // Reclaim only the unavailable derived pointer. Its DELETE trigger drops
+      // the summary and advances the domain, so a fresh manifest can repair it.
+      try {
+        await supabase
+          .from('device_pack_artifacts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('domain', domain)
+          .eq('logical_id', logicalId)
+          .eq('sha256', sha256)
+          .eq('storage_path', data.storage_path);
+      } catch {
+        /* The original 410 still tells the device to refresh. */
+      }
+    }
     throw new DeviceContentArtifactError(
       'artifact_not_found',
       'Pack artifact is unavailable; refresh the manifest',
@@ -401,6 +438,18 @@ export async function loadDeviceImageArtifact(input: {
     .from(BUCKET)
     .download(data.storage_path);
   if (downloadError || !blob) {
+    if (isMissingStorageObject(downloadError)) {
+      try {
+        await supabase
+          .from('device_image_artifacts')
+          .delete()
+          .eq('user_id', userId)
+          .eq('image_id', imageId)
+          .eq('storage_path', data.storage_path);
+      } catch {
+        /* Keep the original missing-image response. */
+      }
+    }
     throw new DeviceContentArtifactError(
       'artifact_not_found',
       'Image artifact not found',

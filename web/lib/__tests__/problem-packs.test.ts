@@ -104,15 +104,28 @@ const PROBLEM_ROW = {
   updated_at: '2026-07-28T03:05:00.000Z',
 };
 
-function chain(result: any) {
+function chain(result: any, pageResult?: (start: number, end: number) => any) {
   const q: any = {};
   for (const m of ['select', 'eq', 'is', 'in', 'order', 'range', 'limit']) {
     q[m] = vi.fn(() => q);
   }
   q.maybeSingle = vi.fn(() => Promise.resolve(result));
   q.single = vi.fn(() => Promise.resolve(result));
+  q.upsert = vi.fn(async () => ({ data: null, error: null }));
+  let current = result;
+  q.range = vi.fn((start: number, end: number) => {
+    current = pageResult
+      ? pageResult(start, end)
+      : {
+          ...result,
+          data: Array.isArray(result.data)
+            ? result.data.slice(start, end + 1)
+            : result.data,
+        };
+    return q;
+  });
   q.then = (resolve: any, reject: any) =>
-    Promise.resolve(result).then(resolve, reject);
+    Promise.resolve(current).then(resolve, reject);
   return q;
 }
 
@@ -125,9 +138,23 @@ function makeClient(tables: Record<string, any[]>) {
     const idx = counters[table] ?? 0;
     counters[table] = idx + 1;
     const list = tables[table] || [];
-    return chain(
-      list[Math.min(idx, list.length - 1)] ?? { data: null, error: null }
-    );
+    const result = list[Math.min(idx, list.length - 1)] ?? {
+      data: null,
+      error: null,
+    };
+    return chain(result, (start, end) => {
+      if (start > 0) counters[table]--;
+      const original =
+        start > 0
+          ? list[Math.min(Math.max(idx - 1, 0), list.length - 1)]
+          : result;
+      return {
+        ...original,
+        data: Array.isArray(original?.data)
+          ? original.data.slice(start, end + 1)
+          : original?.data,
+      };
+    });
   });
   return { supabase: { from } as any };
 }
@@ -303,7 +330,7 @@ describe('loadProblemStudyManifest', () => {
   it('relists sets with a pack summary and offset cursor', async () => {
     const { supabase } = makeClient({
       problem_sets: [
-        { data: [{ id: SET_ID, name: SET_ROW.name }], error: null },
+        { data: [SET_ROW], error: null },
         { data: SET_ROW, error: null },
       ],
       problem_set_problems: [{ data: JUNCTION_ROWS, error: null }],

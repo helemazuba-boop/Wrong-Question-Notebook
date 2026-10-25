@@ -360,6 +360,47 @@ export type Database = {
         };
         Relationships: [];
       };
+      device_pack_summaries: {
+        Row: {
+          user_id: string;
+          domain: string;
+          logical_id: string;
+          source_key: string;
+          sha256: string;
+          pack_revision: number;
+          entry_count: number;
+          byte_size: number;
+        };
+        Insert: {
+          user_id: string;
+          domain: string;
+          logical_id: string;
+          source_key: string;
+          sha256: string;
+          pack_revision: number;
+          entry_count: number;
+          byte_size: number;
+        };
+        Update: {
+          user_id?: string;
+          domain?: string;
+          logical_id?: string;
+          source_key?: string;
+          sha256?: string;
+          pack_revision?: number;
+          entry_count?: number;
+          byte_size?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'device_pack_summaries_user_id_domain_logical_id_sha256_fkey';
+            columns: ['user_id', 'domain', 'logical_id', 'sha256'];
+            isOneToOne: false;
+            referencedRelation: 'device_pack_artifacts';
+            referencedColumns: ['user_id', 'domain', 'logical_id', 'sha256'];
+          },
+        ];
+      };
       error_categorisations: {
         Row: {
           ai_confidence: number;
@@ -5518,6 +5559,15 @@ export type Database = {
           total_attempts: number;
           total_problems: number;
           total_subjects: number;
+        }[];
+      };
+      device_note_pack_sources_v1: {
+        Args: { p_user_id: string };
+        Returns: {
+          id: string;
+          title: string;
+          content_revision: number;
+          source_key: string;
         }[];
       };
       get_device_content_revisions: {

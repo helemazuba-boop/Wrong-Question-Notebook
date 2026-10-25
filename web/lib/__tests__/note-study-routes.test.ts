@@ -173,12 +173,18 @@ describe('esp32/v3/notes route integration', () => {
       chain.in = fluent;
       chain.order = fluent;
       chain.limit = fluent;
-      chain.range = fluent;
+      let offset = 0;
+      chain.range = vi.fn((start: number) => {
+        offset = start;
+        return chain;
+      });
       chain.maybeSingle = vi.fn(async () => ({
         data: table === 'note_change_log' ? { change_seq: 4 } : null,
         error: null,
       }));
       chain.then = (resolve: (v: unknown) => unknown) => {
+        if (offset > 0)
+          return Promise.resolve(resolve({ data: [], error: null }));
         if (table === 'notebooks') {
           return Promise.resolve(
             resolve({ data: [{ id: NB_ID }], error: null })
@@ -359,15 +365,7 @@ describe('esp32/v3/notes route integration', () => {
       chain.select = fluent;
       chain.eq = fluent;
       chain.is = fluent;
-      chain.order = vi.fn((column: string) => {
-        if (table === 'notebooks' && column === 'id') {
-          return Promise.resolve({
-            data: [{ id: NB_ID, title: '空白笔记' }],
-            error: null,
-          });
-        }
-        return chain;
-      });
+      chain.order = fluent;
       chain.limit = fluent;
       chain.upsert = vi.fn(async () => ({ data: null, error: null }));
       chain.maybeSingle = vi.fn(async () => ({
@@ -379,17 +377,35 @@ describe('esp32/v3/notes route integration', () => {
               : null,
         error: null,
       }));
-      chain.range = vi.fn(() => ({
-        then: (resolve: (v: unknown) => unknown) =>
-          Promise.resolve(
-            resolve({ data: [{ id: NB_ID, title: '空白笔记' }], error: null })
-          ),
-      }));
+      let offset = 0;
+      chain.range = vi.fn((start: number) => {
+        offset = start;
+        return chain;
+      });
       chain.then = (resolve: (v: unknown) => unknown) => {
         call += 1;
-        return Promise.resolve(resolve({ data: [], error: null }));
+        return Promise.resolve(
+          resolve({
+            data:
+              table === 'manifest_sources' && offset === 0
+                ? [
+                    {
+                      id: NB_ID,
+                      title: '空白笔记',
+                      content_revision: 4,
+                      source_key: 'a'.repeat(64),
+                    },
+                  ]
+                : [],
+            error: null,
+          })
+        );
       };
       return chain;
+    });
+    mockRpc.mockImplementation((name: string) => {
+      expect(name).toBe('device_note_pack_sources_v1');
+      return mockFrom('manifest_sources');
     });
     const res = await manifest(
       noteRequest('/api/esp32/v3/notes/manifest', {

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Bounded question-list API pagination: `GET /api/problems` defaults to 50 rows, accepts `offset` and `limit` (1–100), and returns `pagination.has_more` / `next_offset`. Full-collection readers page through database limits; smart/manual membership, tag lookups retain complete results instead of silently truncating at the PostgREST row ceiling.
+- Bounded question-list API pagination: `GET /api/problems` defaults to 50 rows, accepts `offset` and `limit` (1–100), and returns `pagination.has_more` / `next_offset`. Full-collection readers page through database limits; smart/manual membership, note packs and tag lookups retain complete results instead of silently truncating at the PostgREST row ceiling.
 - Report moderation queues, question previews, sharing suspension/restoration and reporter-visible results with preserved review history.
 - Due-todo reminder inboxes and opt-in browser push, with leased delivery, retry and inactive-account checks. Browser push requires deployment VAPID configuration.
 - Private account exports containing owned records and files, plus queued self-service and administrator deletion with recovery and preservation of other users' copied assets.
@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Reuse immutable Note/Problem pack summaries across Manifest pages, with two concurrent builders, revision checks, smart-set clock/tag invalidation and uncached missing-image retries. Apply migration `20261024000100_device_manifest_summaries.sql` before deploying the readers; snapshot/410 and content-addressed downloads keep their existing wire format.
 - Localize the shelf, notes, reading, todos, vocabulary and Insights interfaces in Chinese and English, including failure and session recovery messages.
 - Distinguish removing a question from a collection from deleting it, and preserve notebook return destinations across reloads.
 
