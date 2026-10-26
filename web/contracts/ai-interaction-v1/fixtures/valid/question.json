@@ -1,0 +1,16 @@
+{
+  "event": "interaction.request",
+  "data": {
+    "interaction_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "kind": "question",
+    "prompt": "新增 Todo：复习数学",
+    "options": [
+      {
+        "label": "九点",
+        "value": "09:00"
+      }
+    ],
+    "allow_custom": true,
+    "expires_at": "2026-10-26T04:00:00Z"
+  }
+}

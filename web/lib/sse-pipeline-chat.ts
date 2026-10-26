@@ -21,7 +21,7 @@ import {
   type StreamingPipelineInput,
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
-import { AI_TOOLS } from './ai-tools/voice-tools';
+import { AI_TOOLS, STD_AI_TOOLS } from './ai-tools/voice-tools';
 import { findCatalogTool } from './mcp/tool-catalog';
 import {
   createVoiceOperation,
@@ -32,6 +32,7 @@ import {
 } from './voice-operation';
 
 export interface ChatStreamConfig {
+  interactive?: boolean;
   signal?: AbortSignal;
   remainingMs?: () => number;
   apiKey: string;
@@ -83,6 +84,7 @@ export interface ToolExecutor {
     }
   ): Promise<{
     ok: boolean;
+    stop?: boolean;
     display: string;
     data?: unknown;
     action?: unknown;
@@ -248,6 +250,7 @@ async function runChatWithinBudget(
       const t0 = Date.now();
       let result: Awaited<ReturnType<ToolExecutor>>;
       const readOnly =
+        call.function.name === 'ask_question' ||
         findCatalogTool(call.function.name)?.annotations?.readOnlyHint === true;
       // Disconnect cannot cancel a started write's receipt. Its independent
       // finalization signal still expires at the original turn deadline.
@@ -266,9 +269,8 @@ async function runChatWithinBudget(
         const work = toolExecutor
           ? toolExecutor(call.function.name, call.function.arguments, {
               callId: call.id,
-              ...(readOnly
-                ? { signal: config.signal }
-                : { writeSignal: writeOperation?.signal }),
+              signal: config.signal,
+              ...(!readOnly ? { writeSignal: writeOperation?.signal } : {}),
             })
           : Promise.resolve({
               ok: false,
@@ -336,7 +338,11 @@ async function runChatWithinBudget(
         tool_call_id: call.id,
         content: JSON.stringify(result),
       });
-      if (config.signal?.aborted) {
+      if (
+        config.signal?.aborted ||
+        result.stop ||
+        result.error?.code === 'user_cancelled'
+      ) {
         // Do not detach an executing write or start another tool/LLM round.
         // The executor's request ledger and this exact receipt remain valid.
         const replyText = functionCalls.map(call => call.display).join('\n');
@@ -365,7 +371,7 @@ async function runChatWithinBudget(
           requestId: lastRequestId,
           model: config.model,
           finishReason:
-            config.signal.reason instanceof VoiceOperationStopped
+            config.signal?.reason instanceof VoiceOperationStopped
               ? config.signal.reason.reason
               : 'cancelled',
           reasoningBytes: lastReasoningBytes,
@@ -433,7 +439,11 @@ async function fetchStreamingCompletion(
       messages,
       stream: true,
       temperature: 0.3,
-      tools: hasTools ? AI_TOOLS : undefined,
+      tools: hasTools
+        ? config.interactive
+          ? STD_AI_TOOLS
+          : AI_TOOLS
+        : undefined,
       tool_choice: hasTools ? 'auto' : undefined,
     };
     if (isStep5PreviewModel(config.model)) {

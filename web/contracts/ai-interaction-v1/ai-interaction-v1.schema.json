@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/ai-interaction-v1",
+  "title": "STD AI confirmed input and tool decisions",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/chatRequest"
+    },
+    {
+      "$ref": "#/$defs/replyRequest"
+    },
+    {
+      "$ref": "#/$defs/streamFrame"
+    }
+  ],
+  "$defs": {
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "value"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "not": {
+            "const": "__custom__"
+          }
+        }
+      }
+    },
+    "chatRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "confirmed"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "confirmed": {
+          "const": true
+        }
+      }
+    },
+    "replyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "answer",
+        "confirmed"
+      ],
+      "properties": {
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "confirmed": {
+          "const": true
+        }
+      }
+    },
+    "interactionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interaction_id",
+        "kind",
+        "prompt",
+        "options",
+        "allow_custom",
+        "expires_at"
+      ],
+      "properties": {
+        "interaction_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "question",
+            "write"
+          ]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1800
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        },
+        "allow_custom": {
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "write"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "allow_custom": {
+                "const": false
+              },
+              "options": {
+                "minItems": 2,
+                "maxItems": 2,
+                "prefixItems": [
+                  {
+                    "properties": {
+                      "value": {
+                        "const": "approve"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "value": {
+                        "const": "reject"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "streamFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event",
+            "data"
+          ],
+          "properties": {
+            "event": {
+              "const": "interaction.request"
+            },
+            "data": {
+              "$ref": "#/$defs/interactionRequest"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event",
+            "data"
+          ],
+          "properties": {
+            "event": {
+              "enum": [
+                "interaction.waiting",
+                "interaction.closed"
+              ]
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "interaction_id"
+              ],
+              "properties": {
+                "interaction_id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

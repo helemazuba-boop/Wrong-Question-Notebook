@@ -150,33 +150,43 @@ async function runScopedStreamingPipeline(
     model: string;
   };
   try {
-    asrResult = await runPipelineAsr(
-      {
-        asrProvider: options.asrProvider,
-        signal: options.signal,
-        asrFallbackProvider: options.asrFallbackProvider,
-        dashScopeApiKey: options.dashScopeApiKey,
-        asrTaskUrl: options.asrTaskUrl,
-        asrTaskStatusBaseUrl: options.asrTaskStatusBaseUrl,
-        asrModel: options.asrModel,
-        asrLanguageHints: options.asrLanguageHints,
-        asrTimeoutMs: options.asrTimeoutMs,
-        asrPollIntervalMs: options.asrPollIntervalMs,
-        asrPollAttempts: options.asrPollAttempts,
-        audioUrlTtlMs: options.audioUrlTtlMs,
-        publicBaseUrl: options.publicBaseUrl,
-        stepfunApiKey: options.stepfunApiKey,
-        stepfunAsrUrl: options.stepfunAsrUrl,
-        stepfunAsrModel: options.stepfunAsrModel,
-        stepfunAsrLanguage: options.stepfunAsrLanguage,
-        stepfunAsrHotwords: options.stepfunAsrHotwords,
-        stepfunAsrEnableItn: options.stepfunAsrEnableItn,
-      },
-      options.input.audio,
-      options.input.sampleRate,
-      options.input.channels,
-      pusher
-    );
+    if (options.input.confirmedText !== undefined) {
+      asrResult = {
+        transcript: options.input.confirmedText,
+        requestId: null,
+        elapsedMs: 0,
+        provider: options.asrProvider,
+        model: 'confirmed-input',
+      };
+    } else {
+      asrResult = await runPipelineAsr(
+        {
+          asrProvider: options.asrProvider,
+          signal: options.signal,
+          asrFallbackProvider: options.asrFallbackProvider,
+          dashScopeApiKey: options.dashScopeApiKey,
+          asrTaskUrl: options.asrTaskUrl,
+          asrTaskStatusBaseUrl: options.asrTaskStatusBaseUrl,
+          asrModel: options.asrModel,
+          asrLanguageHints: options.asrLanguageHints,
+          asrTimeoutMs: options.asrTimeoutMs,
+          asrPollIntervalMs: options.asrPollIntervalMs,
+          asrPollAttempts: options.asrPollAttempts,
+          audioUrlTtlMs: options.audioUrlTtlMs,
+          publicBaseUrl: options.publicBaseUrl,
+          stepfunApiKey: options.stepfunApiKey,
+          stepfunAsrUrl: options.stepfunAsrUrl,
+          stepfunAsrModel: options.stepfunAsrModel,
+          stepfunAsrLanguage: options.stepfunAsrLanguage,
+          stepfunAsrHotwords: options.stepfunAsrHotwords,
+          stepfunAsrEnableItn: options.stepfunAsrEnableItn,
+        },
+        options.input.audio,
+        options.input.sampleRate,
+        options.input.channels,
+        pusher
+      );
+    }
     throwIfVoiceStopped(
       options.signal,
       () =>
@@ -229,6 +239,7 @@ async function runScopedStreamingPipeline(
   const chat = await runPipelineChat(
     {
       apiKey,
+      interactive: options.input.interactive,
       signal: options.signal,
       baseUrl,
       model: chatModel,

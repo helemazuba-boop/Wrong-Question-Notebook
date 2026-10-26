@@ -19,6 +19,9 @@ import {
 import { buildAiToolExecutor } from './v2-tools';
 import { loadVoiceContext } from '@/lib/ai-tools/voice-context-server';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { createVoiceInteractionGateway } from '@/lib/ai-tools/voice-interaction';
+import { STD_INTERACTION_PROMPT } from '@/lib/ai-tools/voice-tools';
+import { randomUUID } from 'node:crypto';
 import { appendAiToolPrompt } from '@/lib/ai-tools/voice-tools';
 import {
   createVoiceOperation,
@@ -62,6 +65,7 @@ export interface V2RuntimeConfig {
 export interface V2RequestContext {
   authResult: Esp32DeviceAuthContext;
   audio: ArrayBuffer;
+  confirmedText?: string;
 }
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -221,11 +225,29 @@ export async function handleV2Streaming(
             operation.signal
           );
           systemPrompt = appendAiToolPrompt(systemPrompt, voiceContext);
+          const interactive = req.headers.get('x-wqn-ai-interaction') === '1';
+          if (interactive) systemPrompt += '\n' + STD_INTERACTION_PROMPT;
+          const requestId = req.headers.get('x-wqn-request-id') ?? randomUUID();
           toolExecutor = buildAiToolExecutor({
             userId: authResult.userId,
             conversationId: req.headers.get('x-wqn-conversation-id'),
             deviceId: authResult.deviceId,
-            requestId: req.headers.get('x-wqn-request-id') ?? undefined,
+            requestId,
+            requireConfirmation: true,
+            notebooks: voiceContext.notebooks,
+            interaction: interactive
+              ? createVoiceInteractionGateway(
+                  {
+                    userId: authResult.userId,
+                    deviceId: authResult.deviceId,
+                    origin: '',
+                    supabase: createServiceClient(),
+                  },
+                  requestId,
+                  writer,
+                  operation.remainingMs
+                )
+              : undefined,
             timeContext: voiceContext,
           });
         }
@@ -236,6 +258,8 @@ export async function handleV2Streaming(
           writer: writer,
           input: {
             audio: audio,
+            confirmedText: requestContext?.confirmedText,
+            interactive: req.headers.get('x-wqn-ai-interaction') === '1',
             sampleRate: 16000,
             channels: 1,
             sampleFormat: 's16le',
