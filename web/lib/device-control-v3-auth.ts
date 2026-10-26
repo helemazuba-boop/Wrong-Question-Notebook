@@ -4,6 +4,7 @@ import { createV3Error, createV3JsonResponse } from './device-control-v3';
 import { hashDeviceToken, isValidDeviceToken } from './esp32-token';
 import { logger } from './logger';
 import { createServiceClient } from './supabase-utils';
+import { accountIsActive } from './supabase/account-status';
 
 export interface DeviceControlV3AuthContext {
   userId: string;
@@ -57,6 +58,23 @@ export async function authenticateDeviceControlV3(
   }
   if (!device) {
     return createV3Error(requestId, 401, 'UNAUTHORIZED', false);
+  }
+
+  try {
+    if (!(await accountIsActive(svc, device.user_id))) {
+      // Disabled is not invalid pairing: only 401 clears the firmware token.
+      // Keep this retryable so old firmware does not durably park its outbox
+      // on an unknown terminal code; reactivation must resume the same requests.
+      return createV3Error(requestId, 403, 'ACCOUNT_DISABLED', true, 60000);
+    }
+  } catch {
+    return createV3Error(
+      requestId,
+      503,
+      'AUTH_SERVICE_UNAVAILABLE',
+      true,
+      5000
+    );
   }
 
   return {

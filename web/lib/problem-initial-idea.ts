@@ -3,6 +3,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/database.types';
+import { readQueryWindow } from './query-pagination';
 
 const initialIdeaHeadSchema = z
   .object({
@@ -78,16 +79,27 @@ export async function readProblemInitialIdeas(
   const uniqueProblemIds = [...new Set(problemIds)];
   if (uniqueProblemIds.length === 0) return new Map();
 
-  const { data: contexts, error: contextsError } = await supabase
-    .from('problem_user_contexts')
-    .select('problem_id, current_initial_idea_revision_id')
-    .eq('user_id', userId)
-    .in('problem_id', uniqueProblemIds);
-
-  if (contextsError) {
-    throw new Error(
-      `Failed to read Problem user contexts: ${contextsError.message}`
+  const contexts: Array<{
+    problem_id: string;
+    current_initial_idea_revision_id: string | null;
+  }> = [];
+  for (let start = 0; start < uniqueProblemIds.length; start += 100) {
+    const ids = uniqueProblemIds.slice(start, start + 100);
+    const { data, error } = await readQueryWindow(
+      (offset, limit) =>
+        supabase
+          .from('problem_user_contexts')
+          .select('problem_id, current_initial_idea_revision_id')
+          .eq('user_id', userId)
+          .in('problem_id', ids)
+          .order('problem_id', { ascending: true })
+          .range(offset, offset + limit - 1),
+      0,
+      ids.length
     );
+    if (error)
+      throw new Error(`Failed to read Problem user contexts: ${error.message}`);
+    contexts.push(...(data ?? []));
   }
 
   const revisionIds = (contexts ?? [])
@@ -95,16 +107,31 @@ export async function readProblemInitialIdeas(
     .filter((id): id is string => id !== null);
   if (revisionIds.length === 0) return new Map();
 
-  const { data: revisions, error: revisionsError } = await supabase
-    .from('problem_initial_idea_revisions')
-    .select('id, problem_id, revision, revision_kind, idea')
-    .eq('user_id', userId)
-    .in('id', revisionIds);
-
-  if (revisionsError) {
-    throw new Error(
-      `Failed to read current initial idea revisions: ${revisionsError.message}`
+  const revisions: Array<
+    Pick<
+      Database['public']['Tables']['problem_initial_idea_revisions']['Row'],
+      'id' | 'problem_id' | 'revision' | 'revision_kind' | 'idea'
+    >
+  > = [];
+  for (let start = 0; start < revisionIds.length; start += 100) {
+    const ids = revisionIds.slice(start, start + 100);
+    const { data, error } = await readQueryWindow(
+      (offset, limit) =>
+        supabase
+          .from('problem_initial_idea_revisions')
+          .select('id, problem_id, revision, revision_kind, idea')
+          .eq('user_id', userId)
+          .in('id', ids)
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1),
+      0,
+      ids.length
     );
+    if (error)
+      throw new Error(
+        `Failed to read current initial idea revisions: ${error.message}`
+      );
+    revisions.push(...(data ?? []));
   }
 
   const revisionsById = new Map(

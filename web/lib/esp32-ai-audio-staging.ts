@@ -9,7 +9,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { logger } from './logger';
+import { mapWithConcurrency } from './map-with-concurrency';
 
 export type AudioStagingErrorCode =
   'disabled' | 'not_found' | 'invalid_signature' | 'expired';
@@ -64,6 +66,10 @@ const CLIP_SAMPLE_THRESHOLD = 32000;
 const DEFAULT_TMP_DIR = join(tmpdir(), 'wqn-esp32-ai-audio');
 const AUDIO_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CLEANUP_INTERVAL_MS = 60_000;
+const CLEANUP_CONCURRENCY = 4;
+let cleanupState:
+  { dir: string; nextAtMs: number; pending: Promise<void> | null } | undefined;
 
 function getTmpDir(): string {
   return process.env.WQN_ESP32_AI_AUDIO_TMP_DIR || DEFAULT_TMP_DIR;
@@ -175,26 +181,53 @@ function getAudioPath(id: string): string {
   return join(getTmpDir(), `${id}.wav`);
 }
 
-async function cleanupExpiredAudioFiles(nowMs = Date.now()) {
-  const dir = getTmpDir();
+async function sweepExpiredAudioFiles(dir: string, nowMs: number) {
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch {
-    return;
+    return false;
   }
 
-  await Promise.allSettled(
-    entries
-      .filter(entry => entry.endsWith('.wav'))
-      .map(async entry => {
+  let succeeded = true;
+  await mapWithConcurrency(
+    entries.filter(entry => entry.endsWith('.wav')),
+    CLEANUP_CONCURRENCY,
+    async entry => {
+      try {
         const filePath = join(dir, entry);
         const fileStat = await stat(filePath);
         if (nowMs - fileStat.mtimeMs > 15 * 60 * 1000) {
           await rm(filePath, { force: true });
         }
-      })
+      } catch (error) {
+        // A concurrent explicit cleanup is normal; other failures should be
+        // retried on the next upload without failing the current recording.
+        if ((error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT')
+          succeeded = false;
+      }
+    }
   );
+  return succeeded;
+}
+
+async function cleanupExpiredAudioFiles() {
+  const dir = getTmpDir();
+  if (cleanupState?.dir !== dir)
+    cleanupState = { dir, nextAtMs: -Infinity, pending: null };
+  const state = cleanupState;
+  if (state.pending) return state.pending;
+  if (performance.now() < state.nextAtMs) return;
+  // Coalesce only this process/directory. The monotonic interval controls
+  // garbage collection, while signed URL expiration is checked on every read.
+  state.pending = sweepExpiredAudioFiles(dir, Date.now())
+    .then(succeeded => {
+      if (succeeded) state.nextAtMs = performance.now() + CLEANUP_INTERVAL_MS;
+    })
+    .finally(() => {
+      state.pending = null;
+    });
+  return state.pending;
 }
 
 export async function stageEsp32AiAudioFile(

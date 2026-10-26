@@ -206,4 +206,103 @@ describe('v2 workflow reads', () => {
       { offset: 20, limit: 10 }
     );
   });
+
+  it('shares equivalent exact counts only inside one request', async () => {
+    count.mockReset().mockResolvedValue(12);
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      id,
+      subject_id: id,
+      is_smart: true,
+      filter_config: {
+        tag_ids: index % 2 ? [id, uid] : [uid, id, id],
+        statuses: ['wrong'],
+      },
+    }));
+    const context = ctx(rows);
+    const first = await readV2(context, 'list_problem_sets', {});
+    expect(first.items).toHaveLength(20);
+    expect(first.items.every((item: any) => item.problem_count === 12)).toBe(
+      true
+    );
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(rows[0].filter_config.tag_ids).toEqual([uid, id, id]);
+
+    count.mockResolvedValue(13);
+    const second = await readV2(context, 'list_problem_sets', {});
+    expect(second.items[0].problem_count).toBe(13);
+    expect(count).toHaveBeenCalledTimes(2);
+    const other = { ...context, userId: id };
+    await readV2(other, 'list_problem_sets', {});
+    expect(count).toHaveBeenLastCalledWith(
+      other.supabase,
+      id,
+      id,
+      expect.any(Object)
+    );
+    expect(count).toHaveBeenCalledTimes(3);
+  });
+
+  it('bounds distinct count queries and retains page order and manual counts', async () => {
+    const releases: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    count.mockReset().mockImplementation(async (_client, _user, subject) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise<void>(resolve => releases.push(resolve));
+      active--;
+      return subject === id ? 4 : 8;
+    });
+    const result = readV2(
+      ctx([
+        { id, subject_id: id, is_smart: true },
+        { id: uid, subject_id: uid, is_smart: true },
+        {
+          id,
+          subject_id: id,
+          is_smart: true,
+          filter_config: { include_never_reviewed: false },
+        },
+        { id, is_smart: false, problem_set_problems: [{ count: 7 }] },
+      ]),
+      'list_problem_sets',
+      {}
+    );
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[1]();
+    await vi.waitFor(() => expect(releases).toHaveLength(3));
+    releases[2]();
+    releases[0]();
+    const page = await result;
+    expect(peak).toBe(2);
+    expect(page.items.map((item: any) => item.problem_count)).toEqual([
+      4, 8, 4, 7,
+    ]);
+    expect(page.total).toBe(4);
+    expect(count).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not conflate different subjects or any filter dimension', async () => {
+    count.mockReset().mockResolvedValue(0);
+    const filters = [
+      {},
+      { tag_ids: [id] },
+      { statuses: ['wrong'] },
+      { problem_types: ['choice'] },
+      { days_since_review: 7 },
+      { include_never_reviewed: false },
+    ];
+    const rows = filters.map(filter_config => ({
+      id,
+      subject_id: id,
+      is_smart: true,
+      filter_config,
+    }));
+    await readV2(
+      ctx([...rows, { id, subject_id: uid, is_smart: true }]),
+      'list_problem_sets',
+      {}
+    );
+    expect(count).toHaveBeenCalledTimes(7);
+  });
 });

@@ -65,6 +65,9 @@ guards this.
 
 ## Reliability and ownership
 
+Server-side summary reuse and its migration/invalidation rules are documented
+in [Device Manifest summary cache](../device-manifest-cache.md).
+
 - `NoteSession` pins the exact notebook content revision and pack SHA used to
   build it. A downloaded replacement is staged for the next session and never
   rewrites an active session.

@@ -3,8 +3,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 import type { FilterConfig } from './types';
 import { getFilteredProblems } from './review-utils';
+import { readAllQueryPages } from './query-pagination';
 import { htmlToEsp32Content, latexToEsp32Text } from './esp32-content';
-import { StoredProblemPartsSchema } from './schemas';
+import { StoredProblemPartsSchema, FilterConfigSchema } from './schemas';
 import { ANSWER_CONFIG_CONSTANTS } from './constants';
 import {
   PROBLEM_PACK_MAX_BYTES,
@@ -16,6 +17,13 @@ import {
   materializeDevicePackArtifact,
   registerDeviceImageArtifacts,
 } from './device-content-artifacts';
+import {
+  DeviceManifestChanged,
+  guardManifestRead,
+  packSourceKey,
+  readManifestRevision,
+  resolveManifestSummaries,
+} from './device-manifest-summaries';
 
 // Deterministic per-problem-set packs, mirroring lib/note-packs.ts. There is
 // no problem_packs table: a pack is computed on demand from the set's member
@@ -56,6 +64,7 @@ export interface ProblemPackResult {
   entry_count: number;
   byte_size: number;
   body: string;
+  cacheable: boolean;
 }
 
 const PROBLEM_ROW_COLUMNS =
@@ -292,24 +301,21 @@ interface ProblemSetRow {
 async function loadMemberProblems(
   supabase: SupabaseClient<Database>,
   userId: string,
-  set: ProblemSetRow
+  set: ProblemSetRow,
+  asOf?: Date
 ): Promise<ProblemRowSource[]> {
   if (set.is_smart) {
     // Smart set: snapshot of the filter at build time; membership changes
     // surface as a new pack sha on the next manifest round.
-    const raw = (set.filter_config ?? {}) as Partial<FilterConfig>;
-    const filterConfig: FilterConfig = {
-      tag_ids: raw.tag_ids ?? [],
-      statuses: raw.statuses ?? [],
-      problem_types: raw.problem_types ?? [],
-      days_since_review: raw.days_since_review ?? null,
-      include_never_reviewed: raw.include_never_reviewed ?? true,
-    };
+    const filterConfig = smartFilterOf(set);
     const filtered = await getFilteredProblems(
       supabase,
       userId,
       set.subject_id,
-      filterConfig
+      filterConfig,
+      undefined,
+      undefined,
+      { now: asOf }
     );
     const rows = filtered as unknown as ProblemRowSource[];
     return [...rows].sort((a, b) => {
@@ -321,13 +327,17 @@ async function loadMemberProblems(
   // Manual set: junction order (added_at asc = the order the user built the
   // set in). Two explicit queries instead of an embedded join so the column
   // list stays type-checked.
-  const { data: junction, error: junctionError } = await supabase
-    .from('problem_set_problems')
-    .select('problem_id, added_at')
-    .eq('problem_set_id', set.id)
-    .eq('user_id', userId)
-    .order('added_at', { ascending: true })
-    .order('id', { ascending: true });
+  const { data: junction, error: junctionError } = await readAllQueryPages(
+    (offset, limit) =>
+      supabase
+        .from('problem_set_problems')
+        .select('id, problem_id, added_at')
+        .eq('problem_set_id', set.id)
+        .eq('user_id', userId)
+        .order('added_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+  );
   if (junctionError) {
     throw new ProblemStudyToolError(
       'database_error',
@@ -338,34 +348,51 @@ async function loadMemberProblems(
   const orderedIds = (junction || []).map(link => link.problem_id);
   if (orderedIds.length === 0) return [];
 
-  const { data: problems, error: problemsError } = await supabase
-    .from('problems')
-    .select(PROBLEM_ROW_COLUMNS)
-    .eq('user_id', userId)
-    .in('id', orderedIds);
-  if (problemsError) {
-    throw new ProblemStudyToolError(
-      'database_error',
-      problemsError.message,
-      500
+  const problems: ProblemRowSource[] = [];
+  // Bound both the result page and the URL's in() list. A large manual set
+  // must not overflow an HTTP request line or the PostgREST row ceiling.
+  for (let start = 0; start < orderedIds.length; start += 100) {
+    const { data, error } = await readAllQueryPages((offset, limit) =>
+      supabase
+        .from('problems')
+        .select(PROBLEM_ROW_COLUMNS)
+        .eq('user_id', userId)
+        .in('id', orderedIds.slice(start, start + 100))
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
     );
+    if (error) {
+      throw new ProblemStudyToolError('database_error', error.message, 500);
+    }
+    problems.push(...((data ?? []) as unknown as ProblemRowSource[]));
   }
-  const byId = new Map(
-    ((problems || []) as unknown as ProblemRowSource[]).map(row => [
-      row.id,
-      row,
-    ])
-  );
+  const byId = new Map(problems.map(row => [row.id, row]));
   return orderedIds
     .map(id => byId.get(id))
     .filter((row): row is ProblemRowSource => row !== undefined);
+}
+
+function smartFilterOf(
+  set: Pick<ProblemSetRow, 'filter_config'>
+): FilterConfig {
+  const parsed = FilterConfigSchema.safeParse(set.filter_config);
+  if (!parsed.success)
+    throw new ProblemStudyToolError(
+      'invalid_filter_config',
+      'Smart problem set has an invalid filter_config',
+      400
+    );
+  return {
+    ...parsed.data,
+    days_since_review: parsed.data.days_since_review ?? null,
+  };
 }
 
 export async function buildProblemPack(
   supabase: SupabaseClient<Database>,
   userId: string,
   problemSetId: string,
-  options: { materialize?: boolean } = {}
+  options: { materialize?: boolean; asOf?: Date } = {}
 ): Promise<ProblemPackResult> {
   const { data: set, error } = await supabase
     .from('problem_sets')
@@ -384,12 +411,12 @@ export async function buildProblemPack(
     );
   }
 
-  const members = (await loadMemberProblems(supabase, userId, set)).slice(
-    0,
-    PROBLEM_PACK_MAX_ENTRIES
-  );
+  const members = (
+    await loadMemberProblems(supabase, userId, set, options.asOf)
+  ).slice(0, PROBLEM_PACK_MAX_ENTRIES);
 
   let availableImageIds: Set<string> | null = null;
+  let cacheable = true;
   if (options.materialize) {
     const registration = await registerDeviceImageArtifacts(
       supabase,
@@ -399,6 +426,7 @@ export async function buildProblemPack(
     availableImageIds = new Set(
       registration.registered.map(artifact => artifact.image_id)
     );
+    cacheable = registration.missing.length === 0;
   }
 
   // The device caps a pack at PROBLEM_PACK_MAX_BYTES and the manifest zod
@@ -464,6 +492,7 @@ export async function buildProblemPack(
     entry_count: rowLines.length,
     byte_size: Buffer.byteLength(body, 'utf8'),
     body,
+    cacheable,
   };
 }
 
@@ -505,41 +534,122 @@ export async function loadProblemStudyManifest(
   limit = 50,
   expectedSnapshotId?: string
 ): Promise<ProblemManifestResult> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await loadStableProblemManifest(
+        supabase,
+        userId,
+        origin,
+        cursor,
+        limit,
+        expectedSnapshotId
+      );
+    } catch (error) {
+      if (!(error instanceof DeviceManifestChanged)) throw error;
+      if (expectedSnapshotId || attempt === 1)
+        throw new ProblemStudyToolError(
+          'snapshot_expired',
+          'The problem manifest changed; restart from cursor zero',
+          410
+        );
+    }
+  }
+  throw new Error('Unreachable manifest retry');
+}
+
+async function loadStableProblemManifest(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  origin: string,
+  cursor: number,
+  limit: number,
+  expectedSnapshotId?: string
+): Promise<ProblemManifestResult> {
   const pageSize = Math.min(Math.max(limit, 1), 100);
-  const { data, error } = await supabase
-    .from('problem_sets')
-    .select('id, name')
-    .eq('user_id', userId)
-    .order('id', { ascending: true });
+  const revisionBefore = await readManifestRevision(
+    supabase,
+    userId,
+    'problem_packs'
+  );
+  const asOf = new Date();
+  const { data, error } = await guardManifestRead({
+    supabase,
+    userId,
+    domain: 'problem_packs',
+    revision: revisionBefore,
+    read: () =>
+      readAllQueryPages((offset, limit) =>
+        supabase
+          .from('problem_sets')
+          .select('id, name, subject_id, is_smart, filter_config')
+          .eq('user_id', userId)
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1)
+      ),
+  });
   if (error) {
     throw new ProblemStudyToolError('database_error', error.message, 500);
   }
 
-  const rows = (data || []) as Array<{ id: string; name: string }>;
-  const problemSets = await Promise.all(
-    rows.map(async row => {
-      const pack = await buildProblemPack(supabase, userId, row.id, {
-        materialize: true,
-      });
-      return {
-        problem_set_id: row.id,
-        name: row.name,
-        is_smart: pack.is_smart,
-        deleted: false,
-        pack: {
-          pack_id: row.id,
-          pack_revision: pack.pack_revision,
-          schema_version: PROBLEM_PACK_SCHEMA_VERSION,
-          format: 'jsonl' as const,
-          compression: 'zlib' as const,
-          entry_count: pack.entry_count,
-          byte_size: pack.byte_size,
-          sha256: pack.sha256,
-          download_url: `${origin}/api/esp32/v3/problems/packs/${row.id}/${pack.sha256}`,
-        },
-      };
-    })
-  );
+  const sources = [];
+  for (const row of data || []) {
+    let dynamicMembers: unknown = null;
+    if (row.is_smart) {
+      const filter = smartFilterOf(row);
+      if (filter.days_since_review != null) {
+        // A clock-only eligibility change has no mutation/revision trigger.
+        // Read identities rather than pack bodies; use exactly the same filter
+        // and cutoff as the subsequent materialization.
+        const members = await getFilteredProblems(
+          supabase,
+          userId,
+          row.subject_id,
+          filter,
+          undefined,
+          undefined,
+          { columns: 'id', now: asOf }
+        );
+        dynamicMembers = members.map(member => member.id);
+      }
+    }
+    sources.push({
+      ...row,
+      source_key: packSourceKey([
+        PROBLEM_PACK_SCHEMA_VERSION,
+        revisionBefore,
+        row.id,
+        dynamicMembers,
+      ]),
+    });
+  }
+  const summaries = await resolveManifestSummaries({
+    supabase,
+    userId,
+    domain: 'problem_packs',
+    revision: revisionBefore,
+    sources,
+    build: row =>
+      buildProblemPack(supabase, userId, row.id, { materialize: true, asOf }),
+  });
+  const problemSets = summaries.map(({ source: row, pack }) => {
+    return {
+      problem_set_id: row.id,
+      name: row.name,
+      is_smart: row.is_smart,
+      deleted: false,
+      pack: {
+        pack_id: row.id,
+        pack_revision: pack.pack_revision,
+        schema_version: PROBLEM_PACK_SCHEMA_VERSION,
+        format: 'jsonl' as const,
+        compression: 'zlib' as const,
+        entry_count: pack.entry_count,
+        byte_size: pack.byte_size,
+        sha256: pack.sha256,
+        download_url: `${origin}/api/esp32/v3/problems/packs/${row.id}/${pack.sha256}`,
+      },
+    };
+  });
 
   const snapshotBody = JSON.stringify(problemSets);
   const snapshotId = createHash('sha256').update(snapshotBody).digest('hex');

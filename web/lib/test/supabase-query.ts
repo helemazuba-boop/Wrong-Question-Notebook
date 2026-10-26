@@ -50,6 +50,22 @@ export function queryResult(
   return query;
 }
 
+/** A whole fixture table whose range() returns the requested page. */
+export function pagedQueryResult(
+  data: unknown[],
+  error: QueryResult['error'] = null
+): QueryMock {
+  const query = queryResult(data, error);
+  let page = data;
+  query.range.mockImplementation((start: number, end: number) => {
+    page = data.slice(start, end + 1);
+    return query;
+  });
+  query.then = (resolve, reject) =>
+    Promise.resolve({ data: page, error }).then(resolve, reject);
+  return query;
+}
+
 export const TEST_USER = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   email: 'learner@example.invalid',

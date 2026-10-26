@@ -9,7 +9,7 @@ import {
 } from '@/lib/common-utils';
 import { checkProblemSetAccess } from '@/lib/problem-set-utils';
 import { isFilteredProblemMember } from '@/lib/review-utils';
-import { FilterConfig } from '@/lib/types';
+import { FilterConfigSchema } from '@/lib/schemas';
 import { createServiceClient } from '@/lib/supabase-utils';
 import {
   revalidateUserSubjects,
@@ -118,27 +118,30 @@ async function copyProblem(
     }
 
     // Verify the problem belongs to this set
-    if (sourceProblemSet.is_smart && sourceProblemSet.filter_config) {
+    if (sourceProblemSet.is_smart) {
       // For smart sets, check this specific problem matches the filter_config
-      const rawFilter = sourceProblemSet.filter_config as Record<
-        string,
-        unknown
-      >;
-      const filterConfig: FilterConfig = {
-        tag_ids: (rawFilter.tag_ids as string[]) ?? [],
-        statuses: (rawFilter.statuses as FilterConfig['statuses']) ?? [],
-        problem_types:
-          (rawFilter.problem_types as FilterConfig['problem_types']) ?? [],
-        days_since_review:
-          (rawFilter.days_since_review as number | null) ?? null,
-        include_never_reviewed:
-          (rawFilter.include_never_reviewed as boolean) ?? true,
-      };
+      // Persisted state may predate API validation or come from direct DB writes.
+      // Never let a missing/malformed filter skip the privileged membership check.
+      const filter = FilterConfigSchema.safeParse(
+        sourceProblemSet.filter_config
+      );
+      if (!filter.success) {
+        return NextResponse.json(
+          createApiErrorResponse(
+            'Smart problem set has an invalid filter_config',
+            400
+          ),
+          { status: 400 }
+        );
+      }
       const isMember = await isFilteredProblemMember(
         serviceClient,
         problem_id,
         sourceProblemSet.subject_id,
-        filterConfig,
+        {
+          ...filter.data,
+          days_since_review: filter.data.days_since_review ?? null,
+        },
         sourceProblemSet.user_id
       );
 
@@ -151,7 +154,7 @@ async function copyProblem(
           { status: 400 }
         );
       }
-    } else if (!sourceProblemSet.is_smart) {
+    } else {
       // For manual sets, check the junction table
       const { data: linkCheck } = await serviceClient
         .from('problem_set_problems')

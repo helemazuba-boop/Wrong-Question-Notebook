@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
-import { UpdateProblemSetDto } from '@/lib/schemas';
+import { FilterConfigSchema, UpdateProblemSetDto } from '@/lib/schemas';
 import { withSecurity } from '@/lib/security-middleware';
 import {
   createApiErrorResponse,
@@ -128,26 +128,11 @@ async function updateProblemSet(
   }
   const shared_with_emails = parsed.data.shared_with_emails;
 
-  // When setting is_smart to true, require filter_config to be present
-  if (providedKeys.has('is_smart') && fullUpdateData.is_smart) {
-    const hasFilterConfig =
-      providedKeys.has('filter_config') && fullUpdateData.filter_config != null;
-    if (!hasFilterConfig) {
-      return NextResponse.json(
-        createApiErrorResponse(
-          'Smart problem sets must include a valid filter_config',
-          400
-        ),
-        { status: 400 }
-      );
-    }
-  }
-
   try {
     // Check if user owns this problem set
     const { data: existingSet, error: checkError } = await supabase
       .from('problem_sets')
-      .select('id, user_id')
+      .select('id, user_id, is_smart, filter_config')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
@@ -156,6 +141,25 @@ async function updateProblemSet(
       return NextResponse.json(
         createApiErrorResponse('Problem set not found or access denied', 404),
         { status: 404 }
+      );
+    }
+
+    // Validate the effective state, not just fields supplied together. Clearing
+    // filter_config must not leave an existing smart set without a membership rule.
+    const effectiveSmart = fullUpdateData.is_smart ?? existingSet.is_smart;
+    const effectiveFilter = providedKeys.has('filter_config')
+      ? fullUpdateData.filter_config
+      : existingSet.filter_config;
+    if (
+      effectiveSmart &&
+      !FilterConfigSchema.safeParse(effectiveFilter).success
+    ) {
+      return NextResponse.json(
+        createApiErrorResponse(
+          'Smart problem sets must include a valid filter_config',
+          400
+        ),
+        { status: 400 }
       );
     }
 
