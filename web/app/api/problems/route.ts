@@ -15,6 +15,7 @@ import {
 } from '@/lib/common-utils';
 import { ERROR_MESSAGES, CONTENT_LIMIT_CONSTANTS } from '@/lib/constants';
 import type { Database } from '@/lib/database.types';
+import { readQueryWindow } from '@/lib/query-pagination';
 import { checkContentLimit } from '@/lib/content-limits';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { createServiceClient } from '@/lib/supabase-utils';
@@ -27,6 +28,11 @@ import {
 
 // Cache configuration for this route
 export const revalidate = 300; // 5 minutes
+
+type ProblemListRow = Database['public']['Tables']['problems']['Row'] & {
+  problem_tag?: Array<{ tags: { id: string; name: string } | null }>;
+  [key: string]: unknown;
+};
 
 async function ensureInitialReviewSchedule(userId: string, problemId: string) {
   try {
@@ -53,6 +59,24 @@ async function getProblems(req: Request) {
   if (!user) return unauthorised();
 
   const { searchParams } = new URL(req.url);
+  const offset = Number(searchParams.get('offset') ?? 0);
+  const limit = Number(searchParams.get('limit') ?? 50);
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 100 ||
+    !Number.isSafeInteger(offset + limit)
+  ) {
+    return NextResponse.json(
+      createApiErrorResponse(
+        'Invalid pagination: offset >= 0, limit 1-100',
+        400
+      ),
+      { status: 400 }
+    );
+  }
   const subjectId = searchParams.get('subject_id');
   const searchText = searchParams.get('search_text');
   const searchTitle = searchParams.get('search_title') === 'true';
@@ -120,66 +144,35 @@ async function getProblems(req: Request) {
     );
   }
 
-  // Handle tag filtering differently - we need to get problem IDs first, then fetch problems
-  let problemIds: string[] | null = null;
-
-  if (tagIds.length > 0) {
-    // First, get problem IDs that have the specified tags
-    const { data: tagLinks, error: tagError } = await supabase
-      .from('problem_tag')
-      .select('problem_id, tag_id')
-      .in('tag_id', tagIds)
-      .eq('user_id', user.id);
-
-    if (tagError) {
-      return NextResponse.json(
-        createApiErrorResponse(
-          ERROR_MESSAGES.DATABASE_ERROR,
-          500,
-          tagError.message
-        ),
-        { status: 500 }
-      );
-    }
-
-    if (tagFilterMode === 'all') {
-      // AND mode: only keep problems that have ALL selected tags
-      const countByProblem = new Map<string, number>();
-      for (const link of tagLinks || []) {
-        countByProblem.set(
-          link.problem_id,
-          (countByProblem.get(link.problem_id) || 0) + 1
-        );
-      }
-      problemIds = Array.from(countByProblem.entries())
-        .filter(([, count]) => count >= tagIds.length)
-        .map(([id]) => id);
-    } else {
-      // OR mode: keep problems that have ANY selected tag
-      problemIds = [...new Set(tagLinks?.map(link => link.problem_id) || [])];
-    }
-
-    // If no problems have the specified tags, return empty result
-    if (problemIds.length === 0) {
-      return NextResponse.json({ data: [] });
-    }
-  }
-
+  // Filter the parent rows before pagination. Separate tag-link downloads
+  // silently truncate membership when the server's row ceiling is reached.
+  const membershipAliases =
+    tagIds.length === 0
+      ? []
+      : tagFilterMode === 'all'
+        ? tagIds.map((_, index) => `matching_tag_${index}`)
+        : ['matching_tags'];
   let query = supabase
     .from('problems')
     .select(
-      `
-    *,
-    problem_tag(tags:tag_id(id, name))
-  `
+      [
+        '*',
+        'problem_tag(tags:tag_id(id,name))',
+        ...membershipAliases.map(
+          alias => `${alias}:problem_tag!inner(problem_id)`
+        ),
+      ].join(',')
     )
     .eq('user_id', user.id);
 
   if (subjectId) query = query.eq('subject_id', subjectId);
 
-  // Apply problem ID filter if we filtered by tags
-  if (problemIds) {
-    query = query.in('id', problemIds);
+  for (const [index, alias] of membershipAliases.entries()) {
+    query = query.eq(`${alias}.user_id`, user.id);
+    query =
+      tagFilterMode === 'all'
+        ? query.eq(`${alias}.tag_id`, tagIds[index])
+        : query.in(`${alias}.tag_id`, tagIds);
   }
 
   // Apply text search
@@ -230,9 +223,15 @@ async function getProblems(req: Request) {
   }
 
   try {
-    const { data, error } = await query.order('created_at', {
-      ascending: false,
-    });
+    query = query
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    const { data, error } = await readQueryWindow(
+      (start, size) =>
+        query.range(start, start + size - 1).returns<ProblemListRow[]>(),
+      offset,
+      limit + 1
+    );
 
     if (error) {
       return NextResponse.json(
@@ -246,16 +245,27 @@ async function getProblems(req: Request) {
     }
 
     // Group tags by problem for easier frontend consumption
-    const problemsWithTags = (data || []).map(problem => {
+    const problemsWithTags = (data || []).slice(0, limit).map(problem => {
       const tags =
         problem.problem_tag?.map((pt: any) => pt.tags).filter(Boolean) || [];
-      return {
+      const result: Record<string, unknown> = {
         ...problem,
         tags,
       };
+      for (const alias of membershipAliases) delete result[alias];
+      return result;
     });
 
-    return NextResponse.json(createApiSuccessResponse(problemsWithTags));
+    const hasMore = (data?.length ?? 0) > limit;
+    return NextResponse.json({
+      ...createApiSuccessResponse(problemsWithTags),
+      pagination: {
+        offset,
+        limit,
+        has_more: hasMore,
+        next_offset: hasMore ? offset + problemsWithTags.length : null,
+      },
+    });
   } catch (error) {
     const { message, status } = handleAsyncError(error);
     return NextResponse.json(createApiErrorResponse(message, status), {

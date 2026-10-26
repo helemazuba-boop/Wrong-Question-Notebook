@@ -97,6 +97,26 @@ export async function authenticateDevice(
     throw new AuthFailure('unauthorized', 'Invalid access token');
   }
 
+  let active: boolean;
+  try {
+    // Mirror accountIsActive without coupling the independently deployed relay
+    // to the Next.js package or a different installed Supabase SDK instance.
+    const { data: profile, error: statusError } = await svc
+      .from('user_profiles')
+      .select('is_active')
+      .eq('id', device.user_id)
+      .maybeSingle();
+    if (statusError) throw new Error('Account status lookup failed');
+    active = profile?.is_active === true;
+  } catch {
+    throw new AuthFailure('internal', 'Account status is unavailable');
+  }
+  if (!active) {
+    // Reserve unauthorized for invalid pairing tokens; disabled accounts may
+    // be reactivated without requiring the device to pair again.
+    throw new AuthFailure('disabled', 'Account is disabled');
+  }
+
   // best-effort last_seen bump — don't fail the connection if it errors
   svc
     .from('esp32_devices')

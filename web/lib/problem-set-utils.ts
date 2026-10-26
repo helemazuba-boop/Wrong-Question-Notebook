@@ -1,5 +1,6 @@
 // Note: Caching is now handled at the call site level to prevent data leakage
 import { getFilteredProblems } from './review-utils';
+import { readAllQueryPages } from './query-pagination';
 import { FilterConfig } from './types';
 import {
   createServiceClient,
@@ -221,10 +222,13 @@ export async function getProblemSetWithFullData(
     }));
   } else {
     // Manual sets: fetch problems via junction table (separate query)
-    const { data: junctionRows, error: problemsError } = await supabase
-      .from('problem_set_problems')
-      .select(
-        `
+    const { data: junctionRows, error: problemsError } =
+      await readAllQueryPages((offset, limit) =>
+        supabase
+          .from('problem_set_problems')
+          .select(
+            `
+        id,
         problem_id,
         added_at,
         problems(
@@ -233,12 +237,18 @@ export async function getProblemSetWithFullData(
           problem_tag(tags:tag_id(id, name))
         )
       `
-      )
-      .eq('problem_set_id', problemSetId);
+          )
+          .eq('problem_set_id', problemSetId)
+          .order('added_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1)
+      );
 
     if (problemsError) {
-      console.error('Error loading problem set problems:', problemsError);
-      problems = [];
+      if (isRetryableAuthError(problemsError)) {
+        throw toAuthUnavailableError(problemsError);
+      }
+      throw new Error('Failed to load problem set members');
     } else {
       problems = transformProblemSetProblems(junctionRows || []);
     }

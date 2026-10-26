@@ -1,5 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import { executeVoiceWrite } from '@/lib/ai-tools/voice-write';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { executeVoiceWrite, voiceRequestId } from '@/lib/ai-tools/voice-write';
+import { buildAiToolExecutor } from '@/app/api/esp32/ai/transcribe-chat/v2-tools';
+import { runPipelineChat } from '@/lib/sse-pipeline-chat';
+import { PipelinePusher } from '@/lib/sse-pipeline-types';
+import { SseEventIdGenerator } from '@/lib/ai-stream';
+
+afterEach(() => vi.unstubAllGlobals());
 const user = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   device = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function harness(lost = false, unavailable = false) {
@@ -78,6 +84,90 @@ function harness(lost = false, unavailable = false) {
 }
 const time = { now: '2026-10-14T16:30:00Z', timezone: 'Asia/Shanghai' };
 describe('voice write receipt recovery', () => {
+  it('keeps the original durable write identity and receipt when the consumer cancels during commit', async () => {
+    const h = harness();
+    const rpc = h.rpc.getMockImplementation()!;
+    let entered!: () => void;
+    let release!: () => void;
+    const committing = new Promise<void>(resolve => (entered = resolve));
+    const receipt = new Promise<void>(resolve => (release = resolve));
+    h.rpc.mockImplementation(async (name, args) => {
+      const result = await rpc(name, args);
+      if (name === 'commit_mcp_voice_operation_v1') {
+        entered();
+        await receipt;
+      }
+      return result;
+    });
+    const parent = new AbortController();
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call-original',
+                      type: 'function',
+                      function: {
+                        name: 'create_todo',
+                        arguments: '{"title":"fixture"}',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+          })}\n\n`
+        )
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const emit = vi.fn();
+    const execute = buildAiToolExecutor({
+      ...h.ctx,
+      requestId: 'turn-original',
+      timeContext: time,
+    });
+    const outcome = runPipelineChat(
+      {
+        apiKey: 'fixture',
+        baseUrl: 'https://fixture.invalid',
+        model: 'fixture',
+        systemPrompt: 'fixture',
+        llmTimeoutMs: 1000,
+        signal: parent.signal,
+      },
+      { transcript: 'fixture' },
+      new PipelinePusher(
+        { emit } as any,
+        new SseEventIdGenerator(),
+        Date.now()
+      ),
+      execute
+    );
+    await committing;
+    parent.abort();
+    expect(h.business()).toBe(1);
+    release();
+    const result = await outcome;
+    expect(result.functionCalls).toMatchObject([{ status: 'succeeded' }]);
+    expect(result.actions).toMatchObject([{ type: 'todo_created' }]);
+    expect(
+      h.rpc.mock.calls.filter(
+        ([name]) => name === 'begin_mcp_voice_operation_v1'
+      )
+    ).toHaveLength(1);
+    expect(h.rpc.mock.calls[0][1].p_request_id).toBe(
+      voiceRequestId(device, 'turn-original', 'call-original')
+    );
+    expect(h.op().state).toBe('committed');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(h.business()).toBe(1);
+  });
   it('recovers a lost commit response and replays the original local date next day', async () => {
     const h = harness(true),
       args = { title: '复习', due: { date: 'tomorrow' } };

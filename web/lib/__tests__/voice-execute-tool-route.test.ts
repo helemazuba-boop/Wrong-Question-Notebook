@@ -125,4 +125,28 @@ describe('signed Flash tool endpoint', () => {
       result: { ok: false, error: { code: 'notebook_permission_denied' } },
     });
   });
+  it('accepts a bound seeded user and preserves the original operation ID', async () => {
+    const seededUser = '00000000-0000-0000-0000-000000000002';
+    const response = await POST(request({ ...payload, user_id: seededUser }));
+    expect(response.status).toBe(200);
+    expect(build).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: seededUser,
+        requestId: payload.request_id,
+      })
+    );
+    expect(execute).toHaveBeenCalledWith(payload.tool_name, payload.raw_args, {
+      callId: payload.request_id,
+      requestId: payload.request_id,
+    });
+  });
+  it('still denies an unbound seeded identity before constructing tools', async () => {
+    maybeSingle.mockResolvedValue({ data: null, error: null });
+    const response = await POST(
+      request({ ...payload, user_id: '00000000-0000-0000-0000-000000000002' })
+    );
+    expect(response.status).toBe(401);
+    expect(build).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

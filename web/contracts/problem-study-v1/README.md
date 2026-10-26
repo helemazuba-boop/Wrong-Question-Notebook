@@ -1,5 +1,8 @@
 # WQN Problem Study v1
 
+Server-side summary reuse and its migration/invalidation rules are documented
+in [Device Manifest summary cache](../device-manifest-cache.md).
+
 This contract freezes device-side problem review over problem-set packs. A
 错题本 on the device is one `problem_set` (user-curated: manual or smart), and
 one set equals one deterministic JSONL pack mirroring the note-study wire

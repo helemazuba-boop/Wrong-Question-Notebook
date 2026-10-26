@@ -111,6 +111,18 @@ export async function executeVoiceWrite(
     const latest = await loadOperation(ctx, { id: op.id }).catch(() => null);
     if (latest?.state === 'committed')
       return resultOf(name, latest.receipt!.row);
+    // These SQL guards reject before entering the mutation transaction. A
+    // confirmed uncommitted row plus a definitive permission refusal is not
+    // an unknown transport outcome.
+    if (
+      latest?.state !== 'committed' &&
+      latest &&
+      error instanceof McpV2Error &&
+      ['notebook_permission_denied', 'device_context_mismatch'].includes(
+        error.code
+      )
+    )
+      throw error;
     if (executor.committing && latest?.state !== 'failed')
       throw new McpV2Error(
         'unknown_outcome',

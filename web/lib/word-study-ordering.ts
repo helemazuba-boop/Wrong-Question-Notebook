@@ -129,20 +129,30 @@ export function orderWordStudyCandidates(
   seed: string,
   nowMs: number
 ): WordStudyCandidate[] {
+  // Each input item needs one rank per sort. Keep the cache local so a new
+  // seed/request cannot reuse an old rank, and its size stays input-bounded.
+  const hashes = new Map<string, bigint>();
+  function hashFor(itemId: string): bigint {
+    const existing = hashes.get(itemId);
+    if (existing !== undefined) return existing;
+    const hash = guidedRandomHash(seed, itemId);
+    hashes.set(itemId, hash);
+    return hash;
+  }
   return [...candidates].sort((left, right) => {
     if (ordering === 'guided_random_v1') {
       const bucket =
         guidedRandomBucket(left, nowMs) - guidedRandomBucket(right, nowMs);
       if (bucket !== 0) return bucket;
-      const leftHash = guidedRandomHash(seed, left.item_id);
-      const rightHash = guidedRandomHash(seed, right.item_id);
+      const leftHash = hashFor(left.item_id);
+      const rightHash = hashFor(right.item_id);
       if (leftHash !== rightHash) return leftHash < rightHash ? -1 : 1;
       return compareUtf8Text(left.item_id, right.item_id);
     }
 
     if (ordering === 'pure_random_v1' || ordering === 'mistake_words_v1') {
-      const leftHash = guidedRandomHash(seed, left.item_id);
-      const rightHash = guidedRandomHash(seed, right.item_id);
+      const leftHash = hashFor(left.item_id);
+      const rightHash = hashFor(right.item_id);
       if (leftHash !== rightHash) return leftHash < rightHash ? -1 : 1;
       return compareUtf8Text(left.item_id, right.item_id);
     }

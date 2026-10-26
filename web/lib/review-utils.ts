@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import { readAllQueryPages } from './query-pagination';
 import {
   Problem,
   FilterConfig,
@@ -30,16 +31,18 @@ export async function getFilteredProblems(
   subjectId: string,
   filterConfig: FilterConfig,
   ownerUserId?: string,
-  page?: { offset: number; limit: number }
+  page?: { offset: number; limit: number },
+  source?: { columns?: string; now?: Date }
 ): Promise<Problem[]> {
   const effectiveUserId = ownerUserId ?? userId;
 
   // Filter the parent query through the relation so the API row limit cannot
   // truncate tag membership before the requested problem page is selected.
   const hasTagFilter = filterConfig.tag_ids.length > 0;
+  const selected = source?.columns ?? '*,problem_tag(tags:tag_id(id,name))';
   const columns = hasTagFilter
-    ? '*,problem_tag(tags:tag_id(id,name)),matching_tags:problem_tag!inner(problem_id)'
-    : '*,problem_tag(tags:tag_id(id,name))';
+    ? selected + ',matching_tags:problem_tag!inner(problem_id)'
+    : selected;
 
   let query = supabase
     .from('problems')
@@ -66,7 +69,7 @@ export async function getFilteredProblems(
 
   // Filter by last reviewed date
   if (filterConfig.days_since_review != null) {
-    const cutoffDate = new Date();
+    const cutoffDate = new Date(source?.now ?? Date.now());
     cutoffDate.setDate(cutoffDate.getDate() - filterConfig.days_since_review);
     const cutoffIso = cutoffDate.toISOString();
 
@@ -86,8 +89,11 @@ export async function getFilteredProblems(
       ascending: false,
     })
     .order('id', { ascending: false });
-  if (page) query = query.range(page.offset, page.offset + page.limit - 1);
-  const { data, error } = await query;
+  const { data, error } = page
+    ? await query.range(page.offset, page.offset + page.limit - 1)
+    : await readAllQueryPages((offset, limit) =>
+        query.range(offset, offset + limit - 1)
+      );
 
   if (error) {
     throw new Error(`Failed to query problems: ${error.message}`);

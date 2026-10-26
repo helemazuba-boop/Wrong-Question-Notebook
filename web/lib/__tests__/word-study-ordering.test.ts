@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   compareUtf8Text,
   guidedRandomHashHex,
@@ -36,6 +36,58 @@ const candidates: WordStudyCandidate[] = fixture.candidates.map(candidate => ({
 }));
 
 describe('word study ordering', () => {
+  it.each(['guided_random_v1', 'pure_random_v1', 'mistake_words_v1'] as const)(
+    'evaluates each %s rank once per sort and isolates seeds and calls',
+    ordering => {
+      const input = Array.from({ length: 128 }, (_, index) => ({
+        ...candidates[0],
+        item_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        status: 'new' as const,
+      }));
+      const expected = (seed: string) =>
+        input
+          .map(candidate => ({
+            id: candidate.item_id,
+            rank: guidedRandomHashHex(seed, candidate.item_id),
+          }))
+          .sort((left, right) => (left.rank < right.rank ? -1 : 1))
+          .map(row => row.id);
+      const firstExpected = expected('first-seed');
+      const secondExpected = expected('second-seed');
+      const encode = TextEncoder.prototype.encode;
+      const evaluated: string[] = [];
+      const spy = vi
+        .spyOn(TextEncoder.prototype, 'encode')
+        .mockImplementation(function (this: TextEncoder, value) {
+          if (typeof value === 'string' && value.includes('\0'))
+            evaluated.push(value);
+          return encode.call(this, value);
+        });
+      try {
+        for (const [seed, expectedIds] of [
+          ['first-seed', firstExpected],
+          ['first-seed', firstExpected],
+          ['second-seed', secondExpected],
+        ] as const) {
+          const start = evaluated.length;
+          const sorted = orderWordStudyCandidates(
+            input,
+            ordering,
+            seed,
+            Date.parse(fixture.now)
+          );
+          expect(sorted.map(row => row.item_id)).toEqual(expectedIds);
+          expect(evaluated.slice(start)).toHaveLength(input.length);
+          expect(new Set(evaluated.slice(start)).size).toBe(input.length);
+        }
+        expect(firstExpected).not.toEqual(secondExpected);
+        expect(input[0].item_id).toBe('00000000-0000-4000-8000-000000000001');
+      } finally {
+        spy.mockRestore();
+      }
+    }
+  );
+
   it('matches firmware UTF-8 byte ordering for supplementary characters', () => {
     const bmpPrivateUse = '\uE000';
     const supplementary = '\u{10000}';
