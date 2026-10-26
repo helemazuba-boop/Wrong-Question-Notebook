@@ -1,4 +1,3 @@
-
 version: 2
 
 updates:
@@ -21,6 +20,18 @@ updates:
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 10
     ignore:
+      # @typescript-eslint 8.72.0 requires TypeScript >=4.8.4 <6.1.0.
+      # Revisit when the lint toolchain supports TypeScript 7.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      # @tiptap/extension-mathematics 3.32.0 supports KaTeX through 0.18.x.
+      # Revisit this bound when its declared peer range includes newer KaTeX.
+      - dependency-name: "katex"
+        versions: [">=0.19"]
+      # Runtime provenance and persisted diagnostics explicitly require 5.4.1.
+      # Newer versions need a coordinated scheduling/provenance migration.
+      - dependency-name: "ts-fsrs"
+        versions: [">5.4.1"]
       # eslint-config-next 16.3.3 depends on eslint-plugin-react ^7.37.0, whose
       # peer range stops at ^9.7 -- no 7.x release supports eslint 10. Under
       # eslint 10 it installs (npm overrides the peer with a warning) but then
@@ -33,6 +44,12 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      # Vitest and its coverage provider declare exact-version peers, so major
+      # updates must also arrive together rather than as independent PRs.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       production-minor-and-patch:
         dependency-type: "production"
         update-types:
@@ -74,3 +91,8 @@ updates:
       time: "09:30"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
+    ignore:
+      # v6 supports open-source caching with cache-provider: basic.
+      # Review the cache behavior and benchmark that upgrade separately.
+      - dependency-name: "gradle/actions"
+        versions: [">=6"]
