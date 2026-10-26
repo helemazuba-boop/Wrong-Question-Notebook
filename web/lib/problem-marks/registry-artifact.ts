@@ -136,6 +136,10 @@ export const KnowledgeRegistryLockSchema = z
       .refine(value => value.startsWith('https://')),
     content_sha256: sha256Schema,
     skill_retrieval: SkillRetrievalLockSchema,
+    agent_marking: z
+      .object({ artifact_sha256: sha256Schema, skill_version: nonBlankSchema })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((lock, context) => {

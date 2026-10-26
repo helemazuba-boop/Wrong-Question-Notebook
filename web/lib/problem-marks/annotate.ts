@@ -37,6 +37,7 @@ import {
   type SkillRetrievalRuntime,
 } from '@/lib/problem-marks/retrieval/skill-retriever';
 import { loadSkillRetrievalRuntime } from '@/lib/problem-marks/retrieval/skill-runtime';
+import { markingEngine } from './agent-contract';
 
 const assignmentSchema = z
   .object({
@@ -209,6 +210,8 @@ export async function annotateProblemMarks(
   problemId: string,
   options: AnnotateProblemMarkOptions = {}
 ): Promise<ProblemMarkAnnotationResult> {
+  if (markingEngine() === 'agent')
+    return { status: 'skipped', assignments: 0, unresolved: 0 };
   const claim = await claimProblemMarkAnnotation(
     supabase,
     problemId,

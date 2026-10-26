@@ -693,7 +693,13 @@
     "removeFromSetFailed": "移出失败，请重试。",
     "removedFromSet": "已移出 {count} 道题目，原题仍然保留。",
     "notCollected": "尚未收录到错题本",
-    "collectedIn": "已收录："
+    "collectedIn": "已收录：",
+    "marksRecommended": "推荐方法",
+    "marksAlternative": "可选方法",
+    "marksFailed": "分类未能完成。",
+    "marksUnresolved": "部分分类仍需要补充信息。",
+    "marksRetry": "重新分类",
+    "marksRetryFailed": "未能启动新的分类，已刷新当前状态。"
   },
   "ProblemSets": {
     "title": "错题本",

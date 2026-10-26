@@ -47,6 +47,8 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://wqn.helema.cn}
       SITE_URL: ${SITE_URL:-https://wqn.helema.cn}
       CRON_SECRET: ${CRON_SECRET:-}
+      PROBLEM_MARKING_ENGINE: ${PROBLEM_MARKING_ENGINE:-rag}
+      PROBLEM_MARKING_AGENT_SECRET: ${PROBLEM_MARKING_AGENT_SECRET:-}
       # Web AI providers
       AI_PROVIDER: ${AI_PROVIDER:-google}
       AI_PROVIDER_BASE_URL: ${AI_PROVIDER_BASE_URL:-}
@@ -100,11 +102,28 @@ services:
       start_period: 30s
 
   # ============================================================
-  # WQN Flash Realtime proxy (Bun + StepFun Realtime WebSocket)
+  # WQN Agent classification worker (OpenCode V2)
   # ============================================================
-  # Listens on 8080 internally — nginx proxies /api/esp32/realtime
-  # to it via the wqn network. We do NOT publish 8080 to the host
-  # because nginx can reach this container by service name instead.
+  wqn-mark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.mark-worker
+    image: ${IMAGE_WQN_MARK_WORKER:-wqn-mark-worker:latest}
+    restart: unless-stopped
+    environment:
+      PROBLEM_MARKING_ENGINE: ${PROBLEM_MARKING_ENGINE:-rag}
+      PROBLEM_MARKING_AGENT_SECRET: ${PROBLEM_MARKING_AGENT_SECRET:-}
+      WQN_MARK_APP_URL: http://wqn:3000
+      WQN_MARK_OPENCODE_URL: ${WQN_MARK_OPENCODE_URL:-}
+      WQN_MARK_OPENCODE_DIRECTORY: ${WQN_MARK_OPENCODE_DIRECTORY:-}
+      WQN_MARK_OPENCODE_USERNAME: ${WQN_MARK_OPENCODE_USERNAME:-opencode}
+      WQN_MARK_OPENCODE_PASSWORD: ${WQN_MARK_OPENCODE_PASSWORD:-}
+      WQN_MARK_CONCURRENCY: ${WQN_MARK_CONCURRENCY:-2}
+    depends_on:
+      wqn:
+        condition: service_healthy
+
+  # WQN Flash Realtime proxy. nginx connects to port 8080 over this network.
   wqn-realtime:
     build:
       context: .

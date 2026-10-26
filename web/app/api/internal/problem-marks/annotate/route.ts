@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { annotateProblemMarks } from '@/lib/problem-marks/annotate';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { verifyInternalRequest } from '@/lib/internal-request-auth';
+import { markingEngine } from '@/lib/problem-marks/agent-contract';
 
 const bodySchema = z.object({ problem_id: z.uuid() }).strict();
 
@@ -32,6 +33,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (markingEngine() === 'agent')
+      return NextResponse.json(
+        { data: { status: 'pending', executor: 'agent' } },
+        { status: 202 }
+      );
     const result = await annotateProblemMarks(
       createServiceClient(),
       input.problem_id

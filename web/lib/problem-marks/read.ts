@@ -21,6 +21,14 @@ const markSchema = z.object({
 const markEdgeSchema = z.object({
   part_index: z.number().int().min(1).max(10).nullable(),
   mark: markSchema,
+  evidence: z
+    .object({
+      problem_quote: z.string(),
+      document_quote: z.string(),
+      rationale: z.string(),
+    })
+    .passthrough()
+    .optional(),
 });
 
 const unresolvedSchema = z.object({
@@ -46,6 +54,12 @@ export const ProblemSemanticsSchema = z.object({
     skills: z.array(markEdgeSchema),
   }),
   unresolved: z.array(unresolvedSchema),
+  methods: z
+    .object({
+      recommended: z.array(markEdgeSchema),
+      alternative: z.array(markEdgeSchema),
+    })
+    .default({ recommended: [], alternative: [] }),
 });
 
 export type ProblemSemantics = z.infer<typeof ProblemSemanticsSchema>;

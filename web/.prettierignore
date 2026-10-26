@@ -107,3 +107,4 @@ vendor/
 contracts/
 playwright-report/
 test-results/
+agent-marking.bundle.json

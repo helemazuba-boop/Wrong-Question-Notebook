@@ -44,3 +44,9 @@ the Prettier check.
 Boundaries that must not be crossed are in [`../ARCHITECTURE.md`](../ARCHITECTURE.md);
 each contract directory documents its own wire vocabulary, and
 [`../CHANGELOG.md`](../CHANGELOG.md) records why things changed.
+
+## Agent Problem marking
+
+See [the marking worker guide](server/mark-worker/README.md) for the dedicated MCP endpoint, versioned OpenCode workspace, deployment and manual acceptance workflow.
+
+部署、配置、逐题测试与回退命令见[中文部署与测试说明](server/mark-worker/DEPLOYMENT.zh-CN.md)。

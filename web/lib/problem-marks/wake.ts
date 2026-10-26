@@ -3,6 +3,7 @@ import 'server-only';
 import { after } from 'next/server';
 import { annotateProblemMarks } from '@/lib/problem-marks/annotate';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { markingEngine } from './agent-contract';
 
 // Best-effort prompt annotation after an objective Problem write. The enqueue
 // trigger has already created the annotation head in the same transaction, so
@@ -10,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 // post-response and swallows every error — the bounded cron worker is the
 // durable backstop.
 export function wakeProblemMarkAnnotation(problemId: string): void {
+  if (markingEngine() === 'agent') return;
   after(async () => {
     try {
       await annotateProblemMarks(createServiceClient(), problemId);

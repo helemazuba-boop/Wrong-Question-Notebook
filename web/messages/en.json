@@ -693,7 +693,13 @@
     "removeFromSetFailed": "Could not remove the questions. Please retry.",
     "removedFromSet": "Removed {count} questions from this notebook. Original questions are preserved.",
     "notCollected": "Not collected in a question notebook",
-    "collectedIn": "Collected in:"
+    "collectedIn": "Collected in:",
+    "marksRecommended": "Recommended methods",
+    "marksAlternative": "Alternative methods",
+    "marksFailed": "Classification could not be completed.",
+    "marksUnresolved": "Some classifications need more context.",
+    "marksRetry": "Retry classification",
+    "marksRetryFailed": "Could not start a new classification. The current status has been refreshed."
   },
   "ProblemSets": {
     "title": "Wrong-Question Books",

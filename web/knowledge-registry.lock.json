@@ -13,5 +13,9 @@
     "artifact_sha256": "b24460d012b2945753acefbdb999c7be1c42ec35feb900d9a4a470b8db3ccf43",
     "manifest_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/8a21c923b6eb54258feee159770fd7f710879a75/dist/skill-retrieval/skill-rag-qwen37-v1.manifest.json",
     "manifest_sha256": "494eb34d80e172cca158fd7a43f11bc2ad8929ae8a93b626e10a3cf8ef55bc8d"
+  },
+  "agent_marking": {
+    "artifact_sha256": "0e07ffcbf3077269782c9addee1b5f58e8f6d7b7a8b94ad0ea641417dfd3543a",
+    "skill_version": "1.0.0"
   }
 }

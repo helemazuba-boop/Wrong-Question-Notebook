@@ -5282,6 +5282,10 @@ export type Database = {
         };
         Returns: Json;
       };
+      agent_mark_control_v1: {
+        Args: { p_action: string; p_payload: Json };
+        Returns: Json;
+      };
       account_storage_objects: { Args: { p_user_id: string }; Returns: Json };
       acquire_external_provider_rate_limit: {
         Args: {

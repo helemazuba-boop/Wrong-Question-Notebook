@@ -9,6 +9,7 @@ import {
 } from '@/lib/problem-marks/annotate';
 import { claimProblemMarkAnnotations } from '@/lib/problem-marks/lifecycle';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { markingEngine } from './agent-contract';
 
 export interface ProblemMarkBatchResult {
   claimed: number;
@@ -38,6 +39,15 @@ export interface RunProblemMarkBatchOptions extends AnnotateProblemMarkOptions {
 export async function runProblemMarkAnnotationBatch(
   options: RunProblemMarkBatchOptions = {}
 ): Promise<ProblemMarkBatchResult> {
+  if (markingEngine() === 'agent')
+    return {
+      claimed: 0,
+      resolved: 0,
+      unresolved: 0,
+      failed: 0,
+      skipped: 0,
+      stoppedEarly: false,
+    };
   const {
     limit = 10,
     concurrency = 2,

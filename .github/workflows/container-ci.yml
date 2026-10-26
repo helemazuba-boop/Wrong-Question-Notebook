@@ -24,6 +24,10 @@ jobs:
             dockerfile: web/Dockerfile
             port: 3000
             health: /api/health
+          - image: mark-worker
+            dockerfile: web/Dockerfile.mark-worker
+            port: 8090
+            health: /health
           - image: realtime-proxy
             dockerfile: web/Dockerfile.realtime
             port: 8080

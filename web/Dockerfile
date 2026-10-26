@@ -86,6 +86,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 RUN mkdir .next && chown nextjs:nodejs .next
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/agent-marking.bundle.json ./agent-marking.bundle.json
+COPY --from=builder --chown=nextjs:nodejs /app/knowledge-registry.lock.json ./knowledge-registry.lock.json
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # sharp's native runtime: Next's file tracing copies the .node addon
