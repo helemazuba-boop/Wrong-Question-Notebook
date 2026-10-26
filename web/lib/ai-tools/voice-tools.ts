@@ -121,6 +121,43 @@ export const AI_TOOLS: VoiceToolDefinition[] = VOICE_TOOL_NAMES.map(name => {
   };
 });
 
+// Device-only interactive tool. Flash keeps its existing eight-tool surface.
+export const STD_AI_TOOLS: VoiceToolDefinition[] = [
+  ...AI_TOOLS,
+  {
+    type: 'function',
+    function: {
+      name: 'ask_question',
+      description:
+        '在 STD 设备上向用户提出选项问题，等待真实按键回答再继续。缺少目标、时间或用户偏好时使用；自己回答会中断本轮。写入确认由服务端自动执行，不要用本工具代替。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          question: { type: 'string', minLength: 1, maxLength: 1000 },
+          options: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 8,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                label: { type: 'string', minLength: 1, maxLength: 80 },
+                value: { type: 'string', minLength: 1, maxLength: 128 },
+              },
+              required: ['label', 'value'],
+            },
+          },
+        },
+        required: ['question', 'options'],
+      },
+    },
+  },
+];
+export const STD_INTERACTION_PROMPT =
+  '需要向用户提问时调用 ask_question，提供简短明确的选项并等待工具返回。用户取消或选择自己回答后停止本轮。Todo 和笔记写入均会先展示设备确认，未获批准不能声称已执行。';
+
 export const AI_TOOL_PROMPT = [
   '你可以在需要时调用工具读取当前用户的错题、写入用户明确授权给 AI 的空白笔记本，或管理用户的 Todo。',
   '不要声称已经写入笔记或 Todo，除非 create_notebook_note、create_todo 或 update_todo_status 工具返回成功。',

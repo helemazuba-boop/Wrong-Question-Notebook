@@ -357,6 +357,7 @@ export class RelaySession {
       this.downlinkTimer = null;
     }
     this.downlinkQueue = [];
+    this.pendingTextFrames = [];
     log.info('relay session closed', {
       deviceId: this.device.deviceId,
       reason,
@@ -576,12 +577,22 @@ export class RelaySession {
       this.upstream.send(this.rewriteSessionUpdate(evt));
       sendJson(this.deviceWs, { type: 'state', stage: 'session.negotiated' });
     } catch (error) {
-      if (!this.closed)
-        sendJson(this.deviceWs, {
-          type: 'error',
-          ...makeError('internal', 'Voice context unavailable', 'context'),
-        });
+      this.closeForContextFailure();
       log.warn('voice context load failed', { err: String(error) });
+    }
+  }
+
+  private closeForContextFailure() {
+    if (this.closed) return;
+    try {
+      sendJson(this.deviceWs, {
+        type: 'error',
+        ...makeError('internal', 'Voice context unavailable', 'context'),
+      });
+    } catch {
+      // A broken device socket must not leave the paid upstream alive.
+    } finally {
+      this.shutdown('voice-context-unavailable');
     }
   }
 
@@ -610,11 +621,9 @@ export class RelaySession {
       if (!this.closed && generation === this.turnGeneration)
         this.upstream.send(JSON.stringify(evt));
     } catch (error) {
-      if (!this.closed && generation === this.turnGeneration)
-        sendJson(this.deviceWs, {
-          type: 'error',
-          ...makeError('internal', 'Voice context unavailable', 'context'),
-        });
+      // Cancellation suppresses a stale response, not a connection-level
+      // authorization failure: a denied lookup must still close the relay.
+      this.closeForContextFailure();
       log.warn('voice turn context load failed', { err: String(error) });
     }
   }

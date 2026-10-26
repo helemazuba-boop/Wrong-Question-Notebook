@@ -19,11 +19,21 @@ import {
 import { buildAiToolExecutor } from './v2-tools';
 import { loadVoiceContext } from '@/lib/ai-tools/voice-context-server';
 import { createServiceClient } from '@/lib/supabase-utils';
+import { createVoiceInteractionGateway } from '@/lib/ai-tools/voice-interaction';
+import { STD_INTERACTION_PROMPT } from '@/lib/ai-tools/voice-tools';
+import { randomUUID } from 'node:crypto';
 import { appendAiToolPrompt } from '@/lib/ai-tools/voice-tools';
+import {
+  createVoiceOperation,
+  waitForVoiceOperation,
+  VoiceOperationStopped,
+} from '@/lib/voice-operation';
+import { closeSseWithError, type Esp32AiErrorCode } from '@/lib/ai-errors';
 
 export const RUNTIME_TAG = 'nodejs';
 
 export interface V2RuntimeConfig {
+  turnTimeoutMs?: number;
   dashScopeApiKey: string;
   openAiBaseUrlStd: string;
   openAiBaseUrlPro: string;
@@ -55,6 +65,7 @@ export interface V2RuntimeConfig {
 export interface V2RequestContext {
   authResult: Esp32DeviceAuthContext;
   audio: ArrayBuffer;
+  confirmedText?: string;
 }
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -97,7 +108,19 @@ export function loadV2RuntimeConfig(): V2RuntimeConfig {
       return v.trim();
     })
     .filter(Boolean);
+  const asrTimeoutMs = positiveInt(
+    process.env.WQN_ESP32_AI_ASR_TIMEOUT_MS,
+    90000
+  );
+  const llmTimeoutMs = positiveInt(
+    process.env.WQN_ESP32_AI_LLM_TIMEOUT_MS,
+    360000
+  );
   return {
+    turnTimeoutMs: positiveInt(
+      process.env.WQN_ESP32_AI_TURN_TIMEOUT_MS,
+      asrTimeoutMs + llmTimeoutMs
+    ),
     dashScopeApiKey: apiKey,
     // Per-tier base URL overrides mirror getProviderConfig() in
     // lib/esp32-ai-provider.ts: _STD/_PRO win over the shared base URL.
@@ -120,13 +143,13 @@ export function loadV2RuntimeConfig(): V2RuntimeConfig {
     ).replace(/\/+$/, ''),
     asrModel: process.env.DASHSCOPE_ASR_MODEL || 'paraformer-v2',
     asrLanguageHints: asrLangHints,
-    asrTimeoutMs: positiveInt(process.env.WQN_ESP32_AI_ASR_TIMEOUT_MS, 90000),
+    asrTimeoutMs,
     asrPollIntervalMs: positiveInt(
       process.env.DASHSCOPE_ASR_POLL_INTERVAL_MS,
       1000
     ),
     asrPollAttempts: positiveInt(process.env.DASHSCOPE_ASR_POLL_ATTEMPTS, 90),
-    llmTimeoutMs: positiveInt(process.env.WQN_ESP32_AI_LLM_TIMEOUT_MS, 360000),
+    llmTimeoutMs,
     audioUrlTtlMs: positiveInt(
       process.env.WQN_ESP32_AI_AUDIO_URL_TTL_MS,
       300000
@@ -181,94 +204,158 @@ export async function handleV2Streaming(
       ? reasoningEffortHeader
       : undefined;
 
-  let toolExecutor: ToolExecutor | undefined;
-  let systemPrompt = resolvedConfig.systemPrompt;
-  if (authResult.userId) {
-    const voiceContext = await loadVoiceContext({
-      userId: authResult.userId,
-      supabase: createServiceClient(),
-    });
-    systemPrompt = appendAiToolPrompt(systemPrompt, voiceContext);
-    const ctx = {
-      userId: authResult.userId,
-      conversationId: req.headers.get('x-wqn-conversation-id'),
-      deviceId: authResult.deviceId,
-      requestId: req.headers.get('x-wqn-request-id') ?? undefined,
-      timeContext: voiceContext,
-    };
-    toolExecutor = buildAiToolExecutor(ctx);
-  }
-
   const pipelineStartedAtMs = Date.now();
-  const sse = createSseResponse(async function (writer: SseWriter) {
-    try {
-      await runStreamingPipeline({
-        writer: writer,
-        input: {
-          audio: audio,
-          sampleRate: 16000,
-          channels: 1,
-          sampleFormat: 's16le',
-          conversationId: req.headers.get('x-wqn-conversation-id'),
-          tier: req.headers.get('x-wqn-ai-tier'),
-          userId: authResult.userId,
-          deviceId: authResult.deviceId,
-          enableThinking,
-          reasoningEffort,
-        },
-        asrModel: resolvedConfig.asrModel,
-        chatModelStd: resolvedConfig.chatModelStd,
-        chatModelPro: resolvedConfig.chatModelPro,
-        openAiBaseUrlStd: resolvedConfig.openAiBaseUrlStd,
-        openAiBaseUrlPro: resolvedConfig.openAiBaseUrlPro,
-        dashScopeApiKey: resolvedConfig.dashScopeApiKey,
-        chatApiKeyStd: resolvedConfig.chatApiKeyStd,
-        chatApiKeyPro: resolvedConfig.chatApiKeyPro,
-        asrTaskUrl: resolvedConfig.asrTaskUrl,
-        asrTaskStatusBaseUrl: resolvedConfig.asrTaskStatusBaseUrl,
-        asrLanguageHints: resolvedConfig.asrLanguageHints,
-        asrTimeoutMs: resolvedConfig.asrTimeoutMs,
-        asrPollIntervalMs: resolvedConfig.asrPollIntervalMs,
-        asrPollAttempts: resolvedConfig.asrPollAttempts,
-        llmTimeoutMs: resolvedConfig.llmTimeoutMs,
-        audioUrlTtlMs: resolvedConfig.audioUrlTtlMs,
-        publicBaseUrl: resolvedConfig.publicBaseUrl,
-        systemPrompt,
-        toolExecutor: toolExecutor,
-        asrProvider: resolvedConfig.asrProvider,
-        asrFallbackProvider: resolvedConfig.asrFallbackProvider,
-        stepfunApiKey: resolvedConfig.stepfunApiKey,
-        stepfunAsrUrl: resolvedConfig.stepfunAsrUrl,
-        stepfunAsrModel: resolvedConfig.stepfunAsrModel,
-        stepfunAsrLanguage: resolvedConfig.stepfunAsrLanguage,
-        stepfunAsrHotwords: resolvedConfig.stepfunAsrHotwords,
-        stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
-      });
-    } catch (error) {
-      if (error instanceof Esp32AiProviderError && error.code === 'no_speech') {
-        // Expected outcome for a button tap or near-silence, not a failure.
-        logger.warn('v2-streaming pipeline: no speech in audio', {
-          component: 'Esp32AiTranscribeChat',
-          code: error.code,
-          status: error.status,
-          message: error.message,
+  const sse = createSseResponse(
+    async function (writer: SseWriter) {
+      const operation = createVoiceOperation(
+        resolvedConfig.turnTimeoutMs ??
+          resolvedConfig.asrTimeoutMs + resolvedConfig.llmTimeoutMs,
+        writer.signal
+      );
+      let stage = 'context';
+      try {
+        let toolExecutor: ToolExecutor | undefined;
+        let systemPrompt = resolvedConfig.systemPrompt;
+        if (authResult.userId) {
+          const voiceContext = await waitForVoiceOperation(
+            loadVoiceContext({
+              userId: authResult.userId,
+              supabase: createServiceClient({ signal: operation.signal }),
+            }),
+            operation.signal
+          );
+          systemPrompt = appendAiToolPrompt(systemPrompt, voiceContext);
+          const interactive = req.headers.get('x-wqn-ai-interaction') === '1';
+          if (interactive) systemPrompt += '\n' + STD_INTERACTION_PROMPT;
+          const requestId = req.headers.get('x-wqn-request-id') ?? randomUUID();
+          toolExecutor = buildAiToolExecutor({
+            userId: authResult.userId,
+            conversationId: req.headers.get('x-wqn-conversation-id'),
+            deviceId: authResult.deviceId,
+            requestId,
+            requireConfirmation: true,
+            notebooks: voiceContext.notebooks,
+            interaction: interactive
+              ? createVoiceInteractionGateway(
+                  {
+                    userId: authResult.userId,
+                    deviceId: authResult.deviceId,
+                    origin: '',
+                    supabase: createServiceClient(),
+                  },
+                  requestId,
+                  writer,
+                  operation.remainingMs
+                )
+              : undefined,
+            timeContext: voiceContext,
+          });
+        }
+        stage = 'pipeline';
+        await runStreamingPipeline({
+          signal: operation.signal,
+          turnTimeoutMs: operation.remainingMs(),
+          writer: writer,
+          input: {
+            audio: audio,
+            confirmedText: requestContext?.confirmedText,
+            interactive: req.headers.get('x-wqn-ai-interaction') === '1',
+            sampleRate: 16000,
+            channels: 1,
+            sampleFormat: 's16le',
+            conversationId: req.headers.get('x-wqn-conversation-id'),
+            tier: req.headers.get('x-wqn-ai-tier'),
+            userId: authResult.userId,
+            deviceId: authResult.deviceId,
+            enableThinking,
+            reasoningEffort,
+          },
+          asrModel: resolvedConfig.asrModel,
+          chatModelStd: resolvedConfig.chatModelStd,
+          chatModelPro: resolvedConfig.chatModelPro,
+          openAiBaseUrlStd: resolvedConfig.openAiBaseUrlStd,
+          openAiBaseUrlPro: resolvedConfig.openAiBaseUrlPro,
+          dashScopeApiKey: resolvedConfig.dashScopeApiKey,
+          chatApiKeyStd: resolvedConfig.chatApiKeyStd,
+          chatApiKeyPro: resolvedConfig.chatApiKeyPro,
+          asrTaskUrl: resolvedConfig.asrTaskUrl,
+          asrTaskStatusBaseUrl: resolvedConfig.asrTaskStatusBaseUrl,
+          asrLanguageHints: resolvedConfig.asrLanguageHints,
+          asrTimeoutMs: resolvedConfig.asrTimeoutMs,
+          asrPollIntervalMs: resolvedConfig.asrPollIntervalMs,
+          asrPollAttempts: resolvedConfig.asrPollAttempts,
+          llmTimeoutMs: resolvedConfig.llmTimeoutMs,
+          audioUrlTtlMs: resolvedConfig.audioUrlTtlMs,
+          publicBaseUrl: resolvedConfig.publicBaseUrl,
+          systemPrompt,
+          toolExecutor: toolExecutor,
+          asrProvider: resolvedConfig.asrProvider,
+          asrFallbackProvider: resolvedConfig.asrFallbackProvider,
+          stepfunApiKey: resolvedConfig.stepfunApiKey,
+          stepfunAsrUrl: resolvedConfig.stepfunAsrUrl,
+          stepfunAsrModel: resolvedConfig.stepfunAsrModel,
+          stepfunAsrLanguage: resolvedConfig.stepfunAsrLanguage,
+          stepfunAsrHotwords: resolvedConfig.stepfunAsrHotwords,
+          stepfunAsrEnableItn: resolvedConfig.stepfunAsrEnableItn,
         });
-      } else {
-        logger.error('v2-streaming pipeline failed', error, {
-          component: 'Esp32AiTranscribeChat',
-        });
+      } catch (error) {
+        if (
+          error instanceof VoiceOperationStopped &&
+          error.reason === 'cancelled'
+        ) {
+          logger.info('v2-streaming operation cancelled', {
+            component: 'Esp32AiTranscribeChat',
+            stage,
+          });
+        } else if (
+          error instanceof Esp32AiProviderError &&
+          error.code === 'no_speech'
+        ) {
+          // Expected outcome for a button tap or near-silence, not a failure.
+          logger.warn('v2-streaming pipeline: no speech in audio', {
+            component: 'Esp32AiTranscribeChat',
+            code: error.code,
+            status: error.status,
+            message: error.message,
+          });
+        } else {
+          logger.error('v2-streaming pipeline failed', error, {
+            component: 'Esp32AiTranscribeChat',
+          });
+        }
+        if (!(
+          error instanceof VoiceOperationStopped && error.reason === 'cancelled'
+        )) {
+          const code: Esp32AiErrorCode =
+            error instanceof Esp32AiProviderError
+              ? (error.code as Esp32AiErrorCode)
+              : error instanceof VoiceOperationStopped
+                ? stage === 'context'
+                  ? 'asr_timeout'
+                  : 'chat_timeout'
+                : 'internal';
+          await closeSseWithError(writer, code, 'Voice operation failed', {
+            stage,
+          });
+        }
+      } finally {
+        operation.dispose();
       }
-    }
-    if (writer.isClosed()) {
-      // The relay/device gave up before the pipeline finished (turn timeout,
-      // WS drop). Without this line a turn that completes into a closed
-      // stream is invisible: no failure log, no device output, no trace.
-      logger.warn('v2-streaming pipeline finished after client stream closed', {
-        component: 'Esp32AiTranscribeChat',
-        elapsed_since_start_ms: Date.now() - pipelineStartedAtMs,
-      });
-    }
-  });
+      if (writer.isClosed()) {
+        // The relay/device gave up before the pipeline finished (turn timeout,
+        // WS drop). Without this line a turn that completes into a closed
+        // stream is invisible: no failure log, no device output, no trace.
+        logger.warn(
+          'v2-streaming pipeline finished after client stream closed',
+          {
+            component: 'Esp32AiTranscribeChat',
+            elapsed_since_start_ms: Date.now() - pipelineStartedAtMs,
+          }
+        );
+      }
+    },
+    { signal: req.signal }
+  );
   return new NextResponse(sse.body, {
     status: sse.status,
     statusText: sse.statusText,

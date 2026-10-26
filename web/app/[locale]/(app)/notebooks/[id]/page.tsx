@@ -1,7 +1,6 @@
 import { getTranslations as getFeatureTranslations } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/supabase/requireUser';
 import { listNotes } from '@/lib/notebook-content-service';
 import {
@@ -27,8 +26,7 @@ type NotebookRow = {
 };
 
 async function loadNotebook(id: string) {
-  const supabase = await createClient();
-  const { user } = await requireUser();
+  const { user, supabase } = await requireUser();
   if (!user) return null;
 
   const { data: notebook, error: notebookError } = await supabase
@@ -74,8 +72,18 @@ export async function generateMetadata({
   const tFeature = await getFeatureTranslations('Notes');
 
   const { id } = await params;
-  const data = await loadNotebook(id);
-  return { title: data?.notebook.title || tFeature('notebook') };
+  const { user, supabase } = await requireUser();
+  if (!user) return { title: tFeature('notebook') };
+  // Metadata needs only a title. Notes, read history and resumable sessions
+  // belong to the page load and must not be prepared a second time here.
+  const { data, error } = await supabase
+    .from('notebooks')
+    .select('title')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .is('archived_at', null)
+    .maybeSingle();
+  return { title: (!error && data?.title) || tFeature('notebook') };
 }
 
 export default async function NotebookPage({

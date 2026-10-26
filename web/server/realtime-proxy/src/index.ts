@@ -175,7 +175,7 @@ httpServer.on('upgrade', (req, socket, head) => {
         const err =
           e instanceof AuthFailure
             ? e
-            : new AuthFailure('unauthorized', String(e));
+            : new AuthFailure('internal', 'Failed to authenticate device');
         try {
           ws.send(JSON.stringify({ type: 'error', ...err.toPayload() }));
         } catch {

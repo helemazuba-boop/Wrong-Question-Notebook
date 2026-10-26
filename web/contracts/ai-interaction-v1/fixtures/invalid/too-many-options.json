@@ -1,0 +1,48 @@
+{
+  "event": "interaction.request",
+  "data": {
+    "interaction_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "kind": "question",
+    "prompt": "新增 Todo：复习数学",
+    "options": [
+      {
+        "label": "x",
+        "value": "0"
+      },
+      {
+        "label": "x",
+        "value": "1"
+      },
+      {
+        "label": "x",
+        "value": "2"
+      },
+      {
+        "label": "x",
+        "value": "3"
+      },
+      {
+        "label": "x",
+        "value": "4"
+      },
+      {
+        "label": "x",
+        "value": "5"
+      },
+      {
+        "label": "x",
+        "value": "6"
+      },
+      {
+        "label": "x",
+        "value": "7"
+      },
+      {
+        "label": "x",
+        "value": "8"
+      }
+    ],
+    "allow_custom": false,
+    "expires_at": "2026-10-26T04:00:00Z"
+  }
+}

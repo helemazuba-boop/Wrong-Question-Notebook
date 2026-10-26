@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Bounded question-list API pagination: `GET /api/problems` defaults to 50 rows, accepts `offset` and `limit` (1–100), and returns `pagination.has_more` / `next_offset`. Full-collection readers page through database limits; smart/manual membership, note packs and tag lookups retain complete results instead of silently truncating at the PostgREST row ceiling.
 - Report moderation queues, question previews, sharing suspension/restoration and reporter-visible results with preserved review history.
 - Due-todo reminder inboxes and opt-in browser push, with leased delivery, retry and inactive-account checks. Browser push requires deployment VAPID configuration.
 - Private account exports containing owned records and files, plus queued self-service and administrator deletion with recovery and preservation of other users' copied assets.
@@ -60,6 +61,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Load only an owned, unarchived notebook title for page metadata; prepare notes and reading state only for the page itself, using its authenticated request client.
+- Compute each seeded vocabulary rank once per candidate sort, preserving the existing FNV hash, urgency buckets, UTF-8 tie breaks and deterministic study order without retaining a cross-request cache.
+- Coalesce temporary voice-audio cleanup per process/directory, limit file metadata operations to four concurrent workers and reuse successful sweeps for 60 seconds. Signed URL expiry and explicit recording cleanup remain immediate; failed sweeps retry on the next upload.
+- Prepare word-study packs with at most two concurrent operations while retaining requested deck/snapshot order; settle started pack work before reporting failure and do not create a partial session.
+- Reuse equivalent smart-set exact counts within each MCP list request and limit count-query concurrency to two, preserving fresh results, page order and user/subject/filter isolation.
+- Reuse immutable Note/Problem pack summaries across Manifest pages, with two concurrent builders, revision checks, smart-set clock/tag invalidation and uncached missing-image retries. Apply migration `20261024000100_device_manifest_summaries.sql` before deploying the readers; snapshot/410 and content-addressed downloads keep their existing wire format.
+- Bound v2 streaming voice context, ASR/fallback/polling and chat/tool rounds by shared cancellation and time budgets. Batch voice abort now cancels processing and drops stale frames. Started writes retain their original operation identity and receipt; an expired write with no confirmed receipt returns `unknown_outcome` without retrying it.
 - Localize the shelf, notes, reading, todos, vocabulary and Insights interfaces in Chinese and English, including failure and session recovery messages.
 - Distinguish removing a question from a collection from deleting it, and preserve notebook return destinations across reloads.
 
@@ -93,6 +101,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Accept database-valid seed account GUIDs in signed ESP32 voice context/tool requests while retaining signature, device-owner and active-account checks.
 - Restore ESP32 voice Note creation and replay by storing conversation provenance in note metadata. Align Flash tool completion events with Note4 firmware and preserve error reasons, uncertain write outcomes and cancellation state.
 - Let STD/PRO and legacy voice conversations narrate their tool receipts after reaching the tool round limit, and clarify Note parameters and failure recovery in the AI instructions.
 - Keep note and reading notebooks on the Notebook Shelf; remove the separate notebook navigation and list, redirect legacy list links to the shelf, and highlight the shelf while viewing notebook details.

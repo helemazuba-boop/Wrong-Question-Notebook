@@ -75,13 +75,14 @@ export function mintConversationId(): string {
  */
 export async function loadTurns(
   userId: string,
-  conversationId: string
+  conversationId: string,
+  signal?: AbortSignal
 ): Promise<AiTurn[]> {
   const cached = getCached(userId, conversationId);
   if (cached) return cached;
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createServiceClient({ signal });
     // `esp32_ai_conversations` is not in database.types.ts until the
     // migration is applied and types regenerated; cast to any until then.
     const table = (supabase as any).from('esp32_ai_conversations');
@@ -134,16 +135,20 @@ export async function appendTurns(
   conversationId: string,
   tier: string,
   deviceId: string | null,
-  newTurns: AiTurn[]
+  newTurns: AiTurn[],
+  signal?: AbortSignal
 ): Promise<void> {
   if (newTurns.length === 0) return;
 
   const existing = getCached(userId, conversationId) ?? [];
   const merged = [...existing, ...newTurns].slice(-MAX_STORED_TURNS);
   setCached(userId, conversationId, merged);
+  // A committed tool receipt is already durable in its request ledger. Keep
+  // the local history coherent, but do not start a history write after stop.
+  if (signal?.aborted) return;
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createServiceClient({ signal });
     const table = (supabase as any).from('esp32_ai_conversations');
     const lastTurn = newTurns[newTurns.length - 1];
     const { error } = await table.upsert(

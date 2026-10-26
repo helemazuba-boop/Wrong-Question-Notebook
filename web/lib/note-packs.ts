@@ -1,4 +1,6 @@
 import { createHash } from 'crypto';
+import { z } from 'zod';
+import { readAllQueryPages } from './query-pagination';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NotebookToolError } from './notebooks';
 import { NOTE_PACK_SCHEMA_VERSION } from './note-study-v1';
@@ -6,6 +8,13 @@ import {
   materializeDevicePackArtifact,
   registerDeviceImageArtifacts,
 } from './device-content-artifacts';
+import {
+  DeviceManifestChanged,
+  guardManifestRead,
+  packSourceKey,
+  readManifestRevision,
+  resolveManifestSummaries,
+} from './device-manifest-summaries';
 
 // Deterministic per-notebook note packs. There is no separate note_packs table:
 // a pack is computed on demand from the notebook's active notes. The manifest,
@@ -33,6 +42,7 @@ export interface NotePackResult {
   entry_count: number;
   byte_size: number;
   body: string;
+  cacheable: boolean;
 }
 
 /**
@@ -67,20 +77,24 @@ export async function buildNotePack(
 ): Promise<NotePackResult> {
   const [contentRevision, { data, error }] = await Promise.all([
     computeNotebookContentRevision(supabase, userId, notebookId),
-    supabase
-      .from('notebook_notes')
-      .select('id, notebook_id, sort_index, revision, title, content, assets')
-      .eq('notebook_id', notebookId)
-      .eq('user_id', userId)
-      .is('archived_at', null)
-      .order('sort_index', { ascending: true })
-      .order('id', { ascending: true }),
+    readAllQueryPages((offset, limit) =>
+      supabase
+        .from('notebook_notes')
+        .select('id, notebook_id, sort_index, revision, title, content, assets')
+        .eq('notebook_id', notebookId)
+        .eq('user_id', userId)
+        .is('archived_at', null)
+        .order('sort_index', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+    ),
   ]);
   if (error) {
     throw new NotebookToolError('database_error', error.message, 500);
   }
 
   let availableImageIds: Set<string> | null = null;
+  let cacheable = true;
   if (options.materialize) {
     const registration = await registerDeviceImageArtifacts(
       supabase,
@@ -90,6 +104,7 @@ export async function buildNotePack(
     availableImageIds = new Set(
       registration.registered.map(artifact => artifact.image_id)
     );
+    cacheable = registration.missing.length === 0;
   }
 
   const notes: NotePackNote[] = (data || []).map((row: any) => {
@@ -177,6 +192,7 @@ export async function buildNotePack(
     entry_count: notes.length,
     byte_size: Buffer.byteLength(body, 'utf8'),
     body,
+    cacheable,
   };
 }
 
@@ -219,43 +235,109 @@ export async function loadNoteStudyManifest(
   limit = 50,
   expectedSnapshotId?: string
 ): Promise<NoteManifestData> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await loadStableNoteManifest(
+        supabase,
+        userId,
+        origin,
+        cursor,
+        limit,
+        expectedSnapshotId
+      );
+    } catch (error) {
+      if (!(error instanceof DeviceManifestChanged)) throw error;
+      if (expectedSnapshotId || attempt === 1)
+        throw new NotebookToolError(
+          'snapshot_expired',
+          'The note manifest changed; restart from cursor zero',
+          410
+        );
+    }
+  }
+  throw new Error('Unreachable manifest retry');
+}
+
+async function loadStableNoteManifest(
+  supabase: SupabaseClient<any>,
+  userId: string,
+  origin: string,
+  cursor: number,
+  limit: number,
+  expectedSnapshotId?: string
+): Promise<NoteManifestData> {
   const pageSize = Math.min(Math.max(limit, 1), 100);
-  const { data, error } = await supabase
-    .from('notebooks')
-    .select('id, title')
-    .eq('user_id', userId)
-    .is('archived_at', null)
-    .order('id', { ascending: true });
+  const revisionBefore = await readManifestRevision(
+    supabase,
+    userId,
+    'note_packs'
+  );
+  const { data, error } = await guardManifestRead({
+    supabase,
+    userId,
+    domain: 'note_packs',
+    revision: revisionBefore,
+    read: () =>
+      readAllQueryPages((offset, limit) =>
+        supabase
+          .rpc('device_note_pack_sources_v1', { p_user_id: userId })
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1)
+      ),
+  });
   if (error) {
     throw new NotebookToolError('database_error', error.message, 500);
   }
 
-  const rows = (data || []) as Array<{ id: string; title: string }>;
-  const notebooks = await Promise.all(
-    rows.map(async row => {
+  const rows = z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        title: z.string(),
+        content_revision: z.number().int().nonnegative(),
+        source_key: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+    )
+    .parse(data ?? []);
+  const sources = rows.map(row => ({
+    ...row,
+    source_key: packSourceKey([NOTE_PACK_SCHEMA_VERSION, row.source_key]),
+  }));
+  const summaries = await resolveManifestSummaries({
+    supabase,
+    userId,
+    domain: 'note_packs',
+    revision: revisionBefore,
+    sources,
+    build: async row => {
       const pack = await buildNotePack(supabase, userId, row.id, {
         materialize: true,
       });
-      return {
-        notebook_id: row.id,
-        title: row.title,
-        change_sequence: pack.content_revision,
-        content_revision: pack.content_revision,
-        deleted: false,
-        pack: {
-          pack_id: row.id,
-          pack_revision: pack.pack_revision,
-          schema_version: NOTE_PACK_SCHEMA_VERSION,
-          format: 'jsonl' as const,
-          compression: 'zlib' as const,
-          entry_count: pack.entry_count,
-          byte_size: pack.byte_size,
-          sha256: pack.sha256,
-          download_url: `${origin}/api/esp32/v3/notes/packs/${row.id}/${pack.sha256}`,
-        },
-      };
-    })
-  );
+      if (pack.content_revision !== Number(row.content_revision))
+        throw new DeviceManifestChanged();
+      return pack;
+    },
+  });
+  const notebooks = summaries.map(({ source: row, pack }) => {
+    return {
+      notebook_id: row.id,
+      title: row.title,
+      change_sequence: pack.pack_revision,
+      content_revision: pack.pack_revision,
+      deleted: false,
+      pack: {
+        pack_id: row.id,
+        pack_revision: pack.pack_revision,
+        schema_version: NOTE_PACK_SCHEMA_VERSION,
+        format: 'jsonl' as const,
+        compression: 'zlib' as const,
+        entry_count: pack.entry_count,
+        byte_size: pack.byte_size,
+        sha256: pack.sha256,
+        download_url: `${origin}/api/esp32/v3/notes/packs/${row.id}/${pack.sha256}`,
+      },
+    };
+  });
 
   const snapshotBody = JSON.stringify(notebooks);
   const snapshotId = createHash('sha256').update(snapshotBody).digest('hex');

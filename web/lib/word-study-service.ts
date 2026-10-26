@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 import { fingerprintDeviceControlRequest } from './device-control-v3-idempotency';
 import { logger } from './logger';
+import { mapWithConcurrency } from './map-with-concurrency';
 import {
   ensureWordPackForDeck,
   loadVisibleWordPackDecks,
@@ -36,6 +37,7 @@ import {
 const CANDIDATE_PAGE_SIZE = 500;
 const MAX_SESSION_CANDIDATES = 500;
 const WORD_MISTAKE_LINK_PAGE_SIZE = 1000;
+const PACK_PREPARATION_CONCURRENCY = 2;
 
 // The word-study day boundary is fixed server-side so the review queue and the
 // daily new-word budget do not depend on the device clock.
@@ -414,21 +416,19 @@ export async function createWordStudySession(
   const outputLimit = input.optional_count ?? MAX_SESSION_CANDIDATES;
   const nowMs = Date.now();
 
-  const snapshot: Array<{
-    deck_id: string;
-    content_revision: number;
-    pack_revision: number;
-    sha256: string;
-  }> = [];
-  for (const deck of decks) {
-    const pack = await ensureWordPackForDeck(supabase, deck);
-    snapshot.push({
-      deck_id: deck.id,
-      content_revision: Number(deck.revision),
-      pack_revision: Number(pack.revision),
-      sha256: pack.sha256,
-    });
-  }
+  const snapshot = await mapWithConcurrency(
+    decks,
+    PACK_PREPARATION_CONCURRENCY,
+    async deck => {
+      const pack = await ensureWordPackForDeck(supabase, deck);
+      return {
+        deck_id: deck.id,
+        content_revision: Number(deck.revision),
+        pack_revision: Number(pack.revision),
+        sha256: pack.sha256,
+      };
+    }
+  );
   const packsReadyAt = Date.now();
 
   const { data: progressChange, error: progressChangeError } = await supabase

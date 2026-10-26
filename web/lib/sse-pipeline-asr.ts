@@ -11,6 +11,12 @@ import {
 } from './esp32-ai-asr-selection';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { runStepFunAsrSse, isLikelyNonSpeechPcm } from './stepfun-asr';
+import {
+  createVoiceOperation,
+  throwIfVoiceStopped,
+  waitForVoiceOperation,
+  sleepForVoiceOperation,
+} from './voice-operation';
 
 export interface AsrResult {
   transcript: string;
@@ -21,6 +27,7 @@ export interface AsrResult {
 }
 
 export interface AsrConfig {
+  signal?: AbortSignal;
   asrProvider: Esp32AiAsrProvider;
   asrFallbackProvider: Esp32AiAsrProvider | null;
   dashScopeApiKey: string;
@@ -48,6 +55,40 @@ export async function runPipelineAsr(
   channels: number,
   pusher: PipelinePusher
 ): Promise<AsrResult> {
+  // The primary, fallback, staging, polling and transcript download share
+  // one ASR budget; a fresh HTTP request must not renew the whole allowance.
+  const operation = createVoiceOperation(config.asrTimeoutMs, config.signal);
+  try {
+    throwIfVoiceStopped(operation.signal);
+    return await waitForVoiceOperation(
+      runAsrWithinBudget(
+        { ...config, signal: operation.signal },
+        audio,
+        sampleRate,
+        channels,
+        pusher
+      ),
+      operation.signal
+    );
+  } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError('asr_timeout', 'ASR deadline exceeded', 504)
+    );
+    throw error;
+  } finally {
+    operation.dispose();
+  }
+}
+
+async function runAsrWithinBudget(
+  config: AsrConfig,
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number,
+  pusher: PipelinePusher
+): Promise<AsrResult> {
   pusher.emitStage('batch_asr_start', {
     provider: config.asrProvider,
     sampleRate,
@@ -67,6 +108,7 @@ export async function runPipelineAsr(
       pusher
     );
   } catch (error) {
+    throwIfVoiceStopped(config.signal);
     if (
       !config.asrFallbackProvider ||
       !(error instanceof Esp32AiProviderError) ||
@@ -99,6 +141,7 @@ async function runSinglePipelineAsr(
   channels: number,
   pusher: PipelinePusher
 ): Promise<AsrResult> {
+  throwIfVoiceStopped(config.signal);
   if (provider === 'stepfun') {
     const result = await runStepFunAsrSse(
       {
@@ -109,6 +152,7 @@ async function runSinglePipelineAsr(
         stepfunAsrHotwords: config.stepfunAsrHotwords,
         stepfunAsrEnableItn: config.stepfunAsrEnableItn,
         asrTimeoutMs: config.asrTimeoutMs,
+        signal: config.signal,
       },
       audio,
       sampleRate,
@@ -157,6 +201,7 @@ async function runDashScopePipelineAsr(
       publicBaseUrl: config.publicBaseUrl,
       ttlMs: config.audioUrlTtlMs,
     });
+    throwIfVoiceStopped(config.signal);
 
     const headers = {
       Authorization: 'Bearer ' + config.dashScopeApiKey,
@@ -174,6 +219,7 @@ async function runDashScopePipelineAsr(
       config.asrTaskUrl,
       {
         method: 'POST',
+        signal: config.signal,
         headers,
         body: JSON.stringify({
           model: config.asrModel,
@@ -194,7 +240,9 @@ async function runDashScopePipelineAsr(
     }
 
     for (let attempt = 0; attempt < config.asrPollAttempts; attempt += 1) {
-      if (attempt > 0) await sleep(config.asrPollIntervalMs);
+      if (attempt > 0)
+        await sleepForVoiceOperation(config.asrPollIntervalMs, config.signal);
+      throwIfVoiceStopped(config.signal);
       if (pusher.shouldEmitAsrPoll(Date.now())) {
         pusher.emitStage('asr_polling', {
           elapsed_ms: Date.now() - startedAt,
@@ -215,6 +263,7 @@ async function runDashScopePipelineAsr(
         config.asrTaskStatusBaseUrl + '/' + encodeURIComponent(taskId),
         {
           method: 'GET',
+          signal: config.signal,
           headers: { Authorization: 'Bearer ' + config.dashScopeApiKey },
         },
         config.asrTimeoutMs,
@@ -227,12 +276,13 @@ async function runDashScopePipelineAsr(
           try {
             const r = await fetchJsonWithTimeout<unknown>(
               poll.output.transcription_url,
-              { method: 'GET' },
+              { method: 'GET', signal: config.signal },
               config.asrTimeoutMs,
               'asr'
             );
             transcript = extractTranscriptFromUnknown(r);
           } catch {
+            throwIfVoiceStopped(config.signal);
             // fall through
           }
         }
@@ -351,14 +401,12 @@ export async function fetchJsonWithTimeout<T>(
   timeoutMs: number,
   stage: 'asr' | 'chat'
 ): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(function () {
-    controller.abort();
-  }, timeoutMs);
+  const operation = createVoiceOperation(timeoutMs, init.signal ?? undefined);
   try {
-    const r = await fetch(
-      url,
-      Object.assign({}, init, { signal: controller.signal })
+    throwIfVoiceStopped(operation.signal);
+    const r = await waitForVoiceOperation(
+      fetch(url, Object.assign({}, init, { signal: operation.signal })),
+      operation.signal
     );
     if (!r.ok) {
       const code =
@@ -375,8 +423,17 @@ export async function fetchJsonWithTimeout<T>(
         code === 'provider_unavailable' ? 502 : r.status
       );
     }
-    return (await r.json()) as T;
+    return (await waitForVoiceOperation(r.json(), operation.signal)) as T;
   } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError(
+          stage === 'asr' ? 'asr_timeout' : 'chat_timeout',
+          stage + ' request timed out',
+          504
+        )
+    );
     if (error instanceof Esp32AiProviderError) throw error;
     const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
@@ -389,12 +446,6 @@ export async function fetchJsonWithTimeout<T>(
       isAbort ? 504 : 502
     );
   } finally {
-    clearTimeout(timer);
+    operation.dispose();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(function (r) {
-    setTimeout(r, ms);
-  });
 }

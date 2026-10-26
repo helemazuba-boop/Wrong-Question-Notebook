@@ -46,7 +46,8 @@ const BodySchema = z.object({
     .min(16)
     .max(64)
     .regex(/^[A-Za-z0-9_-]+$/),
-  user_id: z.string().uuid(),
+  // Match stored seed-account IDs; HMAC and device ownership still bind them.
+  user_id: z.guid(),
   tool_name: z.enum(TOOL_NAMES),
   raw_args: z
     .string()

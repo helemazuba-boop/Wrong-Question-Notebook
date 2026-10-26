@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { handleBatchVoiceConnection } from '../../server/realtime-proxy/src/batchVoiceRelay.ts';
 import {
@@ -21,6 +21,8 @@ class MockDeviceWs extends EventEmitter {
     this.emit('close', code, reason);
   }
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('batchVoiceRelay', () => {
   const mockDevice = {
@@ -48,6 +50,103 @@ describe('batchVoiceRelay', () => {
         'Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     },
   } as any;
+
+  function sendControl(ws: MockDeviceWs, type: string, requestId: string) {
+    ws.emit(
+      'message',
+      Buffer.from(JSON.stringify({ type, request_id: requestId })),
+      false
+    );
+  }
+
+  function submit(ws: MockDeviceWs) {
+    const handler = ws.listeners('message')[0] as (
+      data: Buffer,
+      binary: boolean
+    ) => Promise<void>;
+    return handler(
+      encodeVoiceV2Audio({
+        pcm: Buffer.alloc(32000),
+        seq: 0,
+        sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+        final: true,
+      }),
+      true
+    );
+  }
+
+  it('aborts PROCESSING, releases once, and discards a late response without disturbing the next turn', async () => {
+    const ws = new MockDeviceWs();
+    let resolve!: (response: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>(r => (resolve = r)));
+    vi.stubGlobal('fetch', fetchMock);
+    await handleBatchVoiceConnection(
+      ws as any,
+      mockDevice,
+      mockReq,
+      mockConfig
+    );
+    sendControl(ws, 'voice.turn.start', 'old');
+    const processing = submit(ws);
+    const signal = (
+      fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    )[1].signal!;
+    sendControl(ws, 'voice.turn.abort', 'another-request');
+    expect(signal.aborted).toBe(false);
+    sendControl(ws, 'voice.turn.abort', 'old');
+    expect(signal.aborted).toBe(true);
+    expect(
+      ws.sent.filter(s => s.includes('event: turn.released'))
+    ).toHaveLength(1);
+    sendControl(ws, 'voice.turn.start', 'new');
+
+    const cancel = vi.fn();
+    resolve(new Response(new ReadableStream({ cancel })));
+    await processing;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(
+      ws.sent.filter(s => s.includes('event: turn.released'))
+    ).toHaveLength(1);
+    // The old finally must not release the new receiving turn.
+    sendControl(ws, 'voice.turn.start', 'third');
+    expect(ws.sent.at(-1)).toContain('state_error');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    ws.close();
+  });
+
+  it.each(['device_abort', 'socket_close'])(
+    '%s cancels a pending SSE reader and suppresses stale forwarding',
+    async mode => {
+      const ws = new MockDeviceWs();
+      let began!: () => void;
+      const enteredReader = new Promise<void>(resolve => (began = resolve));
+      const cancel = vi.fn();
+      const stream = new ReadableStream<Uint8Array>({
+        pull: began,
+        cancel,
+      });
+      const fetchMock = vi.fn(async () => new Response(stream));
+      vi.stubGlobal('fetch', fetchMock);
+      await handleBatchVoiceConnection(
+        ws as any,
+        mockDevice,
+        mockReq,
+        mockConfig
+      );
+      sendControl(ws, 'voice.turn.start', 'old');
+      const processing = submit(ws);
+      await enteredReader;
+      // Ensure the response body is locked by the forwarding loop.
+      await vi.waitFor(() => expect(stream.locked).toBe(true));
+      if (mode === 'device_abort') sendControl(ws, 'voice.turn.abort', 'old');
+      else ws.close(1000, 'fixture');
+      await processing;
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(stream.locked).toBe(false);
+      expect(ws.sent.some(s => s.includes('event: error'))).toBe(false);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    }
+  );
 
   it('negotiates session.ready on connection', async () => {
     const ws = new MockDeviceWs();
