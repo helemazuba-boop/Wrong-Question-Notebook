@@ -11,6 +11,8 @@ import type {
 
 export interface StreamingPipelineInput {
   audio: ArrayBuffer;
+  confirmedText?: string;
+  interactive?: boolean;
   sampleRate: number;
   channels: number;
   sampleFormat: 's16le';

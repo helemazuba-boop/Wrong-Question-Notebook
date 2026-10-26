@@ -9,8 +9,15 @@ import { analyzePcmS16le } from './esp32-ai-audio-staging';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { extractSseData, takeNextSseEvent } from './sse-events';
 import { logger } from './logger';
+import {
+  createVoiceOperation,
+  throwIfVoiceStopped,
+  waitForVoiceOperation,
+  cancelVoiceReaderOnAbort,
+} from './voice-operation';
 
 export interface StepFunAsrConfig {
+  signal?: AbortSignal;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -52,6 +59,35 @@ export function isLikelyNonSpeechPcm(audio: ArrayBuffer): boolean {
 }
 
 export async function runStepFunAsrSse(
+  config: StepFunAsrConfig,
+  audio: ArrayBuffer,
+  sampleRate: number,
+  channels: number,
+  opts?: { pusher?: PipelinePusher }
+) {
+  const operation = createVoiceOperation(config.asrTimeoutMs, config.signal);
+  try {
+    throwIfVoiceStopped(operation.signal);
+    return await runStepFunAsrWithSignal(
+      { ...config, signal: operation.signal },
+      audio,
+      sampleRate,
+      channels,
+      opts
+    );
+  } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError('asr_timeout', 'StepFun ASR timed out', 504)
+    );
+    throw error;
+  } finally {
+    operation.dispose();
+  }
+}
+
+async function runStepFunAsrWithSignal(
   config: StepFunAsrConfig,
   audio: ArrayBuffer,
   sampleRate: number,
@@ -100,23 +136,23 @@ export async function runStepFunAsrSse(
     },
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.asrTimeoutMs);
-
   let response: Response;
   try {
-    response = await fetch(config.stepfunAsrUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        Authorization: 'Bearer ' + config.stepfunApiKey,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
+    response = await waitForVoiceOperation(
+      fetch(config.stepfunAsrUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          Authorization: 'Bearer ' + config.stepfunApiKey,
+        },
+        body: JSON.stringify(requestBody),
+        signal: config.signal,
+      }),
+      config.signal
+    );
   } catch (error) {
-    clearTimeout(timer);
+    throwIfVoiceStopped(config.signal);
     const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
       isAbort ? 'asr_timeout' : 'provider_unavailable',
@@ -126,7 +162,6 @@ export async function runStepFunAsrSse(
   }
 
   if (!response.ok || !response.body) {
-    clearTimeout(timer);
     const code =
       response.status === 429
         ? 'rate_limited'
@@ -135,7 +170,7 @@ export async function runStepFunAsrSse(
           : 'asr_failed';
     let detail = '';
     try {
-      detail = await response.text();
+      detail = await waitForVoiceOperation(response.text(), config.signal);
     } catch {
       // ignore body read failure
     }
@@ -149,6 +184,7 @@ export async function runStepFunAsrSse(
   }
 
   const reader = response.body.getReader();
+  const releaseReader = cancelVoiceReaderOnAbort(reader, config.signal);
   const decoder = new TextDecoder();
   let buffer = '';
   let transcript = '';
@@ -172,7 +208,10 @@ export async function runStepFunAsrSse(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await waitForVoiceOperation(
+        reader.read(),
+        config.signal
+      );
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let nextEvent;
@@ -214,7 +253,6 @@ export async function runStepFunAsrSse(
         } else if (type === 'error') {
           errorEventCount += 1;
           const message = String(json.message || 'StepFun ASR error');
-          clearTimeout(timer);
           if (isNoSpeechMessage(message)) {
             throw new Esp32AiProviderError('no_speech', message, 422);
           }
@@ -229,7 +267,7 @@ export async function runStepFunAsrSse(
       }
     }
   } catch (error) {
-    clearTimeout(timer);
+    throwIfVoiceStopped(config.signal);
     if (error instanceof Esp32AiProviderError) throw error;
     const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
@@ -237,8 +275,9 @@ export async function runStepFunAsrSse(
       isAbort ? 'StepFun ASR stream timed out' : 'StepFun ASR stream failed',
       isAbort ? 504 : 500
     );
+  } finally {
+    releaseReader();
   }
-  clearTimeout(timer);
 
   if (!transcript) {
     // Full evidence dump for the empty-transcript path: event ledger plus

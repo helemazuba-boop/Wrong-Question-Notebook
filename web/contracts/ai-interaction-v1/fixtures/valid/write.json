@@ -1,0 +1,20 @@
+{
+  "event": "interaction.request",
+  "data": {
+    "interaction_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "kind": "write",
+    "prompt": "新增 Todo：复习数学",
+    "options": [
+      {
+        "label": "执行",
+        "value": "approve"
+      },
+      {
+        "label": "取消",
+        "value": "reject"
+      }
+    ],
+    "allow_custom": false,
+    "expires_at": "2026-10-26T04:00:00Z"
+  }
+}

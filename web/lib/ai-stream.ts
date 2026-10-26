@@ -12,6 +12,7 @@
 // parser stays trivial.
 
 import type { ReadableStreamDefaultController } from 'node:stream/web';
+import { VoiceOperationStopped } from './voice-operation';
 
 export interface SseFrame<T = unknown> {
   event: string;
@@ -68,7 +69,9 @@ export class SseWriter {
 
   constructor(
     private readonly controller: ReadableStreamDefaultController<Uint8Array>,
-    private readonly idGenerator: SseEventIdGenerator
+    private readonly idGenerator: SseEventIdGenerator,
+    public readonly signal: AbortSignal = new AbortController().signal,
+    private readonly onDisconnect?: () => void
   ) {}
 
   emit<T>(event: string, data: T, opts: { explicitId?: number } = {}): number {
@@ -80,6 +83,7 @@ export class SseWriter {
     } catch {
       // controller may already be errored/closed if the device disconnected
       this.closed = true;
+      this.onDisconnect?.();
     }
     return id;
   }
@@ -91,6 +95,7 @@ export class SseWriter {
       this.controller.enqueue(encoder.encode(`: ${text}\n\n`));
     } catch {
       this.closed = true;
+      this.onDisconnect?.();
     }
   }
 
@@ -125,20 +130,31 @@ export class SseWriter {
  * The response body is a ReadableStream; the caller drives the SseWriter.
  */
 export function createSseResponse(
-  factory: (writer: SseWriter) => Promise<void>
+  factory: (writer: SseWriter) => Promise<void>,
+  options: { signal?: AbortSignal } = {}
 ): Response {
   let writerRef: SseWriter | null = null;
   const idGen = new SseEventIdGenerator();
+  const cancellation = new AbortController();
+  const cancel = () =>
+    cancellation.abort(new VoiceOperationStopped('cancelled'));
+  const parentAbort = () => {
+    cancel();
+    writerRef?.close();
+  };
+  if (options.signal?.aborted) cancel();
+  else options.signal?.addEventListener('abort', parentAbort, { once: true });
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      writerRef = new SseWriter(controller, idGen);
+      writerRef = new SseWriter(controller, idGen, cancellation.signal, cancel);
     },
     async pull() {
       // No-op: we don't backpressure on read; enqueue calls throw if the
       // device has disconnected.
     },
     cancel() {
+      cancel();
       writerRef?.close();
     },
   });
@@ -148,7 +164,17 @@ export function createSseResponse(
   // factory() runs.
   queueMicrotask(() => {
     if (!writerRef) return;
-    factory(writerRef).finally(() => writerRef?.close());
+    const finish = () => {
+      options.signal?.removeEventListener('abort', parentAbort);
+      writerRef?.close();
+    };
+    if (cancellation.signal.aborted) {
+      finish();
+      return;
+    }
+    void factory(writerRef)
+      .catch(() => writerRef?.error('SSE processing failed'))
+      .finally(finish);
   });
 
   return new Response(stream, {

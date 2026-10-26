@@ -1,0 +1,24 @@
+{
+  "contract": "ai-interaction-v1",
+  "version": "1.0",
+  "schema": "ai-interaction-v1.schema.json",
+  "schema_sha256": "aeb4633540d380c3cc8e3eb6d1cf4d415137e9b33f04eaddb462f76e0b138efc",
+  "auth": "Authorization: Bearer <device pairing token>",
+  "capability_header": "X-WQN-Ai-Interaction: 1",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/ai/chat"
+    },
+    {
+      "method": "POST",
+      "path": "/ai/interactions/{id}"
+    }
+  ],
+  "stream_events": [
+    "interaction.request",
+    "interaction.waiting",
+    "interaction.closed"
+  ],
+  "input_transcribe_route": "/agent/transcribe?protocol=v2-streaming"
+}
