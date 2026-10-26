@@ -63,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Update reviewed AI, query, chart, icon and relay dependencies. Anthropic SDK upgrades retain the existing API version; math rendering and FSRS scheduling keep their compatible dependency versions.
 - Load only an owned, unarchived notebook title for page metadata; prepare notes and reading state only for the page itself, using its authenticated request client.
 - Compute each seeded vocabulary rank once per candidate sort, preserving the existing FNV hash, urgency buckets, UTF-8 tie breaks and deterministic study order without retaining a cross-request cache.
 - Coalesce temporary voice-audio cleanup per process/directory, limit file metadata operations to four concurrent workers and reuse successful sweeps for 60 seconds. Signed URL expiry and explicit recording cleanup remain immediate; failed sweeps retry on the next upload.
