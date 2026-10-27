@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Public releases go through the shared cloud journal and review flow. The
+# coordinator invokes this file only as the existing build/push engine.
+if [[ "${WQN_OPS_MANAGED:-}" != 1 ]]; then
+  OPS_ENTRY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/ops/cli.py"
+  exec python3 "$OPS_ENTRY" release --engine native "$@"
+fi
+
 # WQN native WSL release orchestrator
 # - Runs entirely from Ubuntu/WSL
 # - Builds App + Realtime in parallel
@@ -10,16 +17,20 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -n "${WQN_OPS_SOURCE_DIR:-}" ]]; then
+  PROJECT_ROOT="$(cd -- "$WQN_OPS_SOURCE_DIR" && pwd)"
+fi
+SOURCE_DEPLOY_DIR="$PROJECT_ROOT/deploy"
 WEB_DIR="$PROJECT_ROOT/web"
 ENV_FILE="$WEB_DIR/.env.production"
-BUILDKIT_CONFIG="$SCRIPT_DIR/buildkit-config.toml"
-ENV_POLICY_FILE="$SCRIPT_DIR/release-env-policy.sh"
-REMOTE_RELEASE_SCRIPT="$SCRIPT_DIR/release-remote.sh"
+BUILDKIT_CONFIG="$SOURCE_DEPLOY_DIR/buildkit-config.toml"
+ENV_POLICY_FILE="$SOURCE_DEPLOY_DIR/release-env-policy.sh"
+REMOTE_RELEASE_SCRIPT="$SOURCE_DEPLOY_DIR/release-remote.sh"
 
 APP_BUILDER="wqn-builder"
 RT_BUILDER="wqn-realtime-builder"
-APP_BUILDER_HASH_FILE="$SCRIPT_DIR/.wqn-builder-config.hash"
-RT_BUILDER_HASH_FILE="$SCRIPT_DIR/.wqn-realtime-builder-config.hash"
+APP_BUILDER_HASH_FILE="$SOURCE_DEPLOY_DIR/.wqn-builder-config.hash"
+RT_BUILDER_HASH_FILE="$SOURCE_DEPLOY_DIR/.wqn-realtime-builder-config.hash"
 
 NO_DEPLOY=0
 SKIP_REALTIME=0
@@ -310,8 +321,15 @@ builder_fingerprint() {
   if [[ -f "$BUILDKIT_CONFIG" ]]; then
     config_hash="$(sha256sum "$BUILDKIT_CONFIG" | awk '{print $1}')"
   fi
-  printf '%s\n' "config=$config_hash" "proxy=$BUILDER_PROXY" "no_proxy=$BUILD_NO_PROXY" |
+  printf '%s\n' "driver_encoding=csv-v1" "config=$config_hash" "proxy=$BUILDER_PROXY" "no_proxy=$BUILD_NO_PROXY" |
     sha256sum | awk '{print $1}'
+}
+
+buildx_driver_opt() {
+  # Buildx parses each --driver-opt as CSV after shell parsing. Keep commas
+  # inside one field, and double embedded quotes according to CSV rules.
+  local escaped="${1//\"/\"\"}"
+  printf '"%s"' "$escaped"
 }
 
 ensure_builder() {
@@ -333,15 +351,15 @@ ensure_builder() {
 
     if [[ -n "$BUILDER_PROXY" ]]; then
       args+=(
-        --driver-opt "env.HTTP_PROXY=$BUILDER_PROXY"
-        --driver-opt "env.HTTPS_PROXY=$BUILDER_PROXY"
-        --driver-opt "env.http_proxy=$BUILDER_PROXY"
-        --driver-opt "env.https_proxy=$BUILDER_PROXY"
+        --driver-opt "$(buildx_driver_opt "env.HTTP_PROXY=$BUILDER_PROXY")"
+        --driver-opt "$(buildx_driver_opt "env.HTTPS_PROXY=$BUILDER_PROXY")"
+        --driver-opt "$(buildx_driver_opt "env.http_proxy=$BUILDER_PROXY")"
+        --driver-opt "$(buildx_driver_opt "env.https_proxy=$BUILDER_PROXY")"
       )
       if [[ -n "$BUILD_NO_PROXY" ]]; then
         args+=(
-          --driver-opt "env.NO_PROXY=$BUILD_NO_PROXY"
-          --driver-opt "env.no_proxy=$BUILD_NO_PROXY"
+          --driver-opt "$(buildx_driver_opt "env.NO_PROXY=$BUILD_NO_PROXY")"
+          --driver-opt "$(buildx_driver_opt "env.no_proxy=$BUILD_NO_PROXY")"
         )
       fi
     fi
@@ -408,6 +426,11 @@ build_app() {
     append_build_arg_if_set args "$key"
   done
   append_proxy_build_args args
+  if [[ -n "${WQN_OPS_SOURCE_SHA:-}" ]]; then
+    args+=(--label "org.opencontainers.image.revision=$WQN_OPS_SOURCE_SHA")
+    args+=(--label "org.opencontainers.image.created=${WQN_OPS_BUILD_TIME:-}")
+    args+=(--label "cn.wqn.source.commit_time=${WQN_OPS_SOURCE_TIME:-}")
+  fi
   args+=(.)
 
   cd "$WEB_DIR"
@@ -425,6 +448,11 @@ build_realtime() {
     -f "$WEB_DIR/Dockerfile.realtime"
   )
   append_proxy_build_args args
+  if [[ -n "${WQN_OPS_SOURCE_SHA:-}" ]]; then
+    args+=(--label "org.opencontainers.image.revision=$WQN_OPS_SOURCE_SHA")
+    args+=(--label "org.opencontainers.image.created=${WQN_OPS_BUILD_TIME:-}")
+    args+=(--label "cn.wqn.source.commit_time=${WQN_OPS_SOURCE_TIME:-}")
+  fi
   args+=(.)
 
   cd "$WEB_DIR"
@@ -500,6 +528,8 @@ printf '\n========================================\n'
 printf ' WQN WSL Release\n'
 printf '========================================\n'
 printf 'Project:        %s\n' "$PROJECT_ROOT"
+printf 'Build engine:   %s\n' "$SCRIPT_DIR/release.sh"
+[[ -z "${WQN_OPS_ENGINE_SHA256:-}" ]] || printf 'Engine SHA256:  %s\n' "$WQN_OPS_ENGINE_SHA256"
 printf 'App tag:        %s\n' "$APP_TAG"
 printf 'Realtime tag:   %s\n' "$RT_TAG"
 printf 'App image:      %s\n' "$APP_IMAGE"

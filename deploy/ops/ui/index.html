@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="wqn-token" content="__WQN_TOKEN__" />
+    <title>WQN · 发布工作台</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="WQN 发布工作台"
+        ><span class="brand-mark">W</span
+        ><span>WQN<small>发布工作台</small></span></a
+      >
+      <nav aria-label="主要导航">
+        <button class="nav active" data-view="overview" aria-current="page">
+          <span>◈</span>版本对照
+        </button>
+        <button class="nav" data-view="branches">
+          <span>⑂</span>分支与遗漏<span id="omission-count" class="count"
+            >—</span
+          >
+        </button>
+        <button class="nav" data-view="history">
+          <span>◷</span>部署与回退
+        </button>
+        <button class="nav" data-view="images"><span>▧</span>ACR 镜像</button>
+        <button class="nav" data-view="env"><span>≋</span>环境变量</button>
+        <button class="nav" data-view="logs"><span>≡</span>云端日志</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="cloud-symbol">☁</span><strong>记录留在云端</strong>
+        <p>镜像保存在 ACR<br />部署记录与配置快照保存在 aliyun</p>
+        <span id="host-label">SSH · aliyun</span>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span id="repo-label">正在读取工作区</span>
+        <div>
+          <span id="connection" class="connection">尚未连接</span
+          ><button class="button quiet" id="refresh-all">刷新状态</button>
+        </div>
+      </header>
+      <div id="notice" role="status" hidden></div>
+      <section class="page-heading">
+        <div>
+          <p id="page-description">
+            把准备发布的代码，与云端真正运行的版本放在一起。
+          </p>
+          <h1 id="page-title">这次发布，带上了什么？</h1>
+        </div>
+        <span class="timezone">时间均为北京时间</span>
+      </section>
+
+      <section id="view-overview" class="view active">
+        <div class="version-comparison">
+          <section class="candidate-panel">
+            <div class="section-caption">
+              <span class="marker blue"></span>
+              <h2>准备发布</h2>
+              <span class="subtle">本地源码</span>
+            </div>
+            <label for="candidate-ref" class="field-label">候选分支</label
+            ><select id="candidate-ref">
+              <option value="HEAD">当前提交</option>
+            </select>
+            <div class="revision">
+              <code id="candidate-sha">正在读取</code
+              ><span id="candidate-time">—</span>
+            </div>
+            <div id="candidate-subject" class="revision-subject">
+              读取分支与提交关系…
+            </div>
+            <div class="divider"></div>
+            <div class="section-inline">
+              <h3>附近提交</h3>
+              <span class="subtle">按分支顺序 · 可展开合并</span>
+            </div>
+            <ol id="candidate-commits" class="timeline"></ol>
+          </section>
+          <section class="cloud-panel">
+            <div class="section-caption">
+              <span class="marker teal"></span>
+              <h2>云端正在运行</h2>
+              <button class="text-button" id="refresh-cloud">重新核实</button>
+            </div>
+            <div id="cloud-services" class="cloud-services">
+              <div class="empty">
+                <strong>正在连接 aliyun</strong>
+                <p>通过 SSH 读取容器、镜像与健康状态。</p>
+              </div>
+            </div>
+            <div class="cloud-updated" id="cloud-updated">等待云端核验</div>
+          </section>
+        </div>
+        <section class="review-strip">
+          <div>
+            <span class="review-symbol">!</span>
+            <div>
+              <h2 id="review-title">正在核对其他分支</h2>
+              <p id="review-description">同时检查提交等价关系和其他工作区。</p>
+            </div>
+          </div>
+          <button class="button" id="open-branches">核对遗漏</button>
+        </section>
+        <section class="release-bar">
+          <div>
+            <h2>发布所选提交</h2>
+            <p>固定源码 SHA，从独立目录构建，镜像推送到 ACR。</p>
+          </div>
+          <div class="release-options">
+            <label><input type="checkbox" id="skip-realtime" />仅更新 App</label
+            ><label><input type="checkbox" id="no-deploy" />仅构建推送</label
+            ><button class="button primary" id="release-plan">
+              查看发布计划
+            </button>
+          </div>
+        </section>
+        <section class="workspace-section">
+          <div class="section-inline">
+            <h2>其他工作区</h2>
+            <span id="worktree-summary" class="subtle"></span>
+          </div>
+          <div id="worktrees" class="worktree-list"></div>
+        </section>
+      </section>
+
+      <section id="view-branches" class="view">
+        <div class="toolbar">
+          <p id="git-freshness">本地分支扫描</p>
+          <div>
+            <button class="button quiet" id="refresh-prs">核对 GitHub PR</button
+            ><button class="button" id="fetch-refs">刷新远端分支</button>
+          </div>
+        </div>
+        <div id="git-baselines" class="git-baselines"></div>
+        <p class="subtle review-explanation">
+          Git
+          历史不同不等于代码遗漏。下方按程序补丁归组，检查等价提交、文件内容和反向补丁；
+          尚未匹配的内容仍需人工核对。同一补丁的不同分支与提交保留来源，只记录一次暂缓。
+        </p>
+        <div id="omissions" class="omission-list"></div>
+        <details id="git-references" class="reference-section">
+          <summary id="reference-summary">参考差异</summary>
+          <p class="subtle">
+            外部仓库、备份和依赖机器人引用，以及工具、配置或已有内容匹配的差异，不计入程序改动核对。
+          </p>
+          <div id="reference-list" class="omission-list"></div>
+        </details>
+      </section>
+
+      <section id="view-history" class="view">
+        <div class="toolbar">
+          <p>发布、配置更新与回退共用一条云端时间线。</p>
+          <div>
+            <button class="button quiet" id="capture-baseline">
+              保存当前基线</button
+            ><button class="button" id="refresh-history">刷新历史</button>
+          </div>
+        </div>
+        <div id="history" class="history-list">
+          <div class="empty">
+            <strong>等待云端记录</strong>
+            <p>首次接入不会把镜像创建时间推断成历史部署时间。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-env" class="view">
+        <section class="environment-intro">
+          <span class="large-symbol">≋</span>
+          <div>
+            <h2>先看差异，再更新配置</h2>
+            <p>比较本地配置与运行容器，按照运行版本的规则检查支持的变量。</p>
+            <p>
+              更新前保存云端快照，使用当前镜像重建 App，核验实际环境和健康状态。
+            </p>
+          </div>
+          <button class="button primary" id="env-plan">
+            比较 App 环境变量
+          </button>
+        </section>
+        <div class="information-row">
+          <strong>快照与运行版本绑定</strong>
+          <p>
+            构建时变量需要重新发布镜像。共享密钥或服务间协议的改动，需要同时核对相关服务。
+          </p>
+        </div>
+        <section id="env-preview" class="environment-preview">
+          <div class="empty">
+            <strong>尚未生成更新计划</strong>
+            <p>密钥值不会显示在页面或普通操作记录中。</p>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-images" class="view">
+        <div class="toolbar">
+          <p>镜像来自云端发布记录；按需核验 ACR 中的实际内容。</p>
+          <button class="button" id="refresh-images">刷新镜像关联</button>
+        </div>
+        <div id="images" class="history-list">
+          <div class="empty">
+            <strong>等待云端镜像记录</strong>
+            <p>不会在本地保存镜像归档。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-logs" class="view">
+        <div class="log-controls">
+          <label
+            >日志来源<select id="log-source">
+              <option value="app">App 容器</option>
+              <option value="realtime">Realtime 容器</option>
+              <option value="nginx-error">nginx 错误日志</option>
+              <option value="nginx-access">nginx 访问日志</option>
+              <option value="docker-daemon">Docker 服务日志</option>
+            </select></label
+          ><label
+            >时间范围<select id="log-since">
+              <option value="30m">最近 30 分钟</option>
+              <option value="1h">最近 1 小时</option>
+              <option value="6h">最近 6 小时</option>
+              <option value="24h">最近 24 小时</option>
+            </select></label
+          ><label class="search-label"
+            >搜索<input
+              id="log-search"
+              type="search"
+              placeholder="关键词、错误、请求 ID" /></label
+          ><button class="button primary" id="read-logs">拉取日志</button
+          ><label class="follow"
+            ><input type="checkbox" id="follow-logs" />持续刷新</label
+          >
+        </div>
+        <div class="log-caption">
+          <span id="log-info">尚未读取云端日志</span
+          ><button class="text-button" id="download-logs">导出当前结果</button>
+        </div>
+        <pre id="log-output" class="log-output" tabindex="0">
+选择来源后拉取日志。</pre>
+      </section>
+
+      <section id="job-panel" class="job-panel" hidden>
+        <div class="section-inline">
+          <h2>执行进度</h2>
+          <span id="job-status" class="badge"></span
+          ><button class="text-button" id="close-job">收起</button>
+        </div>
+        <p id="job-id" class="subtle"></p>
+        <pre id="job-output"></pre>
+      </section>
+    </main>
+
+    <dialog id="plan-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="关闭">×</button>
+      </form>
+      <p class="dialog-kicker">执行前核对</p>
+      <h2 id="plan-title">操作计划</h2>
+      <div id="plan-summary"></div>
+      <div id="plan-changes" class="change-list"></div>
+      <label id="defer-field" class="dialog-field" hidden
+        >本次暂缓其他分支的原因<input
+          id="defer-reason"
+          placeholder="例如：本次仅发布配置修复，功能留待下一版本" /></label
+      ><label id="compatibility-field" class="dialog-field checkbox" hidden
+        ><input
+          id="compatibility-reviewed"
+          type="checkbox"
+        />已核对目标版本与当前数据库、共享配置的兼容性</label
+      >
+      <p id="plan-error" role="alert" hidden></p>
+      <p class="dialog-note">
+        操作结果保存在云端。连接中断后，可通过操作 ID 重新查询。
+      </p>
+      <div class="dialog-actions">
+        <button class="button" id="cancel-plan">返回检查</button
+        ><button class="button primary" id="apply-plan">执行此计划</button>
+      </div>
+    </dialog>
+    <dialog id="detail-dialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="关闭">×</button>
+      </form>
+      <h2 id="detail-title">详情</h2>
+      <div id="detail-body"></div>
+    </dialog>
+  </body>
+</html>

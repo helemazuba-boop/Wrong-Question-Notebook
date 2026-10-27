@@ -50,14 +50,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($DeployAliyun -and $env:WQN_OPS_MANAGED -ne '1') {
+    if ($AliyunContainerName -ne 'wqn-app' -or $AliyunPortMap -ne '3000:3000' -or $AliyunNetworkName -ne 'wqn-runtime') {
+        throw 'Custom container topology needs an operations adapter; no deployment was performed.'
+    }
+    $opsArgs = @('release', '--engine', 'powershell', '--skip-realtime', '--ssh-host', $AliyunSshHost)
+    if ($Tag -ne 'latest') { $opsArgs += @('--tag', $Tag) }
+    if ($BuildProxy) { $opsArgs += @('--build-proxy', $BuildProxy) }
+    if ($NoBuildProxy) { $opsArgs += '--no-build-proxy' }
+    if ($UseDefaultBuilder) { $opsArgs += '--use-default-builder' }
+    if ($RecreateBuilder) { $opsArgs += '--recreate-builders' }
+    & (Join-Path $PSScriptRoot 'ops.ps1') @opsArgs
+    exit $LASTEXITCODE
+}
+
 # ---------- Paths ----------
 $ScriptRoot = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptRoot
+if ($env:WQN_OPS_MANAGED -eq '1' -and $env:WQN_OPS_SOURCE_DIR) {
+    $ProjectRoot = (Resolve-Path -LiteralPath $env:WQN_OPS_SOURCE_DIR).Path
+}
+$SourceDeployDir = Join-Path $ProjectRoot 'deploy'
 $WebDir = Join-Path $ProjectRoot "web"
 $Dockerfile = Join-Path $WebDir "Dockerfile"
 $EnvFile = Join-Path $WebDir ".env.production"
-$BuildkitConfig = Join-Path $ScriptRoot "buildkit-config.toml"
-$BuildkitConfigHashFile = Join-Path $ScriptRoot ".wqn-builder-config.hash"
+$BuildkitConfig = Join-Path $SourceDeployDir "buildkit-config.toml"
+$BuildkitConfigHashFile = Join-Path $SourceDeployDir ".wqn-builder-config.hash"
 $BuilderName = "wqn-builder"
 
 # ============================================================
@@ -451,6 +469,11 @@ function Invoke-DockerBuild {
     )
 
     $dockerArgs += $BuildArgs
+    if ($env:WQN_OPS_SOURCE_SHA) {
+        $dockerArgs += @('--label', "org.opencontainers.image.revision=$env:WQN_OPS_SOURCE_SHA")
+        $dockerArgs += @('--label', "org.opencontainers.image.created=$env:WQN_OPS_BUILD_TIME")
+        $dockerArgs += @('--label', "cn.wqn.source.commit_time=$env:WQN_OPS_SOURCE_TIME")
+    }
     $dockerArgs += "."
 
     Push-Location $WebDir

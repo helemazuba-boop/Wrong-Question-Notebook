@@ -33,11 +33,15 @@ $ErrorActionPreference = "Stop"
 # ---------- Paths ----------
 $ScriptRoot = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptRoot
+if ($env:WQN_OPS_MANAGED -eq '1' -and $env:WQN_OPS_SOURCE_DIR) {
+    $ProjectRoot = (Resolve-Path -LiteralPath $env:WQN_OPS_SOURCE_DIR).Path
+}
+$SourceDeployDir = Join-Path $ProjectRoot 'deploy'
 $WebDir = Join-Path $ProjectRoot "web"
 $Dockerfile = Join-Path $WebDir "Dockerfile.realtime"
 $EnvFile = Join-Path $WebDir ".env.production"
-$BuildkitConfig = Join-Path $ScriptRoot "buildkit-config.toml"
-$BuildkitConfigHashFile = Join-Path $ScriptRoot ".wqn-realtime-builder-config.hash"
+$BuildkitConfig = Join-Path $SourceDeployDir "buildkit-config.toml"
+$BuildkitConfigHashFile = Join-Path $SourceDeployDir ".wqn-realtime-builder-config.hash"
 $BuilderName = "wqn-realtime-builder"
 
 # ============================================================
@@ -345,6 +349,11 @@ function Invoke-DockerBuild {
         "-f", $Dockerfile
     )
 
+    if ($env:WQN_OPS_SOURCE_SHA) {
+        $dockerArgs += @('--label', "org.opencontainers.image.revision=$env:WQN_OPS_SOURCE_SHA")
+        $dockerArgs += @('--label', "org.opencontainers.image.created=$env:WQN_OPS_BUILD_TIME")
+        $dockerArgs += @('--label', "cn.wqn.source.commit_time=$env:WQN_OPS_SOURCE_TIME")
+    }
     Push-Location $WebDir
     try {
         $oldHttpProxy = $env:HTTP_PROXY

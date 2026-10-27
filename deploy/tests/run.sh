@@ -6,6 +6,7 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 for script in \
   "$DEPLOY_DIR/release.sh" \
+  "$DEPLOY_DIR/update-env.sh" \
   "$DEPLOY_DIR/release-env-policy.sh" \
   "$DEPLOY_DIR/release-remote.sh" \
   "$DEPLOY_DIR/supabase-push.sh" \
@@ -32,5 +33,7 @@ grep -Fq 'mv -f -- "$temp" "$target"' "$DEPLOY_DIR/release-remote.sh"
 bash "$SCRIPT_DIR/release-env-policy.test.sh"
 bash "$SCRIPT_DIR/release-remote.test.sh"
 bash "$SCRIPT_DIR/supabase-push.test.sh"
+python3 "$SCRIPT_DIR/update-env.test.py"
+python3 "$SCRIPT_DIR/ops.test.py" CloudTests GitTests CoordinatorTests BuildStreamTests BuildEngineTests
 
 printf '%s\n' 'PASS: deploy script test suite'

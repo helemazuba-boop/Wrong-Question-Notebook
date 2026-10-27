@@ -2,6 +2,8 @@
 
 > Supabase 迁移到 `data.helema.cn` 的数据库、Storage、OpenResty/Kong、密钥轮换和回滚流程见 [supabase-selfhost/README.md](./supabase-selfhost/README.md)。
 
+> 本地发布面板、分支遗漏核对、云端操作历史、环境更新和回退入口见 [OPS.md](./OPS.md)。现有公开发布入口已接入同一套云端记录流程。
+
 ## 架构概览
 
 ```
