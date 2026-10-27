@@ -3,6 +3,7 @@ version: 2
 updates:
   - package-ecosystem: "gradle"
     directory: "/android"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
     groups:
@@ -11,6 +12,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/web"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -18,7 +20,7 @@ updates:
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 10
     ignore:
-      # @typescript-eslint 8.71.2 requires TypeScript >=4.8.4 <6.1.0.
+      # @typescript-eslint 8.72.0 requires TypeScript >=4.8.4 <6.1.0.
       # Revisit when the lint toolchain supports TypeScript 7.
       - dependency-name: "typescript"
         versions: [">=7"]
@@ -61,6 +63,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/web/server/realtime-proxy"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -81,6 +84,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "release/note-baseline-prod"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -88,7 +92,7 @@ updates:
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
     ignore:
-      # v6 introduces a proprietary caching component. Keep the working v4
-      # workflow until the caching/license tradeoff is reviewed separately.
+      # v6 supports open-source caching with cache-provider: basic.
+      # Review the cache behavior and benchmark that upgrade separately.
       - dependency-name: "gradle/actions"
         versions: [">=6"]

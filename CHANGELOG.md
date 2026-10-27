@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- ESP32 STD input and tool decisions: submit reviewed transcripts without a second ASR pass, answer device-side questions, and approve or cancel Todo/Note writes before execution. Decisions bind device ownership, exact arguments and the original time context; repeated replies reuse the same operation. Requires the matching firmware and interaction migration.
+
 - Bounded question-list API pagination: `GET /api/problems` defaults to 50 rows, accepts `offset` and `limit` (1–100), and returns `pagination.has_more` / `next_offset`. Full-collection readers page through database limits; smart/manual membership, note packs and tag lookups retain complete results instead of silently truncating at the PostgREST row ceiling.
 - Report moderation queues, question previews, sharing suspension/restoration and reporter-visible results with preserved review history.
 - Due-todo reminder inboxes and opt-in browser push, with leased delivery, retry and inactive-account checks. Browser push requires deployment VAPID configuration.
@@ -61,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Update reviewed AI, query, chart, icon and relay dependencies. Anthropic SDK upgrades retain the existing API version; math rendering and FSRS scheduling keep their compatible dependency versions.
 - Load only an owned, unarchived notebook title for page metadata; prepare notes and reading state only for the page itself, using its authenticated request client.
 - Compute each seeded vocabulary rank once per candidate sort, preserving the existing FNV hash, urgency buckets, UTF-8 tie breaks and deterministic study order without retaining a cross-request cache.
 - Coalesce temporary voice-audio cleanup per process/directory, limit file metadata operations to four concurrent workers and reuse successful sweeps for 60 seconds. Signed URL expiry and explicit recording cleanup remain immediate; failed sweeps retry on the next upload.
