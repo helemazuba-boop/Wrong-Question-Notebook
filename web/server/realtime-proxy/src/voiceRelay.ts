@@ -276,7 +276,9 @@ export class RelaySession {
   private readonly audio: FlashAudioDownlink;
   private readonly responses = new Map<string, ProviderResponse>();
   private readonly calls = new Map<string, PendingToolCall>();
-  private readonly itemCalls = new Map<string, string>();
+  // Some StepAudio 3 responses reuse one coarse item ID for multiple calls.
+  // null marks an ambiguous fallback; explicit call IDs remain authoritative.
+  private readonly itemCalls = new Map<string, string | null>();
   private readonly retiredResponseIds = new Set<string>();
   private providerResponse?: ProviderResponse;
   private queuedResponse?: {
@@ -291,6 +293,7 @@ export class RelaySession {
     mismatchLogged?: boolean;
   };
   private cancelTimer?: NodeJS.Timeout;
+  private cancelNoopUntil?: number;
   private readonly initialTimer: NodeJS.Timeout;
   private configured = false;
   private initialPhase = 'awaiting-device-config';
@@ -765,7 +768,8 @@ export class RelaySession {
     const response = this.providerResponse;
     if (!response || response.cancelled) return;
     response.cancelled = true;
-    this.sendUpstream({ type: 'response.cancel' });
+    this.cancelNoopUntil = Date.now() + 10000;
+    if (!this.sendUpstream({ type: 'response.cancel' })) return;
     clearTimeout(this.cancelTimer);
     this.cancelTimer = setTimeout(
       () =>
@@ -797,7 +801,7 @@ export class RelaySession {
     for (const [id, call] of this.calls)
       if (!call.dispatched) this.calls.delete(id);
     for (const [item, call] of this.itemCalls)
-      if (!this.calls.has(call)) this.itemCalls.delete(item);
+      if (call !== null && !this.calls.has(call)) this.itemCalls.delete(item);
     while (this.retiredResponseIds.size > 256) {
       const id = this.retiredResponseIds.values().next().value;
       if (id === undefined) break;
@@ -891,11 +895,14 @@ export class RelaySession {
       const message = String(
         event.error?.message ?? event.message ?? '模型服务错误'
       );
-      // A no-response cancel error does not prove a pending response.create
-      // has ended. Preserve its fence and let the bounded timer resolve it.
+      // StepAudio can deliver this benign error after the cancelled response's
+      // terminal event, when a new response is already pending. Keep a bounded
+      // window after our own cancel request. Ignoring the no-op never releases
+      // a cancel/create fence: only the terminal event or timeout can do that.
       if (
-        this.providerResponse?.cancelled &&
-        /no ongoing response to cancel/i.test(message)
+        this.cancelNoopUntil !== undefined &&
+        Date.now() <= this.cancelNoopUntil &&
+        /^\s*no ongoing response to cancel[.!]?\s*$/i.test(message)
       )
         return;
       return this.fail('upstream_unavailable', message, 'provider');
@@ -936,7 +943,9 @@ export class RelaySession {
       this.responses.set(id, response);
       if (response.cancelled || response.generation !== this.turnGeneration) {
         this.retiredResponseIds.add(id);
-        this.sendUpstream({ type: 'response.cancel' });
+        // The original create and cancel were sent in WebSocket order. A late
+        // created event must not cause a second cancel against the next turn.
+        if (!response.cancelled) this.cancelProviderResponse();
         return;
       }
       this.progressAt = Date.now();
@@ -1125,8 +1134,6 @@ export class RelaySession {
     const itemId = event.item_id ?? event.id;
     const id = event.call_id ?? this.itemCalls.get(itemId);
     if (typeof id !== 'string' || !id || id.length > 256) return; // Never infer an unknown partial's call from the latest turn.
-    const boundItem = this.itemCalls.get(itemId);
-    if (boundItem && boundItem !== id) return;
     let call = this.calls.get(id);
     if (call && call.response !== response) return; // no cross-response call ID reuse
     if (!call) {
@@ -1146,10 +1153,12 @@ export class RelaySession {
     }
     if (typeof itemId === 'string' && itemId && itemId.length <= 256) {
       const previous = this.itemCalls.get(itemId);
-      if (previous && previous !== id) return;
-      if (!previous && this.itemCalls.size >= 256)
+      if (!this.itemCalls.has(itemId) && this.itemCalls.size >= 256)
         return this.fail('protocol_mismatch', '工具项目数量超限', 'tool');
-      this.itemCalls.set(itemId, id);
+      this.itemCalls.set(
+        itemId,
+        previous === undefined || previous === id ? id : null
+      );
     }
     if (call.dispatched) return;
     if (typeof event.name === 'string') call.name = event.name;
