@@ -1,0 +1,6 @@
+{
+  "type": "playback.end",
+  "epoch": 2,
+  "response_id": "resp-7",
+  "samples": 960
+}

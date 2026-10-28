@@ -1,0 +1,6 @@
+{
+  "type": "turn.done",
+  "response_id": "resp-7",
+  "turn_id": 7,
+  "status": "unknown"
+}

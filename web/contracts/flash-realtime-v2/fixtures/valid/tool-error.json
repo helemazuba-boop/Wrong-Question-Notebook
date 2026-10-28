@@ -1,0 +1,15 @@
+{
+  "type": "tool.error",
+  "response_id": "resp-7",
+  "turn_id": 7,
+  "call_id": "call-7",
+  "tool_call_id": "call-7",
+  "name": "create_todo",
+  "ok": false,
+  "display": "结果待确认",
+  "error": {
+    "code": "unknown_outcome",
+    "message": "请检查原记录，勿重复新建"
+  },
+  "retired": false
+}

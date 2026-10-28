@@ -1,0 +1,7 @@
+{
+  "type": "error",
+  "error_code": "internal",
+  "message": "配置未确认",
+  "stage": "configuration",
+  "turn_id": 0
+}

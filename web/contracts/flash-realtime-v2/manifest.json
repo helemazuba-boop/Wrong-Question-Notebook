@@ -1,0 +1,53 @@
+{
+  "contract": "flash-realtime-v2",
+  "version": "2.1",
+  "schema": "flash-realtime-v2.schema.json",
+  "schema_sha256": "fda16196a6dbc8438803f2d7d6008cc879267a2587aadbc4a3e5dc99e6465905",
+  "authoritative": "WQN/web/contracts/flash-realtime-v2",
+  "subprotocol": "wqn-flash-v2",
+  "feature": {
+    "playback_epoch": 1,
+    "new_firmware_requires_feature": true,
+    "legacy_device_reserved": 0
+  },
+  "binary": {
+    "header_bytes": 24,
+    "magic_u32_le": 1464224854,
+    "version": 2,
+    "codec": "pcm_s16le",
+    "sample_rate_hz": 24000,
+    "channels": 1,
+    "uplink_reserved": 0,
+    "sequence": "uint32 per connection, wrap permitted",
+    "downlink_reserved": "negotiated playback epoch or legacy zero"
+  },
+  "max_message_bytes": {
+    "control": 131072,
+    "audio": 65536
+  },
+  "fixtures_sha256": {
+    "fixtures/invalid/unbound-tool-receipt.json": "a62a1e9aed52c84f46709b334fbe79e96ed3c00f073530951ee3cd168b70bcb2",
+    "fixtures/invalid/unconfirmed-vad.json": "7aa4bdd14f0cee9ce605a908089569b6dacb9f4177b790567be5cb25693d762a",
+    "fixtures/invalid/unknown-terminal.json": "4a0bd69d6ce7918bd63161fd43bfe4c33872f2548ccaf1a6eb1475dcc712cf22",
+    "fixtures/invalid/zero-epoch.json": "2264293662bd29996e71085cb16878381aa8e1ac6c9490aaee5b9f540b9d4aa2",
+    "fixtures/invalid/zero-turn.json": "b1622b98728a81fc9adfefea9504bfabe163c8bb2b5ee46d00bac7c0d67e0a50",
+    "fixtures/valid/connection-error.json": "ffb58879f883738ea433f68095a46f3ae3e30834ff0d74f37288ba4cb1d46ac3",
+    "fixtures/valid/playback-end.json": "a9d9d8700b4df452af28bb812d10ec6a1f7f8390e26c234c6b5119fee2c0afaa",
+    "fixtures/valid/playback-reset.json": "56e514bab8ebe658779f0f4b30bd14e8fbf098b826157dcd7128f33079dd7142",
+    "fixtures/valid/playback-response.json": "d91041608b0ddc8600e500b17c868df240c1d0c203f86b386fa5a6e35c11c2de",
+    "fixtures/valid/relay-error.json": "9725bf741c3edcc5314a941bf5a18aea50fc07f904d0cf55512e3206f21a942f",
+    "fixtures/valid/session-ready-legacy.json": "0f5fbd62245d8c2b376e85330826e9ea79fec13ce5f513c2d89df965af12b6b7",
+    "fixtures/valid/session-ready.json": "823eac293f38cf1c613dc48f920b0cf6063ef252e9f388e808d6c47317ca9029",
+    "fixtures/valid/session-update.json": "6feee872e7af5fd904856c1acce09fe6dd49d7f14134776971550c3aca8be6a2",
+    "fixtures/valid/state.json": "cffa6cbf951354c093b6594553c57c07d5d05841d929f002a66df188e57d6f00",
+    "fixtures/valid/text-complete.json": "fbac23aa72e566075d777b420639fc8edf5190ac716996f11ad705f974538b05",
+    "fixtures/valid/text-delta.json": "4391f2064e1c1dd55e3e5c943e9c85869e4c79b251ad1ca445fe3660a262ddd3",
+    "fixtures/valid/tool-error.json": "34051625a198a45001935fe0584664479c34dfa527a22afa6370babbec80e5ef",
+    "fixtures/valid/tool-receipt.json": "e0086262385b32334c3c34df32296c80d1db681c952e0ed8ddf5a856c3ee3da6",
+    "fixtures/valid/tool-result.json": "08a2bc2fac00223f4d5eeea8be47de48c930e119ed33d4d019423784bc8a965b",
+    "fixtures/valid/tool-start.json": "ea3190b824248392582cb51944b4af35d8292d57ab7b2f244391823a44c5c422",
+    "fixtures/valid/turn-done-completed.json": "7780c219934a0a24fb1f82a1e3b72e1c163a6167ddec4f93288a70c0784e2b1f",
+    "fixtures/valid/turn-done-incomplete.json": "dbfe6c07ce43670f51e0268eac4be7454922c9dddb6f2af87ab96bd10a9a0b43",
+    "fixtures/valid/turn-started.json": "922ff9ef36068c37e65513c53ae035c369d476cfae5e76bc553e94e0ce7baa64"
+  }
+}
