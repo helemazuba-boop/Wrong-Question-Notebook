@@ -1,0 +1,8 @@
+{
+  "type": "tool.start",
+  "response_id": "resp-7",
+  "turn_id": 7,
+  "call_id": "call-7",
+  "name": "create_todo",
+  "args": "{}"
+}

@@ -273,6 +273,7 @@ export class RelaySession {
   private readonly audio: FlashAudioDownlink;
   private readonly responses = new Map<string, ProviderResponse>();
   private readonly calls = new Map<string, PendingToolCall>();
+  private readonly itemCalls = new Map<string, string>();
   private readonly retiredResponseIds = new Set<string>();
   private providerResponse?: ProviderResponse;
   private queuedResponse?: {
@@ -767,6 +768,8 @@ export class RelaySession {
     }
     for (const [id, call] of this.calls)
       if (!call.dispatched) this.calls.delete(id);
+    for (const [item, call] of this.itemCalls)
+      if (!this.calls.has(call)) this.itemCalls.delete(item);
     while (this.retiredResponseIds.size > 256) {
       const id = this.retiredResponseIds.values().next().value;
       if (id === undefined) break;
@@ -960,6 +963,10 @@ export class RelaySession {
     }
     if (!response && typeof event.call_id === 'string')
       response = this.calls.get(event.call_id)?.response;
+    if (!response && typeof event.item_id === 'string') {
+      const call = this.itemCalls.get(event.item_id);
+      if (call) response = this.calls.get(call)?.response;
+    }
     if (
       !response ||
       response.cancelled ||
@@ -1038,9 +1045,11 @@ export class RelaySession {
   }
 
   private collectTool(event: any, response: ProviderResponse) {
-    const id = event.call_id;
-    if (typeof id !== 'string' || !id || id.length > 256)
-      return this.fail('protocol_mismatch', '工具调用缺少标识', 'tool');
+    const itemId = event.item_id ?? event.id;
+    const id = event.call_id ?? this.itemCalls.get(itemId);
+    if (typeof id !== 'string' || !id || id.length > 256) return; // Never infer an unknown partial's call from the latest turn.
+    const boundItem = this.itemCalls.get(itemId);
+    if (boundItem && boundItem !== id) return;
     let call = this.calls.get(id);
     if (call && call.response !== response) return; // no cross-response call ID reuse
     if (!call) {
@@ -1058,12 +1067,22 @@ export class RelaySession {
       this.calls.set(id, call);
       response.calls.add(id);
     }
+    if (typeof itemId === 'string' && itemId && itemId.length <= 256) {
+      const previous = this.itemCalls.get(itemId);
+      if (previous && previous !== id) return;
+      if (!previous && this.itemCalls.size >= 256)
+        return this.fail('protocol_mismatch', '工具项目数量超限', 'tool');
+      this.itemCalls.set(itemId, id);
+    }
     if (call.dispatched) return;
     if (typeof event.name === 'string') call.name = event.name;
     if (event.type === 'response.function_call_arguments.done') {
       if (typeof event.arguments === 'string') call.args = event.arguments;
       call.done = true;
-    } else if (typeof event.delta === 'string') call.args += event.delta;
+    } else {
+      const delta = event.delta ?? event.arguments;
+      if (typeof delta === 'string') call.args += delta;
+    }
     if (Buffer.byteLength(call.args) > 64 * 1024 || call.name.length > 128)
       return this.fail('protocol_mismatch', '工具参数超限', 'tool');
     if (

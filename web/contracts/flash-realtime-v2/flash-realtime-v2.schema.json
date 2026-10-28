@@ -1,0 +1,582 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/flash-realtime-v2.schema.json",
+  "title": "WQN-owned Flash v2 controls with epoch extension 1",
+  "description": "Only WQN-owned normalized controls. Native provider reasoning/ASR passthrough uses the provider event contract. Binary WFLV layout is pinned in manifest.json.",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "positiveU32": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "sessionUpdate": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.update"
+        },
+        "session": {
+          "type": "object"
+        },
+        "wqn": {
+          "type": "object",
+          "properties": {
+            "playback_epoch": {
+              "enum": [
+                0,
+                1
+              ]
+            }
+          },
+          "required": [
+            "playback_epoch"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "type",
+        "session"
+      ],
+      "additionalProperties": true
+    },
+    "sessionReady": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.ready"
+        },
+        "protocol": {
+          "const": "wqn-flash-v2"
+        },
+        "output_sample_rate_hz": {
+          "const": 24000
+        },
+        "wqn": {
+          "type": "object",
+          "properties": {
+            "playback_epoch": {
+              "enum": [
+                0,
+                1
+              ]
+            },
+            "turn_detection": {
+              "const": "manual"
+            }
+          },
+          "required": [
+            "playback_epoch",
+            "turn_detection"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "output_sample_rate_hz",
+        "wqn"
+      ],
+      "additionalProperties": true
+    },
+    "turnStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn.started"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        }
+      },
+      "required": [
+        "type",
+        "turn_id"
+      ],
+      "additionalProperties": true
+    },
+    "playbackReset": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "playback.reset"
+        },
+        "epoch": {
+          "$ref": "#/$defs/positiveU32"
+        }
+      },
+      "required": [
+        "type",
+        "epoch"
+      ],
+      "additionalProperties": true
+    },
+    "playbackResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "playback.response"
+        },
+        "epoch": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "response_id"
+      ],
+      "additionalProperties": true
+    },
+    "playbackEnd": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "playback.end"
+        },
+        "epoch": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "epoch",
+        "response_id",
+        "samples"
+      ],
+      "additionalProperties": true
+    },
+    "textDelta": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "text.delta"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "delta": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "delta"
+      ],
+      "additionalProperties": true
+    },
+    "textComplete": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "text.complete"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "text"
+      ],
+      "additionalProperties": true
+    },
+    "turnDone": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn.done"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ]
+        },
+        "status_details": {}
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    "toolStart": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.start"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "args": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "call_id",
+        "name",
+        "args"
+      ],
+      "additionalProperties": true
+    },
+    "relayError": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "stage": {
+          "type": "string"
+        },
+        "turn_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "type",
+        "error_code",
+        "message"
+      ],
+      "additionalProperties": true
+    },
+    "toolResult": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.result"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "display": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "retired": {
+          "const": false
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "call_id",
+        "tool_call_id",
+        "name",
+        "ok",
+        "display",
+        "error",
+        "retired"
+      ],
+      "additionalProperties": true
+    },
+    "toolError": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.error"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "display": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "retired": {
+          "const": false
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "call_id",
+        "tool_call_id",
+        "name",
+        "ok",
+        "display",
+        "error",
+        "retired"
+      ],
+      "additionalProperties": true
+    },
+    "toolReceipt": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.receipt"
+        },
+        "response_id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        },
+        "call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "display": {
+          "type": "string"
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "retired": {
+          "const": true
+        }
+      },
+      "required": [
+        "type",
+        "response_id",
+        "turn_id",
+        "call_id",
+        "tool_call_id",
+        "name",
+        "ok",
+        "display",
+        "error",
+        "retired"
+      ],
+      "additionalProperties": true
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "state"
+        },
+        "stage": {
+          "enum": [
+            "session.negotiated",
+            "tool.waiting"
+          ]
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        }
+      },
+      "required": [
+        "type",
+        "stage"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/sessionUpdate"
+    },
+    {
+      "$ref": "#/$defs/sessionReady"
+    },
+    {
+      "$ref": "#/$defs/turnStarted"
+    },
+    {
+      "$ref": "#/$defs/playbackReset"
+    },
+    {
+      "$ref": "#/$defs/playbackResponse"
+    },
+    {
+      "$ref": "#/$defs/playbackEnd"
+    },
+    {
+      "$ref": "#/$defs/textDelta"
+    },
+    {
+      "$ref": "#/$defs/textComplete"
+    },
+    {
+      "$ref": "#/$defs/turnDone"
+    },
+    {
+      "$ref": "#/$defs/toolStart"
+    },
+    {
+      "$ref": "#/$defs/relayError"
+    },
+    {
+      "$ref": "#/$defs/toolResult"
+    },
+    {
+      "$ref": "#/$defs/toolError"
+    },
+    {
+      "$ref": "#/$defs/toolReceipt"
+    },
+    {
+      "$ref": "#/$defs/state"
+    }
+  ]
+}

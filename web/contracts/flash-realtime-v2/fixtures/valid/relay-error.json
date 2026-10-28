@@ -1,0 +1,11 @@
+{
+  "type": "error",
+  "error_code": "upstream_unavailable",
+  "message": "结果暂无法确认",
+  "error": {
+    "code": "upstream_unavailable",
+    "message": "结果暂无法确认"
+  },
+  "stage": "response-timeout",
+  "turn_id": 7
+}

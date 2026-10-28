@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { RelaySession } from '@/server/realtime-proxy/src/voiceRelay';
 import { encodeWflvAudio } from '@/server/realtime-proxy/src/frameIo';
+import { assertFlashControl } from '@/lib/test/flash-contract';
 const { context, execute } = vi.hoisted(() => ({
   context: vi.fn(),
   execute: vi.fn(),
@@ -25,7 +26,11 @@ class Socket extends EventEmitter {
   events() {
     return this.sent
       .filter((s): s is string => typeof s === 'string')
-      .map(s => JSON.parse(s));
+      .map(s => {
+        const event = JSON.parse(s);
+        assertFlashControl(event);
+        return event;
+      });
   }
 }
 const first = {
@@ -333,6 +338,45 @@ describe('Flash configuration, response and tool ownership', () => {
     expect(
       h.upstream.events().filter(e => e.type === 'response.create')
     ).toHaveLength(2);
+  });
+  it('binds item-only argument events and accepts the documented arguments fragment field', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('items');
+    h.provider({
+      type: 'response.function_call_arguments.delta',
+      response_id: 'items',
+      item_id: 'unknown',
+      delta: '{}',
+    });
+    expect(h.device.readyState).toBe(1);
+    expect(execute).not.toHaveBeenCalled();
+    h.provider({
+      type: 'response.output_item.added',
+      response_id: 'items',
+      item: {
+        id: 'item-1',
+        type: 'function_call',
+        call_id: 'call-item',
+        name: 'create_todo',
+      },
+    });
+    h.provider({
+      type: 'response.function_call_arguments.delta',
+      item_id: 'item-1',
+      arguments: '{"title":"A"}',
+    });
+    h.provider({
+      type: 'response.function_call_arguments.done',
+      item_id: 'item-1',
+    });
+    await settle();
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][4]).toEqual({
+      call_id: 'call-item',
+      name: 'create_todo',
+      raw_args: '{"title":"A"}',
+    });
   });
   it('retains an already admitted write receipt after cancellation without restarting generation', async () => {
     const h = setup();
