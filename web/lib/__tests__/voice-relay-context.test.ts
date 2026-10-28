@@ -47,7 +47,7 @@ const receipt = {
   data: { note: { id: 'saved-note' } },
   action: null,
 };
-function setup() {
+function setup(upstreamUrl = 'wss://api.stepfun.com/v1/realtime') {
   const device = new Socket(),
     upstream = new Socket();
   context.mockResolvedValue(first);
@@ -59,7 +59,11 @@ function setup() {
     {
       bind: '',
       port: 0,
-      upstream: { url: '', apiKey: '', model: '' },
+      upstream: {
+        url: upstreamUrl,
+        apiKey: '',
+        model: 'stepaudio-3-realtime-preview',
+      },
       executeToolUrl: 'https://wqn.test/api/esp32/ai/execute-tool',
       proxySecret: 'secret',
       transcribeChatUrl: '',
@@ -117,6 +121,125 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Flash configuration, response and tool ownership', () => {
+  it('accepts the documented StepFun manual ACK shape without turn_detection on initial and per-turn updates', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.frame({
+      type: 'session.update',
+      wqn: { playback_epoch: 1 },
+      session: {},
+    });
+    await settle();
+    const firstUpdate = h.upstream.events().at(-1);
+    expect(firstUpdate.session.turn_detection).toBeNull();
+    // StepFun's session response example omits the optional disabled VAD field.
+    const reply = (instructions: string) => ({
+      type: 'session.updated',
+      session: {
+        modalities: ['text', 'audio'],
+        instructions,
+        voice: 'qingchunshaonv',
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        max_response_output_tokens: 4096,
+      },
+    });
+    h.provider(reply(firstUpdate.session.instructions));
+    await settle();
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'session.ready' })
+    );
+    context.mockResolvedValueOnce({ ...first, now: '2026-10-14T12:01:00Z' });
+    h.frame({ type: 'response.create' });
+    await settle();
+    const next = h.upstream
+      .events()
+      .filter(e => e.type === 'session.update')
+      .at(-1);
+    expect(next.session.instructions).not.toBe(
+      firstUpdate.session.instructions
+    );
+    h.provider(reply(firstUpdate.session.instructions));
+    await settle();
+    expect(h.upstream.events().some(e => e.type === 'response.create')).toBe(
+      false
+    );
+    h.provider(reply(next.session.instructions));
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(30001);
+    expect(h.device.readyState).toBe(1);
+  });
+
+  it.each([
+    'wss://provider.invalid/v1/realtime',
+    'wss://api.stepfun.com.invalid/v1/realtime',
+    'wss://api.stepfun.com/other',
+  ])(
+    'does not infer default-off VAD from an omitted field for another endpoint: %s',
+    async url => {
+      const h = setup(url);
+      h.frame({ type: 'session.update', session: {} });
+      await settle();
+      const { turn_detection: _disabled, ...reply } =
+        h.upstream.events()[0].session;
+      h.provider({ type: 'session.updated', session: reply });
+      await settle();
+      expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
+        false
+      );
+      h.ack();
+      await settle();
+      expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
+        true
+      );
+    }
+  );
+
+  it('requires the matching instructions echo when the disabled VAD field is omitted', async () => {
+    const h = setup();
+    h.frame({ type: 'session.update', session: {} });
+    await settle();
+    const formats = {
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+    };
+    h.provider({ type: 'session.updated', session: formats });
+    h.provider({
+      type: 'session.updated',
+      session: { ...formats, instructions: 'stale profile' },
+    });
+    await settle();
+    expect(h.device.events().some(e => e.type === 'session.ready')).toBe(false);
+    h.ack();
+    await settle();
+    expect(h.device.events().some(e => e.type === 'session.ready')).toBe(true);
+  });
+
+  it.each([{ type: 'server_vad' }, {}, false, 'none', 0])(
+    'does not reinterpret an explicit incompatible VAD value as omitted: %j',
+    async turn_detection => {
+      const h = setup();
+      h.frame({ type: 'session.update', session: {} });
+      await settle();
+      h.provider({
+        type: 'session.updated',
+        session: { ...h.upstream.events()[0].session, turn_detection },
+      });
+      await settle();
+      expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
+        false
+      );
+      h.ack();
+      await settle();
+      expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
+        true
+      );
+    }
+  );
+
   it('requires a provider ACK of the explicit manual PCM profile before ready', async () => {
     const h = setup();
     h.frame({
@@ -154,6 +277,14 @@ describe('Flash configuration, response and tool ownership', () => {
     await vi.advanceTimersByTimeAsync(10001);
     expect(h.device.readyState).toBe(3);
     expect(h.upstream.readyState).toBe(3);
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error_code: 'upstream_unavailable',
+        stage: 'configuration',
+        message: '模型配置确认超时，请重新连接',
+      })
+    );
   });
   it('refreshes calendar context and waits for its configuration ACK before create', async () => {
     const h = setup();
