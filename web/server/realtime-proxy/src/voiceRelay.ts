@@ -652,6 +652,9 @@ export class RelaySession {
 
   private async beginTurn(commit = false) {
     const generation = ++this.turnGeneration;
+    // Ordered after all old device-bound frames, before any new-turn event.
+    // This is relay admission, not provider success or a durable write ACK.
+    this.sendDevice({ type: 'turn.started', turn_id: generation });
     const anchorAt = new Date().toISOString();
     this.progressAt = Date.now();
     this.retireResponses();
@@ -1073,7 +1076,7 @@ export class RelaySession {
       turn_id: response.generation,
       retired,
     });
-    this.progressAt = Date.now();
+    if (!retired) this.progressAt = Date.now();
     this.maybeContinue(response);
   }
 
