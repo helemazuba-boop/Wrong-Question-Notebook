@@ -3,6 +3,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { RelaySession } from '@/server/realtime-proxy/src/voiceRelay';
 import { encodeWflvAudio } from '@/server/realtime-proxy/src/frameIo';
 import { assertFlashControl } from '@/lib/test/flash-contract';
+import { log } from '@/server/realtime-proxy/src/logger';
 const { context, execute } = vi.hoisted(() => ({
   context: vi.fn(),
   execute: vi.fn(),
@@ -121,6 +122,43 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Flash configuration, response and tool ownership', () => {
+  it.each(['client_vad', '', 'semantic_vad', 'x'.repeat(80)])(
+    'logs the bounded actual turn type rather than typeof: %j',
+    async type => {
+      const warning = vi.spyOn(log, 'warn');
+      try {
+        const h = setup();
+        h.frame({ type: 'session.update', session: {} });
+        await settle();
+        h.provider({
+          type: 'session.updated',
+          session: {
+            ...h.upstream.events()[0].session,
+            input_audio_format: 'incompatible-format',
+            turn_detection: { type },
+          },
+        });
+        const entry = warning.mock.calls.find(
+          ([message]) => message === 'Flash provider configuration ACK mismatch'
+        );
+        expect(entry?.[1]).toEqual(
+          expect.objectContaining({
+            turnDetectionType: type.slice(0, 64),
+            turnDetectionTypeTruncated: type.length > 64,
+          })
+        );
+        expect(JSON.stringify(entry)).not.toContain(
+          h.upstream.events()[0].session.instructions
+        );
+        expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
+          false
+        );
+      } finally {
+        warning.mockRestore();
+      }
+    }
+  );
+
   it('accepts the documented StepFun manual ACK shape without turn_detection on initial and per-turn updates', async () => {
     vi.useFakeTimers();
     const h = setup();
@@ -173,6 +211,39 @@ describe('Flash configuration, response and tool ownership', () => {
     expect(h.device.readyState).toBe(1);
   });
 
+  it('accepts the live-observed StepAudio 3 empty-string type and requires the current instructions', async () => {
+    const h = setup();
+    h.frame({
+      type: 'session.update',
+      wqn: { playback_epoch: 1 },
+      session: {},
+    });
+    await settle();
+    const update = h.upstream.events()[0];
+    expect(update.session.turn_detection).toBeNull();
+    h.provider({
+      type: 'session.updated',
+      session: {
+        ...update.session,
+        turn_detection: { type: '' },
+        instructions: 'old',
+      },
+    });
+    await settle();
+    expect(h.device.events().some(e => e.type === 'session.ready')).toBe(false);
+    h.provider({
+      type: 'session.updated',
+      session: { ...update.session, turn_detection: { type: '' } },
+    });
+    await settle();
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'session.ready',
+        wqn: { playback_epoch: 1, turn_detection: 'manual' },
+      })
+    );
+  });
+
   it.each([
     'wss://provider.invalid/v1/realtime',
     'wss://api.stepfun.com.invalid/v1/realtime',
@@ -186,6 +257,10 @@ describe('Flash configuration, response and tool ownership', () => {
       const { turn_detection: _disabled, ...reply } =
         h.upstream.events()[0].session;
       h.provider({ type: 'session.updated', session: reply });
+      h.provider({
+        type: 'session.updated',
+        session: { ...reply, turn_detection: { type: '' } },
+      });
       await settle();
       expect(h.device.events().some(e => e.type === 'session.ready')).toBe(
         false
@@ -218,7 +293,16 @@ describe('Flash configuration, response and tool ownership', () => {
     expect(h.device.events().some(e => e.type === 'session.ready')).toBe(true);
   });
 
-  it.each([{ type: 'server_vad' }, {}, false, 'none', 0])(
+  it.each([
+    { type: 'server_vad' },
+    {},
+    { type: '', enabled: true },
+    { type: ' ' },
+    [],
+    false,
+    'none',
+    0,
+  ])(
     'does not reinterpret an explicit incompatible VAD value as omitted: %j',
     async turn_detection => {
       const h = setup();
