@@ -39,6 +39,7 @@ import {
 import {
   applyAiToolSessionConfig,
   manualTurnDetectionAck,
+  isStepFunRealtimeEndpoint,
 } from './sessionConfig.ts';
 import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 import { FlashAudioDownlink } from './flashAudioDownlink.ts';
@@ -310,6 +311,11 @@ export class RelaySession {
   private uplinkSamples = 0;
   private readonly pendingCommits: number[] = [];
   private readonly inputItems = new Map<string, number>();
+  private readonly pendingAsr = new Map<
+    string,
+    { text: string; complete: boolean }
+  >();
+  private readonly completedAsr = new Set<string>();
   private progressAt = 0;
   private deviceLastMsgMs = Date.now();
   private readonly idleInterval: NodeJS.Timeout;
@@ -379,6 +385,8 @@ export class RelaySession {
     this.audio.close();
     this.pendingTextFrames = [];
     this.pendingTextBytes = 0;
+    this.pendingAsr.clear();
+    this.completedAsr.clear();
     this.queuedResponse = undefined;
     log.info('relay session closed', {
       deviceId: this.device.deviceId,
@@ -545,6 +553,7 @@ export class RelaySession {
         // the provider. Keep connection sequence continuity, but retire the
         // recording and clear it before any next-turn append on this socket.
         this.uplinkSamples = 0;
+        this.pendingAsr.clear();
         this.sendUpstream({ type: 'input_audio_buffer.clear' });
         return;
       case 'response.create':
@@ -915,13 +924,92 @@ export class RelaySession {
     if (event.type === 'input_audio_buffer.committed') {
       const generation = this.pendingCommits.shift();
       if (typeof event.item_id === 'string' && generation !== undefined) {
-        if (this.inputItems.size >= 256)
-          this.inputItems.delete(this.inputItems.keys().next().value!);
+        if (this.inputItems.size >= 256) {
+          const oldest = this.inputItems.keys().next().value!;
+          this.inputItems.delete(oldest);
+          this.completedAsr.delete(oldest);
+        }
         this.inputItems.set(event.item_id, generation);
+        const pending = this.pendingAsr.get(event.item_id);
+        this.pendingAsr.delete(event.item_id);
+        if (pending && generation === this.turnGeneration) {
+          if (pending.complete) {
+            this.completedAsr.add(event.item_id);
+            this.sendDevice({
+              type: 'conversation.item.input_audio_transcription.completed',
+              item_id: event.item_id,
+              transcript: pending.text,
+              turn_id: generation,
+            });
+          } else
+            this.sendDevice({
+              type: 'asr.partial',
+              text: pending.text,
+              turn_id: generation,
+            });
+        }
       }
       return;
     }
     if (event.type.startsWith('conversation.item.input_audio_transcription.')) {
+      if (
+        isStepFunRealtimeEndpoint(this.config.upstream.url) &&
+        [
+          'conversation.item.input_audio_transcription.delta',
+          'conversation.item.input_audio_transcription.completed',
+        ].includes(event.type)
+      ) {
+        const complete = event.type.endsWith('.completed');
+        let text = complete ? (event.transcript ?? event.text) : event.delta;
+        const id = event.item_id;
+        if (
+          typeof id !== 'string' ||
+          !id ||
+          id.length > 256 ||
+          typeof text !== 'string'
+        )
+          return;
+        const generation = this.inputItems.get(id);
+        if (
+          generation !== undefined &&
+          (generation !== this.turnGeneration || this.completedAsr.has(id))
+        )
+          return;
+        if (
+          generation === undefined &&
+          !this.uplinkSamples &&
+          !this.pendingCommits.length
+        )
+          return;
+        if (!complete && this.pendingAsr.get(id)?.complete) return;
+        if (Buffer.byteLength(text) > 8192) {
+          // Preview limits must not abort an otherwise valid long recording.
+          const suffix = '…（显示已截断）';
+          const bytes = Buffer.from(text);
+          let end = 8192 - Buffer.byteLength(suffix);
+          while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+          text = bytes.subarray(0, end).toString('utf8') + suffix;
+        }
+        if (generation === undefined) {
+          // StepAudio emits revisable whole-text snapshots before commit. Keep
+          // only the newest bounded snapshot until its input item is admitted.
+          if (!this.pendingAsr.has(id) && this.pendingAsr.size >= 8)
+            return this.fail(
+              'protocol_mismatch',
+              '语音识别项目超过限额',
+              'asr'
+            );
+          if (!this.pendingAsr.get(id)?.complete)
+            this.pendingAsr.set(id, { text, complete });
+          return;
+        }
+        if (!complete) {
+          this.progressAt = Date.now();
+          this.sendDevice({ type: 'asr.partial', text, turn_id: generation });
+          return;
+        }
+        this.completedAsr.add(id);
+      }
       if (
         typeof event.item_id === 'string' &&
         this.inputItems.get(event.item_id) !== this.turnGeneration

@@ -122,6 +122,138 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Flash configuration, response and tool ownership', () => {
+  it('binds the latest cumulative ASR snapshot at commit and never appends revisions or overwrites completed text', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    const partial = (delta: string) =>
+      h.provider({
+        type: 'conversation.item.input_audio_transcription.delta',
+        item_id: 'input-snapshot',
+        delta,
+      });
+    partial('明天');
+    partial('明天上午九');
+    partial('明天上午 9 点');
+    expect(
+      h.device.events().filter(e => e.type === 'asr.partial')
+    ).toHaveLength(0);
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 2, final: true }),
+      true
+    );
+    await settle();
+    const turn = h.device
+      .events()
+      .find(e => e.type === 'turn.started')!.turn_id;
+    h.provider({
+      type: 'input_audio_buffer.committed',
+      item_id: 'input-snapshot',
+    });
+    partial('明天上午 9 点提醒我');
+    const events = h.device.events().filter(e => e.type === 'asr.partial');
+    expect(events).toEqual([
+      { type: 'asr.partial', text: '明天上午 9 点', turn_id: turn },
+      { type: 'asr.partial', text: '明天上午 9 点提醒我', turn_id: turn },
+    ]);
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'input-snapshot',
+      transcript: '最终文本',
+    });
+    partial('迟到旧片段');
+    expect(
+      h.device.events().filter(e => e.type === 'asr.partial')
+    ).toHaveLength(2);
+  });
+
+  it('retains early completed ASR and discards cancelled pre-commit snapshots', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'old-input',
+      delta: '旧文本',
+    });
+    h.frame({ type: 'response.cancel' });
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 2 }),
+      true
+    );
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'new-input',
+      transcript: '新完整文本',
+    });
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'new-input',
+      delta: '不能降级为片段',
+    });
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 3, final: true }),
+      true
+    );
+    await settle();
+    h.provider({ type: 'input_audio_buffer.committed', item_id: 'new-input' });
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'conversation.item.input_audio_transcription.completed',
+        transcript: '新完整文本',
+      })
+    );
+    expect(h.device.events().some(e => e.type === 'asr.partial')).toBe(false);
+    expect(JSON.stringify(h.device.events())).not.toContain('旧文本');
+  });
+
+  it('bounds unbound ASR items and truncates long UTF-8 previews without failing the recording', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'long-input',
+      delta: '中'.repeat(4000),
+    });
+    expect(h.device.readyState).toBe(1);
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 2, final: true }),
+      true
+    );
+    await settle();
+    h.provider({ type: 'input_audio_buffer.committed', item_id: 'long-input' });
+    const partial = h.device.events().find(e => e.type === 'asr.partial')!;
+    expect(Buffer.byteLength(partial.text)).toBeLessThanOrEqual(8192);
+    expect(partial.text).toContain('显示已截断');
+    expect(partial.text).not.toContain('\uFFFD');
+    const bounded = setup();
+    await bounded.configure();
+    bounded.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    for (let i = 0; i < 9; i++)
+      bounded.provider({
+        type: 'conversation.item.input_audio_transcription.delta',
+        item_id: `input-${i}`,
+        delta: 'x',
+      });
+    expect(bounded.device.readyState).toBe(3);
+    expect(bounded.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'error', stage: 'asr' })
+    );
+  });
+
   it('clears cancelled uncommitted audio while preserving the connection sequence and rejects an empty new FINAL', async () => {
     const h = setup();
     await h.configure();

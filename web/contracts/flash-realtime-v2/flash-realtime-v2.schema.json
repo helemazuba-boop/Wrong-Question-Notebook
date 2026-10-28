@@ -530,6 +530,27 @@
         "stage"
       ],
       "additionalProperties": true
+    },
+    "asrPartial": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "asr.partial"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "turn_id": {
+          "$ref": "#/$defs/positiveU32"
+        }
+      },
+      "required": [
+        "type",
+        "text",
+        "turn_id"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -577,6 +598,9 @@
     },
     {
       "$ref": "#/$defs/state"
+    },
+    {
+      "$ref": "#/$defs/asrPartial"
     }
   ]
 }
