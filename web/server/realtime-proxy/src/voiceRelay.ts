@@ -858,18 +858,19 @@ export class RelaySession {
                     ? 'array'
                     : typeof session.turn_detection,
             serverVad: session?.turn_detection?.type === 'server_vad',
-            turnDetectionType: [
-              'server_vad',
-              'none',
-              'manual',
-              'disabled',
-            ].includes(session?.turn_detection?.type)
-              ? session.turn_detection.type
-              : session?.turn_detection?.type === undefined
-                ? 'omitted'
-                : session.turn_detection.type === null
-                  ? 'null'
-                  : typeof session.turn_detection.type,
+            // Preserve the actual bounded protocol token: reporting only
+            // typeof hid the distinguishing evidence for unknown modes.
+            turnDetectionType:
+              typeof session?.turn_detection?.type === 'string'
+                ? session.turn_detection.type.slice(0, 64)
+                : session?.turn_detection?.type === undefined
+                  ? 'omitted'
+                  : session.turn_detection.type === null
+                    ? 'null'
+                    : typeof session.turn_detection.type,
+            turnDetectionTypeTruncated:
+              typeof session?.turn_detection?.type === 'string' &&
+              session.turn_detection.type.length > 64,
             instructionsPresent: typeof session?.instructions === 'string',
             instructionsMatch: session?.instructions === ack.instructions,
           });
