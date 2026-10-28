@@ -554,6 +554,133 @@ describe('Flash configuration, response and tool ownership', () => {
       h.upstream.events().filter(e => e.type === 'response.create')
     ).toHaveLength(2);
   });
+
+  it('executes two explicit call IDs sharing the live-observed coarse item ID, without guessing item-only fragments', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('shared-items');
+    const finish: ((value: typeof receipt) => void)[] = [];
+    execute.mockImplementation(
+      () => new Promise(resolve => finish.push(resolve))
+    );
+    for (const call_id of ['call-0', 'call-1'])
+      h.provider({
+        type: 'response.output_item.added',
+        response_id: 'shared-items',
+        item: {
+          type: 'function_call',
+          id: 'item_coarse_timestamp',
+          call_id,
+          name: 'create_todo',
+        },
+      });
+    h.provider({
+      type: 'response.function_call_arguments.delta',
+      item_id: 'item_coarse_timestamp',
+      arguments: 'unassignable',
+    });
+    for (const [call_id, title] of [
+      ['call-0', 'A'],
+      ['call-1', 'B'],
+    ])
+      h.provider({
+        type: 'response.function_call_arguments.done',
+        response_id: 'shared-items',
+        item_id: 'item_coarse_timestamp',
+        call_id,
+        name: 'create_todo',
+        arguments: JSON.stringify({ title }),
+      });
+    expect(execute.mock.calls.map(c => c[4].raw_args)).toEqual([
+      '{"title":"A"}',
+      '{"title":"B"}',
+    ]);
+    h.provider({
+      type: 'response.done',
+      response: { id: 'shared-items', status: 'completed', output: [] },
+    });
+    finish[1](receipt);
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    finish[0](receipt);
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(2);
+    expect(
+      h.device.events().filter(e => e.type === 'tool.result')
+    ).toHaveLength(2);
+  });
+
+  it('sends one cancel before response.created and tolerates its late no-op error after terminal without closing the new turn', async () => {
+    const h = setup();
+    await h.configure();
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.ack();
+    await settle();
+    h.frame({ type: 'response.cancel' });
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.ack();
+    await settle();
+    h.provider({ type: 'response.created', response: { id: 'retired' } });
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.cancel')
+    ).toHaveLength(1);
+    h.provider({
+      type: 'response.done',
+      response: { id: 'retired', status: 'incomplete' },
+    });
+    h.provider({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'no ongoing response to cancel',
+      },
+    });
+    expect(h.device.readyState).toBe(1);
+    h.provider({ type: 'response.created', response: { id: 'recovered' } });
+    h.provider({
+      type: 'response.text.delta',
+      response_id: 'recovered',
+      delta: 'new answer',
+    });
+    h.provider({
+      type: 'response.done',
+      response: { id: 'recovered', status: 'completed' },
+    });
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'turn.done',
+        status: 'completed',
+        response_id: 'recovered',
+      })
+    );
+  });
+
+  it('does not keep the benign cancel-error allowance open beyond its bounded window', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    await h.configure();
+    await h.start('cancelled');
+    h.frame({ type: 'response.cancel' });
+    h.provider({
+      type: 'response.done',
+      response: { id: 'cancelled', status: 'incomplete' },
+    });
+    await vi.advanceTimersByTimeAsync(10001);
+    h.provider({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'no ongoing response to cancel',
+      },
+    });
+    expect(h.device.readyState).toBe(3);
+  });
   it('binds item-only argument events and accepts the documented arguments fragment field', async () => {
     const h = setup();
     await h.configure();
