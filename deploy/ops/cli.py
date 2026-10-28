@@ -66,14 +66,13 @@ def main(argv=None):
         elif args.command == 'logs':
             display(core.rpc('logs', args.ssh_host, source=args.source, since=args.since))
         elif args.command == 'env-check':
+            # Same judgement as release: the unmodified file, for both services.
+            # Filtering here would report success for a file release rejects.
             values = core.dotenv()
-            arrays = core.policy()
-            unknown = sorted(k for k in values if k.startswith('WQN_OPENCODE_') and k not in arrays['APP_RUNTIME_KEYS'])
-            if unknown:
-                print('WARNING: 当前源码版本不支持：' + ', '.join(unknown), file=sys.stderr)
-                values = {k: v for k, v in values.items() if k not in unknown}
-            selected = core.runtime_values(values=values)
-            print('Validated %d App environment variables; no SSH connection or cloud changes.' % len(selected['app']))
+            selected = core.runtime_values(values=values, services=['app', 'realtime'])
+            print('Validated %d App and %d Realtime environment variables; '
+                  'no SSH connection or cloud changes.'
+                  % (len(selected['app']), len(selected['realtime'])))
         elif args.command == 'env-preview':
             display(core.environment_plan(args.ssh_host, preview=True))
         elif args.command == 'env':
