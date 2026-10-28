@@ -19,16 +19,10 @@
 import { WebSocket as NodeWebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
-import {
-  encodeWflvAudio,
-  decodeWflvAudio,
-  isLastChunk,
-  isStreaming,
-} from './frameIo.ts';
+import { decodeWflvAudio, isLastChunk, isStreaming } from './frameIo.ts';
 import { log } from './logger.ts';
 import {
   ALLOWED_VOICES,
-  DOWLINK_DEFAULT_SAMPLE_RATE_HZ,
   PROXY_SUBPROTOCOL,
   UPLINK_SAMPLE_RATE_HZ,
   makeError,
@@ -43,6 +37,7 @@ import {
 } from './toolInterceptor.ts';
 import { applyAiToolSessionConfig } from './sessionConfig.ts';
 import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
+import { FlashAudioDownlink } from './flashAudioDownlink.ts';
 
 type DeviceWs = {
   send(data: string | Buffer | Uint8Array, opts?: { binary?: boolean }): void;
@@ -56,6 +51,7 @@ type DeviceWs = {
   on(event: 'ping', cb: (data: Buffer) => void): unknown;
   ping(): void;
   readyState: number;
+  bufferedAmount?: number;
 };
 
 export type { DeviceWs };
@@ -271,8 +267,9 @@ interface PendingToolCall {
  * downlink seq numbering.
  */
 export class RelaySession {
-  // Mutable downlink seq counter (24-bit wraparound, ESP32 doesn't care).
-  private downstreamSeq = 0;
+  private readonly audio: FlashAudioDownlink;
+  private readonly responseIds = new Set<string>();
+  private readonly retiredResponseIds = new Set<string>();
 
   // Tool call stream assembly
   private pendingToolCall: PendingToolCall | null = null;
@@ -297,25 +294,6 @@ export class RelaySession {
   private sessionConfiguration: Promise<void> = Promise.resolve();
   private turnGeneration = 0;
 
-  // [audio-pacing] Downlink audio pacing: buffer frames and drain at 1x
-  // realtime speed so the ESP32's 256KB ringbuffer doesn't overflow when
-  // StepFun generates TTS at 3-4x realtime.
-  private downlinkQueue: {
-    frame: Buffer;
-    audioDurationMs: number;
-    isLast: boolean;
-  }[] = [];
-  private downlinkTimer: NodeJS.Timeout | null = null;
-  // [audio-pacing] Token-bucket pacer. downlinkTokens = audio-ms we may send
-  // right now; refilled at 1x realtime (1ms audio per 1ms wall) and capped at
-  // PACING_LOOK_AHEAD_MS. Since the device's playback ringbuffer has been
-  // increased to 524288 bytes (~11s), we set the look-ahead to 1500ms (1.5s).
-  // This allows the device to pre-buffer up to 1.5s of audio, ensuring smooth
-  // playback even during long EPD UI refreshes (which take ~400-1200ms) and
-  // network jitter, while still preventing buffer overflow.
-  private static readonly PACING_LOOK_AHEAD_MS = 1500;
-  private downlinkTokens = 0;
-  private downlinkLastRefillMs = 0;
   // [diag] perf timestamp of the last upstream message, to measure onMessage
   // entry gap (StepFun send interval vs cloud event-loop block).
   private lastUpstreamPerfMs = 0;
@@ -326,6 +304,22 @@ export class RelaySession {
     private readonly device: DeviceContext,
     private readonly config: RelayConfig
   ) {
+    this.audio = new FlashAudioDownlink(this.deviceWs, reason => {
+      try {
+        sendJson(this.deviceWs, {
+          type: 'error',
+          ...makeError(
+            'tts_failed',
+            `Audio delivery failed: ${reason}`,
+            'playback'
+          ),
+        });
+      } catch {
+        // A broken device socket must still release the paid upstream.
+      } finally {
+        this.shutdown(reason);
+      }
+    });
     this.upstreamReady = new Promise<void>((res, rej) => {
       this.upstreamResolve = res;
       this.upstreamReject = rej;
@@ -351,12 +345,7 @@ export class RelaySession {
     this.turnGeneration++;
     clearInterval(this.idleInterval);
     clearInterval(this.pingInterval);
-    // [audio-pacing] Stop the drain timer so queued frames don't fire after close.
-    if (this.downlinkTimer) {
-      clearTimeout(this.downlinkTimer);
-      this.downlinkTimer = null;
-    }
-    this.downlinkQueue = [];
+    this.audio.close();
     this.pendingTextFrames = [];
     log.info('relay session closed', {
       deviceId: this.device.deviceId,
@@ -447,6 +436,7 @@ export class RelaySession {
       const evt = JSON.parse(text);
       if (evt && typeof evt.type === 'string') deviceEventType = evt.type;
       if (evt && evt.type === 'session.update') {
+        this.audio.negotiateEpoch(evt.wqn?.playback_epoch === 1);
         this.baseInstructions =
           typeof evt.session?.instructions === 'string'
             ? evt.session.instructions
@@ -458,17 +448,7 @@ export class RelaySession {
         return;
       } else if (evt && evt.type === 'response.cancel') {
         this.turnGeneration++;
-        // [barge-in-fix] Device barge-in: drop queued downlink audio so the stale
-        // tail of the previous response doesn't keep filling the device ringbuffer
-        // (root cause of post-barge-in ringbuf full / dropped frames).
-        this.downlinkQueue = [];
-        if (this.downlinkTimer) {
-          clearTimeout(this.downlinkTimer);
-          this.downlinkTimer = null;
-        }
-        this.downlinkTokens = 0;
-        this.downlinkLastRefillMs = 0;
-        log.info('barge-in: cleared downlink queue + timer');
+        this.retireResponses();
       }
     } catch {
       /* not JSON, passthrough */
@@ -599,6 +579,7 @@ export class RelaySession {
   private async beginTurn(evt: Record<string, unknown>) {
     const generation = ++this.turnGeneration,
       anchorAt = new Date().toISOString();
+    this.retireResponses();
     try {
       await this.sessionConfiguration;
       if (this.config.executeToolUrl && this.config.proxySecret) {
@@ -646,7 +627,9 @@ export class RelaySession {
     ) {
       session.voice = 'qingchunshaonv';
     }
-    return JSON.stringify({ ...evt, session });
+    const providerEvent = { ...evt, session };
+    delete providerEvent.wqn;
+    return JSON.stringify(providerEvent);
   }
 
   // -----------------------------------------------------------------
@@ -676,6 +659,12 @@ export class RelaySession {
       return;
     }
     if (!evt || typeof evt.type !== 'string') return;
+    const responseId = evt.response_id ?? evt.response?.id;
+    if (
+      typeof responseId === 'string' &&
+      this.retiredResponseIds.has(responseId)
+    )
+      return;
 
     // [diag] Log every event from StepFun so we can see exactly what
     // StepFun sends back (session.updated, error, response.audio.delta, etc.)
@@ -692,20 +681,21 @@ export class RelaySession {
         this.forwardDownlinkAudio(evt);
         return;
       }
+      case 'response.created': {
+        const id = evt.response?.id;
+        if (typeof id !== 'string' || this.retiredResponseIds.has(id)) return;
+        this.responseIds.add(id);
+        this.audio.begin(id);
+        sendJson(this.deviceWs, evt);
+        return;
+      }
       case 'response.audio.done': {
-        // Mark the last chunk as 'final' so ESP32 can flush.
-        sendJson(this.deviceWs, { type: 'state', stage: 'audio.complete' });
-        // [pacing-fix] Reset the token bucket at response end so the next
-        // response seeds fresh look-ahead on its first drain.
-        this.downlinkTokens = 0;
-        this.downlinkLastRefillMs = 0;
-        // [tts-speed-fix] StepFun has finished generating the whole response;
-        // the full audio is now in downlinkQueue. Start 1x drain so the device
-        // receives a continuous 1x stream with no underrun gaps. (forwardDownlinkAudio
-        // intentionally does NOT start the drain - see comment there.)
-        if (!this.downlinkTimer && this.downlinkQueue.length > 0) {
-          this.drainDownlinkQueue();
-        }
+        this.audio.finish(evt.response_id);
+        return;
+      }
+      case 'response.done': {
+        this.audio.finish(evt.response?.id);
+        sendJson(this.deviceWs, evt);
         return;
       }
       case 'response.function_call_arguments.delta': {
@@ -745,94 +735,20 @@ export class RelaySession {
     }
   }
 
-  // [audio-pacing] Enqueue downlink audio for paced delivery instead of
-  // sending immediately. StepFun generates TTS at 3-4x realtime; the ESP32
-  // plays at 1x. Without pacing, the device's 256KB ringbuffer fills within
-  // seconds of a long response.
-  private forwardDownlinkAudio(evt: any) {
-    const b64 = typeof evt.delta === 'string' ? evt.delta : null;
-    if (!b64) return;
-    const pcm24 = Buffer.from(b64, 'base64');
-    if (pcm24.length === 0) return;
-    // [24k-native] StepFun sends 24kHz; device plays 24kHz. No resample.
-    this.downstreamSeq = (this.downstreamSeq + 1) >>> 0;
-    const frame = encodeWflvAudio({
-      pcm: pcm24,
-      seq: this.downstreamSeq,
-      streaming: !Boolean(evt.last),
-      final: Boolean(evt.last),
-    });
-    // Audio duration of this chunk: pcm24 is 24kHz mono s16le
-    const audioDurationMs =
-      (pcm24.length / 2 / DOWLINK_DEFAULT_SAMPLE_RATE_HZ) * 1000;
-    this.downlinkQueue.push({
-      frame,
-      audioDurationMs,
-      isLast: Boolean(evt.last),
-    });
-    // [tts-speed-fix] Do NOT start draining here. StepFun generates TTS at
-    // ~0.5x realtime with 100-1100ms inter-segment stalls (the official demo
-    // has the SAME pattern - not a cloud/transport issue). Draining as frames
-    // arrive means the device's 1x DAC consumes faster than StepFun produces
-    // -> ringbuffer underrun -> 呲呲. Instead, buffer the whole response and
-    // only start 1x drain on response.audio.done (see onUpstreamFrame). This
-    // trades first-word latency (~TTS generation time, 3-8s) for zero underrun.
+  private retireResponses() {
+    for (const id of this.responseIds) this.retiredResponseIds.add(id);
+    this.responseIds.clear();
+    // Bound diagnostics/retirement state. Unknown audio IDs are also rejected.
+    while (this.retiredResponseIds.size > 256) {
+      const oldest = this.retiredResponseIds.values().next().value;
+      if (oldest === undefined) break;
+      this.retiredResponseIds.delete(oldest);
+    }
+    this.audio.cancel();
   }
 
-  // [audio-pacing] Drain the downlink queue at ~1x realtime speed.
-  // On each tick we calculate how much audio-time has elapsed since the
-  // first frame was sent, then send enough frames to fill up to that point
-  // plus a small look-ahead buffer (200ms) to prevent underrun.
-  // [audio-pacing] Token-bucket drain: send frames while tokens permit, then
-  // schedule the next tick for when the bucket refills enough for the next
-  // frame. Refill is 1x realtime (1ms audio per 1ms wall) capped at
-  // PACING_LOOK_AHEAD_MS, so an underrun gap (StepFun paused, queue empty)
-  // cannot bank more than 200ms of burst capacity - the bug that overran the
-  // ESP32 ringbuffer before.
-  private drainDownlinkQueue() {
-    if (this.closed || this.downlinkQueue.length === 0) {
-      this.downlinkTimer = null;
-      return;
-    }
-    const now = Date.now();
-    if (this.downlinkLastRefillMs === 0) {
-      // First drain of a response: seed look-ahead so the first frame isn't
-      // delayed (DAC needs a running start to avoid initial underrun).
-      this.downlinkTokens = RelaySession.PACING_LOOK_AHEAD_MS;
-    } else {
-      const dt = now - this.downlinkLastRefillMs;
-      if (dt > 0) {
-        this.downlinkTokens = Math.min(
-          RelaySession.PACING_LOOK_AHEAD_MS,
-          this.downlinkTokens + dt
-        );
-      }
-    }
-    this.downlinkLastRefillMs = now;
-    // Send frames while the bucket can afford the next one.
-    while (this.downlinkQueue.length > 0) {
-      const entry = this.downlinkQueue[0];
-      if (this.downlinkTokens < entry.audioDurationMs) break;
-      this.downlinkQueue.shift();
-      try {
-        this.deviceWs.send(entry.frame, { binary: true });
-      } catch {
-        // Device disconnected; shutdown will be triggered by the close handler.
-        break;
-      }
-      this.downlinkTokens -= entry.audioDurationMs;
-      if (entry.isLast) {
-        sendJson(this.deviceWs, { type: 'state', stage: 'audio.last' });
-      }
-    }
-    if (this.downlinkQueue.length > 0) {
-      // Wait until the bucket refills enough for the next frame.
-      const next = this.downlinkQueue[0];
-      const waitMs = Math.max(10, next.audioDurationMs - this.downlinkTokens);
-      this.downlinkTimer = setTimeout(() => this.drainDownlinkQueue(), waitMs);
-    } else {
-      this.downlinkTimer = null;
-    }
+  private forwardDownlinkAudio(evt: any) {
+    this.audio.append(evt.response_id, evt.delta);
   }
 
   private async handleToolCall(call: ToolCallArgs) {

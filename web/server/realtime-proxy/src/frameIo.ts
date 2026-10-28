@@ -92,6 +92,8 @@ export function encodeWflvAudio(params: {
   channels?: number;
   final?: boolean;
   streaming?: boolean;
+  /** Server-owned playback generation; zero unless explicitly negotiated. */
+  epoch?: number;
 }): Buffer {
   const sampleRate = params.sampleRate ?? DOWLINK_DEFAULT_SAMPLE_RATE_HZ;
   const channels = params.channels ?? UPLINK_CHANNELS;
@@ -106,7 +108,7 @@ export function encodeWflvAudio(params: {
   buf.writeUInt32LE(params.seq >>> 0, 8);
   buf.writeUInt32LE(sampleRate, 12);
   buf.writeUInt32LE(channels, 16);
-  buf.writeUInt32LE(0, 20); // reserved
+  buf.writeUInt32LE((params.epoch ?? 0) >>> 0, 20);
   params.pcm.copy(buf, WFLV_HEADER_BYTES);
   return buf;
 }
