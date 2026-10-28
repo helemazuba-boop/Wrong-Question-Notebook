@@ -1,8 +1,8 @@
 {
   "contract": "flash-realtime-v2",
-  "version": "2.1",
+  "version": "2.2",
   "schema": "flash-realtime-v2.schema.json",
-  "schema_sha256": "fda16196a6dbc8438803f2d7d6008cc879267a2587aadbc4a3e5dc99e6465905",
+  "schema_sha256": "8e6b1488d16c85b0c7554adf4896b38125b3388637298d8568c32431c4ff242d",
   "authoritative": "WQN/web/contracts/flash-realtime-v2",
   "subprotocol": "wqn-flash-v2",
   "feature": {
@@ -31,6 +31,7 @@
     "fixtures/invalid/unknown-terminal.json": "4a0bd69d6ce7918bd63161fd43bfe4c33872f2548ccaf1a6eb1475dcc712cf22",
     "fixtures/invalid/zero-epoch.json": "2264293662bd29996e71085cb16878381aa8e1ac6c9490aaee5b9f540b9d4aa2",
     "fixtures/invalid/zero-turn.json": "b1622b98728a81fc9adfefea9504bfabe163c8bb2b5ee46d00bac7c0d67e0a50",
+    "fixtures/valid/asr-partial.json": "40056827fae7bb160f0ad2c381be63b5110224daf7aac73e6e291ceff8f5ed4d",
     "fixtures/valid/connection-error.json": "ffb58879f883738ea433f68095a46f3ae3e30834ff0d74f37288ba4cb1d46ac3",
     "fixtures/valid/playback-end.json": "a9d9d8700b4df452af28bb812d10ec6a1f7f8390e26c234c6b5119fee2c0afaa",
     "fixtures/valid/playback-reset.json": "56e514bab8ebe658779f0f4b30bd14e8fbf098b826157dcd7128f33079dd7142",

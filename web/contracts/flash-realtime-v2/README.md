@@ -15,3 +15,5 @@ The negotiated WFLV reserved word carries `epoch`. `playback.reset` invalidates 
 Control messages are capped at 128 KiB, audio messages at 64 KiB, across TCP callbacks and WS continuation frames. Limits are message bytes, not JSON character counts. PCM is signed 16-bit little endian at 24000 Hz mono. Uplink reserved=0, STREAM=1, FINAL adds 2, sequence wraps as uint32 per connection; downlink is STREAM=1 with epoch only if negotiated.
 
 Connection-level errors may carry `turn_id=0`; turn-scoped IDs remain positive uint32 values.
+
+Contract 2.2 adds optional `asr.partial` full-text snapshots. StepAudio native ASR deltas are revisable cumulative text, not additive fragments. The relay retains at most eight unbound items / 8192 UTF-8 bytes per text, binds them only on commit, and never lets a partial overwrite completion. Old firmware may ignore the new partial event and still consumes the unchanged final ASR event. New firmware replaces the existing provisional user row for every partial.

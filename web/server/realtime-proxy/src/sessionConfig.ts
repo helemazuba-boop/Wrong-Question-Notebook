@@ -4,6 +4,19 @@ import {
 } from '../../../lib/ai-tools/voice-tools.ts';
 import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 
+export function isStepFunRealtimeEndpoint(upstreamUrl: string): boolean {
+  try {
+    const url = new URL(upstreamUrl);
+    return (
+      url.protocol === 'wss:' &&
+      url.hostname === 'api.stepfun.com' &&
+      url.pathname === '/v1/realtime'
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** StepFun documents VAD as optional/default-off and omits turn_detection in
  * its disabled session response example. Keep that provider-specific wire
  * representation distinct from an explicit incompatible VAD value. */
