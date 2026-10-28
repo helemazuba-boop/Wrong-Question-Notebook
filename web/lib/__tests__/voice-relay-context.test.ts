@@ -155,6 +155,13 @@ describe('Flash configuration, response and tool ownership', () => {
     await h.configure();
     context.mockResolvedValue({ ...first, now: '2026-10-15T16:00:00Z' });
     h.frame({ type: 'response.create' });
+    expect(h.device.events().at(-1)).toEqual(
+      expect.objectContaining({ type: 'playback.reset' })
+    );
+    expect(h.device.events()).toContainEqual({
+      type: 'turn.started',
+      turn_id: 1,
+    });
     await settle();
     expect(h.upstream.events().at(-1).session.instructions).toContain(
       '2026-10-16'
