@@ -37,10 +37,10 @@ class EntryTests(unittest.TestCase):
 
     def test_unsupported_model_is_not_silently_accepted(self):
         values = {k: 'fixture-value' for k in core.policy()['APP_REQUIRED_RUNTIME_KEYS']}
-        values['WQN_OPENCODE_FALLBACK_MODEL'] = 'fixture-sensitive-model'
+        values['WQN_OPENCODE_UNSUPPORTED_PROBE'] = 'fixture-sensitive-model'
         with self.assertRaises(core.OpsError) as error:
             core.runtime_values(values=values)
-        self.assertIn('WQN_OPENCODE_FALLBACK_MODEL', str(error.exception))
+        self.assertIn('WQN_OPENCODE_UNSUPPORTED_PROBE', str(error.exception))
         self.assertNotIn('fixture-sensitive-model', str(error.exception))
 
 class EnvCheckTests(unittest.TestCase):
@@ -55,12 +55,12 @@ class EnvCheckTests(unittest.TestCase):
         keys = policy['APP_REQUIRED_RUNTIME_KEYS'] | policy['REALTIME_REQUIRED_RUNTIME_KEYS']
         return {key: 'fixture-value' for key in keys}
 
-    def test_rejects_the_keys_release_rejects(self):
+    def test_rejects_what_release_rejects(self):
         values = self.accepted_values()
-        values['WQN_OPENCODE_FALLBACK_MODEL'] = 'fixture-sensitive-model'
+        values['WQN_OPENCODE_UNSUPPORTED_PROBE'] = 'fixture-sensitive-model'
         code, out, err = self.run_check(values)
         self.assertEqual(code, 1)
-        self.assertIn('WQN_OPENCODE_FALLBACK_MODEL', err)
+        self.assertIn('WQN_OPENCODE_UNSUPPORTED_PROBE', err)
         self.assertNotIn('fixture-sensitive-model', err)
         self.assertNotIn('Validated', out)
 
