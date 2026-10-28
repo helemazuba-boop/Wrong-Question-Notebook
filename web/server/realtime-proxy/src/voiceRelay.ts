@@ -879,6 +879,34 @@ export class RelaySession {
           : event.response?.status;
       const current =
         !response.cancelled && response.generation === this.turnGeneration;
+      if (current && Array.isArray(event.response?.output)) {
+        const text: string[] = [],
+          transcript: string[] = [];
+        for (const item of event.response.output) {
+          if (item?.type !== 'message' || !Array.isArray(item.content))
+            continue;
+          for (const part of item.content) {
+            if (typeof part?.text === 'string') text.push(part.text);
+            if (typeof part?.transcript === 'string')
+              transcript.push(part.transcript);
+          }
+        }
+        const spoken =
+          response.textSource === 'response.audio_transcript.delta';
+        const full = spoken ? transcript.join('\n') : text.join('\n');
+        if (full)
+          this.completeText(
+            response,
+            full,
+            spoken ? 'response.audio_transcript.delta' : 'response.text.delta'
+          );
+        else if (!response.textSource && transcript.length)
+          this.completeText(
+            response,
+            transcript.join('\n'),
+            'response.audio_transcript.delta'
+          );
+      }
       // The terminal response's output is authoritative association for StepFun
       // args.done variants that omit response_id. Buffering alone never writes.
       if (
@@ -914,7 +942,12 @@ export class RelaySession {
           status_details: event.response?.status_details ?? null,
         });
       } else if (response.calls.size === 0) {
-        this.sendDevice({ ...event, turn_id: response.generation });
+        this.sendDevice({
+          type: 'turn.done',
+          status: 'completed',
+          response_id: response.id,
+          turn_id: response.generation,
+        });
       } else {
         this.sendDevice({
           type: 'state',
@@ -960,6 +993,16 @@ export class RelaySession {
       case 'response.audio.done':
         this.audio.finish(response.id);
         return;
+      case 'response.text.done':
+        this.completeText(response, event.text, 'response.text.delta');
+        return;
+      case 'response.audio_transcript.done':
+        this.completeText(
+          response,
+          event.transcript,
+          'response.audio_transcript.delta'
+        );
+        return;
       case 'response.audio_transcript.delta':
       case 'response.text.delta': {
         response.textSource ??= event.type;
@@ -976,6 +1019,22 @@ export class RelaySession {
         this.sendDevice({ ...event, turn_id: response.generation });
         return;
     }
+  }
+
+  private completeText(
+    response: ProviderResponse,
+    text: unknown,
+    source: string
+  ) {
+    if (typeof text !== 'string' || !text) return;
+    response.textSource ??= source;
+    if (response.textSource !== source) return;
+    this.sendDevice({
+      type: 'text.complete',
+      text,
+      response_id: response.id,
+      turn_id: response.generation,
+    });
   }
 
   private collectTool(event: any, response: ProviderResponse) {

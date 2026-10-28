@@ -409,6 +409,55 @@ describe('Flash configuration, response and tool ownership', () => {
         .join('')
     ).toBe('答案');
   });
+  it('projects full text without requiring a delta and keeps transcript duplication out', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('full');
+    h.provider({
+      type: 'response.text.done',
+      response_id: 'full',
+      text: '完整回答',
+    });
+    h.provider({
+      type: 'response.audio_transcript.done',
+      response_id: 'full',
+      transcript: '重复朗读',
+    });
+    expect(
+      h.device
+        .events()
+        .filter(e => e.type === 'text.complete')
+        .map(e => e.text)
+    ).toEqual(['完整回答']);
+  });
+  it('recovers terminal output text and sends a compact typed completion', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('terminal');
+    h.provider({
+      type: 'response.done',
+      response: {
+        id: 'terminal',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: '终态回答' }],
+          },
+        ],
+      },
+    });
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'text.complete', text: '终态回答' })
+    );
+    expect(h.device.events().at(-1)).toEqual({
+      type: 'turn.done',
+      status: 'completed',
+      response_id: 'terminal',
+      turn_id: 1,
+    });
+  });
   it('rejects a sequence gap and malformed PCM before committing a partial recording', async () => {
     const h = setup();
     await h.configure();
