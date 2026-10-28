@@ -18,13 +18,8 @@ import 'dotenv/config';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { log } from './logger.ts';
-import { AuthFailure, authenticateDevice } from './auth.ts';
-import {
-  handleConnection,
-  type RelayConfig,
-  type DeviceWs,
-} from './voiceRelay.ts';
-import { handleBatchVoiceConnection } from './batchVoiceRelay.ts';
+import type { RelayConfig } from './voiceRelay.ts';
+import { handleRealtimeUpgrade } from './upgrade.ts';
 import { PROXY_SUBPROTOCOL, VOICE_SUBPROTOCOL } from './types.ts';
 
 function readConfig(): RelayConfig {
@@ -100,89 +95,9 @@ const wss = new WebSocketServer({
 });
 
 httpServer.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-
-  if (url.pathname !== '/api/esp32/realtime') {
+  void handleRealtimeUpgrade(wss, req, socket, head, config).catch(error => {
+    log.error('upgrade handler failed', { err: String(error) });
     socket.destroy();
-    return;
-  }
-
-  // Subprotocol negotiation
-  const protoHeader = req.headers['sec-websocket-protocol'] ?? '';
-  const requestedProtos = String(protoHeader)
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  let selectedSubprotocol: string | null = null;
-  if (requestedProtos.includes(PROXY_SUBPROTOCOL)) {
-    selectedSubprotocol = PROXY_SUBPROTOCOL;
-  } else if (requestedProtos.includes(VOICE_SUBPROTOCOL)) {
-    selectedSubprotocol = VOICE_SUBPROTOCOL;
-  }
-
-  if (!selectedSubprotocol) {
-    socket.write(
-      'HTTP/1.1 426 Upgrade Required\r\n' +
-        `x-wqn-error: subprotocol required: ${PROXY_SUBPROTOCOL} or ${VOICE_SUBPROTOCOL}\r\n` +
-        '\r\n'
-    );
-    socket.destroy();
-    return;
-  }
-
-  wss.handleUpgrade(req, socket, head, ws => {
-    authenticateDevice(req)
-      .then(device => {
-        (ws as any).device = device;
-        if (selectedSubprotocol === PROXY_SUBPROTOCOL) {
-          handleConnection(
-            ws as unknown as DeviceWs,
-            device,
-            req,
-            config
-          ).catch(err => {
-            log.error('flash relay threw', {
-              err: String(err),
-              deviceId: device.deviceId,
-            });
-            try {
-              ws.close(1011, 'relay_error');
-            } catch {
-              /* drop */
-            }
-          });
-        } else {
-          handleBatchVoiceConnection(
-            ws as unknown as DeviceWs,
-            device,
-            req,
-            config
-          ).catch(err => {
-            log.error('batch voice relay threw', {
-              err: String(err),
-              deviceId: device.deviceId,
-            });
-            try {
-              ws.close(1011, 'relay_error');
-            } catch {
-              /* drop */
-            }
-          });
-        }
-      })
-      .catch(e => {
-        const err =
-          e instanceof AuthFailure
-            ? e
-            : new AuthFailure('internal', 'Failed to authenticate device');
-        try {
-          ws.send(JSON.stringify({ type: 'error', ...err.toPayload() }));
-        } catch {
-          /* drop */
-        }
-        ws.close(1011, err.code);
-      });
   });
 });
 

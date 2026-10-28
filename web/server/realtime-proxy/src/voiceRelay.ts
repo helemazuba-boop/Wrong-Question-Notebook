@@ -193,10 +193,10 @@ export async function handleConnection(
   );
 
   deviceWs.on('close', (code, reason) =>
-    session.shutdown('device-closed', { code, reason })
+    session.shutdown('device-closed', { code, closeReason: String(reason) })
   );
   upstream.on('close', (code, reason) =>
-    session.shutdown('upstream-closed', { code, reason })
+    session.shutdown('upstream-closed', { code, closeReason: String(reason) })
   );
   deviceWs.on('error', err =>
     session.shutdown('device-error', { err: String(err) })
@@ -285,10 +285,12 @@ export class RelaySession {
     resolve: () => void;
     reject: (error: Error) => void;
     timer: NodeJS.Timeout;
+    mismatchLogged?: boolean;
   };
   private cancelTimer?: NodeJS.Timeout;
   private readonly initialTimer: NodeJS.Timeout;
   private configured = false;
+  private initialPhase = 'awaiting-device-config';
   private initialConfigurationStarted = false;
   private epochEnabled = false;
   private sessionConfiguration: Promise<void> = Promise.resolve();
@@ -335,15 +337,21 @@ export class RelaySession {
     // Constructor callers may use the session directly in tests/ports.
     // The connection handler still awaits and reports the same rejection.
     void this.upstreamReady.catch(() => {});
-    this.initialTimer = setTimeout(
-      () =>
-        this.fail(
-          'upstream_unavailable',
-          'Flash 配置未确认，请重新连接',
-          'configuration'
-        ),
-      30000
-    );
+    this.initialTimer = setTimeout(() => {
+      log.warn('Flash initial configuration timeout', {
+        deviceId: this.device.deviceId,
+        phase: this.initialPhase,
+        deviceConfigReceived: this.initialConfigurationStarted,
+        bufferedControls: this.pendingTextFrames.length,
+        upstreamState: this.upstream.readyState,
+        providerAckPending: Boolean(this.configurationAck),
+      });
+      this.fail(
+        'upstream_unavailable',
+        'Flash 配置未确认，请重新连接',
+        'configuration'
+      );
+    }, 30000);
     this.idleInterval = setInterval(() => this.checkIdle(), 1000);
     this.pingInterval = setInterval(() => this.heartbeat(), PING_INTERVAL_MS);
   }
@@ -509,6 +517,11 @@ export class RelaySession {
             'configuration'
           );
         this.initialConfigurationStarted = true;
+        this.initialPhase = 'loading-context';
+        log.info('Flash device configuration received', {
+          deviceId: this.device.deviceId,
+          epoch: event.wqn?.playback_epoch === 1,
+        });
         this.epochEnabled = event.wqn?.playback_epoch === 1;
         this.audio.negotiateEpoch(this.epochEnabled);
         this.baseInstructions =
@@ -596,6 +609,7 @@ export class RelaySession {
       await this.updateConfiguration(event);
       if (this.closed) return;
       this.configured = true;
+      this.initialPhase = 'ready';
       clearTimeout(this.initialTimer);
       this.sendDevice({ type: 'state', stage: 'session.negotiated' });
       this.sendDevice({
@@ -639,6 +653,12 @@ export class RelaySession {
         reject,
         timer,
       };
+      if (!this.configured) this.initialPhase = 'awaiting-provider-ack';
+      log.info('Flash provider configuration submitted', {
+        deviceId: this.device.deviceId,
+        initial: !this.configured,
+        turn_id: this.turnGeneration,
+      });
       this.sendUpstream(rewritten);
     });
   }
@@ -790,7 +810,12 @@ export class RelaySession {
       return this.fail('protocol_mismatch', '模型响应无法解析', 'provider');
     }
     if (!event || typeof event.type !== 'string') return;
-    if (event.type === 'session.created') return;
+    if (event.type === 'session.created') {
+      log.info('Flash provider session created', {
+        deviceId: this.device.deviceId,
+      });
+      return;
+    }
     if (event.type === 'session.updated') {
       const ack = this.configurationAck,
         session = event.session;
@@ -803,10 +828,27 @@ export class RelaySession {
         session.turn_detection !== null ||
         (typeof session.instructions === 'string' &&
           session.instructions !== ack.instructions)
-      )
+      ) {
+        if (!ack.mismatchLogged) {
+          ack.mismatchLogged = true;
+          log.warn('Flash provider configuration ACK mismatch', {
+            deviceId: this.device.deviceId,
+            inputPcm16: session?.input_audio_format === 'pcm16',
+            outputPcm16: session?.output_audio_format === 'pcm16',
+            manualTurnDetection: session?.turn_detection === null,
+            instructionsMatch:
+              typeof session?.instructions !== 'string' ||
+              session.instructions === ack.instructions,
+          });
+        }
         return;
+      }
       this.configurationAck = undefined;
       clearTimeout(ack.timer);
+      log.info('Flash provider configuration acknowledged', {
+        deviceId: this.device.deviceId,
+        initial: !this.configured,
+      });
       ack.resolve();
       return;
     }
