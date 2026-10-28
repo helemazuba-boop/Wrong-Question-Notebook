@@ -2,7 +2,7 @@
 
 The audit baseline is firmware 031e4c6157a4cb85fafa47097f865b2168528acf and WQN 0fe742adf20eee422290cfcac75aefeff982d2a8. The user confirmed StepAudio 3 connectivity. Repository defaults do not prove the deployed model/profile. This work repairs the Flash chain and aligns its content presentation with Agent while retaining the Flash status bar.
 
-The full investigation is WQN_NOTE4_FLASH_CHAIN_AUDIT_2026-10-28.md in the shared workspace doc directory. It contains 27 tracked items and triages all 53 primary CodeBuddy claims. Evidence: 31 parser/history checks, 10 real RelaySession port scenarios, and 16 main-agent candidate-validation checks. Those reproduce pre-fix behavior; they are not post-fix acceptance.
+The full investigation is WQN_NOTE4_FLASH_CHAIN_AUDIT_2026-10-28.md in the shared workspace doc directory. It contains 27 baseline tracked items (plus the 2026-10-29 F28 upgrade/auth incident) and triages all 53 primary CodeBuddy claims. Evidence: 31 parser/history checks, 10 real RelaySession port scenarios, and 16 main-agent candidate-validation checks. Those reproduce pre-fix behavior; they are not post-fix acceptance.
 
 ## Required behavior
 
@@ -36,3 +36,11 @@ The user explicitly authorized local batch commits and deferred acceptance until
 Run current-source focused Flash lifecycle/protocol/history/relay tests, existing related regressions, TypeScript/lint/format gates, and a zero-warning default ESP-IDF build with M8 and UI stack gates. Check affected configuration variants where applicable and review both worktree statuses/commits. A test that now still reproduces the old failure is not a fix PASS.
 
 Device/HIL remains separately identified: weak network/backpressure, exact PCM continuity, cancellation during capture and already-generated playout, resource peaks, Agent switching, battery sleep/wake and actual EPD rendering. Virtual clocks, synthetic HIL logs and archived builds do not prove these properties. Record missing hardware/production evidence rather than relabel it as PASS.
+
+## Implementation and final local acceptance (2026-10-29)
+
+B0–B5 implementation and B6 local acceptance have been executed. Latest runtime commits are firmware `27ebd82` and WQN `4baaca6` (the initial-configuration timeout hotfix). The [validation record](FLASH_CHAIN_VALIDATION_2026-10-29.md) maps all 12 required behaviors, records exact test/build identities and keeps physical/production acceptance open.
+
+The machine contract is now pinned on both sides. New firmware requires the negotiated playback-epoch extension and acknowledged manual PCM profile, so integrate/deploy the compatible cloud before using the new firmware. Legacy devices remain supported by the cloud with reserved zero. WFLV framing and optional provider features must not be silently reinterpreted.
+
+Local results include a zero-warning default SDK build, M8/UI-stack gates, 13 affected configuration translation units, current 106 Flash/voice tests and both TypeScript checks. The full Web run is environment-limited by two localhost-bind tests; device HIL and production recovery after the hotfix are unconfirmed. No push/deployment/flash was performed in this session.
