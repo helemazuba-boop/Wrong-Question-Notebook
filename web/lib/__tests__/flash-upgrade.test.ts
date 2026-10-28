@@ -192,7 +192,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('authentication before realtime upgrade', () => {
-  it('retains the first masked frame through real ws upgrade and receiver without binding a TCP port', async () => {
+  it('retains the first masked frame through real ws upgrade and accepts the StepFun omitted-VAD ACK without binding a TCP port', async () => {
     const payload = Buffer.from(
       JSON.stringify({
         type: 'session.update',
@@ -243,7 +243,13 @@ describe('authentication before realtime upgrade', () => {
       request as any,
       socket,
       Buffer.alloc(0),
-      config
+      {
+        ...config,
+        upstream: {
+          ...config.upstream,
+          url: 'wss://api.stepfun.com/v1/realtime',
+        },
+      }
     );
     expect(socket.accepted).toBe(false);
     expect(server.clients.size).toBe(0);
@@ -262,10 +268,12 @@ describe('authentication before realtime upgrade', () => {
       .map((text: string) => JSON.parse(text))
       .find((event: any) => event.type === 'session.update');
     expect(update?.session.instructions).toContain('wire fixture');
+    const providerSession = { ...update.session };
+    delete providerSession.turn_detection;
     upstream.emit(
       'message',
       Buffer.from(
-        JSON.stringify({ type: 'session.updated', session: update.session })
+        JSON.stringify({ type: 'session.updated', session: providerSession })
       ),
       false
     );

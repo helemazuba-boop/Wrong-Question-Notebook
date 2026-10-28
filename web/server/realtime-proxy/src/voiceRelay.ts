@@ -36,7 +36,10 @@ import {
   injectToolResult,
   type ToolCallArgs,
 } from './toolInterceptor.ts';
-import { applyAiToolSessionConfig } from './sessionConfig.ts';
+import {
+  applyAiToolSessionConfig,
+  manualTurnDetectionAck,
+} from './sessionConfig.ts';
 import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 import { FlashAudioDownlink } from './flashAudioDownlink.ts';
 
@@ -645,6 +648,11 @@ export class RelaySession {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.configurationAck = undefined;
+        this.fail(
+          'upstream_unavailable',
+          '模型配置确认超时，请重新连接',
+          'configuration'
+        );
         reject(new Error('session.updated timeout'));
       }, 10000);
       this.configurationAck = {
@@ -820,12 +828,17 @@ export class RelaySession {
       const ack = this.configurationAck,
         session = event.session;
       if (!ack) return;
+      const manualAck = manualTurnDetectionAck(
+        session,
+        ack.instructions,
+        this.config.upstream.url
+      );
       // An idle hello/default VAD profile cannot acknowledge our manual profile.
       if (
         !session ||
         session.input_audio_format !== 'pcm16' ||
         session.output_audio_format !== 'pcm16' ||
-        session.turn_detection !== null ||
+        !manualAck ||
         (typeof session.instructions === 'string' &&
           session.instructions !== ack.instructions)
       ) {
@@ -835,10 +848,30 @@ export class RelaySession {
             deviceId: this.device.deviceId,
             inputPcm16: session?.input_audio_format === 'pcm16',
             outputPcm16: session?.output_audio_format === 'pcm16',
-            manualTurnDetection: session?.turn_detection === null,
-            instructionsMatch:
-              typeof session?.instructions !== 'string' ||
-              session.instructions === ack.instructions,
+            manualTurnDetection: Boolean(manualAck),
+            turnDetectionField:
+              !session || !Object.hasOwn(session, 'turn_detection')
+                ? 'omitted'
+                : session.turn_detection === null
+                  ? 'null'
+                  : Array.isArray(session.turn_detection)
+                    ? 'array'
+                    : typeof session.turn_detection,
+            serverVad: session?.turn_detection?.type === 'server_vad',
+            turnDetectionType: [
+              'server_vad',
+              'none',
+              'manual',
+              'disabled',
+            ].includes(session?.turn_detection?.type)
+              ? session.turn_detection.type
+              : session?.turn_detection?.type === undefined
+                ? 'omitted'
+                : session.turn_detection.type === null
+                  ? 'null'
+                  : typeof session.turn_detection.type,
+            instructionsPresent: typeof session?.instructions === 'string',
+            instructionsMatch: session?.instructions === ack.instructions,
           });
         }
         return;
@@ -848,6 +881,7 @@ export class RelaySession {
       log.info('Flash provider configuration acknowledged', {
         deviceId: this.device.deviceId,
         initial: !this.configured,
+        manualAck,
       });
       ack.resolve();
       return;
