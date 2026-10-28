@@ -122,6 +122,62 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Flash configuration, response and tool ownership', () => {
+  it('clears cancelled uncommitted audio while preserving the connection sequence and rejects an empty new FINAL', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 40 }),
+      true
+    );
+    h.frame({ type: 'response.cancel' });
+    expect(
+      h.upstream.events().filter(e => e.type === 'input_audio_buffer.clear')
+    ).toHaveLength(1);
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 41, final: true }),
+      true
+    );
+    expect(
+      h.upstream.events().filter(e => e.type === 'input_audio_buffer.commit')
+    ).toHaveLength(0);
+    expect(h.device.readyState).toBe(3);
+  });
+
+  it('appends only a fresh recording after cancel/clear and commits it once', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720, 1), seq: 40 }),
+      true
+    );
+    h.frame({ type: 'response.cancel' });
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720, 2), seq: 41 }),
+      true
+    );
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 42, final: true }),
+      true
+    );
+    await settle();
+    h.ack();
+    await settle();
+    const events = h.upstream.events();
+    const cleared = events.findIndex(
+      e => e.type === 'input_audio_buffer.clear'
+    );
+    const nextAppend = events.findIndex(
+      (e, index) => index > cleared && e.type === 'input_audio_buffer.append'
+    );
+    expect(Buffer.from(events[nextAppend].audio, 'base64')).toEqual(
+      Buffer.alloc(720, 2)
+    );
+    expect(
+      events.filter(e => e.type === 'input_audio_buffer.commit')
+    ).toHaveLength(1);
+    expect(h.device.readyState).toBe(1);
+  });
+
   it.each(['client_vad', '', 'semantic_vad', 'x'.repeat(80)])(
     'logs the bounded actual turn type rather than typeof: %j',
     async type => {
