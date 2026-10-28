@@ -12,7 +12,7 @@ const request = {
 let profile: unknown;
 let knownDevice: boolean;
 let statusError: 'response' | 'abort' | null;
-const calls: { url: URL; method: string }[] = [];
+const calls: { url: URL; method: string; signal?: AbortSignal | null }[] = [];
 
 beforeEach(() => {
   profile = { is_active: true };
@@ -25,7 +25,7 @@ beforeEach(() => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       const method =
         init?.method ?? (input instanceof Request ? input.method : 'GET');
-      calls.push({ url, method });
+      calls.push({ url, method, signal: init?.signal });
       if (url.origin !== 'https://supabase.example.invalid') {
         throw new Error('Unmocked network request');
       }
@@ -67,6 +67,15 @@ afterEach(() => {
 const writes = () => calls.filter(call => call.method !== 'GET');
 
 describe('realtime device account gate', () => {
+  it('forwards the upgrade deadline signal through both authoritative lookups', async () => {
+    const controller = new AbortController();
+    await expect(
+      authenticateDevice(request, controller.signal)
+    ).resolves.toMatchObject({ deviceId: device.id });
+    const lookups = calls.filter(call => call.method === 'GET');
+    expect(lookups).toHaveLength(2);
+    expect(lookups.every(call => call.signal === controller.signal)).toBe(true);
+  });
   it.each([false, null, 'unavailable'])(
     'rejects state %s before provider dispatch or usage update',
     async state => {
