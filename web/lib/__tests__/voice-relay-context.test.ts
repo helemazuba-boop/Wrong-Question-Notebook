@@ -485,4 +485,97 @@ describe('Flash configuration, response and tool ownership', () => {
     expect(h.device.readyState).toBe(3);
     expect(h.upstream.readyState).toBe(3);
   });
+  it('bounds a business-silent response even while device pings remain active', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(first.now));
+    const h = setup();
+    await h.configure();
+    await h.start('silent');
+    for (let i = 0; i < 10; i++) {
+      h.session.markDeviceActive();
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(h.device.readyState).toBe(3);
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'error', stage: 'response-timeout' })
+    );
+  });
+  it('does not use a no-response cancel error as confirmation of a pending create', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(first.now));
+    const h = setup();
+    await h.configure();
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.ack();
+    await settle();
+    h.frame({ type: 'response.cancel' });
+    h.provider({
+      type: 'error',
+      error: { message: 'no ongoing response to cancel' },
+    });
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.ack();
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10001);
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'error', stage: 'cancel' })
+    );
+    expect(h.device.readyState).toBe(3);
+  });
+  it('commits one contiguous recording and binds ASR to its acknowledged input item', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 2, final: true }),
+      true
+    );
+    await settle();
+    h.ack();
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'input_audio_buffer.commit')
+    ).toHaveLength(1);
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    h.provider({ type: 'input_audio_buffer.committed', item_id: 'input-1' });
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'input-1',
+      transcript: 'question',
+    });
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ transcript: 'question', turn_id: 1 })
+    );
+    h.provider({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'old-input',
+      transcript: 'stale',
+    });
+    expect(h.device.events().some(e => e.transcript === 'stale')).toBe(false);
+  });
+  it.each([{ sampleRate: 16000 }, { channels: 2 }, { pcm: Buffer.alloc(1) }])(
+    'rejects incompatible PCM format %j before append',
+    async bad => {
+      const h = setup();
+      await h.configure();
+      h.session.onDeviceFrame(
+        encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1, ...bad }),
+        true
+      );
+      expect(
+        h.upstream.events().some(e => e.type === 'input_audio_buffer.append')
+      ).toBe(false);
+      expect(h.device.readyState).toBe(3);
+    }
+  );
 });
