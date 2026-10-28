@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { RelaySession } from '@/server/realtime-proxy/src/voiceRelay';
+import { encodeWflvAudio } from '@/server/realtime-proxy/src/frameIo';
 const { context, execute } = vi.hoisted(() => ({
   context: vi.fn(),
   execute: vi.fn(),
@@ -12,14 +13,20 @@ vi.mock('@/server/realtime-proxy/src/toolInterceptor', async () => ({
 }));
 class Socket extends EventEmitter {
   readyState = 1;
-  sent: string[] = [];
-  send(message: string) {
+  bufferedAmount = 0;
+  sent: (string | Buffer)[] = [];
+  send(message: string | Buffer) {
     this.sent.push(message);
   }
   close() {
     this.readyState = 3;
   }
   ping() {}
+  events() {
+    return this.sent
+      .filter((s): s is string => typeof s === 'string')
+      .map(s => JSON.parse(s));
+  }
 }
 const first = {
   now: '2026-10-14T12:00:00Z',
@@ -29,10 +36,17 @@ const first = {
   notebooks_truncated: false,
 };
 const sessions: RelaySession[] = [];
+const receipt = {
+  ok: true,
+  display: 'Note saved',
+  data: { note: { id: 'saved-note' } },
+  action: null,
+};
 function setup() {
   const device = new Socket(),
     upstream = new Socket();
   context.mockResolvedValue(first);
+  execute.mockResolvedValue(receipt);
   const session = new RelaySession(
     device as any,
     upstream as any,
@@ -49,116 +63,116 @@ function setup() {
     }
   );
   sessions.push(session);
-  return {
-    session,
-    device,
-    upstream,
-    frame: (value: unknown) =>
-      session.onDeviceFrame(Buffer.from(JSON.stringify(value)), false),
+  const frame = (event: unknown) =>
+    session.onDeviceFrame(Buffer.from(JSON.stringify(event)), false);
+  const provider = (event: unknown) =>
+    session.onUpstreamFrame(Buffer.from(JSON.stringify(event)), false);
+  const ack = () => {
+    const update = upstream
+      .events()
+      .filter(e => e.type === 'session.update')
+      .at(-1);
+    expect(update).toBeDefined();
+    provider({ type: 'session.updated', session: update.session });
   };
+  const configure = async () => {
+    frame({
+      type: 'session.update',
+      wqn: { playback_epoch: 1 },
+      session: { instructions: 'base', tools: [] },
+    });
+    await settle();
+    ack();
+    await settle();
+  };
+  const start = async (id: string) => {
+    frame({ type: 'response.create' });
+    await settle();
+    ack();
+    await settle();
+    provider({ type: 'response.created', response: { id } });
+  };
+  return { device, upstream, session, frame, provider, ack, configure, start };
 }
 async function settle() {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+}
+function tool(call_id: string, response_id?: string) {
+  return {
+    type: 'response.function_call_arguments.done',
+    call_id,
+    response_id,
+    name: 'create_notebook_note',
+    arguments: '{"title":"复习"}',
+  };
 }
 afterEach(() => {
   for (const session of sessions.splice(0)) session.shutdown('test-end');
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
-describe('Flash trusted context ordering', () => {
-  it('injects notebook IDs and eight tools during session initialization', async () => {
+describe('Flash configuration, response and tool ownership', () => {
+  it('requires a provider ACK of the explicit manual PCM profile before ready', async () => {
     const h = setup();
     h.frame({
       type: 'session.update',
-      session: { instructions: 'base', tools: [] },
+      wqn: { playback_epoch: 1 },
+      session: { instructions: 'base' },
     });
     await settle();
-    const update = JSON.parse(h.upstream.sent[0]);
+    const update = h.upstream.events()[0];
+    expect(update.wqn).toBeUndefined();
     expect(update.session.tools).toHaveLength(8);
     expect(update.session.instructions).toContain('notebook-1');
-    expect(update.session.instructions).toContain(first.now);
-    expect(h.device.sent.map(s => JSON.parse(s))).toContainEqual({
-      type: 'state',
-      stage: 'session.negotiated',
+    expect(update.session.turn_detection).toBeNull();
+    h.provider({ type: 'session.created', session: {} });
+    h.provider({
+      type: 'session.updated',
+      session: { turn_detection: { type: 'server_vad' } },
     });
-  });
-  it('refreshes the local calendar before starting each user response', async () => {
-    const h = setup();
-    h.frame({ type: 'session.update', session: { instructions: 'base' } });
     await settle();
+    expect(h.device.events().some(e => e.type === 'session.ready')).toBe(false);
+    h.ack();
+    await settle();
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'session.ready',
+        wqn: { playback_epoch: 1, turn_detection: 'manual' },
+      })
+    );
+  });
+  it('closes both sockets on an unconfirmed configuration', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.frame({ type: 'session.update', session: {} });
+    await settle();
+    await vi.advanceTimersByTimeAsync(10001);
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
+  });
+  it('refreshes calendar context and waits for its configuration ACK before create', async () => {
+    const h = setup();
+    await h.configure();
     context.mockResolvedValue({ ...first, now: '2026-10-15T16:00:00Z' });
     h.frame({ type: 'response.create' });
     await settle();
-    const sent = h.upstream.sent.map(s => JSON.parse(s));
-    expect(sent.at(-2).session.instructions).toContain('2026-10-16');
-    expect(sent.at(-1)).toEqual({ type: 'response.create' });
-  });
-  it('drops a cancelled response while the context request is pending', async () => {
-    const h = setup();
-    let resolve!: (value: any) => void;
-    context.mockReturnValue(
-      new Promise(r => {
-        resolve = r;
-      })
+    expect(h.upstream.events().at(-1).session.instructions).toContain(
+      '2026-10-16'
     );
-    h.frame({ type: 'response.create' });
+    expect(h.upstream.events().some(e => e.type === 'response.create')).toBe(
+      false
+    );
+    h.ack();
     await settle();
-    h.frame({ type: 'response.cancel' });
-    resolve(first);
-    await settle();
-    expect(h.upstream.sent.map(s => JSON.parse(s).type)).toEqual([
-      'response.cancel',
-    ]);
+    expect(h.upstream.events().at(-1)).toEqual({ type: 'response.create' });
   });
-  it('does not start a response with unavailable context', async () => {
+  it('cannot cancel a pending context denial to retain an authorized connection', async () => {
     const h = setup();
-    context.mockRejectedValue(new Error('context down'));
-    h.frame({ type: 'response.create' });
-    await settle();
-    expect(h.upstream.sent).toEqual([]);
-    expect(JSON.parse(h.device.sent[0]).type).toBe('error');
-    expect(h.device.readyState).toBe(3);
-    expect(h.upstream.readyState).toBe(3);
-    h.frame({ type: 'input_audio_buffer.commit' });
-    h.session.onDeviceFrame(Buffer.alloc(800), true);
-    expect(h.upstream.sent).toEqual([]);
-  });
-  it('closes both transports when initial context fails, even if error delivery throws', async () => {
-    const h = setup();
-    context.mockRejectedValue(new Error('context denied'));
-    h.device.send = () => {
-      throw new Error('device gone');
-    };
-    h.frame({ type: 'session.update', session: {} });
-    await settle();
-    expect(h.device.readyState).toBe(3);
-    expect(h.upstream.readyState).toBe(3);
-    h.frame({ type: 'conversation.item.create', item: {} });
-    expect(h.upstream.sent).toEqual([]);
-  });
-  it('does not send a late successful configuration after context failure closed the session', async () => {
-    const h = setup();
-    let resolve!: (value: any) => void;
-    context
-      .mockReturnValueOnce(
-        new Promise(r => {
-          resolve = r;
-        })
-      )
-      .mockRejectedValueOnce(new Error('account disabled'));
-    h.frame({ type: 'session.update', session: {} });
-    h.frame({ type: 'session.update', session: {} });
-    await settle();
-    resolve(first);
-    await settle();
-    expect(h.device.readyState).toBe(3);
-    expect(h.upstream.sent).toEqual([]);
-  });
-  it('cannot cancel a pending context denial to keep forwarding', async () => {
-    const h = setup();
+    await h.configure();
     let reject!: (error: Error) => void;
-    context.mockReturnValueOnce(
-      new Promise((_, rejectPromise) => {
-        reject = rejectPromise;
+    context.mockReturnValue(
+      new Promise((_resolve, r) => {
+        reject = r;
       })
     );
     h.frame({ type: 'response.create' });
@@ -168,124 +182,251 @@ describe('Flash trusted context ordering', () => {
     await settle();
     expect(h.device.readyState).toBe(3);
     expect(h.upstream.readyState).toBe(3);
-    const previous = [...h.upstream.sent];
-    h.frame({ type: 'input_audio_buffer.commit' });
-    h.session.onDeviceFrame(Buffer.alloc(800), true);
-    expect(h.upstream.sent).toEqual(previous);
-  });
-  it('keeps the original clock through tool continuation', async () => {
-    const h = setup();
-    h.frame({ type: 'session.update', session: { instructions: 'base' } });
-    await settle();
-    execute.mockResolvedValue({
-      ok: true,
-      display: 'Todo created',
-      data: {},
-      action: null,
-    });
-    h.session.onUpstreamFrame(
-      Buffer.from(
-        JSON.stringify({
-          type: 'response.function_call_arguments.done',
-          call_id: 'call-1',
-          name: 'create_todo',
-          arguments: '{"title":"复习"}',
-        })
-      ),
+    expect(h.upstream.events().some(e => e.type === 'response.create')).toBe(
       false
     );
+  });
+  it('closes on context failure even when device error delivery throws', async () => {
+    const h = setup();
+    context.mockRejectedValue(new Error('context denied'));
+    h.device.send = () => {
+      throw new Error('gone');
+    };
+    h.frame({ type: 'session.update', session: {} });
+    await settle();
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
+    expect(h.upstream.events()).toEqual([]);
+  });
+  it('fences cancel/create and rejects late old tool calls before and after the next response', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('old');
+    h.frame({ type: 'response.cancel' });
+    h.provider(tool('old-late-1', 'old'));
+    h.provider(tool('unbound-old'));
+    h.frame({ type: 'response.create' });
+    await settle();
+    h.ack();
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    h.provider({
+      type: 'response.done',
+      response: { id: 'old', status: 'cancelled' },
+    });
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(2);
+    h.provider({ type: 'response.created', response: { id: 'new' } });
+    h.provider(tool('old-late-2', 'old'));
+    h.provider(tool('unbound-old-2'));
+    await settle();
+    expect(execute).not.toHaveBeenCalled();
+    h.provider(tool('new-bound', 'new'));
+    await settle();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+  it('waits for provider terminal output to associate args.done without a response ID', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('source');
+    h.provider(tool('call-1'));
+    await settle();
+    expect(execute).not.toHaveBeenCalled();
+    h.provider({
+      type: 'response.done',
+      response: {
+        id: 'source',
+        status: 'completed',
+        output: [
+          {
+            type: 'function_call',
+            call_id: 'call-1',
+            name: 'create_notebook_note',
+            arguments: '{"title":"复习"}',
+          },
+        ],
+      },
+    });
     await settle();
     expect(execute).toHaveBeenCalledWith(
       expect.any(String),
       'secret',
       'user-1',
       'device-1',
-      { call_id: 'call-1', name: 'create_todo', raw_args: '{"title":"复习"}' },
+      {
+        call_id: 'call-1',
+        name: 'create_notebook_note',
+        raw_args: '{"title":"复习"}',
+      },
       first.now
     );
-    expect(context).toHaveBeenCalledTimes(1);
-    expect(h.device.sent.map(s => JSON.parse(s))).toContainEqual(
-      expect.objectContaining({
-        type: 'tool.result',
-        ok: true,
-        tool_call_id: 'call-1',
-        display: 'Todo created',
-      })
-    );
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(2);
   });
-  it('emits a firmware-readable failure event with its error code', async () => {
+  it('collects interleaved calls separately and creates one continuation after all receipts and terminal', async () => {
     const h = setup();
-    execute.mockResolvedValue({
-      ok: false,
-      display: 'Writing note failed',
-      action: null,
-      error: {
-        code: 'notebook_permission_denied',
-        message: '请检查笔记本授权',
-      },
+    await h.configure();
+    await h.start('tools');
+    const resolve: ((value: typeof receipt) => void)[] = [];
+    execute.mockImplementation(() => new Promise(r => resolve.push(r)));
+    for (const id of ['one', 'two'])
+      h.provider({
+        type: 'response.output_item.added',
+        response_id: 'tools',
+        item: { type: 'function_call', call_id: id, name: 'create_todo' },
+      });
+    h.provider({
+      type: 'response.function_call_arguments.delta',
+      call_id: 'one',
+      delta: '{"title":',
     });
-    h.session.onUpstreamFrame(
-      Buffer.from(
-        JSON.stringify({
-          type: 'response.function_call_arguments.done',
-          call_id: 'failed-note',
-          name: 'create_notebook_note',
-          arguments: '{}',
-        })
-      ),
-      false
-    );
+    h.provider({
+      type: 'response.function_call_arguments.delta',
+      call_id: 'two',
+      delta: '{"title":"B"}',
+    });
+    h.provider({
+      type: 'response.function_call_arguments.done',
+      call_id: 'two',
+    });
+    h.provider({
+      type: 'response.function_call_arguments.done',
+      call_id: 'one',
+      arguments: '{"title":"A"}',
+    });
+    expect(execute.mock.calls.map(c => c[4].raw_args)).toEqual([
+      '{"title":"B"}',
+      '{"title":"A"}',
+    ]);
+    resolve[0](receipt);
     await settle();
-    expect(h.device.sent.map(s => JSON.parse(s))).toContainEqual(
-      expect.objectContaining({
-        type: 'tool.error',
-        ok: false,
-        tool_call_id: 'failed-note',
-        error: {
-          code: 'notebook_permission_denied',
-          message: '请检查笔记本授权',
-        },
-      })
-    );
+    h.provider({
+      type: 'response.done',
+      response: { id: 'tools', status: 'completed', output: [] },
+    });
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    resolve[1](receipt);
+    await settle();
+    expect(
+      h.upstream.events().filter(e => e.type === 'conversation.item.create')
+    ).toHaveLength(2);
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(2);
+    h.provider({
+      type: 'response.done',
+      response: { id: 'tools', status: 'completed' },
+    });
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(2);
   });
-  it('keeps a late write receipt without restarting a cancelled response', async () => {
+  it('retains an already admitted write receipt after cancellation without restarting generation', async () => {
     const h = setup();
-    let resolve!: (value: any) => void;
+    await h.configure();
+    await h.start('writing');
+    let resolve!: (value: typeof receipt) => void;
     execute.mockReturnValue(
       new Promise(r => {
         resolve = r;
       })
     );
-    h.session.onUpstreamFrame(
-      Buffer.from(
-        JSON.stringify({
-          type: 'response.function_call_arguments.done',
-          call_id: 'cancelled-write',
-          name: 'create_notebook_note',
-          arguments: '{}',
-        })
-      ),
-      false
-    );
+    h.provider(tool('write', 'writing'));
     h.frame({ type: 'response.cancel' });
-    resolve({
-      ok: true,
-      display: 'Note saved',
-      data: { note: { id: 'saved-note' } },
-      action: null,
-    });
+    resolve(receipt);
     await settle();
-    const sent = h.upstream.sent.map(s => JSON.parse(s));
-    expect(sent.map(s => s.type)).toEqual([
-      'response.cancel',
-      'conversation.item.create',
-    ]);
-    expect(JSON.parse(sent[1].item.output)).toMatchObject({
-      ok: true,
-      data: { note: { id: 'saved-note' } },
-    });
-    expect(h.device.sent.map(s => JSON.parse(s).type)).not.toContain(
-      'tool.result'
+    const output = h.upstream
+      .events()
+      .find(e => e.type === 'conversation.item.create');
+    expect(JSON.parse(output.item.output).data.note.id).toBe('saved-note');
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({
+        type: 'tool.receipt',
+        call_id: 'write',
+        retired: true,
+      })
     );
+  });
+  it('keeps failed terminal status and never continues a failed tool response', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('failed');
+    let resolve!: (value: typeof receipt) => void;
+    execute.mockReturnValue(
+      new Promise(r => {
+        resolve = r;
+      })
+    );
+    h.provider(tool('write', 'failed'));
+    h.provider({
+      type: 'response.done',
+      response: { id: 'failed', status: 'incomplete' },
+    });
+    resolve(receipt);
+    await settle();
+    expect(h.device.events()).toContainEqual(
+      expect.objectContaining({ type: 'turn.done', status: 'incomplete' })
+    );
+    expect(
+      h.upstream.events().filter(e => e.type === 'response.create')
+    ).toHaveLength(1);
+  });
+  it('projects one text source when native text and audio transcript are both present', async () => {
+    const h = setup();
+    await h.configure();
+    await h.start('text');
+    h.provider({
+      type: 'response.text.delta',
+      response_id: 'text',
+      delta: '答案',
+    });
+    h.provider({
+      type: 'response.audio_transcript.delta',
+      response_id: 'text',
+      delta: '答案',
+    });
+    expect(
+      h.device
+        .events()
+        .filter(e => e.type === 'text.delta')
+        .map(e => e.delta)
+        .join('')
+    ).toBe('答案');
+  });
+  it('rejects a sequence gap and malformed PCM before committing a partial recording', async () => {
+    const h = setup();
+    await h.configure();
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(0), seq: 3, final: true }),
+      true
+    );
+    expect(h.device.readyState).toBe(3);
+    expect(
+      h.upstream.events().some(e => e.type === 'input_audio_buffer.commit')
+    ).toBe(false);
+  });
+  it('bounds upstream socket backpressure instead of silently losing capture', async () => {
+    const h = setup();
+    await h.configure();
+    h.upstream.bufferedAmount = 256 * 1024;
+    h.session.onDeviceFrame(
+      encodeWflvAudio({ pcm: Buffer.alloc(720), seq: 1 }),
+      true
+    );
+    expect(h.device.readyState).toBe(3);
+    expect(h.upstream.readyState).toBe(3);
   });
 });

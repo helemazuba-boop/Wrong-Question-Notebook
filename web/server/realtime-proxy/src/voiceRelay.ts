@@ -3,8 +3,8 @@
  *
  * One instance per ESP32 device WS upgrade. Lifecycle:
  *   1. open upstream WS to StepFun with our `Bearer ${STEP_API_KEY}`
- *   2. expect `session.created` (an idle hello) and forward
- *      `session.ready` back to the device as a text frame
+ *   2. await a confirmed manual-PTT PCM configuration, then publish
+ *      `session.ready` to the device
  *   3. loop:
  *        binary in (WFLV)  → strip header → base64 → `input_audio_buffer.append`
  *        text in (control) → forward + maybe rewrite `session.update` model
@@ -18,11 +18,12 @@
 
 import { WebSocket as NodeWebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
-import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { decodeWflvAudio, isLastChunk, isStreaming } from './frameIo.ts';
 import { log } from './logger.ts';
 import {
   ALLOWED_VOICES,
+  DOWLINK_DEFAULT_SAMPLE_RATE_HZ,
   PROXY_SUBPROTOCOL,
   UPLINK_SAMPLE_RATE_HZ,
   makeError,
@@ -222,15 +223,7 @@ export async function handleConnection(
     return;
   }
 
-  // 4. Tell the firmware we are alive — the device's WS handler expects a
-  //    text frame `{"type":"session.ready",...}` to flip status to
-  //    InternalStatus::kStreaming.
-  sendJson(deviceWs, {
-    type: 'session.ready',
-    protocol: PROXY_SUBPROTOCOL,
-    output_sample_rate_hz: DOWLINK_DEFAULT_SAMPLE_RATE_HZ,
-  });
-
+  // Configuration ACK, rather than socket-open, publishes session.ready.
   log.info('relay session opened', {
     deviceId: device.deviceId,
     userId: device.userId,
@@ -255,48 +248,65 @@ function sendJson(ws: DeviceWs, obj: unknown) {
   ws.send(JSON.stringify(obj));
 }
 
+interface ProviderResponse {
+  generation: number;
+  id?: string;
+  cancelled: boolean;
+  ended: boolean;
+  continued: boolean;
+  calls: Set<string>;
+  textSource?: string;
+}
 interface PendingToolCall {
   name: string;
   args: string;
   call_id: string;
+  response?: ProviderResponse;
+  done: boolean;
+  dispatched: boolean;
+  completed: boolean;
 }
 
-/**
- * Per-connection relay. Holds bookkeeping for tool call stream assembly
- * (StepFun streams function_call_arguments across multiple deltas) and
- * downlink seq numbering.
- */
+/** Manual PTT relay. Socket openness, configuration ACK, response generation,
+ * tool admission, provider completion and physical device playout are distinct. */
 export class RelaySession {
   private readonly audio: FlashAudioDownlink;
-  private readonly responseIds = new Set<string>();
+  private readonly responses = new Map<string, ProviderResponse>();
+  private readonly calls = new Map<string, PendingToolCall>();
   private readonly retiredResponseIds = new Set<string>();
-
-  // Tool call stream assembly
-  private pendingToolCall: PendingToolCall | null = null;
-
-  // Lifecycle signals
-  public upstreamReady: Promise<void>;
-  private upstreamResolve!: () => void;
-  private upstreamReject!: (e: Error) => void;
-
-  // Idle timer (device-side)
-  private deviceLastMsgMs = Date.now();
-  private idleInterval: NodeJS.Timeout;
-  private pingInterval: NodeJS.Timeout;
-  private closed = false;
-  // [session-update-fix] Buffer for text frames (like session.update) that
-  // arrive from the device BEFORE the upstream WS is open. Without this, the
-  // readyState guard in onDeviceFrame silently drops session.update, and
-  // StepFun never learns the audio format / voice / instructions.
-  private pendingTextFrames: Buffer[] = [];
+  private providerResponse?: ProviderResponse;
+  private queuedResponse?: {
+    generation: number;
+    event: Record<string, unknown>;
+  };
+  private configurationAck?: {
+    instructions: string;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+  };
+  private cancelTimer?: NodeJS.Timeout;
+  private readonly initialTimer: NodeJS.Timeout;
+  private configured = false;
+  private initialConfigurationStarted = false;
+  private epochEnabled = false;
+  private sessionConfiguration: Promise<void> = Promise.resolve();
+  private configurationSerial: Promise<void> = Promise.resolve();
   private voiceContext?: VoiceContext;
   private baseInstructions = '';
-  private sessionConfiguration: Promise<void> = Promise.resolve();
   private turnGeneration = 0;
-
-  // [diag] perf timestamp of the last upstream message, to measure onMessage
-  // entry gap (StepFun send interval vs cloud event-loop block).
-  private lastUpstreamPerfMs = 0;
+  private pendingTextFrames: Buffer[] = [];
+  private pendingTextBytes = 0;
+  private uplinkSeq?: number;
+  private uplinkSamples = 0;
+  private readonly pendingCommits: number[] = [];
+  private readonly inputItems = new Map<string, number>();
+  private progressAt = 0;
+  private deviceLastMsgMs = Date.now();
+  private readonly idleInterval: NodeJS.Timeout;
+  private readonly pingInterval: NodeJS.Timeout;
+  private closed = false;
+  public upstreamReady: Promise<void>;
 
   constructor(
     private readonly deviceWs: DeviceWs,
@@ -304,38 +314,36 @@ export class RelaySession {
     private readonly device: DeviceContext,
     private readonly config: RelayConfig
   ) {
-    this.audio = new FlashAudioDownlink(this.deviceWs, reason => {
-      try {
-        sendJson(this.deviceWs, {
-          type: 'error',
-          ...makeError(
-            'tts_failed',
-            `Audio delivery failed: ${reason}`,
-            'playback'
-          ),
-        });
-      } catch {
-        // A broken device socket must still release the paid upstream.
-      } finally {
-        this.shutdown(reason);
-      }
+    this.audio = new FlashAudioDownlink(deviceWs, reason =>
+      this.fail('tts_failed', `播放中断：${reason}`, 'playback')
+    );
+    this.upstreamReady = new Promise<void>((resolve, reject) => {
+      upstream.once('open', () => {
+        this.flushPendingTextFrames();
+        resolve();
+      });
+      upstream.once('unexpected-response', (_req, response) =>
+        reject(
+          new Error(
+            `upstream handshake failed: HTTP ${response.statusCode ?? 0}`
+          )
+        )
+      );
+      upstream.once('error', reject);
     });
-    this.upstreamReady = new Promise<void>((res, rej) => {
-      this.upstreamResolve = res;
-      this.upstreamReject = rej;
-    });
-    this.upstream.once('open', () => {
-      // Flush any text frames that were buffered while upstream was connecting.
-      this.flushPendingTextFrames();
-      this.upstreamResolve();
-    });
-    this.upstream.once('unexpected-response', (_req, res) => {
-      const code = res.statusCode ?? 0;
-      this.upstreamReject(new Error(`upstream handshake failed: HTTP ${code}`));
-    });
-    this.upstream.once('error', err => this.upstreamReject(err));
-
-    this.idleInterval = setInterval(() => this.checkIdle(), 5_000);
+    // Constructor callers may use the session directly in tests/ports.
+    // The connection handler still awaits and reports the same rejection.
+    void this.upstreamReady.catch(() => {});
+    this.initialTimer = setTimeout(
+      () =>
+        this.fail(
+          'upstream_unavailable',
+          'Flash 配置未确认，请重新连接',
+          'configuration'
+        ),
+      30000
+    );
+    this.idleInterval = setInterval(() => this.checkIdle(), 1000);
     this.pingInterval = setInterval(() => this.heartbeat(), PING_INTERVAL_MS);
   }
 
@@ -345,8 +353,18 @@ export class RelaySession {
     this.turnGeneration++;
     clearInterval(this.idleInterval);
     clearInterval(this.pingInterval);
+    clearTimeout(this.initialTimer);
+    clearTimeout(this.cancelTimer);
+    const ack = this.configurationAck;
+    this.configurationAck = undefined;
+    if (ack) {
+      clearTimeout(ack.timer);
+      ack.reject(new Error('relay closed'));
+    }
     this.audio.close();
     this.pendingTextFrames = [];
+    this.pendingTextBytes = 0;
+    this.queuedResponse = undefined;
     log.info('relay session closed', {
       deviceId: this.device.deviceId,
       reason,
@@ -355,45 +373,104 @@ export class RelaySession {
     try {
       this.upstream.close();
     } catch {
-      /* drop */
+      /* already closed */
     }
     try {
       this.deviceWs.close();
     } catch {
-      /* drop */
+      /* already closed */
+    }
+  }
+
+  private fail(
+    code: RelayErrorPayload['error_code'],
+    message: string,
+    stage: string
+  ) {
+    if (this.closed) return;
+    try {
+      sendJson(this.deviceWs, {
+        type: 'error',
+        ...makeError(code, message, stage),
+        error: { code, message },
+        turn_id: this.turnGeneration,
+      });
+    } catch {
+      /* releasing upstream does not depend on error delivery */
+    } finally {
+      this.shutdown(`${stage}:${code}`);
+    }
+  }
+
+  private sendUpstream(event: unknown): boolean {
+    if (this.closed) return false;
+    const text = JSON.stringify(event);
+    if (
+      this.upstream.readyState !== NodeWebSocket.OPEN ||
+      Buffer.byteLength(text) + (this.upstream.bufferedAmount ?? 0) > 256 * 1024
+    ) {
+      this.fail(
+        'upstream_unavailable',
+        '语音链路拥堵，结果可能尚未确认，请检查原记录',
+        'uplink'
+      );
+      return false;
+    }
+    try {
+      this.upstream.send(text);
+      return true;
+    } catch {
+      this.fail(
+        'upstream_unavailable',
+        '语音链路中断，请检查本轮结果',
+        'uplink'
+      );
+      return false;
+    }
+  }
+
+  private sendDevice(event: Record<string, unknown>) {
+    if (this.closed) return;
+    const text = JSON.stringify(event);
+    if (
+      Buffer.byteLength(text) + (this.deviceWs.bufferedAmount ?? 0) >
+      256 * 1024
+    ) {
+      this.fail('tts_failed', '设备接收拥堵，请检查本轮结果', 'downlink');
+      return;
+    }
+    try {
+      this.deviceWs.send(text);
+    } catch {
+      this.shutdown('device-send-failed');
     }
   }
 
   private checkIdle() {
-    const silentFor = Date.now() - this.deviceLastMsgMs;
-    if (silentFor > DEVICE_IDLE_TIMEOUT_MS) {
-      log.warn('device idle timeout, closing', {
-        deviceId: this.device.deviceId,
-      });
+    if (Date.now() - this.deviceLastMsgMs > DEVICE_IDLE_TIMEOUT_MS)
       this.shutdown('device-idle');
-    }
+    if (
+      (this.providerResponse || this.queuedResponse) &&
+      this.progressAt &&
+      Date.now() - this.progressAt > 45000
+    )
+      this.fail(
+        'upstream_unavailable',
+        '本轮结果暂无法确认，请先检查原记录',
+        'response-timeout'
+      );
   }
 
   private heartbeat() {
-    if (this.upstream.readyState === NodeWebSocket.OPEN) {
-      try {
-        this.upstream.ping();
-      } catch {
-        /* drop */
-      }
-    }
-    if (this.deviceWs.readyState === 1 /* OPEN */) {
-      try {
-        this.deviceWs.ping();
-      } catch {
-        /* drop */
-      }
+    for (const socket of [this.upstream, this.deviceWs]) {
+      if (socket.readyState === 1)
+        try {
+          socket.ping();
+        } catch {
+          /* close handler owns cleanup */
+        }
     }
   }
-
-  // -----------------------------------------------------------------
-  // Device → Proxy → Upstream
-  // -----------------------------------------------------------------
 
   public markDeviceActive() {
     this.deviceLastMsgMs = Date.now();
@@ -401,150 +478,111 @@ export class RelaySession {
 
   public onDeviceFrame(buf: Buffer, isBinary: boolean) {
     if (this.closed) return;
-    this.deviceLastMsgMs = Date.now();
-
-    // [crash-fix + session-update-fix] Guard against sending to upstream
-    // while it's still CONNECTING. Binary frames (audio) are dropped - they
-    // can't be usefully buffered. But TEXT frames (like session.update) are
-    // buffered and flushed when upstream opens, so StepFun receives the
-    // session configuration it needs to accept audio.
+    this.markDeviceActive();
+    if (buf.length > 64 * 1024)
+      return this.fail('protocol_mismatch', '语音帧过大', 'uplink');
     if (this.upstream.readyState !== NodeWebSocket.OPEN) {
-      if (!isBinary) {
-        log.debug('buffering text frame: upstream not open', {
-          readyState: this.upstream.readyState,
-        });
-        this.pendingTextFrames.push(buf);
-      } else {
-        log.debug('dropped binary frame: upstream not open', {
-          readyState: this.upstream.readyState,
-        });
-      }
+      if (
+        isBinary ||
+        this.pendingTextFrames.length >= 4 ||
+        this.pendingTextBytes + buf.length > 64 * 1024
+      )
+        return this.fail('upstream_unavailable', '语音连接尚未就绪', 'uplink');
+      this.pendingTextFrames.push(Buffer.from(buf));
+      this.pendingTextBytes += buf.length;
       return;
     }
-
-    if (isBinary) {
-      this.forwardUplinkAudio(buf);
-      return;
-    }
-    // Text frames from the device are control events. We forward after
-    // rewriting `session.update` so ESP32 can keep sending its model id
-    // verbatim (it's currently the literal "wqn-flash-v2", which StepFun
-    // would reject as an unknown model).
-    const text = buf.toString('utf8');
-    let deviceEventType = 'unknown';
+    if (isBinary) return this.forwardUplinkAudio(buf);
+    let event: any;
     try {
-      const evt = JSON.parse(text);
-      if (evt && typeof evt.type === 'string') deviceEventType = evt.type;
-      if (evt && evt.type === 'session.update') {
-        this.audio.negotiateEpoch(evt.wqn?.playback_epoch === 1);
-        this.baseInstructions =
-          typeof evt.session?.instructions === 'string'
-            ? evt.session.instructions
-            : '';
-        this.sessionConfiguration = this.configureSession(evt);
-        return;
-      } else if (evt && evt.type === 'response.create') {
-        void this.beginTurn(evt);
-        return;
-      } else if (evt && evt.type === 'response.cancel') {
-        this.turnGeneration++;
-        this.retireResponses();
-      }
+      event = JSON.parse(buf.toString('utf8'));
     } catch {
-      /* not JSON, passthrough */
+      return this.fail('protocol_mismatch', '无效语音控制帧', 'control');
     }
-    log.info('device -> upstream', { type: deviceEventType, len: text.length });
-    this.upstream.send(text);
+    switch (event?.type) {
+      case 'session.update':
+        if (this.initialConfigurationStarted)
+          return this.fail(
+            'protocol_mismatch',
+            '重复的初始配置',
+            'configuration'
+          );
+        this.initialConfigurationStarted = true;
+        this.epochEnabled = event.wqn?.playback_epoch === 1;
+        this.audio.negotiateEpoch(this.epochEnabled);
+        this.baseInstructions =
+          typeof event.session?.instructions === 'string'
+            ? event.session.instructions
+            : '';
+        this.sessionConfiguration = this.configureSession(event);
+        return;
+      case 'response.cancel':
+        this.turnGeneration++;
+        this.queuedResponse = undefined;
+        this.retireResponses();
+        this.cancelProviderResponse();
+        return;
+      case 'response.create':
+        void this.beginTurn();
+        return;
+      default:
+        return this.fail(
+          'protocol_mismatch',
+          '不支持的语音控制命令',
+          'control'
+        );
+    }
   }
 
   private forwardUplinkAudio(buf: Buffer) {
     const decoded = decodeWflvAudio(buf);
-    if (!decoded) {
-      log.debug('dropped malformed uplink frame', { len: buf.length });
-      return;
-    }
-    // [empty-pcm-fix] The device sends a final frame with pcm_size=0 to
-    // signal end-of-turn. Forwarding an empty append to StepFun triggers
-    // "audio is required" error. Skip the append for empty PCM, but still
-    // send commit if this is the last chunk.
-    if (decoded.pcm.length === 0) {
-      log.debug('uplink frame has empty PCM, skipping append', {
-        flags: decoded.flags,
-        isLast: isLastChunk(decoded.flags),
-      });
-      if (isLastChunk(decoded.flags)) {
-        // [manual-mode] PTT manual mode (turn_detection=null): the device's
-        // final empty frame signals end-of-turn. Mirror openai-realtime-api-beta
-        // createResponse(): commit the audio buffer, then create the response.
-        log.info('user finished speaking, committing + creating response');
-        try {
-          if (this.upstream.readyState === NodeWebSocket.OPEN) {
-            this.upstream.send(
-              JSON.stringify({ type: 'input_audio_buffer.commit' })
-            );
-            void this.beginTurn({ type: 'response.create' });
-          }
-        } catch (err) {
-          log.warn('upstream commit/response send failed', {
-            err: String(err),
-          });
-          this.shutdown('upstream-send-failed');
-        }
-      }
-      return;
-    }
     if (
+      !this.configured ||
+      !decoded ||
       decoded.sampleRate !== UPLINK_SAMPLE_RATE_HZ ||
-      decoded.channels !== 1
+      decoded.channels !== 1 ||
+      !isStreaming(decoded.flags) ||
+      (decoded.flags & ~3) !== 0 ||
+      buf.readUInt32LE(20) !== 0 ||
+      decoded.pcm.length % 2 !== 0 ||
+      (decoded.pcm.length === 0 && !isLastChunk(decoded.flags)) ||
+      (this.uplinkSeq !== undefined &&
+        decoded.seq !== (this.uplinkSeq + 1) >>> 0)
     ) {
-      log.warn('uplink sample-rate/channels mismatch', {
-        sampleRate: decoded.sampleRate,
-        channels: decoded.channels,
-      });
+      this.fail(
+        'protocol_mismatch',
+        '录音帧格式或顺序错误，本轮未提交',
+        'uplink'
+      );
+      return;
     }
-    if (!isStreaming(decoded.flags)) {
-      log.debug('uplink non-streaming chunk', { flags: decoded.flags });
+    this.uplinkSeq = decoded.seq;
+    if (decoded.pcm.length) {
+      if (
+        !this.sendUpstream({
+          type: 'input_audio_buffer.append',
+          audio: decoded.pcm.toString('base64'),
+        })
+      )
+        return;
+      this.uplinkSamples += decoded.pcm.length / 2;
     }
-
-    // StepFun accepts JSON `input_audio_buffer.append` with base64 payload.
-    // Frame size is fixed at CHUNK_BYTES; we forward whatever the device
-    // sent and let the upstream chunk-size policy deal with it.
-    // [24k-native] Device captures at 24kHz; StepFun expects 24kHz pcm16. No resample.
-    const base64 = decoded.pcm.toString('base64');
-    const evt = {
-      type: 'input_audio_buffer.append',
-      audio: base64,
-    };
-    // [commit-fix] Only send commit when the user has finished speaking
-    // (isLastChunk = true, i.e. the device sent a final frame with
-    // kFlagFinal). Sending commit on every 15ms audio chunk is a protocol
-    // violation that causes StepFun to reject the session and disconnect.
-    try {
-      if (this.upstream.readyState !== NodeWebSocket.OPEN) return;
-      this.upstream.send(JSON.stringify(evt));
-
-      if (isLastChunk(decoded.flags)) {
-        log.info('user finished speaking, committing audio buffer');
-        const evt2 = { type: 'input_audio_buffer.commit' };
-        if (this.upstream.readyState === NodeWebSocket.OPEN) {
-          this.upstream.send(JSON.stringify(evt2));
-        }
-      }
-    } catch (err) {
-      log.warn('upstream send failed, shutting down relay', {
-        err: String(err),
-      });
-      this.shutdown('upstream-send-failed');
+    if (isLastChunk(decoded.flags)) {
+      if (this.uplinkSamples === 0)
+        return this.fail('protocol_mismatch', '空录音未提交', 'uplink');
+      this.uplinkSamples = 0;
+      void this.beginTurn(true);
     }
   }
 
   private flushPendingTextFrames() {
     const frames = this.pendingTextFrames;
     this.pendingTextFrames = [];
+    this.pendingTextBytes = 0;
     for (const frame of frames) this.onDeviceFrame(frame, false);
   }
 
-  private async configureSession(evt: any) {
+  private async configureSession(event: any) {
     try {
       if (this.config.executeToolUrl && this.config.proxySecret)
         this.voiceContext = await fetchVoiceContext(
@@ -554,32 +592,76 @@ export class RelaySession {
           this.device.deviceId
         );
       if (this.closed) return;
-      this.upstream.send(this.rewriteSessionUpdate(evt));
-      sendJson(this.deviceWs, { type: 'state', stage: 'session.negotiated' });
+      await this.updateConfiguration(event);
+      if (this.closed) return;
+      this.configured = true;
+      clearTimeout(this.initialTimer);
+      this.sendDevice({ type: 'state', stage: 'session.negotiated' });
+      this.sendDevice({
+        type: 'session.ready',
+        protocol: PROXY_SUBPROTOCOL,
+        output_sample_rate_hz: DOWLINK_DEFAULT_SAMPLE_RATE_HZ,
+        wqn: {
+          playback_epoch: this.epochEnabled ? 1 : 0,
+          turn_detection: 'manual',
+        },
+      });
     } catch (error) {
+      log.warn('voice configuration failed', { err: String(error) });
       this.closeForContextFailure();
-      log.warn('voice context load failed', { err: String(error) });
     }
+  }
+
+  private updateConfiguration(event: any, generation?: number): Promise<void> {
+    const next = this.configurationSerial.then(() => {
+      if (generation !== undefined && generation !== this.turnGeneration)
+        return;
+      return this.sendConfigurationAndWait(event);
+    });
+    this.configurationSerial = next.catch(() => {});
+    return next;
+  }
+
+  private sendConfigurationAndWait(event: any): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.configurationAck)
+      return Promise.reject(new Error('overlapping session update'));
+    const rewritten = this.rewriteSessionUpdate(event);
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.configurationAck = undefined;
+        reject(new Error('session.updated timeout'));
+      }, 10000);
+      this.configurationAck = {
+        instructions: rewritten.session.instructions ?? '',
+        resolve,
+        reject,
+        timer,
+      };
+      this.sendUpstream(rewritten);
+    });
   }
 
   private closeForContextFailure() {
-    if (this.closed) return;
-    try {
-      sendJson(this.deviceWs, {
-        type: 'error',
-        ...makeError('internal', 'Voice context unavailable', 'context'),
-      });
-    } catch {
-      // A broken device socket must not leave the paid upstream alive.
-    } finally {
-      this.shutdown('voice-context-unavailable');
-    }
+    this.fail(
+      'internal',
+      'Voice context or configuration unavailable',
+      'context'
+    );
   }
 
-  private async beginTurn(evt: Record<string, unknown>) {
-    const generation = ++this.turnGeneration,
-      anchorAt = new Date().toISOString();
+  private async beginTurn(commit = false) {
+    const generation = ++this.turnGeneration;
+    const anchorAt = new Date().toISOString();
+    this.progressAt = Date.now();
     this.retireResponses();
+    this.cancelProviderResponse();
+    if (commit) {
+      if (this.pendingCommits.length >= 16)
+        return this.fail('protocol_mismatch', '录音提交未确认', 'commit');
+      this.pendingCommits.push(generation);
+      if (!this.sendUpstream({ type: 'input_audio_buffer.commit' })) return;
+    }
     try {
       await this.sessionConfiguration;
       if (this.config.executeToolUrl && this.config.proxySecret) {
@@ -592,210 +674,424 @@ export class RelaySession {
         );
         if (this.closed || generation !== this.turnGeneration) return;
         this.voiceContext = context;
-        this.upstream.send(
-          this.rewriteSessionUpdate({
+        await this.updateConfiguration(
+          {
             type: 'session.update',
             session: { instructions: this.baseInstructions },
-          })
+          },
+          generation
         );
       }
-      if (!this.closed && generation === this.turnGeneration)
-        this.upstream.send(JSON.stringify(evt));
+      if (!this.closed && this.configured && generation === this.turnGeneration)
+        this.requestResponse({ type: 'response.create' }, generation);
     } catch (error) {
-      // Cancellation suppresses a stale response, not a connection-level
-      // authorization failure: a denied lookup must still close the relay.
+      // Context denial is a connection-level auth failure even after cancellation.
+      log.warn('voice turn configuration failed', { err: String(error) });
       this.closeForContextFailure();
-      log.warn('voice turn context load failed', { err: String(error) });
     }
   }
 
-  private rewriteSessionUpdate(evt: any): string {
-    // [api-fix] StepFun's session.update does NOT accept a "model" field -
-    // model is a URL query param (?model=...), already appended in
-    // handleConnection. Previous code injected session.model which is not
-    // in the official spec and may cause StepFun to reject the update.
-    // We also replace the device's empty/untrusted tool list with the
-    // server-owned definitions when the internal executor is configured.
+  private rewriteSessionUpdate(event: any): {
+    type: string;
+    session: Record<string, any>;
+  } {
     const session = applyAiToolSessionConfig(
-      { ...(evt.session ?? {}) },
+      {
+        ...(event.session ?? {}),
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        turn_detection: null,
+      },
       Boolean(this.config.executeToolUrl && this.config.proxySecret),
       this.voiceContext
     );
-    if (
-      typeof session.voice === 'string' &&
-      !ALLOWED_VOICES.has(session.voice)
-    ) {
+    delete session.model;
+    if (typeof session.voice === 'string' && !ALLOWED_VOICES.has(session.voice))
       session.voice = 'qingchunshaonv';
-    }
-    const providerEvent = { ...evt, session };
-    delete providerEvent.wqn;
-    return JSON.stringify(providerEvent);
+    // Transport capabilities stay at WQN; the provider sees its own contract.
+    return { type: 'session.update', session };
   }
 
-  // -----------------------------------------------------------------
-  // Upstream → Proxy → Device
-  // -----------------------------------------------------------------
-
-  public onUpstreamFrame(buf: Buffer, isBinary: boolean) {
-    if (this.closed) return;
-    // [diag] Measure onMessage entry gap with perf.now() (monotonic, sub-ms).
-    // This is BEFORE JSON.parse / log / drain. If this gap is large while
-    // event loop lag is low, StepFun is sending slowly. If both are large,
-    // the cloud event loop is blocked.
-    const nowPerf = performance.now();
-    const upstreamGapMs =
-      this.lastUpstreamPerfMs > 0 ? nowPerf - this.lastUpstreamPerfMs : 0;
-    this.lastUpstreamPerfMs = nowPerf;
-    // OpenAI/StepFun Realtime only uses text frames; if we see binary
-    // upstream, the upstream has changed — log and ignore.
-    if (isBinary) {
-      log.warn('unexpected binary frame from upstream');
+  private requestResponse(event: Record<string, unknown>, generation: number) {
+    if (this.closed || generation !== this.turnGeneration) return;
+    if (this.providerResponse) {
+      this.queuedResponse = { event, generation };
       return;
     }
-    let evt: any;
-    try {
-      evt = JSON.parse(buf.toString('utf8'));
-    } catch {
-      return;
-    }
-    if (!evt || typeof evt.type !== 'string') return;
-    const responseId = evt.response_id ?? evt.response?.id;
-    if (
-      typeof responseId === 'string' &&
-      this.retiredResponseIds.has(responseId)
-    )
-      return;
+    this.providerResponse = {
+      generation,
+      cancelled: false,
+      ended: false,
+      continued: false,
+      calls: new Set(),
+    };
+    this.progressAt = Date.now();
+    this.sendUpstream(event);
+  }
 
-    // [diag] Log every event from StepFun so we can see exactly what
-    // StepFun sends back (session.updated, error, response.audio.delta, etc.)
-    log.info('upstream -> device', {
-      type: evt.type,
-      gapMs: Math.round(upstreamGapMs),
-      hasDelta: typeof evt.delta === 'string',
-      hasError: typeof evt.error === 'object',
-      itemId: evt.item_id ?? evt.response_id ?? '',
-    });
+  private cancelProviderResponse() {
+    const response = this.providerResponse;
+    if (!response || response.cancelled) return;
+    response.cancelled = true;
+    this.sendUpstream({ type: 'response.cancel' });
+    clearTimeout(this.cancelTimer);
+    this.cancelTimer = setTimeout(
+      () =>
+        this.fail(
+          'upstream_unavailable',
+          '上一轮取消未确认，请重新连接并检查原记录',
+          'cancel'
+        ),
+      10000
+    );
+  }
 
-    switch (evt.type) {
-      case 'response.audio.delta': {
-        this.forwardDownlinkAudio(evt);
-        return;
-      }
-      case 'response.created': {
-        const id = evt.response?.id;
-        if (typeof id !== 'string' || this.retiredResponseIds.has(id)) return;
-        this.responseIds.add(id);
-        this.audio.begin(id);
-        sendJson(this.deviceWs, evt);
-        return;
-      }
-      case 'response.audio.done': {
-        this.audio.finish(evt.response_id);
-        return;
-      }
-      case 'response.done': {
-        this.audio.finish(evt.response?.id);
-        sendJson(this.deviceWs, evt);
-        return;
-      }
-      case 'response.function_call_arguments.delta': {
-        // Streamed args, accumulate for the call.
-        if (!this.pendingToolCall) {
-          this.pendingToolCall = {
-            name: '',
-            args: '',
-            call_id: evt.call_id ?? '',
-          };
-        }
-        if (typeof evt.call_id === 'string')
-          this.pendingToolCall.call_id = evt.call_id;
-        if (typeof evt.delta === 'string')
-          this.pendingToolCall.args += evt.delta;
-        return;
-      }
-      case 'response.function_call_arguments.done': {
-        // Tool call ready to execute.
-        const call_id = evt.call_id ?? this.pendingToolCall?.call_id ?? '';
-        const name = evt.name ?? this.pendingToolCall?.name ?? '';
-        const raw_args = evt.arguments ?? this.pendingToolCall?.args ?? '';
-        this.pendingToolCall = null;
-        void this.handleToolCall({ call_id, name, raw_args });
-        return;
-      }
-      case 'response.audio_transcript.delta':
-      case 'response.text.delta': {
-        sendJson(this.deviceWs, evt);
-        return;
-      }
-      default: {
-        // `session.created`, `conversation.item.*`, errors, etc — pass through
-        sendJson(this.deviceWs, evt);
-        return;
-      }
-    }
+  private releaseProvider(response: ProviderResponse) {
+    response.ended = true;
+    if (this.providerResponse !== response) return;
+    this.providerResponse = undefined;
+    clearTimeout(this.cancelTimer);
+    this.cancelTimer = undefined;
+    const queued = this.queuedResponse;
+    this.queuedResponse = undefined;
+    if (queued) this.requestResponse(queued.event, queued.generation);
   }
 
   private retireResponses() {
-    for (const id of this.responseIds) this.retiredResponseIds.add(id);
-    this.responseIds.clear();
-    // Bound diagnostics/retirement state. Unknown audio IDs are also rejected.
+    for (const [id, response] of this.responses) {
+      if (response.generation !== this.turnGeneration)
+        this.retiredResponseIds.add(id);
+    }
+    for (const [id, call] of this.calls)
+      if (!call.dispatched) this.calls.delete(id);
     while (this.retiredResponseIds.size > 256) {
-      const oldest = this.retiredResponseIds.values().next().value;
-      if (oldest === undefined) break;
-      this.retiredResponseIds.delete(oldest);
+      const id = this.retiredResponseIds.values().next().value;
+      if (id === undefined) break;
+      this.retiredResponseIds.delete(id);
+      this.responses.delete(id);
     }
     this.audio.cancel();
   }
 
-  private forwardDownlinkAudio(evt: any) {
-    this.audio.append(evt.response_id, evt.delta);
-  }
-
-  private async handleToolCall(call: ToolCallArgs) {
-    if (!call.call_id || !call.name) {
-      log.warn('dropped malformed tool call', {
-        hasCallId: Boolean(call.call_id),
-        hasName: Boolean(call.name),
-      });
+  public onUpstreamFrame(buf: Buffer, isBinary: boolean) {
+    if (this.closed) return;
+    if (isBinary || buf.length > 512 * 1024)
+      return this.fail('protocol_mismatch', '无效的模型响应帧', 'provider');
+    let event: any;
+    try {
+      event = JSON.parse(buf.toString('utf8'));
+    } catch {
+      return this.fail('protocol_mismatch', '模型响应无法解析', 'provider');
+    }
+    if (!event || typeof event.type !== 'string') return;
+    if (event.type === 'session.created') return;
+    if (event.type === 'session.updated') {
+      const ack = this.configurationAck,
+        session = event.session;
+      if (!ack) return;
+      // An idle hello/default VAD profile cannot acknowledge our manual profile.
+      if (
+        !session ||
+        session.input_audio_format !== 'pcm16' ||
+        session.output_audio_format !== 'pcm16' ||
+        session.turn_detection !== null ||
+        (typeof session.instructions === 'string' &&
+          session.instructions !== ack.instructions)
+      )
+        return;
+      this.configurationAck = undefined;
+      clearTimeout(ack.timer);
+      ack.resolve();
       return;
     }
-    const generation = this.turnGeneration;
-    // Notify device UI that a tool is in flight.
-    sendJson(this.deviceWs, {
+    if (event.type === 'error') {
+      const message = String(
+        event.error?.message ?? event.message ?? '模型服务错误'
+      );
+      // A no-response cancel error does not prove a pending response.create
+      // has ended. Preserve its fence and let the bounded timer resolve it.
+      if (
+        this.providerResponse?.cancelled &&
+        /no ongoing response to cancel/i.test(message)
+      )
+        return;
+      return this.fail('upstream_unavailable', message, 'provider');
+    }
+    if (event.type === 'input_audio_buffer.committed') {
+      const generation = this.pendingCommits.shift();
+      if (typeof event.item_id === 'string' && generation !== undefined) {
+        if (this.inputItems.size >= 256)
+          this.inputItems.delete(this.inputItems.keys().next().value!);
+        this.inputItems.set(event.item_id, generation);
+      }
+      return;
+    }
+    if (event.type.startsWith('conversation.item.input_audio_transcription.')) {
+      if (
+        typeof event.item_id === 'string' &&
+        this.inputItems.get(event.item_id) !== this.turnGeneration
+      )
+        return;
+      this.progressAt = Date.now();
+      this.sendDevice({ ...event, turn_id: this.turnGeneration });
+      return;
+    }
+    const id = event.response_id ?? event.response?.id;
+    let response = typeof id === 'string' ? this.responses.get(id) : undefined;
+    if (event.type === 'response.created') {
+      if (typeof id !== 'string' || id.length === 0 || id.length > 256)
+        return this.fail('protocol_mismatch', '模型缺少响应标识', 'provider');
+      if (this.responses.has(id)) return;
+      response = this.providerResponse;
+      if (!response || response.id)
+        return this.fail(
+          'protocol_mismatch',
+          '收到未请求的模型响应',
+          'provider'
+        );
+      response.id = id;
+      this.responses.set(id, response);
+      if (response.cancelled || response.generation !== this.turnGeneration) {
+        this.retiredResponseIds.add(id);
+        this.sendUpstream({ type: 'response.cancel' });
+        return;
+      }
+      this.progressAt = Date.now();
+      this.audio.begin(id);
+      this.sendDevice({ ...event, turn_id: response.generation });
+      return;
+    }
+    if (
+      event.type === 'response.cancelled' &&
+      !response &&
+      this.providerResponse?.cancelled &&
+      this.providerResponse.id
+    )
+      response = this.providerResponse;
+    if (event.type === 'response.done' || event.type === 'response.cancelled') {
+      if (!response || response.ended) return;
+      const status =
+        event.type === 'response.cancelled'
+          ? 'cancelled'
+          : event.response?.status;
+      const current =
+        !response.cancelled && response.generation === this.turnGeneration;
+      // The terminal response's output is authoritative association for StepFun
+      // args.done variants that omit response_id. Buffering alone never writes.
+      if (
+        current &&
+        status === 'completed' &&
+        Array.isArray(event.response?.output)
+      ) {
+        for (const item of event.response.output)
+          if (item?.type === 'function_call')
+            this.collectTool(
+              {
+                ...item,
+                type: 'response.function_call_arguments.done',
+                response_id: response.id,
+              },
+              response
+            );
+      }
+      this.audio.finish(response.id);
+      this.releaseProvider(response);
+      if (!current) return;
+      this.progressAt = Date.now();
+      if (status !== 'completed') {
+        response.cancelled = true;
+        this.audio.cancel();
+        this.sendDevice({
+          type: 'turn.done',
+          status: ['failed', 'incomplete', 'cancelled'].includes(status)
+            ? status
+            : 'incomplete',
+          response_id: response.id,
+          turn_id: response.generation,
+          status_details: event.response?.status_details ?? null,
+        });
+      } else if (response.calls.size === 0) {
+        this.sendDevice({ ...event, turn_id: response.generation });
+      } else {
+        this.sendDevice({
+          type: 'state',
+          stage: 'tool.waiting',
+          turn_id: response.generation,
+        });
+        this.maybeContinue(response);
+      }
+      return;
+    }
+    if (!response && typeof event.call_id === 'string')
+      response = this.calls.get(event.call_id)?.response;
+    if (
+      !response ||
+      response.cancelled ||
+      response.generation !== this.turnGeneration ||
+      response.ended
+    )
+      return;
+    this.progressAt = Date.now();
+    switch (event.type) {
+      case 'response.output_item.added':
+      case 'response.output_item.done':
+        if (event.item?.type === 'function_call')
+          this.collectTool(
+            {
+              ...event.item,
+              type:
+                event.type === 'response.output_item.done'
+                  ? 'response.function_call_arguments.done'
+                  : event.type,
+            },
+            response
+          );
+        return;
+      case 'response.function_call_arguments.delta':
+      case 'response.function_call_arguments.done':
+        this.collectTool(event, response);
+        return;
+      case 'response.audio.delta':
+        this.audio.append(response.id, event.delta);
+        return;
+      case 'response.audio.done':
+        this.audio.finish(response.id);
+        return;
+      case 'response.audio_transcript.delta':
+      case 'response.text.delta': {
+        response.textSource ??= event.type;
+        if (response.textSource === event.type)
+          this.sendDevice({
+            type: 'text.delta',
+            delta: event.delta,
+            response_id: response.id,
+            turn_id: response.generation,
+          });
+        return;
+      }
+      default:
+        this.sendDevice({ ...event, turn_id: response.generation });
+        return;
+    }
+  }
+
+  private collectTool(event: any, response: ProviderResponse) {
+    const id = event.call_id;
+    if (typeof id !== 'string' || !id || id.length > 256)
+      return this.fail('protocol_mismatch', '工具调用缺少标识', 'tool');
+    let call = this.calls.get(id);
+    if (call && call.response !== response) return; // no cross-response call ID reuse
+    if (!call) {
+      if (this.calls.size >= 128 || response.calls.size >= 16)
+        return this.fail('protocol_mismatch', '工具调用数量超限', 'tool');
+      call = {
+        call_id: id,
+        name: '',
+        args: '',
+        done: false,
+        dispatched: false,
+        completed: false,
+        response,
+      };
+      this.calls.set(id, call);
+      response.calls.add(id);
+    }
+    if (call.dispatched) return;
+    if (typeof event.name === 'string') call.name = event.name;
+    if (event.type === 'response.function_call_arguments.done') {
+      if (typeof event.arguments === 'string') call.args = event.arguments;
+      call.done = true;
+    } else if (typeof event.delta === 'string') call.args += event.delta;
+    if (Buffer.byteLength(call.args) > 64 * 1024 || call.name.length > 128)
+      return this.fail('protocol_mismatch', '工具参数超限', 'tool');
+    if (
+      call.done &&
+      call.name &&
+      !response.cancelled &&
+      response.generation === this.turnGeneration
+    )
+      void this.handleToolCall(call, response);
+  }
+
+  private async handleToolCall(
+    call: PendingToolCall,
+    response: ProviderResponse
+  ) {
+    if (
+      this.closed ||
+      response.cancelled ||
+      response.generation !== this.turnGeneration ||
+      call.dispatched
+    )
+      return;
+    call.dispatched = true; // admission is synchronous, before HTTP starts
+    const args: ToolCallArgs = {
+      call_id: call.call_id,
+      name: call.name,
+      raw_args: call.args,
+    };
+    const anchor = this.voiceContext?.now;
+    this.sendDevice({
       type: 'tool.start',
       call_id: call.call_id,
       name: call.name,
+      args: call.args,
+      response_id: response.id,
+      turn_id: response.generation,
     });
-
     const result = await executeToolOverHttp(
       this.config.executeToolUrl,
       this.config.proxySecret,
       this.device.userId,
       this.device.deviceId,
-      call,
-      this.voiceContext?.now
+      args,
+      anchor
     );
-    if (this.closed) return;
-
-    // Forward result back upstream.
+    call.completed = true;
+    if (this.closed) return; // executor/idempotency receipt survives connection close
     injectToolResult(
-      { sendText: msg => this.upstream.send(msg) },
-      call,
+      {
+        sendText: text => {
+          this.sendUpstream(JSON.parse(text));
+        },
+      },
+      args,
       result,
-      generation === this.turnGeneration
+      false
     );
-    // Keep the durable result in provider history, but do not restart a
-    // cancelled response or overwrite a newer turn's device tool status.
-    if (generation !== this.turnGeneration) return;
-
-    sendJson(this.deviceWs, {
-      type: result.ok ? 'tool.result' : 'tool.error',
+    const retired =
+      response.cancelled || response.generation !== this.turnGeneration;
+    this.sendDevice({
+      type: retired ? 'tool.receipt' : result.ok ? 'tool.result' : 'tool.error',
       call_id: call.call_id,
       tool_call_id: call.call_id,
       name: call.name,
       ok: result.ok,
       display: result.display,
       error: result.error ?? null,
+      response_id: response.id,
+      turn_id: response.generation,
+      retired,
     });
+    this.progressAt = Date.now();
+    this.maybeContinue(response);
+  }
+
+  private maybeContinue(response: ProviderResponse) {
+    if (
+      this.closed ||
+      !response.ended ||
+      response.cancelled ||
+      response.continued ||
+      response.generation !== this.turnGeneration ||
+      response.calls.size === 0
+    )
+      return;
+    for (const id of response.calls) if (!this.calls.get(id)?.completed) return;
+    response.continued = true;
+    this.requestResponse(
+      { type: 'response.create', response: { modalities: ['text', 'audio'] } },
+      response.generation
+    );
   }
 }
