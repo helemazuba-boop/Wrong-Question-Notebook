@@ -541,6 +541,11 @@ export class RelaySession {
         this.queuedResponse = undefined;
         this.retireResponses();
         this.cancelProviderResponse();
+        // Cancelling generation does not discard uncommitted captured PCM at
+        // the provider. Keep connection sequence continuity, but retire the
+        // recording and clear it before any next-turn append on this socket.
+        this.uplinkSamples = 0;
+        this.sendUpstream({ type: 'input_audio_buffer.clear' });
         return;
       case 'response.create':
         void this.beginTurn();
