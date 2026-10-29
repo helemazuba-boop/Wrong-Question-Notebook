@@ -86,3 +86,17 @@ pins a byte-identical copy and schema hash. Text tie-breakers use UTF-8 byte
 order (`TextEncoder` on the cloud and `std::string`/`strcmp` semantics on the
 firmware), not JavaScript UTF-16 code-unit order; the supplementary-plane edge
 case is covered by both ordering tests.
+
+The root Schema catalogs endpoint wire bodies. Some request bodies overlap:
+candidate-page and manifest requests have the same shape, and the compatibility
+skip request can also carry a full observation. Their five request alternatives
+are grouped with `anyOf` inside the root `oneOf`; response alternatives remain
+exclusive. Select the endpoint definition for route-specific validation.
+
+Manifest golden fixtures use `compression: zlib` for download transport. Stored
+plain pack metadata remains `none`. The firmware schema-validation gate checks
+all 13 valid Word wire fixtures and the invalid unsafe-sequence fixture against
+both selected definitions and the root; its optional mirror check compares all
+17 Word JSON artifacts. `candidate-order.json` is a separate ordering algorithm
+input. Cloud JSON Schema tests cover overlapping requests and reject unsupported
+manifest transport codings without changing runtime endpoint validation.

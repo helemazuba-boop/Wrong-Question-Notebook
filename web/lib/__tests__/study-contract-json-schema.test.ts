@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
+import { wordManifestSuccessSchema } from '@/lib/word-study-v1';
 
 type JsonSchema = {
   $id: string;
@@ -38,6 +39,45 @@ function contractValidator(
 }
 
 describe('study JSON Schema contracts', () => {
+  it.each([
+    'candidate-page-request.json',
+    'manifest-request.json',
+    'observation-request.json',
+    'skip-request.json',
+  ])('accepts the Word wire-union request shape: %s', name => {
+    const contract = contractValidator('word-study-v1');
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    addFormats(ajv);
+    const validateRoot = ajv.compile(contract.schema);
+    const payload = loadJson(resolve(contract.root, 'fixtures/valid', name));
+    expect(validateRoot(payload), JSON.stringify(validateRoot.errors)).toBe(
+      true
+    );
+  });
+
+  it('accepts the current Word manifest fixture with zlib transport coding', () => {
+    contractValidator('word-study-v1').validate(
+      'manifestResponse',
+      'manifest-response.json'
+    );
+  });
+
+  it.each(['none', 'gzip', 'deflate', null])(
+    'rejects an unsupported Word manifest transport coding: %s',
+    compression => {
+      const contract = contractValidator('word-study-v1');
+      const payload = loadJson(
+        resolve(contract.root, 'fixtures/valid/manifest-response.json')
+      ) as { data: { decks: Array<{ pack: { compression: unknown } }> } };
+      payload.data.decks[0].pack.compression = compression;
+      const ajv = new Ajv2020({ allErrors: true, strict: true });
+      addFormats(ajv);
+      const validateRoot = ajv.compile(contract.schema);
+      expect(validateRoot(payload)).toBe(false);
+      expect(wordManifestSuccessSchema.safeParse(payload).success).toBe(false);
+    }
+  );
+
   it('accepts the minimal word skip request and shared response envelope', () => {
     const contract = contractValidator('word-study-v1');
     contract.validate('skipObservationRequest', 'skip-request.json');

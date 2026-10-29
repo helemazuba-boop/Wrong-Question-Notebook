@@ -3,15 +3,37 @@
   "$id": "https://wqn.helema.cn/contracts/word-study-v1/word-study-v1.schema.json",
   "title": "WQN Word Study v1",
   "oneOf": [
-    { "$ref": "#/$defs/createSessionRequest" },
-    { "$ref": "#/$defs/createSessionResponse" },
-    { "$ref": "#/$defs/candidatePageRequest" },
-    { "$ref": "#/$defs/candidatePageResponse" },
-    { "$ref": "#/$defs/observationRequest" },
-    { "$ref": "#/$defs/observationResponse" },
-    { "$ref": "#/$defs/skipObservationRequest" },
-    { "$ref": "#/$defs/manifestRequest" },
-    { "$ref": "#/$defs/manifestResponse" }
+    {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/createSessionRequest"
+        },
+        {
+          "$ref": "#/$defs/candidatePageRequest"
+        },
+        {
+          "$ref": "#/$defs/observationRequest"
+        },
+        {
+          "$ref": "#/$defs/skipObservationRequest"
+        },
+        {
+          "$ref": "#/$defs/manifestRequest"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/createSessionResponse"
+    },
+    {
+      "$ref": "#/$defs/candidatePageResponse"
+    },
+    {
+      "$ref": "#/$defs/observationResponse"
+    },
+    {
+      "$ref": "#/$defs/manifestResponse"
+    }
   ],
   "$defs": {
     "uuid": { "type": "string", "format": "uuid" },
