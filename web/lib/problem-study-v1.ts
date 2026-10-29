@@ -13,7 +13,7 @@ import { PROBLEM_TYPE_VALUES } from './schemas';
 
 export const PROBLEM_STUDY_CONTRACT = 'problem-study-v1' as const;
 export const PROBLEM_STUDY_SCHEMA_SHA256 =
-  'e7b3419f74c2e234b857ecbaf47519e09306ec9f37875a46eebc9a7fb61db87d' as const;
+  'dfb8b016a5fa747014f656a8c195bf6e5a2b0df087637cc04ae767071a31e32e' as const;
 export const PROBLEM_PACK_SCHEMA_VERSION = 1 as const;
 export const PROBLEM_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const PROBLEM_PACK_MAX_ENTRIES = 500;

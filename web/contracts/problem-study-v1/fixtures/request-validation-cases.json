@@ -1,0 +1,764 @@
+{
+  "description": "Problem request composition and strict metadata/request boundaries; same cases consumed by Draft2020-12 Python, Ajv2020 and runtime Zod tests.",
+  "cases": [
+    {
+      "name": "metadata-minimal",
+      "definition": "requestMetadata",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "remove": [
+        "cursor",
+        "limit"
+      ]
+    },
+    {
+      "name": "metadata-business-field",
+      "definition": "requestMetadata",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "limit"
+      ]
+    },
+    {
+      "name": "manifest-normal",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true
+    },
+    {
+      "name": "manifest-minimal",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "remove": [
+        "limit"
+      ]
+    },
+    {
+      "name": "manifest-complete-max",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "limit": 100,
+        "cursor": "99999999999999999999",
+        "snapshot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "manifest-limit-min",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "limit": 1
+      }
+    },
+    {
+      "name": "observation-correct",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "action": "correct"
+      }
+    },
+    {
+      "name": "observation-hesitant",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "action": "hesitant"
+      }
+    },
+    {
+      "name": "observation-wrong",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "action": "wrong"
+      }
+    },
+    {
+      "name": "observation-skip",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "action": "skip"
+      }
+    },
+    {
+      "name": "manifest-missing-request_id",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "request_id"
+      ]
+    },
+    {
+      "name": "manifest-missing-boot_id",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "boot_id"
+      ]
+    },
+    {
+      "name": "manifest-missing-firmware_version",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "firmware_version"
+      ]
+    },
+    {
+      "name": "manifest-missing-capabilities",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "capabilities"
+      ]
+    },
+    {
+      "name": "manifest-request_id-max",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-request_id-short",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-request_id-long",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-request_id-bad-character",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxx."
+      }
+    },
+    {
+      "name": "manifest-request_id-number",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "request_id": 123
+      }
+    },
+    {
+      "name": "manifest-boot_id-max",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-boot_id-short",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-boot_id-long",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-boot_id-bad-character",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxx."
+      }
+    },
+    {
+      "name": "manifest-boot_id-number",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": 123
+      }
+    },
+    {
+      "name": "manifest-version-max",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "firmware_version": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-version-empty",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": ""
+      }
+    },
+    {
+      "name": "manifest-version-long",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "manifest-version-null",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": null
+      }
+    },
+    {
+      "name": "manifest-capabilities-empty",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "capabilities": []
+      }
+    },
+    {
+      "name": "manifest-capability-max",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": true,
+      "set": {
+        "capabilities": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      }
+    },
+    {
+      "name": "manifest-capability-long",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      }
+    },
+    {
+      "name": "manifest-capability-empty",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          ""
+        ]
+      }
+    },
+    {
+      "name": "manifest-capability-case",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          "Problem.Study"
+        ]
+      }
+    },
+    {
+      "name": "manifest-capabilities-wrong-type",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": "problem.study.v1"
+      }
+    },
+    {
+      "name": "manifest-unknown-field",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "unexpected": true
+      }
+    },
+    {
+      "name": "manifest-null",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "replace": null
+    },
+    {
+      "name": "observation-missing-request_id",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "request_id"
+      ]
+    },
+    {
+      "name": "observation-missing-boot_id",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "boot_id"
+      ]
+    },
+    {
+      "name": "observation-missing-firmware_version",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "firmware_version"
+      ]
+    },
+    {
+      "name": "observation-missing-capabilities",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "capabilities"
+      ]
+    },
+    {
+      "name": "observation-request_id-max",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-request_id-short",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-request_id-long",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-request_id-bad-character",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "request_id": "xxxxxxxxxxxxxxxx."
+      }
+    },
+    {
+      "name": "observation-request_id-number",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "request_id": 123
+      }
+    },
+    {
+      "name": "observation-boot_id-max",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-boot_id-short",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-boot_id-long",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-boot_id-bad-character",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": "xxxxxxxxxxxxxxxx."
+      }
+    },
+    {
+      "name": "observation-boot_id-number",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "boot_id": 123
+      }
+    },
+    {
+      "name": "observation-version-max",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "firmware_version": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-version-empty",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": ""
+      }
+    },
+    {
+      "name": "observation-version-long",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "observation-version-null",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "firmware_version": null
+      }
+    },
+    {
+      "name": "observation-capabilities-empty",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "capabilities": []
+      }
+    },
+    {
+      "name": "observation-capability-max",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": true,
+      "set": {
+        "capabilities": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      }
+    },
+    {
+      "name": "observation-capability-long",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      }
+    },
+    {
+      "name": "observation-capability-empty",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          ""
+        ]
+      }
+    },
+    {
+      "name": "observation-capability-case",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": [
+          "Problem.Study"
+        ]
+      }
+    },
+    {
+      "name": "observation-capabilities-wrong-type",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "capabilities": "problem.study.v1"
+      }
+    },
+    {
+      "name": "observation-unknown-field",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "unexpected": true
+      }
+    },
+    {
+      "name": "observation-null",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "replace": null
+    },
+    {
+      "name": "manifest-limit-zero",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "limit": 0
+      }
+    },
+    {
+      "name": "manifest-limit-too-large",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "limit": 101
+      }
+    },
+    {
+      "name": "manifest-limit-fraction",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "limit": 1.5
+      }
+    },
+    {
+      "name": "manifest-limit-string",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "limit": "50"
+      }
+    },
+    {
+      "name": "manifest-cursor-empty",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "cursor": ""
+      }
+    },
+    {
+      "name": "manifest-cursor-negative",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "cursor": "-1"
+      }
+    },
+    {
+      "name": "manifest-cursor-letters",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "cursor": "1a"
+      }
+    },
+    {
+      "name": "manifest-cursor-long",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "cursor": "111111111111111111111"
+      }
+    },
+    {
+      "name": "manifest-cursor-number",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "cursor": 0
+      }
+    },
+    {
+      "name": "manifest-missing-cursor",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "remove": [
+        "cursor"
+      ]
+    },
+    {
+      "name": "manifest-snapshot-short",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "snapshot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "manifest-snapshot-case",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "snapshot_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "name": "manifest-observation-fields",
+      "definition": "manifestRequest",
+      "fixture": "manifest-request.json",
+      "expected": false,
+      "set": {
+        "action": "correct"
+      }
+    },
+    {
+      "name": "observation-missing-problem_id",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "problem_id"
+      ]
+    },
+    {
+      "name": "observation-missing-action",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "action"
+      ]
+    },
+    {
+      "name": "observation-missing-occurred_at",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "remove": [
+        "occurred_at"
+      ]
+    },
+    {
+      "name": "observation-problem-invalid",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "problem_id": "not-a-uuid"
+      }
+    },
+    {
+      "name": "observation-action-unknown",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "action": "CORRECT"
+      }
+    },
+    {
+      "name": "observation-date-invalid",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "occurred_at": "yesterday"
+      }
+    },
+    {
+      "name": "observation-date-missing-zone",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "occurred_at": "2026-07-28T03:20:00"
+      }
+    },
+    {
+      "name": "observation-manifest-fields",
+      "definition": "observationRequest",
+      "fixture": "observation-request.json",
+      "expected": false,
+      "set": {
+        "cursor": "0"
+      }
+    }
+  ]
+}

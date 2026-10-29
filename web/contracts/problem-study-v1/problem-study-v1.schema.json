@@ -194,13 +194,39 @@
       }
     },
     "manifestRequest": {
-      "allOf": [{ "$ref": "#/$defs/requestMetadata" }],
       "type": "object",
-      "required": ["cursor"],
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "cursor"
+      ],
       "properties": {
-        "cursor": { "$ref": "#/$defs/cursor" },
-        "snapshot_id": { "$ref": "#/$defs/sha256" },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        "request_id": {
+          "$ref": "#/$defs/requestMetadata/properties/request_id"
+        },
+        "boot_id": {
+          "$ref": "#/$defs/requestMetadata/properties/boot_id"
+        },
+        "firmware_version": {
+          "$ref": "#/$defs/requestMetadata/properties/firmware_version"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/requestMetadata/properties/capabilities"
+        },
+        "cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "snapshot_id": {
+          "$ref": "#/$defs/sha256"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
       }
     },
     "manifestData": {
@@ -220,13 +246,39 @@
       }
     },
     "observationRequest": {
-      "allOf": [{ "$ref": "#/$defs/requestMetadata" }],
       "type": "object",
-      "required": ["problem_id", "action", "occurred_at"],
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "problem_id",
+        "action",
+        "occurred_at"
+      ],
       "properties": {
-        "problem_id": { "$ref": "#/$defs/uuid" },
-        "action": { "$ref": "#/$defs/reviewAction" },
-        "occurred_at": { "$ref": "#/$defs/isoDateTime" }
+        "request_id": {
+          "$ref": "#/$defs/requestMetadata/properties/request_id"
+        },
+        "boot_id": {
+          "$ref": "#/$defs/requestMetadata/properties/boot_id"
+        },
+        "firmware_version": {
+          "$ref": "#/$defs/requestMetadata/properties/firmware_version"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/requestMetadata/properties/capabilities"
+        },
+        "problem_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "action": {
+          "$ref": "#/$defs/reviewAction"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/isoDateTime"
+        }
       }
     },
     "scheduleProjection": {
