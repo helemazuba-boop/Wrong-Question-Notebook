@@ -96,6 +96,7 @@ interface UpstreamConfig {
   url: string;
   apiKey: string;
   model: string;
+  webSearchEnabled?: boolean;
 }
 
 export interface RelayConfig {

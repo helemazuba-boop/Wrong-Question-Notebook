@@ -1,14 +1,45 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AI_TOOLS, AI_TOOL_PROMPT } from '@/lib/ai-tools/voice-tools';
 import { TOOL_CATALOG, VOICE_TOOL_NAMES } from '@/lib/mcp/tool-catalog';
 import { findMcpTool } from '@/lib/mcp/tool-registry';
-import { applyAiToolSessionConfig } from '@/server/realtime-proxy/src/sessionConfig';
+import {
+  applyAiToolSessionConfig,
+  readFlashWebSearchEnabled,
+} from '@/server/realtime-proxy/src/sessionConfig';
 import { injectToolResult } from '@/server/realtime-proxy/src/toolInterceptor';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { voiceArgsSchema } from '@/lib/ai-tools/voice-schemas';
 
 describe('ESP32 AI tool routing', () => {
+  it.each([
+    [undefined, false],
+    ['', false],
+    ['false', false],
+    ['FALSE', false],
+    ['0', false],
+    ['1', false],
+    ['yes', false],
+    ['treu', false],
+    ['true', true],
+    [' TRUE ', true],
+  ] as const)('reads the paid-search setting %s as %s', (value, expected) => {
+    expect(
+      readFlashWebSearchEnabled({ WQN_FLASH_WEB_SEARCH_ENABLED: value })
+    ).toBe(expected);
+  });
+
+  it('reads the startup process environment without enabling by default', () => {
+    vi.stubEnv('WQN_FLASH_WEB_SEARCH_ENABLED', 'true');
+    try {
+      expect(readFlashWebSearchEnabled()).toBe(true);
+      vi.stubEnv('WQN_FLASH_WEB_SEARCH_ENABLED', undefined);
+      expect(readFlashWebSearchEnabled()).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('exposes exactly the voice catalog subset in catalog order', () => {
     expect(AI_TOOLS.map(tool => tool.function.name)).toEqual([
       ...VOICE_TOOL_NAMES,
@@ -106,6 +137,7 @@ describe('ESP32 AI tool routing', () => {
     const upstream = {
       url: 'wss://api.stepfun.com/v1/realtime',
       model: 'stepaudio-3-realtime-preview',
+      webSearchEnabled: true,
     };
     const first = applyAiToolSessionConfig(
       {
@@ -132,6 +164,7 @@ describe('ESP32 AI tool routing', () => {
       {
         url: 'wss://api.stepfun.com/v1/realtime?model=stepaudio-3-realtime-preview',
         model: 'stepaudio-3-realtime-preview',
+        webSearchEnabled: true,
       }
     );
     expect(session.tools).toEqual([{ type: 'web_search' }]);
@@ -146,10 +179,14 @@ describe('ESP32 AI tool routing', () => {
     'wss://api.stepfun.com/other',
   ])('does not add unverified built-ins for %s', endpoint => {
     const session = { instructions: 'base', tools: [] };
-    const upstream = { url: endpoint, model: 'stepaudio-3-realtime-preview' };
-    expect(applyAiToolSessionConfig(session, false, undefined, upstream)).toBe(
-      session
-    );
+    const upstream = {
+      url: endpoint,
+      model: 'stepaudio-3-realtime-preview',
+      webSearchEnabled: true,
+    };
+    expect(
+      applyAiToolSessionConfig(session, false, undefined, upstream).tools
+    ).toEqual([]);
     expect(
       applyAiToolSessionConfig(session, true, undefined, upstream).tools
     ).toEqual(AI_TOOLS);
@@ -159,10 +196,39 @@ describe('ESP32 AI tool routing', () => {
     'does not add built-ins for unverified model %s',
     model => {
       const session = { instructions: 'base', tools: [] };
-      const upstream = { url: 'wss://api.stepfun.com/v1/realtime', model };
+      const upstream = {
+        url: 'wss://api.stepfun.com/v1/realtime',
+        model,
+        webSearchEnabled: true,
+      };
       expect(
-        applyAiToolSessionConfig(session, false, undefined, upstream)
-      ).toBe(session);
+        applyAiToolSessionConfig(session, false, undefined, upstream).tools
+      ).toEqual([]);
+    }
+  );
+
+  it.each([undefined, false])(
+    'keeps paid search disabled with setting=%s despite device tools',
+    webSearchEnabled => {
+      const input = {
+        instructions: 'base',
+        tools: [{ type: 'web_search' }],
+        webSearchEnabled: true,
+      };
+      const upstream = {
+        url: 'wss://api.stepfun.com/v1/realtime',
+        model: 'stepaudio-3-realtime-preview',
+        webSearchEnabled,
+      };
+      for (const businessTools of [true, false]) {
+        const session = applyAiToolSessionConfig(
+          input,
+          businessTools,
+          undefined,
+          upstream
+        );
+        expect(session.tools).toEqual(businessTools ? AI_TOOLS : []);
+      }
     }
   );
 

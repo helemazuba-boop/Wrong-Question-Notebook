@@ -4,6 +4,13 @@ import {
 } from '../../../lib/ai-tools/voice-tools.ts';
 import type { VoiceContext } from '../../../lib/ai-tools/voice-context.ts';
 
+export function readFlashWebSearchEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  // Paid provider capability: missing, false and misspelled values stay off.
+  return env.WQN_FLASH_WEB_SEARCH_ENABLED?.trim().toLowerCase() === 'true';
+}
+
 export function isStepFunRealtimeEndpoint(upstreamUrl: string): boolean {
   try {
     const url = new URL(upstreamUrl);
@@ -63,16 +70,19 @@ export function applyAiToolSessionConfig(
   input: Record<string, unknown>,
   toolsEnabled: boolean,
   context?: VoiceContext,
-  upstream?: { url: string; model: string }
+  upstream?: { url: string; model: string; webSearchEnabled?: boolean }
 ): Record<string, unknown> {
   // StepFun executes this built-in itself; it needs no WQN executor or
-  // device function-call implementation. Keep unverified providers unchanged.
+  // device function-call implementation. Advertise only the verified profile.
   const providerTools =
+    upstream?.webSearchEnabled === true &&
     upstream?.model === 'stepaudio-3-realtime-preview' &&
     isStepFunRealtimeEndpoint(upstream.url)
       ? [{ type: 'web_search' as const }]
       : [];
-  if (!toolsEnabled && providerTools.length === 0) return input;
+  // With server configuration present, always replace device tools. Otherwise
+  // a device could restore the paid tool while the server setting is off.
+  if (!toolsEnabled && !upstream) return input;
 
   const instructions =
     typeof input.instructions === 'string' ? input.instructions : '';

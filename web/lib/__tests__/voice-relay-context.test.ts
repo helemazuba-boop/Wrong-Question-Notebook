@@ -50,7 +50,8 @@ const receipt = {
 };
 function setup(
   upstreamUrl = 'wss://api.stepfun.com/v1/realtime',
-  businessTools = true
+  businessTools = true,
+  webSearchEnabled?: boolean
 ) {
   const device = new Socket(),
     upstream = new Socket();
@@ -67,6 +68,7 @@ function setup(
         url: upstreamUrl,
         apiKey: '',
         model: 'stepaudio-3-realtime-preview',
+        webSearchEnabled,
       },
       executeToolUrl: businessTools
         ? 'https://wqn.test/api/esp32/ai/execute-tool'
@@ -130,7 +132,7 @@ describe('Flash configuration, response and tool ownership', () => {
   it.each([true, false])(
     'keeps native web search through configuration and response with business tools=%s',
     async businessTools => {
-      const h = setup('wss://api.stepfun.com/v1/realtime', businessTools);
+      const h = setup('wss://api.stepfun.com/v1/realtime', businessTools, true);
       await h.configure();
       await h.start('provider-search-response');
       const updates = h.upstream
@@ -172,6 +174,34 @@ describe('Flash configuration, response and tool ownership', () => {
       expect(h.device.events()).toContainEqual(
         expect.objectContaining({ type: 'turn.done', status: 'completed' })
       );
+    }
+  );
+
+  it.each([true, false])(
+    'keeps paid search off at startup and per-turn refresh with business tools=%s',
+    async businessTools => {
+      const h = setup('wss://api.stepfun.com/v1/realtime', businessTools);
+      h.frame({
+        type: 'session.update',
+        session: {
+          instructions: 'base',
+          tools: [{ type: 'web_search' }],
+          webSearchEnabled: true,
+        },
+      });
+      await settle();
+      h.ack();
+      await settle();
+      await h.start('search-disabled-response');
+      const updates = h.upstream
+        .events()
+        .filter(event => event.type === 'session.update');
+      expect(updates).toHaveLength(businessTools ? 2 : 1);
+      for (const update of updates) {
+        expect(update.session.tools).not.toContainEqual({ type: 'web_search' });
+        expect(update.session.tools).toHaveLength(businessTools ? 8 : 0);
+      }
+      expect(execute).not.toHaveBeenCalled();
     }
   );
 
@@ -575,8 +605,8 @@ describe('Flash configuration, response and tool ownership', () => {
     await settle();
     const update = h.upstream.events()[0];
     expect(update.wqn).toBeUndefined();
-    expect(update.session.tools).toHaveLength(9);
-    expect(update.session.tools).toContainEqual({ type: 'web_search' });
+    expect(update.session.tools).toHaveLength(8);
+    expect(update.session.tools).not.toContainEqual({ type: 'web_search' });
     expect(update.session.instructions).toContain('notebook-1');
     expect(update.session.turn_detection).toBeNull();
     h.provider({ type: 'session.created', session: {} });
