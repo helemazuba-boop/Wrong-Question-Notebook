@@ -63,3 +63,18 @@ pins a byte-identical copy of `problem-study-v1.schema.json` and its SHA-256
 on a mismatch. `lib/__tests__/problem-study-v1.test.ts` pins the same digest
 against the code constant, and the device hashes a pack with `mbedtls_sha256`,
 refusing to scan or keep one whose digest does not match the manifest.
+
+## Request validation
+
+Manifest and observation requests declare all metadata and business properties
+in one closed object. Metadata fields refer to the shared leaf constraints;
+intersecting the entire closed metadata object with a larger request via
+`allOf` would reject the request's own business fields. Standalone metadata
+and complete requests still reject unknown properties.
+
+`fixtures/request-validation-cases.json` supplies 83 shared positive/negative
+cases to the firmware Python Draft2020-12 test and
+`lib/__tests__/problem-request-json-schema.test.ts`. The cloud test checks both
+strict Ajv2020/formats and the actual runtime Zod schemas, including the root
+wire union. Schema/manifest/code digest pins must be updated together when
+changing the schema; normal wire bytes and the v1 pack version are unchanged.
