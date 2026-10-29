@@ -6,7 +6,7 @@ import {
 
 export const WORD_STUDY_CONTRACT = 'word-study-v1' as const;
 export const WORD_STUDY_SCHEMA_SHA256 =
-  '3bfc6f455fe0f5a6aceabc348a38ea9297919e7190ee81739a143977a69bc663' as const;
+  'e8e3603e0ed378ce2f30003c3ead5b65719aaa56362e74d77015d8508bf1f501' as const;
 export const WORD_PACK_SCHEMA_VERSION = 2 as const;
 export const WORD_PACK_MAX_BYTES = 4 * 1024 * 1024;
 export const WORD_PACK_MAX_ENTRIES = 10_000;
