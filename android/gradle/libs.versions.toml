@@ -1,8 +1,8 @@
 [versions]
-agp = "9.4.1"
+agp = "9.5.0"
 core = "1.19.1"
 activity = "1.13.0"
-webkit = "1.17.0"
+webkit = "1.18.0"
 browser = "1.10.0"
 swiperefreshlayout = "1.2.0"
 
