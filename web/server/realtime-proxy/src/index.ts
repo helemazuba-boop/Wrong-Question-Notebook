@@ -21,6 +21,7 @@ import { log } from './logger.ts';
 import type { RelayConfig } from './voiceRelay.ts';
 import { handleRealtimeUpgrade } from './upgrade.ts';
 import { PROXY_SUBPROTOCOL, VOICE_SUBPROTOCOL } from './types.ts';
+import { readFlashWebSearchEnabled } from './sessionConfig.ts';
 
 function readConfig(): RelayConfig {
   const realtimeEnabled =
@@ -51,6 +52,7 @@ function readConfig(): RelayConfig {
         'wss://api.stepfun.com/v1/realtime',
       apiKey: process.env.STEP_API_KEY ?? '',
       model: process.env.STEP_TTS_MODEL ?? 'stepaudio-2.5-realtime',
+      webSearchEnabled: readFlashWebSearchEnabled(),
     },
     executeToolUrl: endpoint,
     transcribeChatUrl,

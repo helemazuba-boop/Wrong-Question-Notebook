@@ -135,6 +135,7 @@ services:
       WQN_FLASH_PROXY_PORT: '8080'
       WQN_FLASH_ALLOWED_VOICES: ${WQN_FLASH_ALLOWED_VOICES:-qingchunshaonv,cixingnansheng}
       WQN_AI_REALTIME_ENABLED: ${WQN_AI_REALTIME_ENABLED:-true}
+      WQN_FLASH_WEB_SEARCH_ENABLED: ${WQN_FLASH_WEB_SEARCH_ENABLED:-false}
       LOG_LEVEL: info
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8080/health || exit 1']

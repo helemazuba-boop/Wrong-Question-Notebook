@@ -23,6 +23,7 @@ declare -A CFG=(
   [STEP_API_KEY]='step-realtime-test-value'
   [STEP_TTS_MODEL]='stepaudio-test'
   [STEP_TTS_REALTIME_URL]='wss://step.example.test/realtime'
+  [WQN_FLASH_WEB_SEARCH_ENABLED]='true'
   [WQN_REALTIME_PROXY_SECRET]='shared-proxy-test-value'
   [WQN_INTERNAL_API_BASE]='http://wqn:3000'
   [WQN_INTERNAL_API_ALLOWED_HOST]='wqn'
@@ -99,6 +100,15 @@ assert_key "$TMP_DIR/realtime.env" SUPABASE_URL
 assert_key "$TMP_DIR/realtime.env" SUPABASE_SECRET_KEY
 assert_key "$TMP_DIR/realtime.env" STEP_API_KEY
 assert_key "$TMP_DIR/realtime.env" WQN_INTERNAL_API_BASE
+assert_key "$TMP_DIR/realtime.env" WQN_FLASH_WEB_SEARCH_ENABLED
+assert_no_key "$TMP_DIR/app.env" WQN_FLASH_WEB_SEARCH_ENABLED
+grep -q '^WQN_FLASH_WEB_SEARCH_ENABLED=true$' "$TMP_DIR/realtime.env" || fail 'Search opt-in lost'
+CFG[WQN_FLASH_WEB_SEARCH_ENABLED]='false'
+make_runtime_env realtime "$TMP_DIR/search-off.env"
+grep -q '^WQN_FLASH_WEB_SEARCH_ENABLED=false$' "$TMP_DIR/search-off.env" || fail 'Search opt-out lost'
+unset 'CFG[WQN_FLASH_WEB_SEARCH_ENABLED]'
+make_runtime_env realtime "$TMP_DIR/search-unset.env"
+assert_no_key "$TMP_DIR/search-unset.env" WQN_FLASH_WEB_SEARCH_ENABLED
 
 for key in \
   ACR_PASSWORD TARGET_DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY \
