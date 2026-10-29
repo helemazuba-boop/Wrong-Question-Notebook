@@ -102,6 +102,70 @@ describe('ESP32 AI tool routing', () => {
     expect(applyAiToolSessionConfig(session, false)).toBe(session);
   });
 
+  it('adds provider-owned web search alongside WQN tools on StepFun', () => {
+    const upstream = {
+      url: 'wss://api.stepfun.com/v1/realtime',
+      model: 'stepaudio-3-realtime-preview',
+    };
+    const first = applyAiToolSessionConfig(
+      {
+        instructions: 'base',
+        tools: [{ type: 'function', function: { name: 'untrusted_tool' } }],
+        tool_choice: 'none',
+      },
+      true,
+      undefined,
+      upstream
+    );
+    const second = applyAiToolSessionConfig(first, true, undefined, upstream);
+    expect(first.tools).toEqual([...AI_TOOLS, { type: 'web_search' }]);
+    expect(first.tool_choice).toBe('auto');
+    expect(second.tools).toEqual(first.tools);
+    expect(second.instructions).toBe(first.instructions);
+  });
+
+  it('keeps native search available without enabling WQN business tools', () => {
+    const session = applyAiToolSessionConfig(
+      { instructions: 'base', tools: [], tool_choice: 'none' },
+      false,
+      undefined,
+      {
+        url: 'wss://api.stepfun.com/v1/realtime?model=stepaudio-3-realtime-preview',
+        model: 'stepaudio-3-realtime-preview',
+      }
+    );
+    expect(session.tools).toEqual([{ type: 'web_search' }]);
+    expect(session.instructions).toBe('base');
+    expect(session.tool_choice).toBe('auto');
+  });
+
+  it.each([
+    'wss://other.example/v1/realtime',
+    'wss://api.stepfun.com.attacker.example/v1/realtime',
+    'ws://api.stepfun.com/v1/realtime',
+    'wss://api.stepfun.com/other',
+  ])('does not add unverified built-ins for %s', endpoint => {
+    const session = { instructions: 'base', tools: [] };
+    const upstream = { url: endpoint, model: 'stepaudio-3-realtime-preview' };
+    expect(applyAiToolSessionConfig(session, false, undefined, upstream)).toBe(
+      session
+    );
+    expect(
+      applyAiToolSessionConfig(session, true, undefined, upstream).tools
+    ).toEqual(AI_TOOLS);
+  });
+
+  it.each(['stepaudio-2.5-realtime', 'unverified-model'])(
+    'does not add built-ins for unverified model %s',
+    model => {
+      const session = { instructions: 'base', tools: [] };
+      const upstream = { url: 'wss://api.stepfun.com/v1/realtime', model };
+      expect(
+        applyAiToolSessionConfig(session, false, undefined, upstream)
+      ).toBe(session);
+    }
+  );
+
   it('returns authorized tool data to the Realtime model', () => {
     const sent: string[] = [];
     injectToolResult(

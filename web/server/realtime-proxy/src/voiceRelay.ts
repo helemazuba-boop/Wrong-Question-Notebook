@@ -752,7 +752,8 @@ export class RelaySession {
         turn_detection: null,
       },
       Boolean(this.config.executeToolUrl && this.config.proxySecret),
-      this.voiceContext
+      this.voiceContext,
+      this.config.upstream
     );
     delete session.model;
     if (typeof session.voice === 'string' && !ALLOWED_VOICES.has(session.voice))

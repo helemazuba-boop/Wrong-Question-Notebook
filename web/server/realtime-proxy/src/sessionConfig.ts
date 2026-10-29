@@ -62,17 +62,27 @@ export function manualTurnDetectionAck(
 export function applyAiToolSessionConfig(
   input: Record<string, unknown>,
   toolsEnabled: boolean,
-  context?: VoiceContext
+  context?: VoiceContext,
+  upstream?: { url: string; model: string }
 ): Record<string, unknown> {
-  if (!toolsEnabled) return input;
+  // StepFun executes this built-in itself; it needs no WQN executor or
+  // device function-call implementation. Keep unverified providers unchanged.
+  const providerTools =
+    upstream?.model === 'stepaudio-3-realtime-preview' &&
+    isStepFunRealtimeEndpoint(upstream.url)
+      ? [{ type: 'web_search' as const }]
+      : [];
+  if (!toolsEnabled && providerTools.length === 0) return input;
 
   const instructions =
     typeof input.instructions === 'string' ? input.instructions : '';
   return {
     ...input,
-    instructions: appendAiToolPrompt(instructions, context),
+    ...(toolsEnabled
+      ? { instructions: appendAiToolPrompt(instructions, context) }
+      : {}),
     // The proxy, not the device, owns the authoritative tool allow-list.
-    tools: AI_TOOLS,
+    tools: [...(toolsEnabled ? AI_TOOLS : []), ...providerTools],
     tool_choice: 'auto',
   };
 }
