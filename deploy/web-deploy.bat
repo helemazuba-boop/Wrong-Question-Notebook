@@ -103,7 +103,7 @@ if not defined ENV_SRC (
   echo ERROR: no tree has web/.env.production; cannot build.
   goto :fail
 )
-wsl -d %WSL_DISTRO% -- bash -c "if [ ! -f '!WEB_DIR!/web/.env.production' ]; then cp '!ENV_SRC!' '!WEB_DIR!/web/.env.production' && chmod 600 '!WEB_DIR!/web/.env.production'; fi"
+wsl -d %WSL_DISTRO% -- bash -c "test -f '!WEB_DIR!/web/.env.production' || { cp '!ENV_SRC!' '!WEB_DIR!/web/.env.production' && chmod 600 '!WEB_DIR!/web/.env.production'; }"
 if errorlevel 1 goto :fail
 
 echo [2/2] Building, pushing and deploying...
