@@ -245,4 +245,39 @@ describe('POST /api/esp32/agent/transcribe (v2-streaming branch)', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('accepts a 60s batch upload at the PCM body ceiling', async () => {
+    process.env.WQN_ESP32_AGENT_TRANSCRIBE_MOCK = '1';
+
+    const response = await POST(
+      new NextRequest('http://localhost/api/esp32/agent/transcribe', {
+        method: 'POST',
+        headers: audioHeaders({ 'x-wqn-audio-duration-ms': '60000' }),
+        body: Buffer.alloc(16000 * 2 * 60),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      data: { transcript: 'mock agent transcript', latency_ms: 0 },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a batch upload above the 60s PCM body ceiling', async () => {
+    process.env.WQN_ESP32_AGENT_TRANSCRIBE_MOCK = '1';
+
+    const response = await POST(
+      new NextRequest('http://localhost/api/esp32/agent/transcribe', {
+        method: 'POST',
+        headers: audioHeaders({ 'x-wqn-audio-duration-ms': '60000' }),
+        body: Buffer.alloc(16000 * 2 * 60 + 4098),
+      })
+    );
+
+    expect(response.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
