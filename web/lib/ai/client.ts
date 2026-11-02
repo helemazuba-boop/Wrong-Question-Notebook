@@ -124,7 +124,17 @@ function createGoogleClient(apiKey: string, timeoutMs: number): AIClient {
 // =====================================================
 
 function createAnthropicClient(apiKey: string, timeoutMs: number): AIClient {
-  const anthropic = new Anthropic({ apiKey, timeout: timeoutMs });
+  const anthropic = new Anthropic({
+    apiKey,
+    timeout: timeoutMs,
+    // Preserve the existing API version and API-key transport across SDK
+    // upgrades. Review provider protocol migrations separately.
+    defaultHeaders: {
+      'anthropic-version': '2023-06-01',
+      'x-api-key': apiKey,
+      authorization: null,
+    },
+  });
 
   return {
     async generateContent(params): Promise<GenerateContentResult> {

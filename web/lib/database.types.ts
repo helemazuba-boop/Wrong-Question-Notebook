@@ -563,6 +563,56 @@ export type Database = {
         };
         Relationships: [];
       };
+      esp32_ai_interactions: {
+        Row: {
+          answer: string | null;
+          call_id: string;
+          created_at: string;
+          device_id: string;
+          expires_at: string;
+          fingerprint: string;
+          id: string;
+          payload: Json;
+          request_id: string;
+          state: string;
+          user_id: string;
+        };
+        Insert: {
+          answer?: string | null;
+          call_id: string;
+          created_at?: string;
+          device_id: string;
+          expires_at: string;
+          fingerprint: string;
+          id?: string;
+          payload: Json;
+          request_id: string;
+          state?: string;
+          user_id: string;
+        };
+        Update: {
+          answer?: string | null;
+          call_id?: string;
+          created_at?: string;
+          device_id?: string;
+          expires_at?: string;
+          fingerprint?: string;
+          id?: string;
+          payload?: Json;
+          request_id?: string;
+          state?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_ai_interactions_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       esp32_devices: {
         Row: {
           access_token_hash: string;
@@ -5158,6 +5208,10 @@ export type Database = {
       };
     };
     Functions: {
+      opencode_agent_control_v1: {
+        Args: { p_action: string; p_payload: Json };
+        Returns: Json;
+      };
       account_storage_objects: { Args: { p_user_id: string }; Returns: Json };
       acquire_external_provider_rate_limit: {
         Args: {
@@ -5195,6 +5249,18 @@ export type Database = {
           device_id: string;
           sealed_credential: Json;
         }[];
+      };
+      begin_esp32_ai_interaction_v1: {
+        Args: {
+          p_call_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_payload: Json;
+          p_request_id: string;
+          p_timeout_ms: number;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       bootstrap_super_admin: {
         Args: { p_user_id: string };
@@ -5943,6 +6009,15 @@ export type Database = {
       replace_problem_tags: {
         Args: { p_problem_id: string; p_tag_ids: string[] };
         Returns: undefined;
+      };
+      reply_esp32_ai_interaction_v1: {
+        Args: {
+          p_answer: string;
+          p_device_id: string;
+          p_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {

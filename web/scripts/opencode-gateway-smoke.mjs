@@ -16,6 +16,16 @@
 // {data}, and session creation — not the prompt request — carries the
 // agent/model selection.
 
+import { parseOpenCodeModel } from '../lib/opencode-agent-policy.ts';
+
+if (
+  ['WQN_OPENCODE_PROVIDER_ID', 'WQN_OPENCODE_MODEL_ID'].some(key =>
+    Object.hasOwn(process.env, key)
+  )
+)
+  throw new Error('Remove old OpenCode model keys');
+const model = parseOpenCodeModel(process.env.WQN_OPENCODE_MODEL ?? '');
+
 const baseUrl = (process.env.WQN_OPENCODE_SERVER_URL || '').replace(/\/+$/, '');
 const directory = process.env.WQN_OPENCODE_DIRECTORY || '';
 const username = process.env.WQN_OPENCODE_SERVER_USERNAME || 'opencode';
@@ -97,15 +107,7 @@ async function main() {
     if (process.env.WQN_OPENCODE_AGENT) {
       createBody.agent = process.env.WQN_OPENCODE_AGENT;
     }
-    if (
-      process.env.WQN_OPENCODE_PROVIDER_ID &&
-      process.env.WQN_OPENCODE_MODEL_ID
-    ) {
-      createBody.model = {
-        id: process.env.WQN_OPENCODE_MODEL_ID,
-        providerID: process.env.WQN_OPENCODE_PROVIDER_ID,
-      };
-    }
+    createBody.model = model;
     const response = await fetch(createUrl, {
       method: 'POST',
       headers,
@@ -149,45 +151,32 @@ async function main() {
     }
   }
 
-  // 3. Permission reply endpoint: a well-formed reply for a bogus request id
-  //    must be routed (4xx from the handler) rather than falling through to
-  //    the server's generic not-found page. The v2 path is session-scoped and
-  //    the body carries `decision`, not `reply`.
+  // A bogus request cannot prove routing: an auth or generic 404 used to pass.
+  // Check the server's published operation; real permission roundtrips require
+  // a pending ask and are covered by the separate integration validation.
   try {
-    const response = await fetch(
-      new URL(
-        `/api/session/${encodeURIComponent(createdId || 'ses_smoke')}/permission/wqn-smoke-bogus/reply`,
-        `${baseUrl}/`
-      ),
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          decision: 'reject',
-          message: 'smoke probe',
-        }),
-      }
-    );
-    const text = await response.text().catch(() => '');
+    const response = await fetch(new URL('/openapi.json', `${baseUrl}/`), {
+      headers,
+    });
+    const spec = await response.json();
     check(
-      'POST /api/session/:id/permission/:rid/reply is routed',
-      response.status < 500,
-      `${response.status} ${text.slice(0, 80)}`
+      'Permission reply operation is published',
+      response.ok &&
+        spec.paths?.['/api/session/{sessionID}/permission/{requestID}/reply']
+          ?.post?.operationId === 'session.permission.reply',
+      `${response.status}`
     );
   } catch (error) {
-    check(
-      'POST /api/session/:id/permission/:rid/reply is routed',
-      false,
-      String(error)
-    );
+    check('Permission reply operation is published', false, String(error));
   }
 
   // 4. Event stream: /api/event must open as text/event-stream.
+  let eventTimer;
   try {
     const eventUrl = new URL('/api/event', `${baseUrl}/`);
     eventUrl.searchParams.set('directory', directory);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    eventTimer = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(eventUrl, {
       headers: { ...headers, Accept: 'text/event-stream' },
       signal: controller.signal,
@@ -200,14 +189,12 @@ async function main() {
         ),
       `${response.status} ${response.headers.get('content-type') || ''}`
     );
-    clearTimeout(timer);
+    clearTimeout(eventTimer);
     await response.body?.cancel().catch(() => undefined);
   } catch (error) {
-    if (error?.name === 'AbortError') {
-      check('GET /api/event opens as SSE', true, 'aborted after probe window');
-    } else {
-      check('GET /api/event opens as SSE', false, String(error));
-    }
+    check('GET /api/event opens as SSE', false, String(error));
+  } finally {
+    clearTimeout(eventTimer);
   }
 
   // 5. The three capabilities that only exist in v2. Every one of them must

@@ -10,6 +10,12 @@ import {
   resolveOpenCodeBinding,
 } from '@/lib/opencode-agent-gateway';
 import { abandonQuestionSequences } from '@/lib/opencode-agent-question-sequence';
+import {
+  openCodeControl,
+  openCodeControlScope,
+  type OpenCodeTask,
+} from '@/lib/opencode-agent-control';
+import { logger } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 // Stop a submitted run. The device calls this from the interrupt key, which
@@ -22,7 +28,7 @@ export async function POST(
 ): Promise<NextResponse> {
   const auth = await authenticateEsp32Device(req);
   if (auth instanceof NextResponse) return auth;
-  const limited = enforceAgentRateLimit(auth.deviceId, 'run');
+  const limited = enforceAgentRateLimit(auth.deviceId, 'interrupt');
   if (limited) return limited;
   const { id } = await context.params;
   if (!/^ses_[A-Za-z0-9_-]+$/.test(id)) {
@@ -41,6 +47,20 @@ export async function POST(
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
+    if (binding.modelPolicy.enabled) {
+      try {
+        const task = await openCodeControl<OpenCodeTask | null>('lookup', {
+          scope: openCodeControlScope(binding),
+          sessionId: id,
+        });
+        if (task) await openCodeControl('cancel', { taskId: task.id });
+      } catch {
+        // A database outage must never prevent the upstream stop request.
+        logger.warn('OpenCode cancellation ledger unavailable', {
+          component: 'OpenCodeControl',
+        });
+      }
+    }
     const interrupted = await interruptOpenCodeSession(binding, id);
     // Upstream cancels the pending form with the run, so the accumulated
     // answers of a multi-field sequence die with it.

@@ -214,7 +214,10 @@ describe('OpenCode question sequence store', () => {
   it('rolls back the last answer after a failed submit', () => {
     beginOrGetQuestionSequence(
       SESSION,
-      form('frm_1', [field('fruit', ['apple']), field('drink', ['tea'])])
+      form('frm_1', [
+        field('fruit', ['apple']),
+        field('drink', ['tea', 'water']),
+      ])
     );
     recordQuestionAnswer({
       sessionId: SESSION,
