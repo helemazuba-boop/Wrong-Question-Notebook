@@ -46,8 +46,9 @@ The server expects:
 
 The relay runs in its own container `wqn-realtime`. The checked-in
 `docker-compose.yml` already defines it with an explicit environment whitelist.
-For standalone remote deployment, use `deploy/deploy-realtime-remote.ps1`; it
-derives `~/.env.wqn-realtime` and never uploads the full main-app env file.
+Realtime is published together with the app by `deploy/release.sh`, driven from
+`deploy/web-deploy.bat`; it derives `~/.env.wqn-realtime` and never uploads the
+full main-app env file.
 
 Equivalent Compose wiring is:
 

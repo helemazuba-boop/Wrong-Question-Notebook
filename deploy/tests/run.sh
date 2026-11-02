@@ -15,6 +15,9 @@ do
   bash -n "$script"
 done
 
+python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" \
+  "$DEPLOY_DIR/list_worktrees.py"
+
 if grep -R -n --exclude-dir=tests --include='*.sh' --include='*.bat' \
     -- '--linked' "$DEPLOY_DIR"; then
   printf '%s\n' 'FAIL: executable deployment path still contains --linked' >&2

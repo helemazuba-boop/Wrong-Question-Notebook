@@ -484,7 +484,7 @@ Write-Host "  Done! Image available in ACR." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Pull on ECS:" -ForegroundColor Yellow
 Write-Host "    docker pull $ImageTag" -ForegroundColor White
-Write-Host "    .\deploy\deploy-realtime-remote.ps1 -Tag $Tag" -ForegroundColor White
+Write-Host "    .\deploy\web-deploy.bat" -ForegroundColor White
 Write-Host ""
 Write-Host "  Verify:" -ForegroundColor Yellow
 Write-Host "    curl http://127.0.0.1:8080/health" -ForegroundColor White
