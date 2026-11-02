@@ -46,6 +46,10 @@ def main(argv=None):
     release.add_argument('--engine', choices=['native', 'powershell'], default='native')
     release.add_argument('--yes', action='store_true')
     release.add_argument('--defer-reason')
+    # Keep the BAT file ASCII so the default note survives Windows code pages.
+    # This precedes caller arguments in the wrapper; --defer-reason can override it.
+    release.add_argument('--bat-default-note', dest='defer_reason', action='store_const',
+                         const='从release.bat发布', help=argparse.SUPPRESS)
     release.add_argument('--no-build-proxy', action='store_true')
     release.add_argument('--use-default-builder', action='store_true')
     release.add_argument('--recreate-builders', action='store_true')

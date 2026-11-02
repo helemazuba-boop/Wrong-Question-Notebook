@@ -50,6 +50,8 @@ GitHub 查询显式使用 `origin` 对应仓库，避免 `gh` 默认选择 fork 
 
 `web-release.bat`、`web-release.sh`、`release.sh` 和 `update-env.sh` 共用 `ops/cli.py` 的检查与云端记录。PowerShell App 的 `-DeployAliyun` 也转入该入口。
 
+`web-release.bat` 默认以“从release.bat发布”记录本次未集成程序补丁的暂缓原因；传入 `--defer-reason "自定义原因"` 可覆盖该备注。
+
 ```bash
 # 本地只读 Git 检查
 bash deploy/ops.sh check --ref HEAD
