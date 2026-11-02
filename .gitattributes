@@ -1,2 +1,6 @@
 # Normalize all text files to LF (matches Prettier endOfLine: "lf")
 * text=auto eol=lf
+
+# cmd.exe cannot resolve goto labels in an LF batch file, so deploy batch
+# files are checked out with CRLF even though the repo stores LF.
+deploy/*.bat text eol=crlf

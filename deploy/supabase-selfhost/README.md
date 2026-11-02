@@ -250,7 +250,7 @@ unset TARGET_SUPABASE_URL TARGET_SUPABASE_SECRET_KEY CONFIRM_TARGET_SUPABASE_ORI
 
 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` 是例外的构建期机密：Next.js 官方要求在 `next build` 时提供并嵌入服务端输出。Dockerfile 通过 BuildKit secret 挂载它，不通过 `ARG`/`ENV`，也不把它注入容器运行时环境（部署主机的私密 env 文件仍需保留它供后续构建）。镜像仓库的读取权限仍必须按生产 secret 级别管理。
 
-独立 Realtime 容器不得复用整份主应用 env。`deploy-realtime-remote.ps1` 只生成并上传
+独立 Realtime 容器不得复用整份主应用 env。发布流程（`deploy/release.sh`）只生成并上传
 `~/.env.wqn-realtime` 白名单文件，其中包含 Supabase 设备查询 key、StepFun key、
 内部 HMAC secret 和 Realtime 配置；ACR 凭证、Server Actions key、Gemini/网页 AI key
 不会写入该文件。直接 `docker run` 部署时，主应用和 Realtime 必须同时加入私有
