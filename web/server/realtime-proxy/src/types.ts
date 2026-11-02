@@ -23,7 +23,7 @@ export const DOWLINK_DEFAULT_SAMPLE_RATE_HZ = 24000; // PCM16 @ 24 kHz (matches 
 export const PROXY_SUBPROTOCOL = 'wqn-flash-v2';
 export const VOICE_SUBPROTOCOL = 'wqn-voice-v2';
 export const STD_PRO_SAMPLE_RATE_HZ = 16000;
-export const MAX_STD_PRO_PCM_BYTES = 16000 * 2 * 20 + 4096; // 20s 16k s16le + tolerance
+export const MAX_STD_PRO_PCM_BYTES = 16000 * 2 * 60 + 4096; // 60s 16k s16le + tolerance
 export const ALLOWED_VOICES_CSV =
   process.env.WQN_FLASH_ALLOWED_VOICES ?? 'qingchunshaonv,cixingnansheng';
 export const ALLOWED_VOICES = new Set(
