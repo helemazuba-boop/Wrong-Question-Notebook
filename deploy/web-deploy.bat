@@ -109,7 +109,7 @@ if errorlevel 1 goto :fail
 echo [2/2] Building, pushing and deploying...
 set "REL_ARGS="
 if /I "!WQN_SKIP_REALTIME!"=="1" set "REL_ARGS=--skip-realtime"
-wsl -d %WSL_DISTRO% -- bash -c "cd '!WEB_DIR!' && WQN_LEGACY_RELEASE=1 bash !RELEASE_SCRIPT! !REL_ARGS!"
+wsl -d %WSL_DISTRO% -- bash -c "cd '!WEB_DIR!' && WQN_LEGACY_RELEASE=1 WQN_OPS_MANAGED=1 bash !RELEASE_SCRIPT! !REL_ARGS!"
 if errorlevel 1 goto :fail
 
 echo.
