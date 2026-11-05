@@ -121,4 +121,55 @@ if grep -Fq '<-L>' "$WQN_TEST_SSH_CALLS"; then
   exit 1
 fi
 
+# --tree: push from another worktree using that tree's own env file
+unset WQN_TEST_CONTAINER_IP
+mkdir -p "$TMP_DIR/other/web"
+git -C "$TMP_DIR/other" init -q
+cp "$TMP_DIR/repo/web/.env.production" "$TMP_DIR/other/web/.env.production"
+: > "$WQN_TEST_CALLS"
+bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" --dry-run-only \
+  > "$TMP_DIR/tree.output"
+grep -Fq "Web dir: $TMP_DIR/other/web" "$TMP_DIR/tree.output"
+grep -Fq "Tree:    $TMP_DIR/other" "$TMP_DIR/tree.output"
+grep -Fq 'supabase <migration> <list>' "$WQN_TEST_CALLS"
+
+# a tree without its own web/.env.production is refused before any SSH
+mkdir -p "$TMP_DIR/bare/web"
+git -C "$TMP_DIR/bare" init -q
+: > "$WQN_TEST_SSH_CALLS"
+if bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/bare" --dry-run-only \
+    > "$TMP_DIR/bare.output" 2>&1; then
+  printf '%s\n' 'FAIL: a tree without web/.env.production was accepted' >&2
+  exit 1
+fi
+grep -Fq 'this script never copies it' "$TMP_DIR/bare.output"
+[[ ! -s "$WQN_TEST_SSH_CALLS" ]] || {
+  printf '%s\n' 'FAIL: SSH started for a tree without its own env file' >&2
+  exit 1
+}
+
+# applying on a non-interactive stdin without --yes stops after the dry run
+: > "$WQN_TEST_CALLS"
+if bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" \
+    < /dev/null > "$TMP_DIR/gate.output" 2>&1; then
+  printf '%s\n' 'FAIL: migrations were applied without --yes on non-interactive stdin' >&2
+  exit 1
+fi
+grep -Fq 'refusing to apply migrations' "$TMP_DIR/gate.output"
+grep -Fq '<--dry-run>' "$WQN_TEST_CALLS"
+if grep -Eq '^supabase <db> <push> <--db-url> <[^>]*>$' "$WQN_TEST_CALLS"; then
+  printf '%s\n' 'FAIL: db push ran after the confirmation gate refused' >&2
+  exit 1
+fi
+
+# --yes applies and then re-checks the migration list
+: > "$WQN_TEST_CALLS"
+bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" --yes \
+  > "$TMP_DIR/apply.output"
+grep -Eq '^supabase <db> <push> <--db-url> <[^>]*>$' "$WQN_TEST_CALLS"
+[[ "$(grep -c '<migration> <list>' "$WQN_TEST_CALLS")" == 2 ]] || {
+  printf '%s\n' 'FAIL: --yes did not re-check the migration list after applying' >&2
+  exit 1
+}
+
 printf '%s\n' 'PASS: supabase push routing and flags'

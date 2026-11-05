@@ -12,6 +12,10 @@ now sorts to the top even when its HEAD is old.
 Only worktrees that actually contain this web project are listed, judged by
 web/package.json. Unlike the firmware helper the project *is* the repository
 root, so there is no relative path to keep track of.
+
+With --migrations the menu also compares each tree's Supabase migrations with
+the main worktree, because a pushed migration cannot be rolled back the way a
+published image can. supabase-push.sh renders the menu this way.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 MARKER = Path("web/package.json")
 ENV_FILE = Path("web/.env.production")
+MIGRATIONS = Path("web/supabase/migrations")
 NUL = chr(0)
 
 
@@ -57,20 +62,45 @@ def worktree_roots():
 
 
 def newest_activity(root: Path):
-    """(activity timestamp, is dirty) for this tree."""
+    """(activity timestamp, is dirty, porcelain entries) for this tree."""
     stamp = 0.0
     raw = git(root, "log", "-1", "--format=%ct").strip()
     if raw:
         stamp = float(raw)
     status = git(root, "status", "--porcelain", "-z", "-uall")
-    dirty = bool(status.strip(NUL).strip())
-    for entry in status.split(NUL):
-        if len(entry) > 3:
-            try:
-                stamp = max(stamp, (root / entry[3:]).stat().st_mtime)
-            except OSError:
-                pass
-    return stamp, dirty
+    entries = [entry for entry in status.split(NUL) if len(entry) > 3]
+    for entry in entries:
+        try:
+            stamp = max(stamp, (root / entry[3:]).stat().st_mtime)
+        except OSError:
+            pass
+    return stamp, bool(entries), entries
+
+
+def main_root() -> Path:
+    """The main worktree: baseline for migration comparison and env lookup."""
+    roots = worktree_roots()
+    return roots[0] if roots else REPO_ROOT
+
+
+def migration_names(root: Path):
+    """Migrations present on disk, which is what `supabase db push` reads."""
+    directory = root / MIGRATIONS
+    if not directory.is_dir():
+        return set()
+    return {path.name for path in directory.glob("*.sql")}
+
+
+def migration_status(root: Path, entries, baseline):
+    """(migrations this tree adds, untracked migration paths) against baseline."""
+    prefix = str(MIGRATIONS) + "/"
+    untracked = sorted(
+        entry[3:]
+        for entry in entries
+        if entry.startswith("??") and entry[3:].startswith(prefix)
+    )
+    extra = sorted(migration_names(root) - baseline)
+    return extra, untracked
 
 
 def label(root: Path) -> str:
@@ -90,37 +120,70 @@ def shorten(root: Path) -> str:
 
 
 def collect():
+    baseline = migration_names(main_root())
     rows = []
     for root in worktree_roots():
         if not (root / MARKER).is_file():
             continue
-        stamp, dirty = newest_activity(root)
-        rows.append({"root": root, "stamp": stamp, "dirty": dirty, "label": label(root)})
+        stamp, dirty, entries = newest_activity(root)
+        extra, untracked = migration_status(root, entries, baseline)
+        rows.append(
+            {
+                "root": root,
+                "stamp": stamp,
+                "dirty": dirty,
+                "label": label(root),
+                "extra": extra,
+                "untracked": untracked,
+            }
+        )
     rows.sort(key=lambda row: (-row["stamp"], str(row["root"])))
     return rows
 
 
-def render(rows) -> None:
+def migration_tag(row) -> str:
+    tag = ""
+    if row["extra"]:
+        tag += "+%d" % len(row["extra"])
+    if row["untracked"]:
+        tag += "!%d" % len(row["untracked"])
+    return tag or "-"
+
+
+def render(rows, migrations: bool = False) -> None:
     if not rows:
         raise SystemExit("no worktree contains %s" % MARKER)
     width = min(max(len(row["label"]) for row in rows), 34)
-    print("  #  modified          state  %-*s  tree" % (width, "branch"))
+    if migrations:
+        print("  #  modified          state  %-6s  %-*s  tree" % ("mig", width, "branch"))
+    else:
+        print("  #  modified          state  %-*s  tree" % (width, "branch"))
     for index, row in enumerate(rows, start=1):
         when = datetime.fromtimestamp(row["stamp"]).strftime("%m-%d %H:%M")
         mark = "*" if row["root"].resolve() == PROJECT_DIR.resolve() else " "
-        print(
-            "%3d%s %s  %-5s  %-*s  %s"
-            % (
-                index,
-                mark,
-                when,
-                "dirty" if row["dirty"] else "clean",
-                width,
-                row["label"],
-                shorten(row["root"]),
+        state = "dirty" if row["dirty"] else "clean"
+        if migrations:
+            print(
+                "%3d%s %s  %-5s  %-6s  %-*s  %s"
+                % (
+                    index,
+                    mark,
+                    when,
+                    state,
+                    migration_tag(row),
+                    width,
+                    row["label"],
+                    shorten(row["root"]),
+                )
             )
-        )
+        else:
+            print(
+                "%3d%s %s  %-5s  %-*s  %s"
+                % (index, mark, when, state, width, row["label"], shorten(row["root"]))
+            )
     print("       (* = this checkout)")
+    if migrations:
+        print("       (+N = migrations this tree adds vs main; !N = untracked)")
 
 
 def resolve(rows, picks: str) -> int:
@@ -154,7 +217,7 @@ def env_source():
     return None
 
 
-def plan(root: Path) -> int:
+def plan(root: Path, migrations: bool = False) -> int:
     """Describe what a release from this tree would publish."""
     if not (root / MARKER).is_file():
         print("not a WQN web tree: %s" % root, file=sys.stderr)
@@ -170,12 +233,32 @@ def plan(root: Path) -> int:
         print("  dirty:   clean")
     if (root / ENV_FILE).is_file():
         print("  env:     %s present" % ENV_FILE)
+    elif migrations:
+        print("  env:     MISSING -- supabase-push.sh refuses to push from this tree")
     else:
         source = env_source()
         if source:
             print("  env:     MISSING -- will be copied from %s" % shorten(source / ENV_FILE))
         else:
             print("  env:     MISSING and no tree has one -- the release will fail")
+    if migrations:
+        baseline = migration_names(main_root())
+        here = migration_names(root)
+        extra, untracked = migration_status(root, dirty, baseline)
+        missing = sorted(baseline - here)
+        print("  migrations: %d file(s) in %s" % (len(here), MIGRATIONS))
+        print(
+            "  vs main:    %d extra, %d missing, %d untracked"
+            % (len(extra), len(missing), len(untracked))
+        )
+        for name in extra:
+            print("    + %s" % name)
+        for path in untracked:
+            print("    ! %s" % path)
+        for name in missing[:5]:
+            print("    - %s" % name)
+        if len(missing) > 5:
+            print("    ... %d more missing" % (len(missing) - 5))
     return 0
 
 
@@ -185,6 +268,11 @@ def main() -> int:
     parser.add_argument("--repo-root", action="store_true", help="print the repository root")
     parser.add_argument("--env-source", action="store_true", help="print a tree holding the env file")
     parser.add_argument("--plan", metavar="DIR", help="describe a release from this tree")
+    parser.add_argument(
+        "--migrations",
+        action="store_true",
+        help="compare Supabase migrations against the main worktree",
+    )
     args = parser.parse_args()
     if args.repo_root:
         print(REPO_ROOT)
@@ -196,11 +284,11 @@ def main() -> int:
         print(source / ENV_FILE)
         return 0
     if args.plan:
-        return plan(Path(args.plan))
+        return plan(Path(args.plan), args.migrations)
     rows = collect()
     if args.resolve:
         return resolve(rows, args.resolve)
-    render(rows)
+    render(rows, args.migrations)
     return 0
 
 
