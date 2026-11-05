@@ -308,3 +308,48 @@ export async function readJsonBody(req: Request): Promise<unknown> {
   }
   return req.json();
 }
+
+/**
+ * Read a bounded JSON body without trusting Content-Length: each streamed
+ * chunk is counted as bytes and parsing happens only once the whole body is in
+ * memory. A liar/omitted Content-Length cannot bypass the endpoint budget.
+ */
+export async function readBoundedJsonBody(
+  req: Request,
+  maxBytes: number
+): Promise<unknown> {
+  const contentType = req.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new TypeError('CONTENT_TYPE');
+  }
+  const declared = Number(req.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new RangeError('BODY_TOO_LARGE');
+  }
+  if (!req.body) return req.json();
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new RangeError('BODY_TOO_LARGE');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+}
