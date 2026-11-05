@@ -670,20 +670,13 @@ def image_manifest(ref):
 
 
 def release(ref='HEAD', host='aliyun', tag=None, rt_tag=None, skip_realtime=False,
-            no_deploy=False, engine='native', approve=False, defer_reason=None,
+            no_deploy=False, engine='native', approve=False,
             callback=None, build_options=None):
     report = scan(ref)
     if report['shallow'] or report['refs_checked'] < report['refs_total']:
         raise OpsError('提交历史检查不完整；请补齐历史后重试')
-    decisions = review_decisions(report, rpc('decisions', host))
-    unresolved = [o for o in report['omissions'] if o['fingerprint'] not in decisions]
-    if unresolved and not defer_reason:
-        raise OpsError('存在尚未核对的程序补丁；先在面板核对候选内容并记录暂缓原因，或提供 --defer-reason')
     if not approve:
         raise OpsError('发布前需要确认具体计划')
-    if defer_reason:
-        for row in unresolved:
-            rpc('defer', host, decision={**row, 'reason': defer_reason})
     env_data = (REPO / 'web/.env.production').read_bytes()
     values = dotenv(data=env_data)
     missing_build = [k for k in ('ACR_SERVER', 'ACR_NAMESPACE', 'ACR_REPO', 'ACR_USERNAME',

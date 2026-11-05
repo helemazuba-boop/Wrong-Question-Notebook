@@ -19,7 +19,7 @@ const titles = {
   ],
   branches: [
     "核对本次发布差异",
-    "按候选提交检查内容，保留补丁来源与本次暂缓原因。",
+    "按候选提交检查内容，保留补丁来源与提交时间线。",
   ],
   history: [
     "每次上线，都有来路",
@@ -379,31 +379,6 @@ function reviewCard(o, review, open = false) {
         );
       seen.add(key);
     });
-  }
-  if (review) {
-    const row = el("div", "defer-row");
-    const input = el("input");
-    input.placeholder = "本次暂缓原因";
-    input.setAttribute("aria-label", o.branch + " 的暂缓原因");
-    const button = el(
-      "button",
-      "button quiet",
-      decision ? "更新暂缓原因" : "记录暂缓",
-    );
-    button.addEventListener("click", () =>
-      action(button, async () => {
-        if (!input.value.trim()) throw new Error("请填写暂缓原因");
-        state.decisions = await api("/api/defer", {
-          ref: state.ref,
-          fingerprint: o.fingerprint,
-          reason: input.value.trim(),
-        });
-        renderGit();
-        notice("已在云端保存暂缓原因；同一程序补丁的不同提交共用核对记录。");
-      }),
-    );
-    row.append(input, button);
-    body.append(row);
   }
   card.append(summary, body);
   return card;
@@ -848,8 +823,6 @@ function showPlan(plan) {
     $("plan-changes").append(
       el("p", "subtle", "没有变量差异；镜像或运行参数仍需核对。"),
     );
-  $("defer-field").hidden = plan.kind !== "release" || !plan.omissions?.length;
-  $("defer-reason").value = "";
   $("compatibility-field").hidden = plan.kind !== "rollback";
   $("compatibility-reviewed").checked = false;
   $("apply-plan").textContent =
@@ -1020,15 +993,8 @@ $("apply-plan").addEventListener("click", () =>
     if (state.busy) throw new Error("已有操作正在执行，请先查询其结果");
     if (state.plan.kind === "rollback" && !$("compatibility-reviewed").checked)
       throw new Error("请先核对数据库与共享配置兼容性");
-    if (
-      state.plan.kind === "release" &&
-      state.plan.omissions?.length &&
-      !$("defer-reason").value.trim()
-    )
-      throw new Error("请填写本次暂缓其他分支的原因，或返回逐项核对");
     const job = await api("/api/apply", {
       id: state.plan.id,
-      defer_reason: $("defer-reason").value.trim() || null,
       compatibility_reviewed: $("compatibility-reviewed").checked,
     });
     $("plan-dialog").close();
