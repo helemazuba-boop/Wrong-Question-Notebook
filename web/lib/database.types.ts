@@ -3586,6 +3586,9 @@ export type Database = {
           has_more: boolean;
           id: string;
           last_activity_at: string;
+          local_fingerprint: string | null;
+          local_session: boolean;
+          local_start_index: number | null;
           mode: string;
           next_sequence: number;
           optional_count: number | null;
@@ -3614,6 +3617,9 @@ export type Database = {
           has_more?: boolean;
           id?: string;
           last_activity_at?: string;
+          local_fingerprint?: string | null;
+          local_session?: boolean;
+          local_start_index?: number | null;
           mode: string;
           next_sequence?: number;
           optional_count?: number | null;
@@ -3642,6 +3648,9 @@ export type Database = {
           has_more?: boolean;
           id?: string;
           last_activity_at?: string;
+          local_fingerprint?: string | null;
+          local_session?: boolean;
+          local_start_index?: number | null;
           mode?: string;
           next_sequence?: number;
           optional_count?: number | null;
@@ -5937,6 +5946,30 @@ export type Database = {
           p_viewer_hash: string;
         };
         Returns: undefined;
+      };
+      record_word_study_observation_batch_v1: {
+        Args: {
+          p_device_id: string;
+          p_observations: Json;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      register_local_word_study_session_v1: {
+        Args: {
+          p_candidate_items: Json;
+          p_create_request_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_scope: Json;
+          p_seed: string;
+          p_session_id: string;
+          p_snapshot: Json;
+          p_start_index: number;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       record_study_observation_v1: {
         Args: {
