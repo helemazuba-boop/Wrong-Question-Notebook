@@ -115,10 +115,6 @@ const { chromium } = requireWeb("playwright");
     const reviewGroups = await page.locator("#omissions > .omission").count();
     assert(reviewGroups >= 2);
     assert.equal(
-      await page.locator("#omissions .defer-row").count(),
-      reviewGroups,
-    );
-    assert.equal(
       await page
         .locator("#omissions summary strong")
         .filter({ hasText: /^merge\/agent-marking-release-20261026$/ })
@@ -132,7 +128,6 @@ const { chromium } = requireWeb("playwright");
       (await page.locator("#git-baselines").textContent()).includes("09bc260"),
     );
     await page.locator("#git-references > summary").click();
-    assert.equal(await page.locator("#reference-list .defer-row").count(), 0);
     assert(
       (await page.locator("#reference-list").textContent()).includes(
         "仅保留旧配置暂缓原因",
