@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "request_id": "req_observation_batch_01",
+  "server_time_ms": 1762360000000,
+  "data": {
+    "session_id": "33333333-3333-4333-8333-333333333333",
+    "accepted": [
+      {
+        "request_id": "obs_longseq_request_0001",
+        "observation_id": "44444444-4444-4444-8444-444444444444",
+        "sequence": 0,
+        "replayed": false
+      },
+      {
+        "request_id": "obs_longseq_request_0002",
+        "observation_id": "44444444-4444-4444-8444-444444444445",
+        "sequence": 1,
+        "replayed": false
+      }
+    ],
+    "failure": null
+  }
+}
