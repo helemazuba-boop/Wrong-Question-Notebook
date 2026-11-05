@@ -1,0 +1,49 @@
+{
+  "ok": true,
+  "request_id": "receipt_query_word_0001",
+  "server_time_ms": 1793921158419,
+  "data": {
+    "actor": {
+      "user_id": "b8060000-0000-4000-8000-000000000001",
+      "device_id": "b8060000-0000-4000-8000-000000000010"
+    },
+    "read_at": "2026-11-05T23:25:58.419597+00:00",
+    "session": {
+      "mode": "sequential",
+      "domain": "word",
+      "status": "abandoned",
+      "expires_at": "2026-11-04T23:25:19.243538+00:00",
+      "session_id": "b8060000-0000-4000-8000-000000000020",
+      "next_sequence": 8
+    },
+    "contract": "outbox-reconciliation-v1",
+    "receipts": [
+      {
+        "state": "found",
+        "request_id": "receipt_word_original_01",
+        "observation": {
+          "mode": "sequential",
+          "action": "shown",
+          "item_id": "b8060000-0000-4000-8000-000000000200",
+          "sequence": 7,
+          "created_at": "2026-11-05T23:25:19.245795+00:00",
+          "request_id": "receipt_word_original_01",
+          "session_id": "b8060000-0000-4000-8000-000000000020",
+          "occurred_at": "2026-10-27T00:00:00+00:00",
+          "observation_id": "b8060000-0000-4000-8000-000000000100"
+        }
+      },
+      {
+        "state": "not_found",
+        "request_id": "receipt_missing_00001",
+        "observation": null
+      },
+      {
+        "state": "conflict",
+        "request_id": "receipt_other_session_01",
+        "observation": null
+      }
+    ],
+    "repair_authorized": false
+  }
+}

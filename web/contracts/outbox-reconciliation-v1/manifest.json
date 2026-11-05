@@ -1,0 +1,9 @@
+{
+  "contract": "outbox-reconciliation-v1",
+  "schema": "outbox-reconciliation-v1.schema.json",
+  "schema_sha256": "8d8f8f8ed86f94eb8cca0999be0a0e97b2ea727f72c496f61e6a5bf3bbe83d69",
+  "max_request_bytes": 16384,
+  "max_response_bytes": 65536,
+  "max_request_ids": 64,
+  "repair_authorized": false
+}
