@@ -36,6 +36,7 @@ grep -Fq 'mv -f -- "$temp" "$target"' "$DEPLOY_DIR/release-remote.sh"
 bash "$SCRIPT_DIR/release-env-policy.test.sh"
 bash "$SCRIPT_DIR/release-remote.test.sh"
 bash "$SCRIPT_DIR/supabase-push.test.sh"
+python3 "$SCRIPT_DIR/list-worktrees.test.py"
 python3 "$SCRIPT_DIR/update-env.test.py"
 python3 "$SCRIPT_DIR/ops.test.py" CloudTests GitTests CoordinatorTests BuildStreamTests BuildEngineTests
 

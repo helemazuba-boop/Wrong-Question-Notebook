@@ -17,15 +17,63 @@
 # deliberately bypassed.
 #
 # USAGE:
-#   ./deploy/supabase-push.sh                 # dry-run then apply
+#   ./deploy/supabase-push.sh                 # pick a worktree, dry-run, confirm, apply
+#   ./deploy/supabase-push.sh --tree PATH     # skip the menu, use this worktree
 #   ./deploy/supabase-push.sh --include-all   # include-all migrations
 #   ./deploy/supabase-push.sh --dry-run-only  # dry-run, do not apply
+#   ./deploy/supabase-push.sh --yes           # apply without the confirmation prompt
+#
+# The menu lists every worktree with its migration delta against the main
+# checkout, because a pushed migration cannot be rolled back the way a
+# published image can. The script only reads the selected tree's own
+# web/.env.production; it never copies credentials between worktrees.
 # ============================================================
 
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+EXTRA_ARGS=()
+DRY_RUN_ONLY=0
+ASSUME_YES=0
+TREE=""
+while (( $# )); do
+  case "$1" in
+    --tree)
+      if (( $# < 2 )) || [[ -z "$2" ]]; then
+        echo "ERROR: --tree needs a path" >&2
+        exit 1
+      fi
+      TREE="$2"; shift 2 ;;
+    --tree=*) TREE="${1#*=}"; shift ;;
+    --yes) ASSUME_YES=1; shift ;;
+    --include-all) EXTRA_ARGS+=(--include-all); shift ;;
+    --dry-run-only) DRY_RUN_ONLY=1; shift ;;
+    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+HELPER="$SCRIPT_DIR/list_worktrees.py"
+if [[ -z "$TREE" && -t 0 ]]; then
+  if [[ ! -f "$HELPER" ]]; then
+    echo "ERROR: worktree menu helper not found: $HELPER" >&2
+    exit 1
+  fi
+  python3 "$HELPER" --migrations || exit 1
+  printf '\nSelect tree [1]: '
+  IFS= read -r pick || exit 1
+  pick="${pick:-1}"
+  TREE="$(python3 "$HELPER" --resolve "$pick")" || exit 1
+  printf 'Selected: %s\n' "$TREE"
+fi
+
+if [[ -n "$TREE" ]]; then
+  [[ -d "$TREE" ]] || { echo "ERROR: worktree not found: $TREE" >&2; exit 1; }
+  TREE="$(cd "$TREE" && git rev-parse --show-toplevel)"
+  PROJECT_ROOT="$TREE"
+else
+  PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
 WEB_DIR="$PROJECT_ROOT/web"
 ENV_FILE="$WEB_DIR/.env.production"
 
@@ -35,18 +83,9 @@ if [[ ! -d "$WEB_DIR" ]]; then
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: production config not found: $ENV_FILE" >&2
+  echo "ERROR: put web/.env.production in the tree you push from; this script never copies it." >&2
   exit 1
 fi
-
-EXTRA_ARGS=()
-DRY_RUN_ONLY=0
-while (( $# )); do
-  case "$1" in
-    --include-all) EXTRA_ARGS+=(--include-all); shift ;;
-    --dry-run-only) DRY_RUN_ONLY=1; shift ;;
-    *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
-  esac
-done
 
 for command_name in psql python3 ssh supabase; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -185,6 +224,9 @@ trap 'exit 143' TERM
 
 echo "WQN Supabase migration deploy"
 echo "Web dir: $WEB_DIR"
+if [[ -n "$TREE" ]]; then
+  echo "Tree:    $TREE ($(git -C "$TREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'))"
+fi
 echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
 echo "Extra args: ${EXTRA_ARGS[*]:-}"
 if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
@@ -236,6 +278,22 @@ if (( DRY_RUN_ONLY )); then
   echo
   echo "Dry run complete. No migrations were applied."
   exit 0
+fi
+
+if (( ASSUME_YES == 0 )); then
+  echo
+  if [[ -t 0 ]]; then
+    printf 'Apply these migrations to PRODUCTION? type push to continue: '
+    IFS= read -r answer || exit 1
+    if [[ "$answer" != "push" ]]; then
+      echo "Aborted. No migrations were applied."
+      exit 1
+    fi
+  else
+    echo "ERROR: refusing to apply migrations on a non-interactive stdin without --yes." >&2
+    echo "ERROR: re-run with --yes, or use --dry-run-only to review only." >&2
+    exit 1
+  fi
 fi
 
 echo
