@@ -96,6 +96,38 @@ describe('study JSON Schema contracts', () => {
     expect(rootValidator.errors).toEqual(null);
   });
 
+  it('accepts long-sequence local session and observation batch wire shapes', () => {
+    const contract = contractValidator('word-study-v1');
+    contract.validate('localSessionRequest', 'local-session-request.json');
+    contract.validate('localSessionResponse', 'local-session-response.json');
+    contract.validate(
+      'observationBatchRequest',
+      'observation-batch-request.json'
+    );
+    contract.validate(
+      'observationBatchResponse',
+      'observation-batch-response.json'
+    );
+    contract.validate(
+      'observationBatchResponse',
+      'observation-batch-partial-response.json'
+    );
+
+    // The firmware-origin request anyOf grouping must keep the root oneOf
+    // unambiguous for both new request fixtures.
+    const ajv = new Ajv2020({ allErrors: true, strict: true });
+    addFormats(ajv);
+    const rootValidator = ajv.compile(contract.schema);
+    for (const name of [
+      'local-session-request.json',
+      'observation-batch-request.json',
+    ]) {
+      const request = loadJson(resolve(contract.root, 'fixtures/valid', name));
+      expect(rootValidator(request)).toBe(true);
+      expect(rootValidator.errors).toEqual(null);
+    }
+  });
+
   it('accepts the minimal note skip request', () => {
     contractValidator('note-study-v1').validate(
       'skipObservationRequest',

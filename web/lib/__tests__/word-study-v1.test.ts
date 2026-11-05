@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   WORD_STUDY_SCHEMA_SHA256,
   createWordStudySessionRequestSchema,
@@ -16,8 +17,23 @@ import {
   wordObservationSuccessSchema,
   wordSkipObservationRequestSchema,
 } from '../word-study-v1';
+import {
+  registerLocalWordStudySessionDataSchema,
+  registerLocalWordStudySessionRequestSchema,
+  wordObservationBatchDataSchema,
+  wordObservationBatchRequestSchema,
+} from '../word-study-longseq-v1';
 
 const contractRoot = resolve(process.cwd(), 'contracts/word-study-v1');
+
+function createV3EnvelopeSchema<T extends z.ZodType>(data: T) {
+  return z.strictObject({
+    ok: z.literal(true),
+    request_id: z.string(),
+    server_time_ms: z.number().int().nonnegative(),
+    data,
+  });
+}
 
 function fixture(path: string): unknown {
   return JSON.parse(readFileSync(resolve(contractRoot, path), 'utf8'));
@@ -53,6 +69,20 @@ describe('word study v1 contract', () => {
     ['skip-response.json', wordObservationSuccessSchema],
     ['manifest-request.json', wordManifestRequestSchema],
     ['manifest-response.json', wordManifestSuccessSchema],
+    ['local-session-request.json', registerLocalWordStudySessionRequestSchema],
+    [
+      'local-session-response.json',
+      createV3EnvelopeSchema(registerLocalWordStudySessionDataSchema),
+    ],
+    ['observation-batch-request.json', wordObservationBatchRequestSchema],
+    [
+      'observation-batch-response.json',
+      createV3EnvelopeSchema(wordObservationBatchDataSchema),
+    ],
+    [
+      'observation-batch-partial-response.json',
+      createV3EnvelopeSchema(wordObservationBatchDataSchema),
+    ],
   ])('accepts valid fixture %s', (name, schema) => {
     expect(schema.safeParse(fixture(`fixtures/valid/${name}`)).success).toBe(
       true
