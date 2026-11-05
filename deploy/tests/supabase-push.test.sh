@@ -155,28 +155,20 @@ grep -Fq 'never copies it' "$TMP_DIR/bare.output"
   exit 1
 }
 
-# applying on a non-interactive stdin without --yes stops after the dry run
+# the apply path runs through and re-checks the migration list afterwards
 : > "$WQN_TEST_CALLS"
-if bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" \
-    < /dev/null > "$TMP_DIR/gate.output" 2>&1; then
-  printf '%s\n' 'FAIL: migrations were applied without --yes on non-interactive stdin' >&2
-  exit 1
-fi
-grep -Fq 'refusing to apply migrations' "$TMP_DIR/gate.output"
-grep -Fq '<--dry-run>' "$WQN_TEST_CALLS"
-if grep -Eq '^supabase <db> <push> <--db-url> <[^>]*>$' "$WQN_TEST_CALLS"; then
-  printf '%s\n' 'FAIL: db push ran after the confirmation gate refused' >&2
-  exit 1
-fi
-
-# --yes applies and then re-checks the migration list
-: > "$WQN_TEST_CALLS"
-bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" --yes \
-  > "$TMP_DIR/apply.output"
+bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" \
+  < /dev/null > "$TMP_DIR/apply.output"
 grep -Eq '^supabase <db> <push> <--db-url> <[^>]*>$' "$WQN_TEST_CALLS"
 [[ "$(grep -c '<migration> <list>' "$WQN_TEST_CALLS")" == 2 ]] || {
-  printf '%s\n' 'FAIL: --yes did not re-check the migration list after applying' >&2
+  printf '%s\n' 'FAIL: apply did not re-check the migration list afterwards' >&2
   exit 1
 }
+
+# supabase db push already asks before applying; the wrapper must not ask twice
+if grep -Fq 'type push' "$DEPLOY_DIR/supabase-push.sh"; then
+  printf '%s\n' 'FAIL: supabase-push.sh duplicated the CLI confirmation prompt' >&2
+  exit 1
+fi
 
 printf '%s\n' 'PASS: supabase push routing and flags'

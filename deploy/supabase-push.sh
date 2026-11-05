@@ -17,17 +17,17 @@
 # deliberately bypassed.
 #
 # USAGE:
-#   ./deploy/supabase-push.sh                 # pick a worktree, dry-run, confirm, apply
+#   ./deploy/supabase-push.sh                 # pick a worktree, dry-run, apply
 #   ./deploy/supabase-push.sh --tree PATH     # skip the menu, use this worktree
 #   ./deploy/supabase-push.sh --include-all   # include-all migrations
 #   ./deploy/supabase-push.sh --dry-run-only  # dry-run, do not apply
-#   ./deploy/supabase-push.sh --yes           # apply without the confirmation prompt
 #
 # The menu lists every worktree with its migration delta against the main
 # checkout, because a pushed migration cannot be rolled back the way a
 # published image can. Migrations come from the selected tree; credentials
 # always come from the main checkout's web/.env.production, so a fresh
 # worktree needs no setup and no credential is ever copied between trees.
+# `supabase db push` asks for its own confirmation before applying.
 # ============================================================
 
 set -Eeuo pipefail
@@ -36,7 +36,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 EXTRA_ARGS=()
 DRY_RUN_ONLY=0
-ASSUME_YES=0
 TREE=""
 while (( $# )); do
   case "$1" in
@@ -47,7 +46,6 @@ while (( $# )); do
       fi
       TREE="$2"; shift 2 ;;
     --tree=*) TREE="${1#*=}"; shift ;;
-    --yes) ASSUME_YES=1; shift ;;
     --include-all) EXTRA_ARGS+=(--include-all); shift ;;
     --dry-run-only) DRY_RUN_ONLY=1; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
@@ -290,22 +288,6 @@ if (( DRY_RUN_ONLY )); then
   echo
   echo "Dry run complete. No migrations were applied."
   exit 0
-fi
-
-if (( ASSUME_YES == 0 )); then
-  echo
-  if [[ -t 0 ]]; then
-    printf 'Apply these migrations to PRODUCTION? type push to continue: '
-    IFS= read -r answer || exit 1
-    if [[ "$answer" != "push" ]]; then
-      echo "Aborted. No migrations were applied."
-      exit 1
-    fi
-  else
-    echo "ERROR: refusing to apply migrations on a non-interactive stdin without --yes." >&2
-    echo "ERROR: re-run with --yes, or use --dry-run-only to review only." >&2
-    exit 1
-  fi
 fi
 
 echo
