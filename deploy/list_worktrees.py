@@ -231,10 +231,10 @@ def plan(root: Path, migrations: bool = False) -> int:
         print("  dirty:   %d path(s) -- they WILL be published" % len(dirty))
     else:
         print("  dirty:   clean")
-    if (root / ENV_FILE).is_file():
+    if migrations:
+        print("  env:     always %s" % shorten(main_root() / ENV_FILE))
+    elif (root / ENV_FILE).is_file():
         print("  env:     %s present" % ENV_FILE)
-    elif migrations:
-        print("  env:     MISSING -- supabase-push.sh refuses to push from this tree")
     else:
         source = env_source()
         if source:
