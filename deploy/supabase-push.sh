@@ -25,8 +25,9 @@
 #
 # The menu lists every worktree with its migration delta against the main
 # checkout, because a pushed migration cannot be rolled back the way a
-# published image can. The script only reads the selected tree's own
-# web/.env.production; it never copies credentials between worktrees.
+# published image can. Migrations come from the selected tree; credentials
+# always come from the main checkout's web/.env.production, so a fresh
+# worktree needs no setup and no credential is ever copied between trees.
 # ============================================================
 
 set -Eeuo pipefail
@@ -75,15 +76,25 @@ else
   PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 fi
 WEB_DIR="$PROJECT_ROOT/web"
-ENV_FILE="$WEB_DIR/.env.production"
 
 if [[ ! -d "$WEB_DIR" ]]; then
   echo "ERROR: web dir not found: $WEB_DIR" >&2
   exit 1
 fi
+
+# Credentials come from the main checkout, never from the selected tree and
+# never by copying. Every worktree therefore pushes against the same reviewed
+# production URL, and a fresh worktree needs no setup.
+MAIN_TREE="$(git -C "$PROJECT_ROOT" worktree list --porcelain 2>/dev/null \
+  | sed -n '1s/^worktree //p' || true)"
+if [[ -z "$MAIN_TREE" ]]; then
+  MAIN_TREE="$PROJECT_ROOT"
+fi
+ENV_FILE="$MAIN_TREE/web/.env.production"
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: production config not found: $ENV_FILE" >&2
-  echo "ERROR: put web/.env.production in the tree you push from; this script never copies it." >&2
+  echo "ERROR: this is the main checkout's file; supabase-push.sh never copies it." >&2
   exit 1
 fi
 
@@ -174,6 +185,17 @@ TARGET_DB_HOST="${DB_ROUTE[0]:-}"
 TARGET_DB_PORT="${DB_ROUTE[1]:-}"
 [[ "$TARGET_DB_HOST" == "$LOCAL_DB_HOST" && "$TARGET_DB_PORT" == "$LOCAL_DB_PORT" ]] || exit 1
 
+echo "WQN Supabase migration deploy"
+echo "Web dir: $WEB_DIR"
+if [[ -n "$TREE" ]]; then
+  echo "Tree:    $TREE ($(git -C "$TREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'))"
+fi
+echo "Env file: $ENV_FILE"
+echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
+echo "Extra args: ${EXTRA_ARGS[*]:-}"
+if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
+echo
+
 echo "[tunnel] Resolving live $DATABASE_CONTAINER container IP through SSH $DATABASE_SSH_HOST"
 if ! RAW_CONTAINER_IPS="$(
   ssh "$DATABASE_SSH_HOST" \
@@ -221,16 +243,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-echo "WQN Supabase migration deploy"
-echo "Web dir: $WEB_DIR"
-if [[ -n "$TREE" ]]; then
-  echo "Tree:    $TREE ($(git -C "$TREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'))"
-fi
-echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
-echo "Extra args: ${EXTRA_ARGS[*]:-}"
-if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
-echo
 
 echo "[tunnel] Opening localhost PostgreSQL tunnel"
 ssh \
