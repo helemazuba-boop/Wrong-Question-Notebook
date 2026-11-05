@@ -5947,6 +5947,16 @@ export type Database = {
         };
         Returns: undefined;
       };
+      lookup_device_outbox_receipts_v1: {
+        Args: {
+          p_user_id: string;
+          p_device_id: string;
+          p_domain: string;
+          p_session_id: string;
+          p_request_ids: string[];
+        };
+        Returns: Json;
+      };
       record_word_study_observation_batch_v1: {
         Args: {
           p_device_id: string;

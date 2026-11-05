@@ -1,0 +1,14 @@
+{
+  "request_id": "receipt_query_note_0001",
+  "boot_id": "boot_receipt_fixture_0001",
+  "firmware_version": "0.1.0-test",
+  "capabilities": [
+    "outbox.receipts.v1"
+  ],
+  "contract": "outbox-reconciliation-v1",
+  "domain": "note",
+  "session_id": "b8060000-0000-4000-8000-000000000022",
+  "request_ids": [
+    "receipt_note_original_01"
+  ]
+}

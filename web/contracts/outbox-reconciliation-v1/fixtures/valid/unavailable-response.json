@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "request_id": "receipt_query_error_0001",
+  "error": {
+    "code": "OUTBOX_RECEIPTS_UNAVAILABLE",
+    "retryable": true,
+    "retry_after_ms": 5000
+  }
+}

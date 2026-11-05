@@ -1,0 +1,16 @@
+{
+  "request_id": "receipt_query_word_0001",
+  "boot_id": "boot_receipt_fixture_0001",
+  "firmware_version": "0.1.0-test",
+  "capabilities": [
+    "outbox.receipts.v1"
+  ],
+  "contract": "outbox-reconciliation-v1",
+  "domain": "word",
+  "session_id": "b8060000-0000-4000-8000-000000000020",
+  "request_ids": [
+    "receipt_word_original_01",
+    "receipt_missing_00001",
+    "receipt_other_session_01"
+  ]
+}

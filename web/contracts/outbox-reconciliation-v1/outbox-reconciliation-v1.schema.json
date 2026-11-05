@@ -1,0 +1,443 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wqn.helema.cn/contracts/outbox-reconciliation-v1/outbox-reconciliation-v1.schema.json",
+  "title": "WQN device outbox receipt evidence v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/success"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestMetadata": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "boot_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "contract",
+        "domain",
+        "session_id",
+        "request_ids"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "boot_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "contract": {
+          "const": "outbox-reconciliation-v1"
+        },
+        "domain": {
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/requestId"
+          }
+        }
+      }
+    },
+    "session": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "session_id",
+            "status",
+            "next_sequence",
+            "expires_at",
+            "domain",
+            "mode"
+          ],
+          "properties": {
+            "session_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "paused",
+                "completed",
+                "abandoned"
+              ]
+            },
+            "next_sequence": {
+              "$ref": "#/$defs/safeCounter"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "domain": {
+              "const": "word"
+            },
+            "mode": {
+              "enum": [
+                "sequential",
+                "random",
+                "dictionary",
+                "review",
+                "intake",
+                "shuffle",
+                "mistakes"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "session_id",
+            "status",
+            "next_sequence",
+            "expires_at",
+            "domain",
+            "mode"
+          ],
+          "properties": {
+            "session_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "paused",
+                "completed",
+                "abandoned"
+              ]
+            },
+            "next_sequence": {
+              "$ref": "#/$defs/safeCounter"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "domain": {
+              "const": "note"
+            },
+            "mode": {
+              "enum": [
+                "sequential",
+                "recent"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "request_id",
+        "session_id",
+        "sequence",
+        "item_id",
+        "action",
+        "mode",
+        "occurred_at",
+        "created_at"
+      ],
+      "properties": {
+        "observation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "session_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "sequence": {
+          "$ref": "#/$defs/safeCounter"
+        },
+        "item_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "action": {
+          "enum": [
+            "known",
+            "looked_up",
+            "opened",
+            "read_completed",
+            "revealed",
+            "session_paused",
+            "shown",
+            "skipped",
+            "unknown"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "dictionary",
+            "intake",
+            "mistakes",
+            "random",
+            "recent",
+            "review",
+            "sequential",
+            "shuffle"
+          ]
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "state",
+            "observation"
+          ],
+          "properties": {
+            "request_id": {
+              "$ref": "#/$defs/requestId"
+            },
+            "state": {
+              "const": "found"
+            },
+            "observation": {
+              "$ref": "#/$defs/observation"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "state",
+            "observation"
+          ],
+          "properties": {
+            "request_id": {
+              "$ref": "#/$defs/requestId"
+            },
+            "state": {
+              "enum": [
+                "not_found",
+                "conflict"
+              ]
+            },
+            "observation": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "read_at",
+        "actor",
+        "session",
+        "receipts",
+        "repair_authorized"
+      ],
+      "properties": {
+        "contract": {
+          "const": "outbox-reconciliation-v1"
+        },
+        "read_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "actor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user_id",
+            "device_id"
+          ],
+          "properties": {
+            "user_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "device_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        },
+        "session": {
+          "$ref": "#/$defs/session"
+        },
+        "receipts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/receipt"
+          }
+        },
+        "repair_authorized": {
+          "const": false
+        }
+      }
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "request_id",
+        "server_time_ms",
+        "data"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "server_time_ms": {
+          "$ref": "#/$defs/safeCounter"
+        },
+        "data": {
+          "$ref": "#/$defs/data"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "request_id",
+        "error"
+      ],
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "request_id": {
+          "$ref": "#/$defs/requestId"
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "retryable"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Z0-9_]+$"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retry_after_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000
+            }
+          }
+        }
+      }
+    }
+  }
+}
