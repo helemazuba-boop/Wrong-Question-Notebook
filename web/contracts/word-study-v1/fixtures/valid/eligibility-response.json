@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "request_id": "req_local_session_000001",
+  "server_time_ms": 1793923200000,
+  "data": {
+    "progress_revision": 41,
+    "item_ids_sha256": "769509fce9e1a99be4fb3e1f81f6b7f85c13374b1608d129147c24fb0e319162",
+    "mastered_bitmap": "01"
+  }
+}

@@ -122,10 +122,13 @@ snapshot: 1..32 packSnapshot objects, exact deck set equal to scope.deck_ids
 items: 1..500 sessionItem objects, ordinal exactly 0..n-1, unique item_id
 ```
 
-`domain`, `mode`, `purpose`, `ordering`, and `candidate_policy_version` are
-**not sent**. The server fixes them to `word`, `sequential`, `study`,
-`sequential`, and `sequential_v1` respectively. The schema forbids extra
-properties, so firmware must not send a legacy session shape to this endpoint.
+Legacy sequential requests omit `domain`, `mode`, `purpose`, `ordering`, and
+`candidate_policy_version`. Their existing registration RPC and semantic
+fingerprints stay unchanged. Shuffle requests additionally declare
+`mode: "shuffle"`, `progress_revision`, and `scope.include_mastered: false`.
+The server derives `word/study/pure_random_v1` and binds mode plus progress
+revision into the v2 fingerprint. Other local modes and inconsistent scope
+flags are rejected. Offline does not add a learning mode or a separate UI entry.
 The server pins `optional_count` to `items.length`, retains ordinary
 `candidate_items`, and never abandons other active sessions.
 
@@ -163,3 +166,42 @@ first word of a new round. The v1 200-byte observation format is unchanged,
 with capacity 8192, enough for 7014 revealed/known facts over 3507 words.
 This section and the byte-identical schema/fixtures are the field source of
 truth for both implementations.
+
+
+## Personal eligibility cache
+
+`POST /api/esp32/v3/words/eligibility` requires the same authenticated device
+context and a complete `snapshot` (1..32 exact historical READY pack pins).
+The bounded request and response are at most 16 KiB. A read-only STABLE database
+function validates device ownership and deck visibility, then returns one
+complete snapshot: `progress_revision`, `item_ids_sha256`, `mastered_bitmap`.
+This does not create learning observations or run a progress projector.
+
+Items are sorted by UUID bytes. `item_ids_sha256` hashes their lowercase UUID
+strings joined by a single LF, with no trailing LF. Each bitmap character is
+`1` for a mastered word, `0` otherwise; 1..10000 bits are allowed. The firmware
+checks the digest against its exact pinned item set before assigning any bit.
+A same-size replacement set cannot reuse the old bitmap. Shared content packs
+remain free of personal learning data.
+
+The latest complete cache is reusable offline for its actor, pack pins and
+scope. Before publishing the first random segment, the device stores a CRC
+protected immutable per-round copy and pins its revision and seed. Every
+segment sorts the same eligible set by the existing FNV-1a-64 policy before
+slicing, so neither a reboot nor a background progress update reshuffles it.
+New rounds may refresh the snapshot; individual known/unknown facts remain
+outbox records and do not independently claim a word is mastered.
+
+The firmware cache uses an independent `WQEL` v1 file family, bounded to 20 KiB
+per file. It retains the full round UUID, pairing-token SHA binding (never the
+token), scope generation, pack pins, progress revision, item digest and bitmap.
+The current and backup shuffle slots retain their round caches. Garbage
+collection validates an unreferenced cache before removing its family; unknown
+or corrupt files stop cleanup. Missing/invalid cache does not imply an all-new
+word set. Session v4 and 200-byte observation v1 encodings stay unchanged.
+
+The Note4 home retains its original three rows and typography. Sequential
+study uses the existing completion-page action, including an honest offline
+queue-unavailable state; shuffle uses the existing random entry. Both share the
+same worker/store/outbox lifecycle. Physical power-loss, SPIFFS pressure and
+EPD acceptance remain device HIL requirements.
