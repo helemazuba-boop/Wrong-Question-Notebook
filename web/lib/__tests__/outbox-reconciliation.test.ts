@@ -109,7 +109,7 @@ function request(
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   _resetRateLimitStore();
   authenticate.mockResolvedValue({ userId: USER, deviceId: DEVICE });
   rpc.mockReturnValue({ abortSignal: abort });
@@ -141,6 +141,25 @@ describe('read-only outbox receipt route', () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     await POST(request());
     expect(timeout).toHaveBeenCalledWith(OUTBOX_RECEIPTS_RPC_TIMEOUT_MS);
+  });
+
+  it('accepts historical PostgreSQL/native UUID text including the default user', async () => {
+    const legacyUser = '00000000-0000-0000-0000-000000000001';
+    const legacySession = '11111111-1111-1111-1111-111111111111';
+    const data = canonical();
+    data.actor.user_id = legacyUser;
+    data.session.session_id = legacySession;
+    data.receipts[0].observation!.session_id = legacySession;
+    data.receipts[0].observation!.item_id =
+      '22222222-2222-2222-2222-222222222222';
+    authenticate.mockResolvedValueOnce({
+      userId: legacyUser,
+      deviceId: DEVICE,
+    });
+    abort.mockResolvedValueOnce({ data, error: null });
+    expect(
+      (await POST(request({ ...query(), session_id: legacySession }))).status
+    ).toBe(200);
   });
 
   it('compares UUID identity independently of hex letter case', async () => {
@@ -211,6 +230,7 @@ describe('read-only outbox receipt route', () => {
     { repair_authorized: true },
     { domain: 'problem' },
     { session_id: 'not-a-uuid' },
+    { session_id: SESSION + '\n' },
     { request_ids: [] },
     { request_ids: [ORIGINAL, ORIGINAL] },
     { request_ids: ['unsafe/request_00001'] },
