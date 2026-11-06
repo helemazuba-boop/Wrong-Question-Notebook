@@ -23,11 +23,17 @@ const requestId = z
   .max(64)
   .regex(/^[A-Za-z0-9_-]+$/);
 const timestamp = z.string().datetime({ offset: true });
+// PostgreSQL and the native persistent codecs also retain historical UUID
+// text without RFC version/variant bits (including the default user ...001).
+const uuid = z
+  .string()
+  .length(36)
+  .regex(/^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/);
 
 export const outboxReceiptRequestSchema = requestMetadataSchema.extend({
   contract: z.literal(OUTBOX_RECONCILIATION_CONTRACT),
   domain: z.enum(['word', 'note']),
-  session_id: z.uuid(),
+  session_id: uuid,
   request_ids: z
     .array(requestId)
     .min(1)
@@ -39,7 +45,7 @@ export const outboxReceiptRequestSchema = requestMetadataSchema.extend({
 });
 
 const sessionFields = {
-  session_id: z.uuid(),
+  session_id: uuid,
   status: z.enum(['active', 'paused', 'completed', 'abandoned']),
   next_sequence: counter,
   expires_at: timestamp,
@@ -59,11 +65,11 @@ const session = z.discriminatedUnion('domain', [
 ]);
 
 const observation = z.strictObject({
-  observation_id: z.uuid(),
+  observation_id: uuid,
   request_id: requestId,
-  session_id: z.uuid(),
+  session_id: uuid,
   sequence: counter,
-  item_id: z.uuid(),
+  item_id: uuid,
   action: z.union([wordObservationActionSchema, noteObservationActionSchema]),
   mode: z.union([wordStudyModeSchema, noteStudyModeSchema]),
   occurred_at: timestamp,
@@ -73,7 +79,7 @@ const observation = z.strictObject({
 export const outboxReceiptDataSchema = z.strictObject({
   contract: z.literal(OUTBOX_RECONCILIATION_CONTRACT),
   read_at: timestamp,
-  actor: z.strictObject({ user_id: z.uuid(), device_id: z.uuid() }),
+  actor: z.strictObject({ user_id: uuid, device_id: uuid }),
   session,
   receipts: z
     .array(
