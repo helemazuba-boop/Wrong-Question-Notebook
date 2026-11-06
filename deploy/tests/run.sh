@@ -15,6 +15,9 @@ do
   bash -n "$script"
 done
 
+python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" \
+  "$DEPLOY_DIR/list_worktrees.py"
+
 if grep -R -n --exclude-dir=tests --include='*.sh' --include='*.bat' \
     -- '--linked' "$DEPLOY_DIR"; then
   printf '%s\n' 'FAIL: executable deployment path still contains --linked' >&2
@@ -33,6 +36,7 @@ grep -Fq 'mv -f -- "$temp" "$target"' "$DEPLOY_DIR/release-remote.sh"
 bash "$SCRIPT_DIR/release-env-policy.test.sh"
 bash "$SCRIPT_DIR/release-remote.test.sh"
 bash "$SCRIPT_DIR/supabase-push.test.sh"
+python3 "$SCRIPT_DIR/list-worktrees.test.py"
 python3 "$SCRIPT_DIR/update-env.test.py"
 python3 "$SCRIPT_DIR/ops.test.py" CloudTests GitTests CoordinatorTests BuildStreamTests BuildEngineTests
 

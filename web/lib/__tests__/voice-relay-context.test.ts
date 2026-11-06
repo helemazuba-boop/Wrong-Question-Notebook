@@ -48,7 +48,11 @@ const receipt = {
   data: { note: { id: 'saved-note' } },
   action: null,
 };
-function setup(upstreamUrl = 'wss://api.stepfun.com/v1/realtime') {
+function setup(
+  upstreamUrl = 'wss://api.stepfun.com/v1/realtime',
+  businessTools = true,
+  webSearchEnabled?: boolean
+) {
   const device = new Socket(),
     upstream = new Socket();
   context.mockResolvedValue(first);
@@ -64,9 +68,12 @@ function setup(upstreamUrl = 'wss://api.stepfun.com/v1/realtime') {
         url: upstreamUrl,
         apiKey: '',
         model: 'stepaudio-3-realtime-preview',
+        webSearchEnabled,
       },
-      executeToolUrl: 'https://wqn.test/api/esp32/ai/execute-tool',
-      proxySecret: 'secret',
+      executeToolUrl: businessTools
+        ? 'https://wqn.test/api/esp32/ai/execute-tool'
+        : '',
+      proxySecret: businessTools ? 'secret' : '',
       transcribeChatUrl: '',
       agentTranscribeUrl: '',
       realtimeEnabled: true,
@@ -122,6 +129,82 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Flash configuration, response and tool ownership', () => {
+  it.each([true, false])(
+    'keeps native web search through configuration and response with business tools=%s',
+    async businessTools => {
+      const h = setup('wss://api.stepfun.com/v1/realtime', businessTools, true);
+      await h.configure();
+      await h.start('provider-search-response');
+      const updates = h.upstream
+        .events()
+        .filter(event => event.type === 'session.update');
+      expect(updates).toHaveLength(businessTools ? 2 : 1);
+      for (const update of updates) {
+        expect(update.session.tools).toContainEqual({ type: 'web_search' });
+        expect(
+          update.session.tools.filter(
+            (tool: { type: string }) => tool.type === 'function'
+          )
+        ).toHaveLength(businessTools ? 8 : 0);
+      }
+      // This is the observed provider-managed response shape. The probe had
+      // no client function_call roundtrip; a model-attributed source is not
+      // independent evidence of actual internet retrieval.
+      h.provider({
+        type: 'response.text.done',
+        response_id: 'provider-search-response',
+        text: '公开信息与来源',
+      });
+      h.provider({
+        type: 'response.done',
+        response: {
+          id: 'provider-search-response',
+          status: 'completed',
+          output: [{ type: 'message', status: 'completed' }],
+        },
+      });
+      await settle();
+      expect(execute).not.toHaveBeenCalled();
+      expect(h.device.events()).toContainEqual(
+        expect.objectContaining({
+          type: 'text.complete',
+          text: '公开信息与来源',
+        })
+      );
+      expect(h.device.events()).toContainEqual(
+        expect.objectContaining({ type: 'turn.done', status: 'completed' })
+      );
+    }
+  );
+
+  it.each([true, false])(
+    'keeps paid search off at startup and per-turn refresh with business tools=%s',
+    async businessTools => {
+      const h = setup('wss://api.stepfun.com/v1/realtime', businessTools);
+      h.frame({
+        type: 'session.update',
+        session: {
+          instructions: 'base',
+          tools: [{ type: 'web_search' }],
+          webSearchEnabled: true,
+        },
+      });
+      await settle();
+      h.ack();
+      await settle();
+      await h.start('search-disabled-response');
+      const updates = h.upstream
+        .events()
+        .filter(event => event.type === 'session.update');
+      expect(updates).toHaveLength(businessTools ? 2 : 1);
+      for (const update of updates) {
+        expect(update.session.tools).not.toContainEqual({ type: 'web_search' });
+        expect(update.session.tools).toHaveLength(businessTools ? 8 : 0);
+      }
+      expect(execute).not.toHaveBeenCalled();
+    }
+  );
+
   it('binds the latest cumulative ASR snapshot at commit and never appends revisions or overwrites completed text', async () => {
     const h = setup();
     await h.configure();
@@ -523,6 +606,7 @@ describe('Flash configuration, response and tool ownership', () => {
     const update = h.upstream.events()[0];
     expect(update.wqn).toBeUndefined();
     expect(update.session.tools).toHaveLength(8);
+    expect(update.session.tools).not.toContainEqual({ type: 'web_search' });
     expect(update.session.instructions).toContain('notebook-1');
     expect(update.session.turn_detection).toBeNull();
     h.provider({ type: 'session.created', session: {} });

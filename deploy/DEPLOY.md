@@ -103,11 +103,8 @@ ACR_PASSWORD=your-acr-password       # 你在 ACR 里设置的固定密码
 # 构建推送后自动部署到 SSH Host `aliyun`
 .\deploy\build-and-push.ps1 -DeployAliyun
 
-# 或使用双击友好的 bat 入口，默认会构建、推送并部署到 SSH Host `aliyun`
-.\deploy\build.bat
-
-# bat 入口带其他参数时仍会默认部署到阿里云
-.\deploy\build.bat -Tag "v1.0.0"
+# 或使用双击友好的 bat 入口：选 worktree，然后构建、推送并部署到 SSH Host `aliyun`
+.\deploy\web-deploy.bat
 ```
 
 ### 可选：自动推送到阿里云 ECS
@@ -121,7 +118,7 @@ Host aliyun
     IdentityFile ~/.ssh/your-key.pem
 ```
 
-带 `-DeployAliyun` 参数时（或直接运行 `deploy\build.bat` 时），脚本会在镜像推送成功后执行远程部署：
+带 `-DeployAliyun` 参数时（或通过 `deploy\web-deploy.bat` 发布时），脚本会在镜像推送成功后执行远程部署：
 
 ```bash
 docker pull <本次构建的镜像>
@@ -170,7 +167,7 @@ nano .env.production   # 填写真实值
 必需的配置项：
 
 ```bash
-# ACR 凭证（deploy.sh 用来登录和拉取镜像）
+# ACR 凭证（部署时用来登录和拉取镜像）
 ACR_SERVER=registry.cn-hangzhou.aliyuncs.com
 ACR_NAMESPACE=your-namespace
 ACR_REPO=wqn
@@ -195,34 +192,13 @@ GEMINI_API_KEY=your-gemini-api-key
 SITE_URL=https://your-domain.com
 ```
 
-### 3.2 部署脚本（推荐方式）
+### 3.2 部署由发布主机驱动
 
-在目标机器上运行：
+不再需要把 `deploy` 目录同步到目标机器上执行脚本：发布主机通过 SSH 直接完成
+（`deploy\web-deploy.bat` → `deploy/release.sh` → ECS 上的 `deploy/release-remote.sh`）。
+目标机器只需要 Docker、ACR 登录凭证和 `wqn-runtime` 网络。
 
-```bash
-# 下载/同步 deploy 目录（包含 deploy.sh、docker-compose.yml、.env.production）
-# 假设你已通过 scp/sync 将项目同步到目标机器
-
-cd /path/to/deploy
-
-# 首次部署
-./deploy.sh
-
-# 查看日志
-./deploy.sh --logs
-
-# 查看状态
-./deploy.sh --status
-
-# 停止服务
-./deploy.sh --stop
-
-# 重启服务
-./deploy.sh --restart
-
-# 仅拉取镜像
-./deploy.sh --pull-only
-```
+回滚不需要额外机制：ACR 保留每一次发布推送过的镜像，用旧 tag 重新发布即可。
 
 ### 3.3 手动 Docker 部署（备用）
 

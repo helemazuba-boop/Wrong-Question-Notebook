@@ -40,6 +40,45 @@ function contractValidator(
 
 describe('study JSON Schema contracts', () => {
   it.each([
+    ['localSessionRequest', 'local-session-shuffle-request.json'],
+    ['eligibilityRequest', 'eligibility-request.json'],
+    ['eligibilityResponse', 'eligibility-response.json'],
+  ])(
+    'accepts strict Word eligibility/shuffle contract %s',
+    (definition, fixture) => {
+      contractValidator('word-study-v1').validate(definition, fixture);
+    }
+  );
+
+  it.each(['missing-revision', 'include-mastered', 'legacy-revision'])(
+    'rejects invalid local shuffle semantics: %s',
+    scenario => {
+      const contract = contractValidator('word-study-v1');
+      const ajv = new Ajv2020({ allErrors: true, strict: true });
+      addFormats(ajv);
+      ajv.addSchema(contract.schema);
+      const validate = ajv.getSchema(
+        `${contract.schema.$id}#/$defs/localSessionRequest`
+      )!;
+      const payload = loadJson(
+        resolve(
+          contract.root,
+          'fixtures/valid/local-session-shuffle-request.json'
+        )
+      ) as Record<string, unknown>;
+      if (scenario === 'missing-revision') delete payload.progress_revision;
+      if (scenario === 'include-mastered') {
+        (payload.scope as Record<string, unknown>).include_mastered = true;
+      }
+      if (scenario === 'legacy-revision') {
+        delete payload.mode;
+        (payload.scope as Record<string, unknown>).include_mastered = true;
+      }
+      expect(validate(payload)).toBe(false);
+    }
+  );
+
+  it.each([
     'candidate-page-request.json',
     'manifest-request.json',
     'observation-request.json',

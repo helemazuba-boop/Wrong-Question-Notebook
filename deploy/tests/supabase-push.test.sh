@@ -51,6 +51,15 @@ TARGET_DATABASE_URL=$DB_URL
 EOF
 chmod 600 "$TMP_DIR/repo/web/.env.production"
 
+# A main checkout plus one linked worktree, so the tests can prove that
+# credentials come from the main checkout rather than the selected tree.
+printf '%s\n' 'web/.env.production' > "$TMP_DIR/repo/.gitignore"
+printf '{}\n' > "$TMP_DIR/repo/web/package.json"
+git -C "$TMP_DIR/repo" init -q
+git -C "$TMP_DIR/repo" -c user.email=test@example.invalid -c user.name=test add -A
+git -C "$TMP_DIR/repo" -c user.email=test@example.invalid -c user.name=test commit -q -m fixture
+git -C "$TMP_DIR/repo" worktree add -q -b other "$TMP_DIR/other"
+
 export WQN_TEST_CALLS="$TMP_DIR/supabase.calls"
 export WQN_TEST_SSH_CALLS="$TMP_DIR/ssh.calls"
 export WQN_TEST_PSQL_CALLS="$TMP_DIR/psql.calls"
@@ -118,6 +127,47 @@ if bash "$TMP_DIR/repo/deploy/supabase-push.sh" --dry-run-only \
 fi
 if grep -Fq '<-L>' "$WQN_TEST_SSH_CALLS"; then
   printf '%s\n' 'FAIL: tunnel opened after invalid supabase-db inspection' >&2
+  exit 1
+fi
+
+# --tree: push from a linked worktree, taking credentials from the main checkout
+unset WQN_TEST_CONTAINER_IP
+: > "$WQN_TEST_CALLS"
+bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" --dry-run-only \
+  > "$TMP_DIR/tree.output"
+grep -Fq "Web dir: $TMP_DIR/other/web" "$TMP_DIR/tree.output"
+grep -Fq "Tree:    $TMP_DIR/other" "$TMP_DIR/tree.output"
+grep -Fq "Env file: $TMP_DIR/repo/web/.env.production" "$TMP_DIR/tree.output"
+grep -Fq 'supabase <migration> <list>' "$WQN_TEST_CALLS"
+
+# a standalone checkout without its own web/.env.production is refused before SSH
+mkdir -p "$TMP_DIR/bare/web"
+git -C "$TMP_DIR/bare" init -q
+: > "$WQN_TEST_SSH_CALLS"
+if bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/bare" --dry-run-only \
+    > "$TMP_DIR/bare.output" 2>&1; then
+  printf '%s\n' 'FAIL: a checkout without web/.env.production was accepted' >&2
+  exit 1
+fi
+grep -Fq 'never copies it' "$TMP_DIR/bare.output"
+[[ ! -s "$WQN_TEST_SSH_CALLS" ]] || {
+  printf '%s\n' 'FAIL: SSH started for a checkout without any env file' >&2
+  exit 1
+}
+
+# the apply path runs through and re-checks the migration list afterwards
+: > "$WQN_TEST_CALLS"
+bash "$TMP_DIR/repo/deploy/supabase-push.sh" --tree "$TMP_DIR/other" \
+  < /dev/null > "$TMP_DIR/apply.output"
+grep -Eq '^supabase <db> <push> <--db-url> <[^>]*>$' "$WQN_TEST_CALLS"
+[[ "$(grep -c '<migration> <list>' "$WQN_TEST_CALLS")" == 2 ]] || {
+  printf '%s\n' 'FAIL: apply did not re-check the migration list afterwards' >&2
+  exit 1
+}
+
+# supabase db push already asks before applying; the wrapper must not ask twice
+if grep -Fq 'type push' "$DEPLOY_DIR/supabase-push.sh"; then
+  printf '%s\n' 'FAIL: supabase-push.sh duplicated the CLI confirmation prompt' >&2
   exit 1
 fi
 

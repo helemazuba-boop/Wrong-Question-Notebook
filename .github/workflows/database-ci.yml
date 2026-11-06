@@ -2,7 +2,7 @@ name: Database CI
 on:
   pull_request:
   push:
-    branches: [main, release/note-baseline-prod, "ci/**"]
+    branches: [main, release/note-baseline-prod, "validation/note4", "ci/**"]
   schedule:
     - cron: "0 19 * * *"
   workflow_dispatch:

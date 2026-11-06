@@ -733,16 +733,6 @@ main {
 .omission .timeline {
   margin-bottom: 18px;
 }
-.defer-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.defer-row input {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-}
 .pr-note {
   font-size: 12px;
   color: var(--blue);
@@ -1252,12 +1242,6 @@ dialog h2 {
   .log-controls .follow {
     flex: 0;
     min-width: 90px;
-  }
-  .defer-row {
-    flex-wrap: wrap;
-  }
-  .defer-row input {
-    flex-basis: 100%;
   }
   .omission summary {
     padding: 15px;

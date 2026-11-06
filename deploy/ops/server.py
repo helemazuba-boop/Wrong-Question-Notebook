@@ -126,7 +126,7 @@ class Console:
                         raise core.OpsError('环境配置已经变化，请重新生成计划')
                     del self.plans[plan_id]
             if local:
-                opts = dict(local['options'], defer_reason=body.get('defer_reason'))
+                opts = dict(local['options'])
                 return self.job(lambda callback: core.release(**opts, callback=callback))
             if not isinstance(plan_id, str) or not core.re.fullmatch(r'[a-f0-9]{32}', plan_id):
                 raise core.OpsError('无效的计划 ID')

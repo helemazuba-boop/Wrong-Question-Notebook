@@ -17,36 +17,84 @@
 # deliberately bypassed.
 #
 # USAGE:
-#   ./deploy/supabase-push.sh                 # dry-run then apply
+#   ./deploy/supabase-push.sh                 # pick a worktree, dry-run, apply
+#   ./deploy/supabase-push.sh --tree PATH     # skip the menu, use this worktree
 #   ./deploy/supabase-push.sh --include-all   # include-all migrations
 #   ./deploy/supabase-push.sh --dry-run-only  # dry-run, do not apply
+#
+# The menu lists every worktree with its migration delta against the main
+# checkout, because a pushed migration cannot be rolled back the way a
+# published image can. Migrations come from the selected tree; credentials
+# always come from the main checkout's web/.env.production, so a fresh
+# worktree needs no setup and no credential is ever copied between trees.
+# `supabase db push` asks for its own confirmation before applying.
 # ============================================================
 
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-WEB_DIR="$PROJECT_ROOT/web"
-ENV_FILE="$WEB_DIR/.env.production"
-
-if [[ ! -d "$WEB_DIR" ]]; then
-  echo "ERROR: web dir not found: $WEB_DIR" >&2
-  exit 1
-fi
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "ERROR: production config not found: $ENV_FILE" >&2
-  exit 1
-fi
 
 EXTRA_ARGS=()
 DRY_RUN_ONLY=0
+TREE=""
 while (( $# )); do
   case "$1" in
+    --tree)
+      if (( $# < 2 )) || [[ -z "$2" ]]; then
+        echo "ERROR: --tree needs a path" >&2
+        exit 1
+      fi
+      TREE="$2"; shift 2 ;;
+    --tree=*) TREE="${1#*=}"; shift ;;
     --include-all) EXTRA_ARGS+=(--include-all); shift ;;
     --dry-run-only) DRY_RUN_ONLY=1; shift ;;
     *) echo "ERROR: Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+HELPER="$SCRIPT_DIR/list_worktrees.py"
+if [[ -z "$TREE" && -t 0 ]]; then
+  if [[ ! -f "$HELPER" ]]; then
+    echo "ERROR: worktree menu helper not found: $HELPER" >&2
+    exit 1
+  fi
+  python3 "$HELPER" --migrations || exit 1
+  printf '\nSelect tree [1]: '
+  IFS= read -r pick || exit 1
+  pick="${pick:-1}"
+  TREE="$(python3 "$HELPER" --resolve "$pick")" || exit 1
+  printf 'Selected: %s\n' "$TREE"
+fi
+
+if [[ -n "$TREE" ]]; then
+  [[ -d "$TREE" ]] || { echo "ERROR: worktree not found: $TREE" >&2; exit 1; }
+  TREE="$(cd "$TREE" && git rev-parse --show-toplevel)"
+  PROJECT_ROOT="$TREE"
+else
+  PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+WEB_DIR="$PROJECT_ROOT/web"
+
+if [[ ! -d "$WEB_DIR" ]]; then
+  echo "ERROR: web dir not found: $WEB_DIR" >&2
+  exit 1
+fi
+
+# Credentials come from the main checkout, never from the selected tree and
+# never by copying. Every worktree therefore pushes against the same reviewed
+# production URL, and a fresh worktree needs no setup.
+MAIN_TREE="$(git -C "$PROJECT_ROOT" worktree list --porcelain 2>/dev/null \
+  | sed -n '1s/^worktree //p' || true)"
+if [[ -z "$MAIN_TREE" ]]; then
+  MAIN_TREE="$PROJECT_ROOT"
+fi
+ENV_FILE="$MAIN_TREE/web/.env.production"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERROR: production config not found: $ENV_FILE" >&2
+  echo "ERROR: this is the main checkout's file; supabase-push.sh never copies it." >&2
+  exit 1
+fi
 
 for command_name in psql python3 ssh supabase; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -135,6 +183,17 @@ TARGET_DB_HOST="${DB_ROUTE[0]:-}"
 TARGET_DB_PORT="${DB_ROUTE[1]:-}"
 [[ "$TARGET_DB_HOST" == "$LOCAL_DB_HOST" && "$TARGET_DB_PORT" == "$LOCAL_DB_PORT" ]] || exit 1
 
+echo "WQN Supabase migration deploy"
+echo "Web dir: $WEB_DIR"
+if [[ -n "$TREE" ]]; then
+  echo "Tree:    $TREE ($(git -C "$TREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'))"
+fi
+echo "Env file: $ENV_FILE"
+echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
+echo "Extra args: ${EXTRA_ARGS[*]:-}"
+if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
+echo
+
 echo "[tunnel] Resolving live $DATABASE_CONTAINER container IP through SSH $DATABASE_SSH_HOST"
 if ! RAW_CONTAINER_IPS="$(
   ssh "$DATABASE_SSH_HOST" \
@@ -182,13 +241,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-echo "WQN Supabase migration deploy"
-echo "Web dir: $WEB_DIR"
-echo "Database route: $LOCAL_DB_HOST:$LOCAL_DB_PORT -> SSH $DATABASE_SSH_HOST -> $DATABASE_CONTAINER:$REMOTE_DB_PORT"
-echo "Extra args: ${EXTRA_ARGS[*]:-}"
-if (( DRY_RUN_ONLY )); then echo "Mode: dry-run only"; fi
-echo
 
 echo "[tunnel] Opening localhost PostgreSQL tunnel"
 ssh \

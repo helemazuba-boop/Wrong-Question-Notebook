@@ -6,7 +6,11 @@ import {
   decodeVoiceV2Audio,
   decodeWflvAudio,
 } from '../../server/realtime-proxy/src/frameIo.ts';
-import { STD_PRO_SAMPLE_RATE_HZ } from '../../server/realtime-proxy/src/types.ts';
+import {
+  MAX_STD_PRO_PCM_BYTES,
+  STD_PRO_SAMPLE_RATE_HZ,
+} from '../../server/realtime-proxy/src/types.ts';
+import { MAX_AUDIO_BODY_BYTES } from '../esp32-ai-audio-contract.ts';
 
 class MockDeviceWs extends EventEmitter {
   public sent: string[] = [];
@@ -857,6 +861,129 @@ describe('batchVoiceRelay', () => {
     await ws.emit('message', finalFrame, true);
     await new Promise(res => setTimeout(res, 20));
 
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a 60s turn at the maximum PCM body size', async () => {
+    const ws = new MockDeviceWs();
+    let bodySent: Buffer | null = null;
+    let headersSent: Record<string, string> = {};
+
+    global.fetch = vi.fn().mockImplementation(async (_url, options) => {
+      bodySent = options.body;
+      headersSent = options.headers;
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(Buffer.from('event: turn.done\ndata: {}\n\n'));
+          controller.close();
+        },
+      });
+      return { ok: true, body: stream };
+    });
+
+    await handleBatchVoiceConnection(
+      ws as any,
+      mockDevice,
+      mockReq,
+      mockConfig
+    );
+
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'voice.turn.start',
+          request_id: 'req-60s',
+          tier: 'pro',
+        })
+      ),
+      false
+    );
+
+    // 60 frames x 32000 B = 1_920_000 B = exactly 60s of 16 kHz s16le.
+    const pcmChunk = Buffer.alloc(32000, 0x12);
+    for (let seq = 0; seq < 60; seq++) {
+      ws.emit(
+        'message',
+        encodeVoiceV2Audio({
+          pcm: pcmChunk,
+          seq,
+          sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+          streaming: true,
+        }),
+        true
+      );
+    }
+    await ws.emit(
+      'message',
+      encodeVoiceV2Audio({
+        pcm: Buffer.alloc(0),
+        seq: 60,
+        sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+        final: true,
+      }),
+      true
+    );
+    await new Promise(res => setTimeout(res, 50));
+
+    expect(MAX_STD_PRO_PCM_BYTES).toBe(MAX_AUDIO_BODY_BYTES);
+    expect(MAX_STD_PRO_PCM_BYTES).toBe(1_924_096);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(headersSent['x-wqn-audio-duration-ms']).toBe('60000');
+    expect((bodySent as unknown as Buffer).length).toBe(1_920_000);
+  });
+
+  it('rejects a turn that exceeds the 60s PCM limit without dispatching', async () => {
+    const ws = new MockDeviceWs();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await handleBatchVoiceConnection(
+      ws as any,
+      mockDevice,
+      mockReq,
+      mockConfig
+    );
+
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'voice.turn.start',
+          request_id: 'req-60s-over',
+          tier: 'pro',
+        })
+      ),
+      false
+    );
+
+    const pcmChunk = Buffer.alloc(32000, 0x12);
+    for (let seq = 0; seq < 60; seq++) {
+      ws.emit(
+        'message',
+        encodeVoiceV2Audio({
+          pcm: pcmChunk,
+          seq,
+          sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+          streaming: true,
+        }),
+        true
+      );
+    }
+    // Two bytes past MAX_STD_PRO_PCM_BYTES (1_920_000 + 4_098 = 1_924_098).
+    await ws.emit(
+      'message',
+      encodeVoiceV2Audio({
+        pcm: Buffer.alloc(4098, 0x12),
+        seq: 60,
+        sampleRate: STD_PRO_SAMPLE_RATE_HZ,
+        streaming: true,
+      }),
+      true
+    );
+    await new Promise(res => setTimeout(res, 20));
+
+    expect(ws.sent.some(s => s.includes('too_large'))).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

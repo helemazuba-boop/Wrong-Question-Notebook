@@ -45,7 +45,6 @@ def main(argv=None):
     release.add_argument('--no-deploy', '-NoDeploy', action='store_true')
     release.add_argument('--engine', choices=['native', 'powershell'], default='native')
     release.add_argument('--yes', action='store_true')
-    release.add_argument('--defer-reason')
     release.add_argument('--no-build-proxy', action='store_true')
     release.add_argument('--use-default-builder', action='store_true')
     release.add_argument('--recreate-builders', action='store_true')
@@ -127,7 +126,7 @@ def main(argv=None):
             result = core.release(ref=args.ref, host=args.ssh_host,
                                   tag=args.named_tag or args.tag, rt_tag=args.rt_tag,
                                   skip_realtime=args.skip_realtime, no_deploy=args.no_deploy,
-                                  engine=args.engine, approve=True, defer_reason=args.defer_reason,
+                                  engine=args.engine, approve=True,
                                   callback=progress, build_options=options)
             display(result)
             return 0 if result['status'] in ('verified', 'pushed') else 1

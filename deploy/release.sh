@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 # Public releases go through the shared cloud journal and review flow. The
 # coordinator invokes this file only as the existing build/push engine.
-if [[ "${WQN_OPS_MANAGED:-}" != 1 ]]; then
+# WQN_LEGACY_RELEASE=1 opts out: web-deploy.bat drives this file directly so
+# that any worktree, including a dirty one, can be built and published.
+if [[ "${WQN_OPS_MANAGED:-}" != 1 && "${WQN_LEGACY_RELEASE:-}" != 1 ]]; then
   OPS_ENTRY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/ops/cli.py"
   exec python3 "$OPS_ENTRY" release --engine native "$@"
 fi
@@ -289,6 +291,10 @@ if [[ -z "$APP_TAG" ]]; then
   STAMP="$(date +%Y%m%d-%H%M%S)"
   GIT_SHA="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
   [[ -n "$GIT_SHA" ]] || GIT_SHA="nogit"
+  # A dirty tree must not carry the same tag as the commit it sits on.
+  if [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null)" ]]; then
+    GIT_SHA="${GIT_SHA}-dirty"
+  fi
   APP_TAG="${STAMP}-${GIT_SHA}"
 fi
 [[ -n "$RT_TAG" ]] || RT_TAG="${APP_TAG}-rt"
