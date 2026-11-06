@@ -19,9 +19,9 @@ export const WORD_LOCAL_SESSION_MAX_START_INDEX = 10_000;
 export const WORD_LOCAL_SESSION_MAX_DECKS = 32;
 export const WORD_LOCAL_SESSION_MAX_SNAPSHOTS = 32;
 
-// The local-session request deliberately omits domain, mode, purpose,
-// ordering and candidate_policy_version. The server owns those fixed
-// sequential semantics; firmware cannot vary or accidentally drift them.
+// Legacy requests omit mode and keep these fixed sequential semantics.
+// New shuffle requests declare only their mode and frozen progress revision;
+// the server derives the valid purpose/ordering/policy tuple.
 export const WORD_LOCAL_SESSION_SEMANTICS = {
   domain: 'word',
   mode: 'sequential',
@@ -33,7 +33,7 @@ export const WORD_LOCAL_SESSION_SEMANTICS = {
 const localScopeSchema = wordStudyScopeSchema
   .extend({
     deck_ids: z.array(z.uuid()).min(1).max(WORD_LOCAL_SESSION_MAX_DECKS),
-    include_mastered: z.literal(true),
+    include_mastered: z.boolean(),
   })
   .refine(scope => new Set(scope.deck_ids).size === scope.deck_ids.length, {
     message: 'Deck IDs must be unique',
@@ -41,9 +41,17 @@ const localScopeSchema = wordStudyScopeSchema
 
 const localItemSchema = wordStudySessionItemSchema;
 
-export const registerLocalWordStudySessionRequestSchema =
-  requestMetadataSchema.extend({
+export const registerLocalWordStudySessionRequestSchema = requestMetadataSchema
+  .extend({
     session_id: z.uuid(),
+    // Omission preserves deployed sequential v1 request fingerprints.
+    mode: z.enum(['sequential', 'shuffle']).optional(),
+    progress_revision: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
     scope: localScopeSchema,
     seed: z
       .string()
@@ -87,6 +95,33 @@ export const registerLocalWordStudySessionRequestSchema =
           });
         }
       }),
+  })
+  .superRefine((request, ctx) => {
+    if (
+      (request.mode ?? 'sequential') === 'sequential' &&
+      !request.scope.include_mastered
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Sequential includes the complete scope',
+      });
+    }
+    if (
+      request.mode === 'shuffle' &&
+      (request.scope.include_mastered ||
+        request.progress_revision === undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Shuffle requires its frozen progress snapshot',
+      });
+    }
+    if (request.mode === undefined && request.progress_revision !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Legacy requests omit progress_revision',
+      });
+    }
   });
 
 export const registerLocalWordStudySessionDataSchema = z.strictObject({

@@ -24,7 +24,13 @@ export function localSessionSemanticFingerprint(
   input: RegisterLocalWordStudySessionRequest
 ): string {
   const canonical = canonicalJson({
-    protocol: 'word-local-session-v1',
+    protocol:
+      input.mode === undefined
+        ? 'word-local-session-v1'
+        : 'word-local-session-v2',
+    ...(input.mode === undefined
+      ? {}
+      : { mode: input.mode, progress_revision: input.progress_revision ?? 0 }),
     session_id: input.session_id,
     scope: input.scope,
     seed: input.seed,
@@ -157,8 +163,16 @@ export async function registerLocalWordStudySession(
   input: RegisterLocalWordStudySessionRequest
 ): Promise<RegisterLocalWordStudySessionData> {
   const { data, error } = await supabase.rpc(
-    'register_local_word_study_session_v1',
+    input.mode === undefined
+      ? 'register_local_word_study_session_v1'
+      : 'register_local_word_study_session_v2',
     {
+      ...(input.mode === undefined
+        ? {}
+        : {
+            p_mode: input.mode,
+            p_progress_revision: input.progress_revision ?? 0,
+          }),
       p_user_id: userId,
       p_device_id: deviceId,
       p_session_id: input.session_id,
