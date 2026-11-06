@@ -567,4 +567,64 @@ begin
 end;
 $$;
 
+-- Personal snapshots are independent from shared packs and learning writes.
+do $$
+declare
+ u uuid:='a1000000-0000-4000-8000-000000000001';
+ d uuid:='a1000000-0000-4000-8000-000000000010';
+ other_d uuid:='a1000000-0000-4000-8000-000000000011';
+ sid uuid:='a1000000-0000-4000-8000-000000000099';
+ pins jsonb; scope jsonb; items jsonb; result jsonb; replay jsonb; before_facts bigint;
+begin
+ select snapshot,candidate_items into pins,items from public.study_sessions
+ where id='a1000000-0000-4000-8000-000000000060';
+ if pins is null then raise exception 'FAIL: v1 fixture missing'; end if;
+ scope=jsonb_build_object('deck_ids',jsonb_build_array('a1000000-0000-4000-8000-000000000020','a1000000-0000-4000-8000-000000000021'),'include_mastered',false);
+ select count(*) into before_facts from public.study_observations;
+ insert into public.word_progress(user_id,word_entry_id,status)
+ values(u,'a1000000-0000-4000-8000-000000000030','mastered')
+ on conflict(user_id,word_entry_id) do update set status='mastered';
+ result=public.read_word_study_eligibility_v1(u,d,pins);
+ if result->>'mastered_bitmap' not like '1__' or length(result->>'mastered_bitmap')<>3 then
+  raise exception 'FAIL: eligibility bitmap did not preserve UUID order: %',result;
+ end if;
+ if result->>'item_ids_sha256'<>encode(extensions.digest(convert_to(
+  'a1000000-0000-4000-8000-000000000030'||chr(10)||'a1000000-0000-4000-8000-000000000031'||chr(10)||'a1000000-0000-4000-8000-000000000032','UTF8'),'sha256'),'hex') then
+  raise exception 'FAIL: eligibility UUID fingerprint drifted';
+ end if;
+ if before_facts<>(select count(*) from public.study_observations) then
+  raise exception 'FAIL: read-only eligibility created learning facts';
+ end if;
+ begin
+  perform public.read_word_study_eligibility_v1(u,other_d,pins);
+  raise exception 'FAIL: foreign device read accepted';
+ exception when others then
+  if sqlerrm not like '%WORD_LOCAL_DEVICE_NOT_OWNED%' then raise; end if;
+ end;
+ begin
+  perform public.read_word_study_eligibility_v1(u,d,jsonb_build_array(pins->0,pins->0));
+  raise exception 'FAIL: duplicate snapshot accepted';
+ exception when others then
+  if sqlerrm not like '%WORD_LOCAL_SNAPSHOT_INVALID%' then raise; end if;
+ end;
+ result=public.register_local_word_study_session_v2(u,d,sid,'shuffle_register_request_01',repeat('e',64),scope,'fixed-round-seed',0,pins,items,'shuffle',41);
+ replay=public.register_local_word_study_session_v2(u,d,sid,'shuffle_register_request_02',repeat('e',64),scope,'fixed-round-seed',0,pins,items,'shuffle',41);
+ if result->>'registered'<>'true' or replay->>'replayed'<>'true' then raise exception 'FAIL: shuffle retry not idempotent'; end if;
+ if not exists(select 1 from public.study_sessions where id=sid and mode='shuffle' and ordering='pure_random_v1' and progress_revision=41) then
+  raise exception 'FAIL: local shuffle semantics were rewritten';
+ end if;
+ begin
+  perform public.register_local_word_study_session_v2(u,d,sid,'shuffle_register_request_03',repeat('e',64),scope,'fixed-round-seed',0,pins,items,'shuffle',42);
+  raise exception 'FAIL: immutable shuffle revision changed';
+ exception when others then if sqlerrm not like '%WORD_LOCAL_SESSION_CONFLICT%' then raise; end if; end;
+ result=public.record_word_study_observation_batch_v1(u,d,sid,jsonb_build_array(
+  jsonb_build_object('request_id','shuffle_observation_req_01','sequence',0,'item_id',items->0->>'item_id','action','shown','mode','shuffle','occurred_at','2026-11-06T00:00:00Z')));
+ if jsonb_array_length(result->'accepted')<>1 then raise exception 'FAIL: shuffle fact not accepted: %',result; end if;
+ if has_function_privilege('anon','public.read_word_study_eligibility_v1(uuid,uuid,jsonb)','execute')
+    or has_function_privilege('authenticated','public.register_local_word_study_session_v2(uuid,uuid,uuid,text,text,jsonb,text,bigint,jsonb,jsonb,text,bigint)','execute') then
+  raise exception 'FAIL: device-bound functions exposed to public roles';
+ end if;
+ raise notice 'PASS: offline shuffle identity, bitmap, actor, revision, upload and grants';
+end $$;
+
 rollback;

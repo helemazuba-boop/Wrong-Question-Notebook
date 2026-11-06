@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { POST as registerLocal } from '@/app/api/esp32/v3/words/sessions/local/route';
+import { POST as readEligibility } from '@/app/api/esp32/v3/words/eligibility/route';
 import { POST as recordBatch } from '@/app/api/esp32/v3/words/observations/batch/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 import {
@@ -641,5 +642,55 @@ describe('long-sequence routes', () => {
     );
     expect(res.status).toBe(503);
     expect((await res.json()).error.retryable).toBe(true);
+  });
+});
+
+describe('device personal eligibility route', () => {
+  it('binds the read-only query to the authenticated device', async () => {
+    const body = fixture('eligibility-request.json');
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        progress_revision: 41,
+        item_ids_sha256: 'a'.repeat(64),
+        mastered_bitmap: '01',
+      },
+      error: null,
+    });
+    const response = await readEligibility(
+      request('/api/esp32/v3/words/eligibility', body)
+    );
+    expect(response.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('read_word_study_eligibility_v1', {
+      p_user_id: USER,
+      p_device_id: DEVICE,
+      p_snapshot: body.snapshot,
+    });
+    expect(mockWake).not.toHaveBeenCalled();
+  });
+  it('rejects actor overrides and duplicate snapshots before RPC', async () => {
+    const body = fixture('eligibility-request.json') as any;
+    for (const invalid of [
+      { ...body, user_id: USER },
+      { ...body, snapshot: [body.snapshot[0], body.snapshot[0]] },
+    ]) {
+      const response = await readEligibility(
+        request('/api/esp32/v3/words/eligibility', invalid)
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+  it('requires device authentication even when the bitmap is read-only', async () => {
+    mockAuthenticate.mockResolvedValueOnce(
+      NextResponse.json({ ok: false }, { status: 401 })
+    );
+    const response = await readEligibility(
+      request(
+        '/api/esp32/v3/words/eligibility',
+        fixture('eligibility-request.json')
+      )
+    );
+    expect(response.status).toBe(401);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 });

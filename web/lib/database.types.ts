@@ -5981,6 +5981,27 @@ export type Database = {
         };
         Returns: Json;
       };
+      read_word_study_eligibility_v1: {
+        Args: { p_user_id: string; p_device_id: string; p_snapshot: Json };
+        Returns: Json;
+      };
+      register_local_word_study_session_v2: {
+        Args: {
+          p_mode: string;
+          p_progress_revision: number;
+          p_candidate_items: Json;
+          p_create_request_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_scope: Json;
+          p_seed: string;
+          p_session_id: string;
+          p_snapshot: Json;
+          p_start_index: number;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       record_study_observation_v1: {
         Args: {
           p_action: string;
