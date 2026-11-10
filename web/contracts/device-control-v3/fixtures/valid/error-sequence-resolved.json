@@ -1,0 +1,5 @@
+{
+  "ok": false,
+  "request_id": "req_error_fixture_01",
+  "error": { "code": "SEQUENCE_ALREADY_APPLIED", "retryable": false }
+}
