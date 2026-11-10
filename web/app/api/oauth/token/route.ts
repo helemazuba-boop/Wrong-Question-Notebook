@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger';
 import { createServiceClient } from '@/lib/supabase-utils';
 import { withSecurity } from '@/lib/security-middleware';
 import { clientAllowsRedirectUri, resolveClient } from '@/lib/oauth/clients';
+import { DEVICE_GRANT_TYPE, exchangeDeviceCode } from '@/lib/oauth/device';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   DEFAULT_OAUTH_SCOPE,
@@ -19,8 +20,8 @@ import {
 
 // Token endpoint (RFC 6749 section 3.2) for the built-in authorization server.
 //
-// Supports the authorization_code grant with PKCE and the refresh_token grant
-// with rotation. Every token is bound to the canonical MCP resource URI
+// Supports PKCE authorization codes, device authorization and rotating refresh
+// tokens. Every token is bound to the canonical MCP resource URI
 // (RFC 8707) so that /api/mcp can reject a token minted for another audience.
 
 export const runtime = 'nodejs';
@@ -393,6 +394,8 @@ async function handleToken(req: NextRequest): Promise<NextResponse> {
   const svc = createServiceClient();
 
   switch (grantType) {
+    case DEVICE_GRANT_TYPE:
+      return exchangeDeviceCode(params);
     case 'authorization_code':
       return handleAuthorizationCodeGrant(svc, params);
     case 'refresh_token':

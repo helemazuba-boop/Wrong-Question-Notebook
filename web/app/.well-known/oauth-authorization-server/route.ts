@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAppOrigin } from '@/lib/app-origin';
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth/constants';
+import { DEVICE_GRANT_TYPE } from '@/lib/oauth/device';
 
 // RFC 8414 authorization server metadata.
 //
@@ -8,9 +9,8 @@ import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth/constants';
 // is absolute -- clients compare the discovery document against the issuer
 // without normalising, so a stray trailing slash breaks the whole flow.
 //
-// Only PKCE + public clients are offered: desktop MCP clients cannot keep a
-// client secret, so token_endpoint_auth_methods_supported is ["none"] and the
-// code exchange is protected by the S256 challenge instead.
+// Public clients use PKCE for authorization codes or the device grant.
+// Neither flow ships a client secret; token endpoint authentication is "none".
 //
 // client_id_metadata_document_supported advertises CIMD, which the MCP
 // authorization spec prefers over dynamic registration: a client may use any
@@ -30,8 +30,13 @@ export function GET() {
     token_endpoint: `${origin}/api/oauth/token`,
     registration_endpoint: `${origin}/api/oauth/register`,
     revocation_endpoint: `${origin}/api/oauth/revoke`,
+    device_authorization_endpoint: `${origin}/api/oauth/device/authorize`,
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
+    grant_types_supported: [
+      'authorization_code',
+      'refresh_token',
+      DEVICE_GRANT_TYPE,
+    ],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none'],
     scopes_supported: OAUTH_SCOPES_SUPPORTED,

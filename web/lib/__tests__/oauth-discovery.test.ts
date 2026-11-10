@@ -73,18 +73,20 @@ describe('authorization server metadata (RFC 8414)', () => {
       'token_endpoint',
       'registration_endpoint',
       'revocation_endpoint',
+      'device_authorization_endpoint',
     ] as const) {
       expect(body[key], key).toMatch(new RegExp(`^${ORIGIN}/`));
     }
   });
 
-  it('offers only PKCE public-client code flow', async () => {
+  it('offers PKCE and device grants for public clients', async () => {
     const body = await (await authorizationServer()).json();
 
     expect(body.response_types_supported).toEqual(['code']);
     expect(body.grant_types_supported).toEqual([
       'authorization_code',
       'refresh_token',
+      'urn:ietf:params:oauth:grant-type:device_code',
     ]);
     expect(body.code_challenge_methods_supported).toEqual(['S256']);
     expect(body.token_endpoint_auth_methods_supported).toEqual(['none']);

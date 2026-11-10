@@ -1523,6 +1523,55 @@ export type Database = {
         };
         Relationships: [];
       };
+      oauth_device_authorizations: {
+        Row: {
+          id: string;
+          client_id: string;
+          device_code_hash: string;
+          user_code_hash: string;
+          user_id: string | null;
+          scope: string;
+          resource: string;
+          status: string;
+          interval_seconds: number;
+          next_poll_at: string;
+          expires_at: string;
+          created_at: string;
+          decided_at: string | null;
+          consumed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          device_code_hash: string;
+          user_code_hash: string;
+          user_id?: string | null;
+          scope: string;
+          resource: string;
+          status?: string;
+          interval_seconds?: number;
+          next_poll_at?: string;
+          expires_at: string;
+          created_at?: string;
+          decided_at?: string | null;
+          consumed_at?: string | null;
+        };
+        Update: {
+          user_id?: string | null;
+          status?: string;
+          decided_at?: string | null;
+          consumed_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'oauth_device_authorizations_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'oauth_clients';
+            referencedColumns: ['client_id'];
+          },
+        ];
+      };
       oauth_tokens: {
         Row: {
           access_token_expires_at: string;
@@ -5219,6 +5268,18 @@ export type Database = {
     Functions: {
       opencode_agent_control_v1: {
         Args: { p_action: string; p_payload: Json };
+        Returns: Json;
+      };
+      oauth_poll_device_authorization: {
+        Args: {
+          p_device_code_hash: string;
+          p_client_id: string;
+          p_resource: string;
+          p_access_token_hash: string;
+          p_refresh_token_hash: string;
+          p_access_ttl_seconds: number;
+          p_refresh_ttl_seconds: number;
+        };
         Returns: Json;
       };
       account_storage_objects: { Args: { p_user_id: string }; Returns: Json };

@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase-utils';
 import { withSecurity } from '@/lib/security-middleware';
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth/constants';
 import { generateClientId, isValidRedirectUri } from '@/lib/oauth/service';
+import { DEVICE_GRANT_TYPE } from '@/lib/oauth/device';
 
 // Dynamic Client Registration (RFC 7591).
 //
@@ -22,9 +23,10 @@ const MAX_CLIENT_NAME_LENGTH = 100;
 
 const RegisterRequestSchema = z.object({
   client_name: z.string().trim().min(1).max(MAX_CLIENT_NAME_LENGTH),
-  redirect_uris: z.array(z.string()).min(1).max(MAX_REDIRECT_URIS),
+  redirect_uris: z.array(z.string()).max(MAX_REDIRECT_URIS).default([]),
   grant_types: z
-    .array(z.enum(['authorization_code', 'refresh_token']))
+    .array(z.enum(['authorization_code', 'refresh_token', DEVICE_GRANT_TYPE]))
+    .min(1)
     .optional(),
   response_types: z.array(z.enum(['code'])).optional(),
 });
@@ -52,6 +54,19 @@ async function handleRegister(req: NextRequest): Promise<NextResponse> {
   }
 
   const { client_name: clientName, redirect_uris: redirectUris } = parsed.data;
+  const requestedGrants = parsed.data.grant_types ?? [
+    'authorization_code',
+    'refresh_token',
+  ];
+  if (
+    redirectUris.length === 0 &&
+    (!requestedGrants.includes(DEVICE_GRANT_TYPE) ||
+      requestedGrants.includes('authorization_code'))
+  ) {
+    return registrationError(
+      'redirect_uris are required for authorization_code clients'
+    );
+  }
 
   const rejected = redirectUris.find(uri => !isValidRedirectUri(uri));
   if (rejected !== undefined) {
@@ -68,7 +83,9 @@ async function handleRegister(req: NextRequest): Promise<NextResponse> {
     'authorization_code',
     'refresh_token',
   ];
-  const responseTypes = parsed.data.response_types ?? ['code'];
+  const responseTypes =
+    parsed.data.response_types ??
+    (grantTypes.includes('authorization_code') ? ['code'] : []);
 
   const svc = createServiceClient();
   const { error } = await svc.from('oauth_clients').insert({

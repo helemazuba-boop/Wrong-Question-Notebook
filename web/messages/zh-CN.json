@@ -1,4 +1,19 @@
 {
+  "OAuthDevice": {
+    "title": "连接 AI 客户端",
+    "request": "“{clientName}”正在申请访问 WQN。",
+    "permissions": "允许执行你账号可用的全部 WQN MCP 操作。现有内容审核和资源访问规则仍然适用。",
+    "duration": "访问令牌有效期为 1 小时；刷新令牌每次使用后续期 90 天。你可以随时在 WQN 撤销授权。",
+    "account": "当前授权账号：{account}",
+    "confirm": "这是我在 AI 客户端发起的请求，且上方短码与客户端显示的一致。",
+    "approve": "授权",
+    "deny": "拒绝",
+    "codeLabel": "AI 客户端显示的短码",
+    "continue": "继续",
+    "approved": "已授权。请返回 AI 客户端继续操作。",
+    "denied": "已拒绝授权，可以关闭此页面。",
+    "unavailable": "此请求不可用或已过期。请核对短码，或在 AI 客户端重新发起授权。"
+  },
   "Metadata": {
     "siteName": "错题本",
     "siteDescription": "掌握你的学习",

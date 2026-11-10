@@ -1,4 +1,19 @@
 {
+  "OAuthDevice": {
+    "title": "Connect an AI client",
+    "request": "“{clientName}” is requesting access to WQN.",
+    "permissions": "Allow all WQN MCP operations available to your account. Existing content review and resource access rules still apply.",
+    "duration": "Access tokens last 1 hour. Refresh tokens renew for 90 days when used. You can revoke access in WQN at any time.",
+    "account": "Authorizing account: {account}",
+    "confirm": "I started this request in my AI client and the code above matches the code shown there.",
+    "approve": "Authorize",
+    "deny": "Deny",
+    "codeLabel": "Code shown by your AI client",
+    "continue": "Continue",
+    "approved": "Authorization approved. Return to your AI client to continue.",
+    "denied": "Authorization denied. You can close this page.",
+    "unavailable": "This request is unavailable or has expired. Check the code or start a new request in your AI client."
+  },
   "Metadata": {
     "siteName": "Wrong Question Notebook",
     "siteDescription": "Master Your Learning",
