@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import {
   DEVICE_CONTROL_SCHEMA_SHA256,
@@ -18,6 +18,16 @@ import {
 } from '../device-control-v3-idempotency';
 
 const contractRoot = resolve(process.cwd(), 'contracts/device-control-v3');
+const errorFixtures = [
+  'error-auth-required.json',
+  'error-protocol-blocked.json',
+  'error-protocol-integrity.json',
+  'error-response.json',
+  'error-sequence-resolved.json',
+  'error-session-terminal.json',
+  'error-tombstone-recoverable.json',
+  'error-transient-retry.json',
+];
 
 function fixture(path: string): unknown {
   return JSON.parse(readFileSync(resolve(contractRoot, path), 'utf8'));
@@ -40,12 +50,28 @@ describe('device control v3 contract', () => {
     ['claim-poll-response.json', claimPollSuccessSchema],
     ['bootstrap-response.json', bootstrapSuccessSchema],
     ['sync-response.json', syncSuccessSchema],
-    ['error-response.json', v3ErrorEnvelopeSchema],
   ])('accepts valid fixture %s', (name, schema) => {
     expect(schema.safeParse(fixture(`fixtures/valid/${name}`)).success).toBe(
       true
     );
   });
+
+  it('classifies every canonical error fixture explicitly', () => {
+    const actual = readdirSync(resolve(contractRoot, 'fixtures/valid'))
+      .filter(name => name.startsWith('error-') && name.endsWith('.json'))
+      .sort();
+    expect(actual).toEqual(errorFixtures);
+  });
+
+  it.each(errorFixtures)(
+    'accepts the mirrored error fixture %s through the production validator',
+    name => {
+      expect(
+        v3ErrorEnvelopeSchema.safeParse(fixture(`fixtures/valid/${name}`))
+          .success
+      ).toBe(true);
+    }
+  );
 
   it('rejects an error without retry classification', () => {
     expect(
