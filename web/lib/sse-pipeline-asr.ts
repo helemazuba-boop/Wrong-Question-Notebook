@@ -10,6 +10,7 @@ import {
   type Esp32AiAsrProvider,
 } from './esp32-ai-asr-selection';
 import type { PipelinePusher } from './sse-pipeline-types';
+import { voiceUpstreamErrorStatus } from './voice-upstream-status';
 import { runStepFunAsrSse, isLikelyNonSpeechPcm } from './stepfun-asr';
 import {
   createVoiceOperation,
@@ -422,7 +423,7 @@ export async function fetchJsonWithTimeout<T>(
       throw new Esp32AiProviderError(
         code,
         'Upstream ' + stage + ' HTTP ' + r.status,
-        code === 'provider_unavailable' ? 502 : r.status
+        voiceUpstreamErrorStatus(r.status)
       );
     }
     return (await waitForVoiceOperation(r.json(), operation.signal)) as T;

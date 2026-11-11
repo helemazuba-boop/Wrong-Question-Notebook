@@ -21,6 +21,7 @@ import {
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import { enforceAgentRateLimit } from '@/lib/opencode-agent-rate-limit';
 import { handleAgentTranscribeStreaming } from './streaming-handler';
+import { VoiceOperationStopped } from '@/lib/voice-operation';
 
 export const runtime = 'nodejs';
 
@@ -109,6 +110,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sampleFormat: 's16le',
       userId: auth.userId,
       deviceId: auth.deviceId,
+      signal: req.signal,
     });
     return NextResponse.json({
       success: true,
@@ -119,6 +121,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
+    if (error instanceof VoiceOperationStopped) {
+      return errorResponse('cancelled', 'Voice request cancelled', 499);
+    }
     if (error instanceof Esp32AiProviderError) {
       return errorResponse(error.code, error.message, error.status);
     }
