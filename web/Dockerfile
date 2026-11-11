@@ -1,27 +1,11 @@
+# BuildKit accepts proxy build arguments without ARG/ENV declarations. Keep
+# them scoped to build steps so local proxy settings do not enter the runtime.
 
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG http_proxy
-ARG https_proxy
-ARG no_proxy
 # ============================================================
 # Stage 1: Dependencies
 # ============================================================
 ARG BASE_NODE_IMAGE=node:24-alpine
 FROM ${BASE_NODE_IMAGE} AS deps
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG http_proxy
-ARG https_proxy
-ARG no_proxy
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
-ENV http_proxy=${http_proxy}
-ENV https_proxy=${https_proxy}
-ENV no_proxy=${no_proxy}
 
 RUN apk add --no-cache libc6-compat
 
@@ -35,18 +19,6 @@ RUN npm ci --ignore-scripts
 # Stage 2: Build
 # ============================================================
 FROM ${BASE_NODE_IMAGE} AS builder
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG http_proxy
-ARG https_proxy
-ARG no_proxy
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
-ENV http_proxy=${http_proxy}
-ENV https_proxy=${https_proxy}
-ENV no_proxy=${no_proxy}
 
 # Only public values may be passed as build arguments. Server credentials are
 # runtime-only and must never be recorded in an image layer or build history.
@@ -86,18 +58,6 @@ RUN --mount=type=secret,id=next_server_actions_encryption_key,required=true \
 # Stage 3: Production runtime
 # ============================================================
 FROM ${BASE_NODE_IMAGE} AS runner
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG http_proxy
-ARG https_proxy
-ARG no_proxy
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
-ENV http_proxy=${http_proxy}
-ENV https_proxy=${https_proxy}
-ENV no_proxy=${no_proxy}
 
 # Public values are embedded in the Next.js client bundle at build time.
 ARG NEXT_PUBLIC_SUPABASE_URL
