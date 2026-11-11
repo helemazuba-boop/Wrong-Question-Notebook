@@ -181,6 +181,41 @@ it('cancels during a real ASR request and never starts chat or fallback', async 
   expect(staging.stage).not.toHaveBeenCalled();
 });
 
+it('an oversized ASR stream after a partial transcript cannot start chat or tools', async () => {
+  const cancelled = vi.fn();
+  const chunks = [
+    new TextEncoder().encode(
+      'data: {"type":"transcript.text.delta","delta":"partial"}\n\n'
+    ),
+    new Uint8Array(1024 * 1024).fill(120),
+  ];
+  fetchMock.mockResolvedValueOnce(
+    new Response(
+      new ReadableStream(
+        {
+          pull(controller) {
+            controller.enqueue(chunks.shift()!);
+          },
+          cancel: cancelled,
+        },
+        { highWaterMark: 0 }
+      )
+    )
+  );
+  const execute = vi.fn<ToolExecutor>();
+  const turn = startPipeline({ toolExecutor: execute });
+  expect((await turn.done).error).toMatchObject({
+    code: 'asr_failed',
+    message: 'StepFun ASR response exceeds byte limit',
+  });
+  const wire = await turn.response.text();
+  expect(wire).toContain('asr_failed');
+  expect(wire).not.toContain('event: asr.complete');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(execute).not.toHaveBeenCalled();
+  expect(cancelled).toHaveBeenCalledTimes(1);
+});
+
 it('request abort cancels the ASR response reader as well as closing SSE', async () => {
   const cancelled = vi.fn();
   const entered = deferred<void>();

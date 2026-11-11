@@ -71,6 +71,44 @@ function diagnosticTurnId(value: string | undefined): string | undefined {
 const NON_SPEECH_MIN_DURATION_MS = 1500;
 const NON_SPEECH_MAX_RMS = 200;
 
+// Application budgets for the bounded device recording path, not provider
+// model limits. Count wire bytes across all events, including keepalives.
+const MAX_ASR_RESPONSE_BYTES = 1024 * 1024;
+const MAX_HTTP_ERROR_PREVIEW_BYTES = 1024;
+
+async function readHttpErrorPreview(
+  response: Response,
+  signal?: AbortSignal
+): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const releaseReader = cancelVoiceReaderOnAbort(reader, signal);
+  const decoder = new TextDecoder();
+  let retainedBytes = 0;
+  let preview = '';
+  try {
+    while (retainedBytes < MAX_HTTP_ERROR_PREVIEW_BYTES) {
+      const { done, value } = await waitForVoiceOperation(
+        reader.read(),
+        signal
+      );
+      if (done) break;
+      const part = value.subarray(
+        0,
+        MAX_HTTP_ERROR_PREVIEW_BYTES - retainedBytes
+      );
+      retainedBytes += part.byteLength;
+      preview += decoder.decode(part, { stream: true });
+    }
+    return (preview + decoder.decode()).slice(0, 200);
+  } finally {
+    // A transport's cancellation can reject or remain pending. It must not
+    // mask the HTTP error or extend the voice operation's deadline.
+    void reader.cancel().catch(() => {});
+    releaseReader();
+  }
+}
+
 export function isLikelyNonSpeechPcm(audio: ArrayBuffer): boolean {
   const sampleCount = Math.floor(audio.byteLength / 2);
   if (sampleCount === 0) return true;
@@ -199,7 +237,7 @@ async function runStepFunAsrWithSignal(
           : 'asr_failed';
     let detail = '';
     try {
-      detail = await waitForVoiceOperation(response.text(), config.signal);
+      detail = await readHttpErrorPreview(response, config.signal);
     } catch {
       // ignore body read failure
     }
@@ -216,6 +254,7 @@ async function runStepFunAsrWithSignal(
   const releaseReader = cancelVoiceReaderOnAbort(reader, config.signal);
   const decoder = new TextDecoder();
   let buffer = '';
+  let responseBytes = 0;
   let transcript = '';
   let requestId: string | null = null;
 
@@ -245,6 +284,14 @@ async function runStepFunAsrWithSignal(
         config.signal
       );
       if (done) break;
+      if (value.byteLength > MAX_ASR_RESPONSE_BYTES - responseBytes) {
+        throw new Esp32AiProviderError(
+          'asr_failed',
+          'StepFun ASR response exceeds byte limit',
+          500
+        );
+      }
+      responseBytes += value.byteLength;
       buffer += decoder.decode(value, { stream: true });
       let nextEvent;
       while ((nextEvent = takeNextSseEvent(buffer)) !== null) {
@@ -318,6 +365,9 @@ async function runStepFunAsrWithSignal(
       isAbort ? 504 : 500
     );
   } finally {
+    // Releasing a lock does not stop an open upstream response after an
+    // error event or a parser/budget rejection. EOF cancellation is a no-op.
+    void reader.cancel().catch(() => {});
     releaseReader();
   }
 
