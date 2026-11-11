@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/esp32/agent/transcribe/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
 import { logger } from '@/lib/logger';
+import {
+  MAX_AUDIO_BODY_BYTES,
+  MIN_PCM_AUDIO_BODY_BYTES,
+} from '@/lib/esp32-ai-audio-contract';
 
 const { authenticate, fetchMock } = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -70,6 +74,7 @@ async function configureDashScopeProvider() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchMock.mockReset();
   _resetRateLimitStore();
   vi.stubGlobal('fetch', fetchMock);
   authenticate.mockResolvedValue({ userId: 'user-a', deviceId: 'device-1' });
@@ -97,6 +102,100 @@ afterEach(async () => {
 });
 
 describe('POST /api/esp32/agent/transcribe (v2-streaming branch)', () => {
+  it.each([
+    [
+      'omitted length',
+      undefined,
+      () => MAX_AUDIO_BODY_BYTES + 1,
+      413,
+      'too_large',
+    ],
+    [
+      'understated length',
+      '32000',
+      () => MAX_AUDIO_BODY_BYTES + 1,
+      413,
+      'too_large',
+    ],
+    ['empty body', undefined, () => 0, 422, 'invalid_audio'],
+    [
+      'short body',
+      undefined,
+      () => MIN_PCM_AUDIO_BODY_BYTES - 2,
+      422,
+      'invalid_audio',
+    ],
+  ] as const)(
+    'rejects invalid streamed audio with %s before ASR',
+    async (_, length, size, status, code) => {
+      process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+      process.env.STEPFUN_API_KEY = 'test-stepfun-key';
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: sseStream([
+          'data: {"type":"transcript.text.done","text":"fixture"}\n\n',
+        ]),
+      });
+      const headers = audioHeaders({ 'x-wqn-protocol': 'v2-streaming' });
+      if (length !== undefined) headers['content-length'] = length;
+      const response = await POST(
+        new NextRequest('http://localhost/api/esp32/agent/transcribe', {
+          method: 'POST',
+          headers,
+          body: Buffer.alloc(size()),
+        })
+      );
+      const body = await response.text();
+      expect(response.status).toBe(status);
+      expect(JSON.parse(body)).toMatchObject({
+        success: false,
+        error: { code },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('stops reading at the byte cap even when stream cancellation never settles', async () => {
+    process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+    process.env.STEPFUN_API_KEY = 'test-stepfun-key';
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: sseStream([
+        'data: {"type":"transcript.text.done","text":"fixture"}\n\n',
+      ]),
+    });
+    let pulls = 0;
+    const cancelled = vi.fn(() => new Promise<void>(() => {}));
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls++;
+          if (pulls === 1)
+            controller.enqueue(new Uint8Array(MAX_AUDIO_BODY_BYTES));
+          else if (pulls === 2) controller.enqueue(new Uint8Array(2));
+          else controller.close();
+        },
+        cancel: cancelled,
+      },
+      { highWaterMark: 0 }
+    );
+    const response = await POST(
+      new NextRequest('http://localhost/api/esp32/agent/transcribe', {
+        method: 'POST',
+        headers: audioHeaders({ 'x-wqn-protocol': 'v2-streaming' }),
+        body: stream,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' })
+    );
+    expect(response.status).toBe(413);
+    expect(pulls).toBe(2);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(stream.locked).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('carries the device turn ID through the real ASR path into empty-result diagnostics', async () => {
     process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
     process.env.STEPFUN_API_KEY = 'test-stepfun-key';

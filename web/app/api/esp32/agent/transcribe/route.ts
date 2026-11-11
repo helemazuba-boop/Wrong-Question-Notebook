@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { isV2StreamingRequest } from '@/app/api/esp32/ai/transcribe-chat/v2-handler';
 import {
+  Esp32AudioBodyError,
+  readBoundedEsp32AudioBody,
+} from '@/lib/esp32-ai-audio-body';
+import {
   AUDIO_CHANNELS,
   AUDIO_SAMPLE_FORMAT,
   AUDIO_SAMPLE_RATE,
@@ -71,19 +75,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const headerError = validateAudioHeaders(req);
   if (headerError) return headerError;
 
-  // wqn-voice-v2 SSE branch (relay handoff): protocol detection mirrors
-  // isV2StreamingRequest — query param, x-wqn-protocol header (what the relay
-  // sends) or x-wqn-accept: text/event-stream.
-  if (isV2StreamingRequest(req)) {
-    return handleAgentTranscribeStreaming(req);
-  }
-
-  const audio = await req.arrayBuffer();
-  if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
-    return errorResponse('too_large', 'Audio body is too large', 413);
+  let audio: ArrayBuffer;
+  try {
+    audio = await readBoundedEsp32AudioBody(req);
+  } catch (error) {
+    if (error instanceof Esp32AudioBodyError) {
+      return errorResponse(error.code, error.message, error.status);
+    }
+    throw error;
   }
   if (audio.byteLength < MIN_PCM_AUDIO_BODY_BYTES) {
     return errorResponse('invalid_audio', 'Audio body is too short', 422);
+  }
+  // Both wire protocols receive the same already validated PCM buffer.
+  if (isV2StreamingRequest(req)) {
+    return handleAgentTranscribeStreaming(req, audio);
   }
   if (
     process.env.NODE_ENV === 'test' &&
