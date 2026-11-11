@@ -313,6 +313,72 @@ describe('POST /api/esp32/ai/transcribe-chat', () => {
     expect(String(mockFetch.mock.calls[0][0])).toContain('stepfun');
   });
 
+  it.each(['v1', 'v2-streaming'])(
+    'bounds actual %s audio bytes without Content-Length',
+    async protocol => {
+      mockAuthenticatedDevice();
+      await configureParaformerProvider();
+      let pulls = 0;
+      const cancelled = vi.fn(() => new Promise<void>(() => {}));
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (++pulls === 1)
+              controller.enqueue(new Uint8Array(MAX_AUDIO_BODY_BYTES));
+            else if (pulls === 2) controller.enqueue(new Uint8Array(2));
+            else controller.close();
+          },
+          cancel: cancelled,
+        },
+        { highWaterMark: 0 }
+      );
+      const response = await POST(
+        new NextRequest('http://localhost/api/esp32/ai/transcribe-chat', {
+          method: 'POST',
+          headers: createValidHeaders({ 'x-wqn-protocol': protocol }),
+          body: stream,
+          duplex: 'half',
+        } as RequestInit & { duplex: 'half' })
+      );
+      expect(response.status).toBe(413);
+      expect(await response.json()).toMatchObject({
+        success: false,
+        error: { code: 'too_large' },
+      });
+      expect(pulls).toBe(2);
+      expect(cancelled).toHaveBeenCalledOnce();
+      expect(stream.locked).toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['v1', 'v2-streaming'])(
+    'rejects a failed %s body read before provider work',
+    async protocol => {
+      mockAuthenticatedDevice();
+      await configureParaformerProvider();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new Error('fixture failed upload'));
+        },
+      });
+      const response = await POST(
+        new NextRequest('http://localhost/api/esp32/ai/transcribe-chat', {
+          method: 'POST',
+          headers: createValidHeaders({ 'x-wqn-protocol': protocol }),
+          body: stream,
+          duplex: 'half',
+        } as RequestInit & { duplex: 'half' })
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        success: false,
+        error: { code: 'invalid_audio' },
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+  );
+
   it('returns 413 when the audio body is too large', async () => {
     mockAuthenticatedDevice();
     const bodyBytes = MAX_AUDIO_BODY_BYTES + 1;

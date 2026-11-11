@@ -32,6 +32,7 @@ import {
 
 export async function handleAgentTranscribeStreaming(
   req: NextRequest,
+  audio: ArrayBuffer,
   config?: V2RuntimeConfig
 ): Promise<NextResponse> {
   const resolvedConfig = config ?? loadV2RuntimeConfig();
@@ -42,7 +43,6 @@ export async function handleAgentTranscribeStreaming(
   const headerRequestId = (req.headers.get('x-wqn-request-id') || '').trim();
   const turnId = headerRequestId || randomUUID();
 
-  const audio = await req.arrayBuffer();
   const startedAt = Date.now();
 
   const sse = createSseResponse(

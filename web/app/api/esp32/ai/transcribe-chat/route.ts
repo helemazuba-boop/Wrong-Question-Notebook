@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateEsp32Device } from '@/lib/esp32-device-auth';
 import {
+  Esp32AudioBodyError,
+  readBoundedEsp32AudioBody,
+} from '@/lib/esp32-ai-audio-body';
+import {
   Esp32AiProviderError,
   isEsp32AiProviderConfigured,
   runEsp32AiProvider,
@@ -242,6 +246,21 @@ function isAuthorizedInternalProxy(req: NextRequest): boolean {
   );
 }
 
+async function readAudio(
+  req: NextRequest
+): Promise<ArrayBuffer | NextResponse> {
+  try {
+    return await readBoundedEsp32AudioBody(req);
+  } catch (error) {
+    if (error instanceof Esp32AudioBodyError) {
+      return error.code === 'too_large'
+        ? createTooLargeResponse()
+        : createEsp32AiErrorResponse(error.code, error.message, error.status);
+    }
+    throw error;
+  }
+}
+
 async function transcribeChat(req: NextRequest): Promise<NextResponse> {
   const isInternal = isAuthorizedInternalProxy(req);
   if (!isInternal) {
@@ -279,10 +298,8 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
     return createTooLargeResponse();
   }
 
-  const audio = await req.arrayBuffer();
-  if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
-    return createTooLargeResponse();
-  }
+  const audio = await readAudio(req);
+  if (audio instanceof NextResponse) return audio;
   logPcmDiagnostics({
     req,
     audio,
@@ -413,10 +430,8 @@ async function transcribeChatV2(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const audio = await req.arrayBuffer();
-  if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
-    return createTooLargeResponse();
-  }
+  const audio = await readAudio(req);
+  if (audio instanceof NextResponse) return audio;
   logPcmDiagnostics({
     req,
     audio,
