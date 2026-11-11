@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from '@/app/api/esp32/agent/transcribe/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
+import { logger } from '@/lib/logger';
 
 const { authenticate, fetchMock } = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -96,6 +97,54 @@ afterEach(async () => {
 });
 
 describe('POST /api/esp32/agent/transcribe (v2-streaming branch)', () => {
+  it('carries the device turn ID through the real ASR path into empty-result diagnostics', async () => {
+    process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
+    process.env.STEPFUN_API_KEY = 'test-stepfun-key';
+    const errorLog = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    try {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: sseStream([
+          'data: {"type":"transcript.text.done","text":"","meta":{"session_id":"provider-empty-1"}}\n\n',
+        ]),
+      });
+      const audio = Buffer.alloc(3 * 16000 * 2);
+      for (let i = 0; i < audio.length; i += 2) audio.writeInt16LE(5000, i);
+      const response = await POST(
+        new NextRequest('http://localhost/api/esp32/agent/transcribe', {
+          method: 'POST',
+          headers: audioHeaders({
+            'x-wqn-protocol': 'v2-streaming',
+            'x-wqn-request-id': '77d7ecc1156db6f0',
+            'x-wqn-audio-duration-ms': '3000',
+          }),
+          body: audio,
+        })
+      );
+      const body = await response.text();
+      expect(body).toContain('"turn_id":"77d7ecc1156db6f0"');
+      expect(body).toContain('event: asr.failed');
+      expect(body).not.toContain('event: asr.complete');
+      expect(body).not.toContain('provider-empty-1');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        'StepFun ASR returned an empty transcript',
+        undefined,
+        expect.objectContaining({
+          voiceTurnId: '77d7ecc1156db6f0',
+          requestId: 'provider-empty-1',
+          textFields: expect.objectContaining({
+            lastDoneTextKind: 'empty_string',
+          }),
+          audio: expect.objectContaining({ pcmBytes: 96000, durationMs: 3000 }),
+        })
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
   it('streams StepFun deltas and closes with asr.complete + final', async () => {
     process.env.WQN_ESP32_AI_ASR_PROVIDER = 'stepfun';
     process.env.STEPFUN_API_KEY = 'test-stepfun-key';

@@ -18,6 +18,7 @@ import {
 
 export interface StepFunAsrConfig {
   signal?: AbortSignal;
+  diagnosticTurnId?: string;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -33,6 +34,34 @@ interface StepFunAsrEvent {
   text?: string;
   message?: string;
   meta?: { session_id?: string };
+}
+
+type TextFieldKind =
+  | 'missing'
+  | 'empty_string'
+  | 'string'
+  | 'null'
+  | 'array'
+  | 'object'
+  | 'number'
+  | 'boolean'
+  | 'other';
+
+function textFieldKind(value: unknown, present: boolean): TextFieldKind {
+  if (!present) return 'missing';
+  if (typeof value === 'string')
+    return value.length ? 'string' : 'empty_string';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'other';
+}
+
+function diagnosticTurnId(value: string | undefined): string | undefined {
+  // Correlation only: accept bounded identifiers, never arbitrary header text.
+  return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : undefined;
 }
 
 // Below these limits the clip is a button tap, a bump or near-silence rather
@@ -205,6 +234,9 @@ async function runStepFunAsrWithSignal(
   let lastUnknownType = '';
   let unknownPayloadSample = '';
   let malformedPayloadSample = '';
+  let lastDeltaTextKind: TextFieldKind | 'not_observed' = 'not_observed';
+  let lastDoneTextKind: TextFieldKind | 'not_observed' = 'not_observed';
+  const doneTextKinds: Partial<Record<TextFieldKind, number>> = {};
 
   try {
     while (true) {
@@ -236,6 +268,10 @@ async function runStepFunAsrWithSignal(
         const type = json.type;
         if (type === 'transcript.text.delta') {
           deltaCount += 1;
+          lastDeltaTextKind = textFieldKind(
+            json.delta,
+            Object.prototype.hasOwnProperty.call(json, 'delta')
+          );
           const delta = typeof json.delta === 'string' ? json.delta : '';
           if (delta) {
             transcript += delta;
@@ -243,6 +279,12 @@ async function runStepFunAsrWithSignal(
           }
         } else if (type === 'transcript.text.done') {
           doneCount += 1;
+          lastDoneTextKind = textFieldKind(
+            json.text,
+            Object.prototype.hasOwnProperty.call(json, 'text')
+          );
+          doneTextKinds[lastDoneTextKind] =
+            (doneTextKinds[lastDoneTextKind] ?? 0) + 1;
           if (typeof json.text === 'string' && json.text) {
             transcript = json.text;
             doneTextLength = json.text.length;
@@ -300,6 +342,8 @@ async function runStepFunAsrWithSignal(
       unknownPayloadSample: unknownPayloadSample || undefined,
       malformedPayloadSample: malformedPayloadSample || undefined,
       requestId: requestId ?? undefined,
+      voiceTurnId: diagnosticTurnId(config.diagnosticTurnId),
+      textFields: { lastDeltaTextKind, lastDoneTextKind, doneTextKinds },
       elapsedMs: Date.now() - startedAt,
       audio: {
         pcmBytes: audioDiagnostics.pcmBytes,
