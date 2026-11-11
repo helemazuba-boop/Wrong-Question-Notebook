@@ -162,6 +162,7 @@ async function runScopedStreamingPipeline(
       asrResult = await runPipelineAsr(
         {
           asrProvider: options.asrProvider,
+          diagnosticTurnId: turnId,
           signal: options.signal,
           asrFallbackProvider: options.asrFallbackProvider,
           dashScopeApiKey: options.dashScopeApiKey,

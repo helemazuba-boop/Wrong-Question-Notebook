@@ -28,6 +28,7 @@ export interface AsrResult {
 
 export interface AsrConfig {
   signal?: AbortSignal;
+  diagnosticTurnId?: string;
   asrProvider: Esp32AiAsrProvider;
   asrFallbackProvider: Esp32AiAsrProvider | null;
   dashScopeApiKey: string;
@@ -153,6 +154,7 @@ async function runSinglePipelineAsr(
         stepfunAsrEnableItn: config.stepfunAsrEnableItn,
         asrTimeoutMs: config.asrTimeoutMs,
         signal: config.signal,
+        diagnosticTurnId: config.diagnosticTurnId,
       },
       audio,
       sampleRate,
