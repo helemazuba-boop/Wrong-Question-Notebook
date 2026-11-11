@@ -9,6 +9,7 @@ import { analyzePcmS16le } from './esp32-ai-audio-staging';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { extractSseData, takeNextSseEvent } from './sse-events';
 import { logger } from './logger';
+import { voiceUpstreamErrorStatus } from './voice-upstream-status';
 import {
   createVoiceOperation,
   throwIfVoiceStopped,
@@ -246,7 +247,7 @@ async function runStepFunAsrWithSignal(
       'StepFun ASR HTTP ' +
         response.status +
         (detail ? ' ' + detail.slice(0, 200) : ''),
-      code === 'provider_unavailable' ? 502 : response.status
+      voiceUpstreamErrorStatus(response.status)
     );
   }
 

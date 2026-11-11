@@ -22,6 +22,7 @@ import {
   MIN_PCM_AUDIO_BODY_BYTES,
 } from '@/lib/esp32-ai-audio-contract';
 import { logger } from '@/lib/logger';
+import { VoiceOperationStopped } from '@/lib/voice-operation';
 import { handleV2Streaming, isV2StreamingRequest } from './v2-handler';
 
 export const runtime = 'nodejs';
@@ -40,6 +41,7 @@ const DEVICE_RATE_LIMIT = createRateLimit({
 });
 
 type Esp32AiErrorCode =
+  | 'cancelled'
   | 'unauthorized'
   | 'too_large'
   | 'invalid_audio'
@@ -353,6 +355,7 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
       tier: req.headers.get('x-wqn-ai-tier'),
       userId: authResult.userId,
       deviceId: authResult.deviceId,
+      signal: req.signal,
     });
 
     return NextResponse.json({
@@ -369,6 +372,13 @@ async function transcribeChat(req: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
+    if (error instanceof VoiceOperationStopped) {
+      return createEsp32AiErrorResponse(
+        'cancelled',
+        'Voice request cancelled',
+        499
+      );
+    }
     if (error instanceof Esp32AiProviderError) {
       return createEsp32AiErrorResponse(
         error.code,
