@@ -34,17 +34,26 @@ export async function readOutboxReceipts(
   client: Pick<SupabaseClient<Database>, 'rpc'>,
   userId: string,
   deviceId: string,
-  input: OutboxReceiptRequest
+  input: OutboxReceiptRequest,
+  sourceMac?: string
 ) {
   const request = outboxReceiptRequestSchema.parse(input);
+  if (sourceMac !== undefined && !/^[0-9a-f]{12}$/.test(sourceMac))
+    throw new OutboxReceiptError('INVALID_SOURCE_MAC', 400, false);
   const { data, error } = await client
-    .rpc('lookup_device_outbox_receipts_v1', {
-      p_user_id: userId,
-      p_device_id: deviceId,
-      p_domain: request.domain,
-      p_session_id: request.session_id,
-      p_request_ids: request.request_ids,
-    })
+    .rpc(
+      sourceMac === undefined
+        ? 'lookup_device_outbox_receipts_v1'
+        : 'lookup_device_outbox_receipts_bound_v1',
+      {
+        p_user_id: userId,
+        p_device_id: deviceId,
+        p_domain: request.domain,
+        p_session_id: request.session_id,
+        p_request_ids: request.request_ids,
+        ...(sourceMac === undefined ? {} : { p_source_mac: sourceMac }),
+      }
+    )
     .abortSignal(AbortSignal.timeout(OUTBOX_RECEIPTS_RPC_TIMEOUT_MS));
   if (error) unavailable();
   if (data === null) {

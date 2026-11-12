@@ -33,7 +33,7 @@ create temporary table receipt_before as select md5(concat(
  (select jsonb_agg(to_jsonb(d) order by d.id)::text from public.esp32_devices d)
 )) as digest;
 
-select plan(32);
+select plan(51);
 select is(pg_temp.receipts()->>'contract','outbox-reconciliation-v1','versioned receipt contract');
 
 select is(pg_temp.receipts()#>>'{actor,user_id}','b8060000-0000-4000-8000-000000000001','actor bound to owner');
@@ -93,6 +93,44 @@ select ok(not has_function_privilege('authenticated','public.lookup_device_outbo
 select ok(has_function_privilege('service_role','public.lookup_device_outbox_receipts_v1(uuid,uuid,text,uuid,text[])','execute'),'service role can invoke');
 
 select is((select provolatile::text from pg_proc where oid='public.lookup_device_outbox_receipts_v1(uuid,uuid,text,uuid,text[])'::regprocedure),'s','STABLE read-only execution');
+
+-- Device-maintenance opt-in: source MAC and canonical facts share a snapshot.
+create function pg_temp.bound_receipts(p_mac text default 'b80600000001',
+ p_user uuid default 'b8060000-0000-4000-8000-000000000001',
+ p_device uuid default 'b8060000-0000-4000-8000-000000000010') returns jsonb language sql stable as $$
+ select public.lookup_device_outbox_receipts_bound_v1(p_user,p_device,'word',
+  'b8060000-0000-4000-8000-000000000020',
+  array['receipt_word_original_01','receipt_missing_00001','receipt_other_session_01'],p_mac);
+$$;
+select is(pg_temp.bound_receipts(),pg_temp.receipts(),'source binding preserves the full canonical receipt body');
+select is(pg_temp.bound_receipts()->>'repair_authorized','false','source binding grants no repair authority');
+select is(pg_temp.bound_receipts('b806000000ff'),null::jsonb,'another physical source is unavailable');
+select is(pg_temp.bound_receipts(p_user=>'b8060000-0000-4000-8000-000000000002'),null::jsonb,'source MAC cannot replace actor authentication');
+select is(pg_temp.bound_receipts(p_device=>'b8060000-0000-4000-8000-000000000011'),null::jsonb,'matching user with another device cannot bypass binding');
+update public.user_profiles set is_active=false where id='b8060000-0000-4000-8000-000000000001';
+select is(pg_temp.bound_receipts(),null::jsonb,'disabled actor remains unavailable in source-bound lookup');
+update public.user_profiles set is_active=true where id='b8060000-0000-4000-8000-000000000001';
+select throws_ok($$select pg_temp.bound_receipts('B80600000001')$$,'22023','INVALID_OUTBOX_SOURCE_MAC','SQL boundary requires normalized source MAC');
+select throws_ok($$select pg_temp.bound_receipts('b8:06:00:00:00:01')$$,'22023','INVALID_OUTBOX_SOURCE_MAC','wire MAC has no separators');
+select throws_ok($$select pg_temp.bound_receipts(null)$$,'22023','INVALID_OUTBOX_SOURCE_MAC','null binding cannot downgrade');
+select throws_ok($$select pg_temp.bound_receipts('')$$,'22023','INVALID_OUTBOX_SOURCE_MAC','empty binding cannot downgrade');
+select throws_ok($$select pg_temp.bound_receipts('b8060000000g')$$,'22023','INVALID_OUTBOX_SOURCE_MAC','non-hex binding rejected');
+select ok(not has_function_privilege('anon','public.lookup_device_outbox_receipts_bound_v1(uuid,uuid,text,uuid,text[],text)','execute'),'anonymous source-bound lookup denied');
+select ok(not has_function_privilege('authenticated','public.lookup_device_outbox_receipts_bound_v1(uuid,uuid,text,uuid,text[],text)','execute'),'cookie source-bound lookup denied');
+select ok(has_function_privilege('service_role','public.lookup_device_outbox_receipts_bound_v1(uuid,uuid,text,uuid,text[],text)','execute'),'service role has source-bound lookup grant');
+select is((select provolatile::text from pg_proc where oid='public.lookup_device_outbox_receipts_bound_v1(uuid,uuid,text,uuid,text[],text)'::regprocedure),'s','source binding remains STABLE');
+set local role service_role;
+select is(public.lookup_device_outbox_receipts_bound_v1(
+ 'b8060000-0000-4000-8000-000000000001','b8060000-0000-4000-8000-000000000010','word',
+ 'b8060000-0000-4000-8000-000000000020',array['receipt_word_original_01'],'b80600000001')
+ #>>'{receipts,0,state}','found','actual service-role caller reads a canonical source-bound fact');
+reset role;
+update public.esp32_devices set mac_address='B8:06:00:00:00:FF' where id='b8060000-0000-4000-8000-000000000010';
+select is(pg_temp.bound_receipts(),null::jsonb,'current MAC change invalidates the old binding');
+select is(pg_temp.bound_receipts('b806000000ff'),pg_temp.receipts(),'new binding uses the current device row');
+update public.esp32_devices set mac_address='invalid-mac' where id='b8060000-0000-4000-8000-000000000010';
+select is(pg_temp.bound_receipts(),null::jsonb,'malformed stored identity is unavailable');
+update public.esp32_devices set mac_address='B8:06:00:00:00:01' where id='b8060000-0000-4000-8000-000000000010';
 
 update public.user_profiles set is_active=false where id='b8060000-0000-4000-8000-000000000001';
 select is(pg_temp.receipts(),null::jsonb,'disabled account not exposed');

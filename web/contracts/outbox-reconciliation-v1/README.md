@@ -17,3 +17,32 @@ Expired/retired sessions remain eligible for reads while owned rows exist. Missi
 The JSON Schema checks wire structure; the service additionally checks request/reply identity, exact order/count, session mode and domain-specific actions. Word/Note response fixtures came from synthetic fixtures queried through actual service-role READ ONLY transactions; their timestamps are fixed examples, not live receipts.
 
 R-08 remains open: bind authenticated receipts to the independently pinned source manifest and raw offsets/digests, produce an explicit repair plan, implement controlled maintenance delivery/rollback, and complete device/power-loss HIL. This API has not been deployed by this change.
+
+## Optional maintenance source binding
+
+The `outbox-source-mac-v1` HTTP profile opts in with `X-WQN-Source-Mac`,
+exactly 12 ASCII hex digits read by the device from its own station MAC.
+Uppercase request digits are normalized to lowercase. An empty, malformed,
+separated or combined duplicate value is an error; it never downgrades to an
+unbound lookup. The JSON request/response schemas and legacy lookup are unchanged.
+
+The service calls `lookup_device_outbox_receipts_bound_v1`, which checks the
+authenticated user/device and the current stored MAC before invoking the existing
+STABLE receipt reader. Both execute in the same read snapshot. A mismatched or
+malformed stored MAC yields the same unavailable result as an unowned session.
+The RPC remains service-role-only; there are no writes, ACKs, skips or replay.
+
+Only a successful, completely validated source-bound response includes
+`X-WQN-Receipt-Source-Mac` with the normalized value. A maintenance device MUST
+require that exact acknowledgement in addition to all existing body, actor,
+session, request-ID and order checks. Missing acknowledgement, an old server,
+an unavailable new RPC or any transport error stops verification. It must not
+retry through the legacy lookup. The profile requires the additive
+`20261112000000_outbox_receipt_source_binding.sql` migration and updated App.
+
+This proves a credential-backed database binding. MAC alone is neither a
+credential nor a cryptographic hardware attestation, and does not attest the
+running ELF, source bytes or candidate installation. Successful replies still
+say `repair_authorized: false`. Device source rehash, checkpoint/pin checks,
+explicit physical confirmation, controlled publication and rollback remain
+independent requirements. Transport golden cases are pinned in `manifest.json`.
