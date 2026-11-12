@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import sourceBinding from '../../contracts/outbox-reconciliation-v1/http-source-binding-fixtures.json';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/esp32/v3/study/observations/receipts/route';
 import { _resetRateLimitStore } from '@/lib/rate-limit';
@@ -114,6 +115,56 @@ beforeEach(() => {
   authenticate.mockResolvedValue({ userId: USER, deviceId: DEVICE });
   rpc.mockReturnValue({ abortSignal: abort });
   abort.mockResolvedValue({ data: canonical(), error: null });
+});
+
+describe('maintenance source binding HTTP profile', () => {
+  it.each(sourceBinding.cases)('$name', async sample => {
+    const headers: Record<string, string> = {};
+    if (sample.source_mac !== null)
+      headers[sourceBinding.request_header] = sample.source_mac;
+    if (sample.rpc_result === 'unavailable')
+      abort.mockResolvedValueOnce({ data: null, error: null });
+    if (sample.rpc_result === 'error')
+      abort.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'offline' },
+      });
+    if (sample.rpc_result === 'malformed')
+      abort.mockResolvedValueOnce({
+        data: { ...canonical(), repair_authorized: true },
+        error: null,
+      });
+    const response = await POST(request(query(), headers));
+    expect(response.status).toBe(sample.status);
+    expect(response.headers.get(sourceBinding.success_header)).toBe(
+      sample.ack_mac
+    );
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    if (sample.rpc_result === 'unused') {
+      expect(rpc).not.toHaveBeenCalled();
+      return;
+    }
+    expect(rpc).toHaveBeenCalledExactlyOnceWith(
+      sample.source_mac === null
+        ? 'lookup_device_outbox_receipts_v1'
+        : 'lookup_device_outbox_receipts_bound_v1',
+      {
+        p_user_id: USER,
+        p_device_id: DEVICE,
+        p_domain: query().domain,
+        p_session_id: SESSION,
+        p_request_ids: query().request_ids,
+        ...(sample.source_mac === null
+          ? {}
+          : { p_source_mac: sample.source_mac.toLowerCase() }),
+      }
+    );
+    if (sample.status === 200) {
+      const body = await response.json();
+      expect(body.data).toEqual(canonical());
+      expect(body.data.repair_authorized).toBe(false);
+    }
+  });
 });
 
 describe('read-only outbox receipt route', () => {

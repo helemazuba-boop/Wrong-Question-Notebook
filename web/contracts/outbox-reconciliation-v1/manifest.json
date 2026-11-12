@@ -5,5 +5,15 @@
   "max_request_bytes": 16384,
   "max_response_bytes": 65536,
   "max_request_ids": 64,
-  "repair_authorized": false
+  "repair_authorized": false,
+  "optional_http_profiles": {
+    "outbox-source-mac-v1": {
+      "request_header": "X-WQN-Source-Mac",
+      "success_header": "X-WQN-Receipt-Source-Mac",
+      "request_encoding": "12 ASCII hexadecimal digits; response normalized to lowercase",
+      "fixtures": "http-source-binding-fixtures.json",
+      "fixtures_sha256": "26cbf088c7f015749937817a82fc0f292784f28d2013b617e6045eaef8b98455",
+      "repair_authorized": false
+    }
+  }
 }

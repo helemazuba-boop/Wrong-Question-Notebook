@@ -34,6 +34,14 @@ describe('outbox reconciliation wire contract', () => {
     );
     expect(manifest.max_request_ids).toBe(64);
     expect(manifest.repair_authorized).toBe(false);
+    const profile = manifest.optional_http_profiles['outbox-source-mac-v1'];
+    const cases = readFileSync(resolve(root, profile.fixtures), 'utf8');
+    expect(createHash('sha256').update(cases).digest('hex')).toBe(
+      profile.fixtures_sha256
+    );
+    const transport = JSON.parse(cases);
+    expect(transport.request_header).toBe(profile.request_header);
+    expect(transport.success_header).toBe(profile.success_header);
   });
 
   it.each([

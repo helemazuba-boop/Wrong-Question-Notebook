@@ -1,4 +1,5 @@
 import { z } from 'zod';
+
 import { requestMetadataSchema } from './device-control-v3';
 import {
   wordObservationActionSchema,
@@ -8,6 +9,11 @@ import {
   noteObservationActionSchema,
   noteStudyModeSchema,
 } from './note-study-v1';
+
+// Optional maintenance profile. A client requiring physical-source binding
+// must require the matching success header; an old server cannot satisfy it.
+export const OUTBOX_SOURCE_MAC_REQUEST_HEADER = 'X-WQN-Source-Mac';
+export const OUTBOX_SOURCE_MAC_RESPONSE_HEADER = 'X-WQN-Receipt-Source-Mac';
 
 export const OUTBOX_RECONCILIATION_CONTRACT =
   'outbox-reconciliation-v1' as const;

@@ -1,0 +1,18 @@
+{
+  "profile": "outbox-source-mac-v1",
+  "request_header": "X-WQN-Source-Mac",
+  "success_header": "X-WQN-Receipt-Source-Mac",
+  "cases": [
+    { "name": "legacy query", "source_mac": null, "rpc_result": "canonical", "status": 200, "ack_mac": null },
+    { "name": "source-bound query", "source_mac": "b80600000001", "rpc_result": "canonical", "status": 200, "ack_mac": "b80600000001" },
+    { "name": "uppercase input", "source_mac": "B80600000001", "rpc_result": "canonical", "status": 200, "ack_mac": "b80600000001" },
+    { "name": "empty opt-in cannot downgrade", "source_mac": "", "rpc_result": "unused", "status": 400, "ack_mac": null },
+    { "name": "colon input is not the wire encoding", "source_mac": "b8:06:00:00:00:01", "rpc_result": "unused", "status": 400, "ack_mac": null },
+    { "name": "duplicate headers cannot downgrade", "source_mac": "b80600000001,b80600000001", "rpc_result": "unused", "status": 400, "ack_mac": null },
+    { "name": "oversize input", "source_mac": "b8060000000100", "rpc_result": "unused", "status": 400, "ack_mac": null },
+    { "name": "non-hex input", "source_mac": "b8060000000g", "rpc_result": "unused", "status": 400, "ack_mac": null },
+    { "name": "source unavailable", "source_mac": "b80600000001", "rpc_result": "unavailable", "status": 404, "ack_mac": null },
+    { "name": "binding RPC not installed or failed", "source_mac": "b80600000001", "rpc_result": "error", "status": 503, "ack_mac": null },
+    { "name": "invalid RPC response", "source_mac": "b80600000001", "rpc_result": "malformed", "status": 503, "ack_mac": null }
+  ]
+}
