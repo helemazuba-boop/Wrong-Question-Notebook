@@ -1,6 +1,7 @@
 // sse-pipeline-types.ts
 // Shared types and the PipelinePusher helper for the v2 SSE pipeline.
 
+import { createHash } from 'node:crypto';
 import type { SseWriter } from './ai-stream';
 import { SseEventIdGenerator } from './ai-stream';
 import type { Esp32AiErrorCode } from './ai-errors';
@@ -113,7 +114,30 @@ export function sealToolCalls(acc: AccumulatedToolCall[]): Array<{
     });
 }
 
+// Leave headroom for event/id/data framing under the firmware's 16 KiB limit.
+const DEVICE_JSON_BUDGET = 12 * 1024;
+const payloadBytes = (data: unknown): number =>
+  Buffer.byteLength(JSON.stringify(data), 'utf8');
+
+class StreamedTextDigest {
+  private hash = createHash('sha256');
+  private bytes = 0;
+  append(text: string): void {
+    this.hash.update(text, 'utf8');
+    this.bytes += Buffer.byteLength(text, 'utf8');
+  }
+  matches(text: string): boolean {
+    return (
+      this.bytes === Buffer.byteLength(text, 'utf8') &&
+      this.hash.copy().digest('hex') ===
+        createHash('sha256').update(text, 'utf8').digest('hex')
+    );
+  }
+}
+
 export class PipelinePusher {
+  private thinkingDigest = new StreamedTextDigest();
+  private readonly answerDigest = new StreamedTextDigest();
   private nextSentenceId = 0;
   private currentSentenceId: string | null = null;
   private currentSentenceText = '';
@@ -126,6 +150,36 @@ export class PipelinePusher {
     private readonly startedAt: number
   ) {}
 
+  private emit(event: string, data: unknown): void {
+    // Never truncate receipts, interactions or an unstreamed authoritative final.
+    if (payloadBytes(data) > DEVICE_JSON_BUDGET) {
+      throw new Error(`Device SSE payload exceeds budget: ${event}`);
+    }
+    this.writer.emit(event, data);
+  }
+
+  private emitDelta(
+    event: string,
+    delta: string,
+    fields: Record<string, unknown>
+  ): void {
+    const base = payloadBytes({ ...fields, delta: '' });
+    let part = '';
+    let bytes = base;
+    for (const character of delta) {
+      // Account for JSON escaping as well as multibyte UTF-8 characters.
+      const cost = payloadBytes(character) - 2;
+      if (bytes + cost > DEVICE_JSON_BUDGET && part) {
+        this.emit(event, { ...fields, delta: part });
+        part = '';
+        bytes = base;
+      }
+      part += character;
+      bytes += cost;
+    }
+    this.emit(event, { ...fields, delta: part });
+  }
+
   elapsedMs(): number {
     return Date.now() - this.startedAt;
   }
@@ -136,19 +190,19 @@ export class PipelinePusher {
     ai_tier: 'std' | 'pro' | 'agent';
     started_at_ms: number;
   }): void {
-    this.writer.emit('ready', event);
+    this.emit('ready', event);
   }
 
   emitStage(stage: string, detail?: Record<string, unknown>): void {
     // Detail object is allowed to carry elapsed_ms for callers that want to
     // emit a single record. We don't synthesize a default; the sse writer
     // populates elapsed_ms at flush time when absent.
-    this.writer.emit('stage', { stage, ...(detail ?? {}) });
+    this.emit('stage', { stage, ...(detail ?? {}) });
   }
 
   emitAsrDelta(delta: string): void {
     this.asrStageValue = 'pending';
-    this.writer.emit('asr.delta', {
+    this.emit('asr.delta', {
       delta: delta,
       elapsed_ms: this.elapsedMs(),
     });
@@ -160,7 +214,7 @@ export class PipelinePusher {
     provider: 'dashscope' | 'stepfun' = 'dashscope'
   ): void {
     this.asrStageValue = 'succeeded';
-    this.writer.emit('asr.complete', {
+    this.emit('asr.complete', {
       text,
       elapsed_ms: this.elapsedMs(),
       asr: { provider, model: asrModel },
@@ -173,32 +227,35 @@ export class PipelinePusher {
     message: string
   ): void {
     this.asrStageValue = 'failed';
-    this.writer.emit('asr.failed', { error_code, stage, message });
+    this.emit('asr.failed', { error_code, stage, message });
   }
 
   emitThinkingStart(): void {
-    this.writer.emit('thinking.start', {});
+    this.thinkingDigest = new StreamedTextDigest();
+    this.emit('thinking.start', {});
   }
 
   emitThinkingDelta(delta: string): void {
-    this.writer.emit('thinking.delta', {
-      delta,
-      elapsed_ms: this.elapsedMs(),
-    });
+    this.emitDelta('thinking.delta', delta, { elapsed_ms: this.elapsedMs() });
+    this.thinkingDigest.append(delta);
   }
 
   emitThinkingDone(fullText: string): void {
-    this.writer.emit('thinking.done', {
-      full_text: fullText,
-      elapsed_ms: this.elapsedMs(),
-    });
+    const payload = { full_text: fullText, elapsed_ms: this.elapsedMs() };
+    if (
+      payloadBytes(payload) > DEVICE_JSON_BUDGET &&
+      this.thinkingDigest.matches(fullText)
+    ) {
+      payload.full_text = ''; // Already delivered, so the device keeps its accumulated preview.
+    }
+    this.emit('thinking.done', payload);
   }
 
   openSentence(): string {
     this.currentSentenceId =
       's-' + (this.nextSentenceId++).toString().padStart(3, '0');
     this.currentSentenceText = '';
-    this.writer.emit('text.start', {
+    this.emit('text.start', {
       sentence_id: this.currentSentenceId,
       role: 'assistant',
     });
@@ -208,20 +265,22 @@ export class PipelinePusher {
   appendDelta(delta: string): void {
     if (!this.currentSentenceId) this.openSentence();
     this.currentSentenceText += delta;
-    this.writer.emit('text.delta', {
+    this.emitDelta('text.delta', delta, {
       sentence_id: this.currentSentenceId,
-      delta,
       elapsed_ms: this.elapsedMs(),
     });
+    this.answerDigest.append(delta);
   }
 
   closeSentence(): void {
     if (!this.currentSentenceId) return;
-    this.writer.emit('text.end', {
+    const payload = {
       sentence_id: this.currentSentenceId,
       full_text: this.currentSentenceText,
       elapsed_ms: this.elapsedMs(),
-    });
+    };
+    if (payloadBytes(payload) > DEVICE_JSON_BUDGET) payload.full_text = '';
+    this.emit('text.end', payload);
     this.currentSentenceId = null;
     this.currentSentenceText = '';
   }
@@ -239,7 +298,7 @@ export class PipelinePusher {
       args?: Record<string, unknown>;
     } = { tool_call_id, name, index };
     if (args) payload.args = args;
-    this.writer.emit('tool.start', payload);
+    this.emit('tool.start', payload);
   }
 
   emitToolResult(event: {
@@ -252,7 +311,7 @@ export class PipelinePusher {
     error_code?: string;
     message?: string;
   }): void {
-    this.writer.emit('tool.result', event);
+    this.emit('tool.result', event);
   }
 
   emitFinal(event: {
@@ -265,7 +324,14 @@ export class PipelinePusher {
     function_calls: Esp32AiFunctionCallSummary[];
     status_trace: Esp32AiStatusTraceItem[];
   }): void {
-    this.writer.emit('final', event);
+    let payload = event;
+    if (
+      payloadBytes(payload) > DEVICE_JSON_BUDGET &&
+      this.answerDigest.matches(event.reply_text)
+    ) {
+      payload = { ...event, reply_text: '' };
+    }
+    this.emit('final', payload);
   }
 
   asrStatus(): 'pending' | 'succeeded' | 'failed' {
