@@ -5,6 +5,7 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/database.types';
 import { NOTE_CONTENT_FORMAT } from '@/lib/note-content-format';
+import { problemSearchFilter } from '@/lib/problem-search';
 import {
   loadNotebookReadSummaries,
   type NotebookReadSummary,
@@ -508,6 +509,13 @@ export async function searchUserProblems(
   ctx: NotebookToolContext,
   input: { query: string; subject_id?: string | null; limit?: number }
 ) {
+  const text = input.query.trim();
+  if (!text)
+    throw new NotebookToolError(
+      'invalid_query',
+      'Search query is required',
+      400
+    );
   const limit = Math.min(Math.max(input.limit || 5, 1), 5);
   let query = ctx.supabase
     .from('problems')
@@ -516,14 +524,7 @@ export async function searchUserProblems(
     .limit(limit);
 
   if (input.subject_id) query = query.eq('subject_id', input.subject_id);
-  const text = input.query.trim();
-  if (text) {
-    const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const searchTerm = `"%${escaped}%"`;
-    query = query.or(
-      `title.ilike.${searchTerm},content.ilike.${searchTerm},solution_text.ilike.${searchTerm}`
-    );
-  }
+  query = query.or(problemSearchFilter(text));
 
   const { data, error } = await query.order('updated_at', { ascending: false });
   if (error) throw new NotebookToolError('database_error', error.message, 500);

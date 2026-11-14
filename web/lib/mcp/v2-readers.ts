@@ -526,7 +526,7 @@ export async function readV2(
     }
   }
   const renamed = legacyArgs(args);
-  if (['search_words', 'search_user_problems'].includes(name)) {
+  if (name === 'search_words') {
     renamed.q = args.query;
     delete renamed.query;
   }

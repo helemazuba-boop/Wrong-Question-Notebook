@@ -61,6 +61,7 @@ import { ProblemExtractionSchema } from '@/lib/problem-extraction';
 import { ProblemInitialIdeaSchema } from '@/lib/schemas';
 import { PROBLEM_IMAGE_MAX_BASE64_CHARS } from '@/lib/image-input-normalization';
 import { VALIDATION_CONSTANTS } from '@/lib/constants';
+import { problemSearchFilter } from '@/lib/problem-search';
 import type { NoteObservationAction, NoteStudyMode } from '@/lib/note-study-v1';
 import type { WordObservationAction, WordStudyMode } from '@/lib/word-study-v1';
 
@@ -594,9 +595,7 @@ const COMMON_TOOLS: McpToolDefinition[] = [
           .from('problems')
           .select('id, title, subject_id, updated_at')
           .eq('user_id', ctx.userId)
-          .or(
-            `title.ilike.${searchTerm},content.ilike.${searchTerm},solution_text.ilike.${searchTerm}`
-          );
+          .or(problemSearchFilter(queryText));
         if (subjectId) query = query.eq('subject_id', subjectId);
         return query
           .order('updated_at', { ascending: false })
