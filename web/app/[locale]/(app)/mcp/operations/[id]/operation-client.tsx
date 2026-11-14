@@ -6,6 +6,15 @@ import { Link } from '@/i18n/navigation';
 import { uploadFiles } from '@/lib/storage/client';
 import { RichTextDisplay } from '@/components/ui/rich-text-display';
 import Image from 'next/image';
+import { apiGet, apiPost, apiPut, isApiError } from '@/lib/api-client';
+import { localizedApiErrorMessage } from '@/lib/error-codes';
+import type { TranslatorProp } from '@/i18n/types';
+
+const ERROR_KEYS = {
+  origin_mismatch: 'originMismatch',
+  review_refresh_required: 'reviewRefreshRequired',
+  operation_unavailable: 'operationUnavailable',
+} as const;
 
 interface Preview {
   operation_id: string;
@@ -57,7 +66,7 @@ export default function OperationClient({
   const t = useTranslations('McpOperation');
   const [preview, setPreview] = useState<Preview | null>(null),
     [error, setError] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(true);
   const [files, setFiles] = useState<File[]>([]),
     [role, setRole] = useState<
       'question' | 'answer' | 'solution' | 'student_work' | 'other'
@@ -69,34 +78,74 @@ export default function OperationClient({
     const key = `${prefix}.${value}` as Parameters<typeof t>[0];
     return t.has(key) ? t(key) : value;
   };
-  const load = useCallback(async () => {
-    const response = await fetch(endpoint, { cache: 'no-store' }),
-      body = await response.json();
-    if (!response.ok) throw new Error(body.error?.message ?? t('loadFailed'));
-    return body.data as Preview;
-  }, [endpoint, t]);
+  const explainError = useCallback(
+    (e: unknown, fallback: string) => {
+      if (isApiError(e)) {
+        if (e.status === 401) return t('signInRequired');
+        if (e.status === 0) return t('networkFailed');
+      }
+      return localizedApiErrorMessage(
+        e,
+        ERROR_KEYS,
+        t as TranslatorProp,
+        fallback
+      );
+    },
+    [t]
+  );
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      const body = await apiGet<{ data: Preview }>(endpoint, {
+        cache: 'no-store',
+        signal,
+      });
+      return body.data;
+    },
+    [endpoint]
+  );
   useEffect(() => {
-    void load()
-      .then(setPreview)
-      .catch(e => setError(e.message));
-  }, [load]);
+    const controller = new AbortController();
+    void load(controller.signal)
+      .then(value => {
+        if (!controller.signal.aborted) {
+          setPreview(value);
+          setError('');
+        }
+      })
+      .catch(e => {
+        if (!controller.signal.aborted)
+          setError(explainError(e, t('loadFailed')));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBusy(false);
+      });
+    return () => controller.abort();
+  }, [load, explainError, t]);
+  async function refresh() {
+    setBusy(true);
+    setError('');
+    try {
+      setPreview(await load());
+    } catch (e) {
+      setError(explainError(e, t('loadFailed')));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function run(body: Record<string, unknown>) {
     if (!preview) return;
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...body, nonce: preview.nonce }),
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.error?.message ?? t('saveFailed'));
-      setPreview(await load());
+      await apiPost(endpoint, { ...body, nonce: preview.nonce });
       setFiles([]);
+      try {
+        setPreview(await load());
+      } catch {
+        setError(t('savedRefreshFailed'));
+      }
     } catch (e) {
-      setError((e as Error).message);
+      setError(explainError(e, t('saveFailed')));
     } finally {
       setBusy(false);
     }
@@ -118,7 +167,7 @@ export default function OperationClient({
         expected_revision: preview.before?.revision,
       });
     } catch (e) {
-      setError((e as Error).message);
+      setError(explainError(e, t('saveFailed')));
     } finally {
       setBusy(false);
     }
@@ -128,21 +177,13 @@ export default function OperationClient({
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(
-        `/api/words/decks/${preview.resource_id}/ai-access`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            can_read: allowRead,
-            can_create: allowCreate,
-          }),
-        }
-      );
-      if (!response.ok) throw new Error(t('saveFailed'));
+      await apiPut(`/api/words/decks/${preview.resource_id}/ai-access`, {
+        can_read: allowRead,
+        can_create: allowCreate,
+      });
       await run({ kind: 'action', action: 'word_deck_access' });
     } catch (e) {
-      setError((e as Error).message);
+      setError(explainError(e, t('saveFailed')));
     } finally {
       setBusy(false);
     }
@@ -154,15 +195,7 @@ export default function OperationClient({
           {error}
         </p>
       )}
-      <Button
-        variant="outline"
-        disabled={busy}
-        onClick={() =>
-          void load()
-            .then(setPreview)
-            .catch(e => setError(e.message))
-        }
-      >
+      <Button variant="outline" disabled={busy} onClick={() => void refresh()}>
         {t('refresh')}
       </Button>
       {!preview ? (

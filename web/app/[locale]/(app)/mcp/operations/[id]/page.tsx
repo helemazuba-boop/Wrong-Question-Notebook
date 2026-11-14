@@ -19,7 +19,7 @@ export default async function OperationPage({
     <div className="mx-auto max-w-5xl space-y-5 py-6">
       <h1 className="text-2xl font-bold">{t('title')}</h1>
       <p className="text-muted-foreground">{t('intro')}</p>
-      <OperationClient operationId={id} />
+      <OperationClient key={id} operationId={id} />
     </div>
   );
 }

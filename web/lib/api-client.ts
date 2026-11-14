@@ -46,7 +46,7 @@ export function errorMessage(error: unknown, fallback = 'Request failed') {
 }
 
 type EnvelopeError = {
-  error: string;
+  error: string | { message?: string; code?: string };
   status?: number;
   code?: string;
   details?: unknown;
@@ -69,7 +69,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = (body ?? {}) as Partial<EnvelopeError>;
     throw new ApiError(
-      payload.error || `Request failed with status ${response.status}`,
+      responseErrorMessage(payload, response.status),
       response.status,
       {
         code: resolveErrorCode(payload),
@@ -84,25 +84,53 @@ async function parseResponse<T>(response: Response): Promise<T> {
     if (candidate.success === true && 'data' in candidate) {
       return candidate.data as T;
     }
-    if (typeof candidate.error === 'string') {
+    if (
+      typeof candidate.error === 'string' ||
+      (candidate.error && typeof candidate.error === 'object')
+    ) {
       // Malformed 2xx envelope: treat as an error even though the status is OK.
-      throw new ApiError(candidate.error, response.status, {
-        code: resolveErrorCode(candidate),
-        details: candidate.details,
-      });
+      throw new ApiError(
+        responseErrorMessage(candidate, response.status),
+        response.status,
+        {
+          code: resolveErrorCode(candidate),
+          details: candidate.details,
+        }
+      );
     }
   }
 
   return body as T;
 }
 
+function responseErrorMessage(
+  payload: Partial<EnvelopeError>,
+  status: number
+): string {
+  const error = payload.error;
+  if (typeof error === 'string' && error) return error;
+  if (
+    error &&
+    typeof error === 'object' &&
+    typeof error.message === 'string' &&
+    error.message
+  )
+    return error.message;
+  return `Request failed with status ${status}`;
+}
+
 /**
- * Backend routes attach a machine-readable code in two places: top-level
- * `code`, or inside `details` (`details.code`, the createApiErrorResponse
- * convention used by the ingestion workspace). Both resolve here.
+ * Routes attach codes at the top level, in a nested error, or in details
+ * (the createApiErrorResponse convention). All three resolve here.
  */
 function resolveErrorCode(payload: Partial<EnvelopeError>): string | null {
   if (typeof payload.code === 'string') return payload.code;
+  if (
+    payload.error &&
+    typeof payload.error === 'object' &&
+    typeof payload.error.code === 'string'
+  )
+    return payload.error.code;
   const details = payload.details;
   if (
     details &&

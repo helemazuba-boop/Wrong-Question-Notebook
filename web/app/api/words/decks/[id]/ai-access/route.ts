@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireUser, unauthorised } from '@/lib/supabase/requireUser';
+import { isTrustedWriteOrigin } from '@/lib/cookie-write-origin';
 const Body = z.strictObject({ can_read: z.boolean(), can_create: z.boolean() });
 export async function PUT(
   req: Request,
@@ -8,11 +9,16 @@ export async function PUT(
 ) {
   const { user, supabase } = await requireUser();
   if (!user) return unauthorised();
-  if (
-    req.headers.get('origin') &&
-    req.headers.get('origin') !== new URL(req.url).origin
-  )
-    return NextResponse.json({ error: 'Origin mismatch' }, { status: 403 });
+  if (!isTrustedWriteOrigin(req))
+    return NextResponse.json(
+      {
+        error: {
+          code: 'origin_mismatch',
+          message: '请求来源与站点地址不一致，请从 WQN 页面重试。',
+        },
+      },
+      { status: 403 }
+    );
   const id = z.uuid().safeParse((await params).id),
     body = Body.safeParse(await req.json().catch(() => null));
   if (!id.success || !body.success)

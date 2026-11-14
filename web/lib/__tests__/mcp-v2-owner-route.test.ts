@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { GET, POST } from '@/app/api/mcp/operations/[id]/route';
 import { PUT } from '@/app/api/words/decks/[id]/ai-access/route';
 const { requireUser, rpc, derive } = vi.hoisted(() => ({
@@ -30,13 +30,80 @@ const req = (body: unknown) =>
   });
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('SITE_URL', 'https://wqn.example');
   requireUser.mockResolvedValue({ user: { id: uid }, supabase: { rpc } });
   rpc.mockResolvedValue({
     data: { state: 'awaiting_approval', before: {} },
     error: null,
   });
 });
+afterEach(() => vi.unstubAllEnvs());
 describe('cookie owner review API', () => {
+  it.each(['http://0.0.0.0:3000', 'https://127.0.0.1:3000'])(
+    'accepts the public origin behind upstream %s for review and deck permissions',
+    async upstream => {
+      const request = (body: unknown) =>
+        new Request(`${upstream}/api/mcp/operations/${id}`, {
+          method: 'POST',
+          headers: {
+            origin: 'https://wqn.example',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+      expect(
+        (
+          await POST(
+            request({
+              kind: 'action',
+              action: 'initial_idea',
+              nonce: 'a'.repeat(43),
+            }),
+            context
+          )
+        ).status
+      ).toBe(200);
+      expect(rpc).toHaveBeenCalledWith(
+        'complete_mcp_user_action_v2',
+        expect.objectContaining({
+          p_operation_id: id,
+          p_action: 'initial_idea',
+        })
+      );
+      expect(
+        (await PUT(request({ can_read: true, can_create: false }), context))
+          .status
+      ).toBe(200);
+      expect(rpc).toHaveBeenCalledWith(
+        'set_word_deck_ai_access_v2',
+        expect.objectContaining({ p_deck_id: id })
+      );
+    }
+  );
+  it('returns a readable origin error and ignores spoofed forwarding headers', async () => {
+    const request = new Request(
+      `https://attacker.example/api/mcp/operations/${id}`,
+      {
+        method: 'POST',
+        headers: {
+          origin: 'https://attacker.example',
+          'x-forwarded-host': 'attacker.example',
+          'x-forwarded-proto': 'https',
+        },
+        body: JSON.stringify({
+          kind: 'action',
+          action: 'initial_idea',
+          nonce: 'a'.repeat(43),
+        }),
+      }
+    );
+    const response = await POST(request, context);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'origin_mismatch', message: expect.any(String) },
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
   it('requires a cookie user even if an MCP bearer is supplied', async () => {
     requireUser.mockResolvedValue({ user: null });
     expect(

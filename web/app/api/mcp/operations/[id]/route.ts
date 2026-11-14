@@ -6,6 +6,7 @@ import { AssetReference } from '@/lib/mcp/v2-contracts';
 import { deriveProblemImageAssets } from '@/lib/problem-image-service';
 import { revalidateProblemComprehensive } from '@/lib/cache-invalidation';
 import { FILE_CONSTANTS } from '@/lib/constants';
+import { isTrustedWriteOrigin } from '@/lib/cookie-write-origin';
 
 export const runtime = 'nodejs';
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -93,11 +94,16 @@ export async function POST(
 ) {
   const { user, supabase } = await requireUser();
   if (!user) return unauthorised();
-  if (
-    req.headers.get('origin') &&
-    req.headers.get('origin') !== new URL(req.url).origin
-  )
-    return NextResponse.json({ error: 'Origin mismatch' }, { status: 403 });
+  if (!isTrustedWriteOrigin(req))
+    return NextResponse.json(
+      {
+        error: {
+          code: 'origin_mismatch',
+          message: '请求来源与站点地址不一致，请从 WQN 页面重试。',
+        },
+      },
+      { status: 403 }
+    );
   const id = z.uuid().safeParse((await params).id),
     body = Body.safeParse(await req.json().catch(() => null));
   if (!id.success || !body.success)

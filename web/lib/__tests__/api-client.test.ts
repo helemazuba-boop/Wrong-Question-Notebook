@@ -66,6 +66,33 @@ describe('api-client', () => {
     expect((err as ApiError).message).toContain('504');
   });
 
+  it.each([
+    [403, 'origin_mismatch', '请求来源与站点地址不一致'],
+    [409, 'review_refresh_required', '内容或审核已变化'],
+  ])(
+    'keeps the message and code from a nested %s review error',
+    async (status, code, message) => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ error: { code, message } }, status)
+      );
+      const error = await apiPost('/api/mcp/operations/test', {}).catch(
+        (e: unknown) => e
+      );
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status, code, message });
+    }
+  );
+
+  it('never renders an unrecognized error object as object Object', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'unknown_error' } }, 500)
+    );
+    await expect(apiGet('/api/x')).rejects.toMatchObject({
+      message: 'Request failed with status 500',
+      code: 'unknown_error',
+    });
+  });
+
   it('treats a malformed 2xx error envelope as an error', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'boom' }, 200));
     const err = await apiGet('/api/x').catch((e: unknown) => e);
