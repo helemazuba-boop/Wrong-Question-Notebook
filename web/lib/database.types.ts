@@ -5947,6 +5947,24 @@ export type Database = {
         };
         Returns: undefined;
       };
+      read_device_outbox_recovery_context_v1: {
+        Args: {
+          p_user_id: string;
+          p_device_id: string;
+          p_domain: string;
+          p_session_id: string;
+          p_source_mac: string;
+          p_nonce: string;
+          p_manifest_sha256: string;
+          p_elf_sha256: string;
+          p_part: string;
+          p_offset: number;
+          p_expected_context_sha256: string | null;
+          p_token_sha256: string;
+          p_request_ids: string[];
+        };
+        Returns: Json;
+      };
       lookup_device_outbox_receipts_bound_v1: {
         Args: {
           p_device_id: string;
