@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "elf_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "part": {
+          "type": "string",
+          "const": "session"
+        },
+        "offset": {
+          "type": "number",
+          "const": 0
+        },
+        "expected_context_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "contract",
+        "domain",
+        "session_id",
+        "nonce",
+        "manifest_sha256",
+        "elf_sha256",
+        "part",
+        "offset",
+        "expected_context_sha256"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "elf_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "part": {
+          "type": "string",
+          "const": "pins"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "expected_context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "contract",
+        "domain",
+        "session_id",
+        "nonce",
+        "manifest_sha256",
+        "elf_sha256",
+        "part",
+        "offset",
+        "expected_context_sha256"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "elf_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "part": {
+          "type": "string",
+          "const": "candidates"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "expected_context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "contract",
+        "domain",
+        "session_id",
+        "nonce",
+        "manifest_sha256",
+        "elf_sha256",
+        "part",
+        "offset",
+        "expected_context_sha256"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "firmware_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "capabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48,
+            "pattern": "^[a-z0-9._-]+$"
+          }
+        },
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "elf_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "part": {
+          "type": "string",
+          "const": "receipts"
+        },
+        "offset": {
+          "type": "number",
+          "const": 0
+        },
+        "expected_context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "request_ids": {
+          "minItems": 1,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,64}$"
+          }
+        }
+      },
+      "required": [
+        "request_id",
+        "boot_id",
+        "firmware_version",
+        "capabilities",
+        "contract",
+        "domain",
+        "session_id",
+        "nonce",
+        "manifest_sha256",
+        "elf_sha256",
+        "part",
+        "offset",
+        "expected_context_sha256",
+        "request_ids"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

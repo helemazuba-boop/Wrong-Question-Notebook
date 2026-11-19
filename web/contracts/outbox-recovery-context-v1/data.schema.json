@@ -1,0 +1,1460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "read_at": {
+          "type": "string",
+          "maxLength": 64,
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            },
+            "device_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            }
+          },
+          "required": [
+            "user_id",
+            "device_id"
+          ],
+          "additionalProperties": false
+        },
+        "binding": {
+          "type": "object",
+          "properties": {
+            "source_mac": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "elf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "source_mac",
+            "nonce",
+            "manifest_sha256",
+            "elf_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "repair_authorized": {
+          "type": "boolean",
+          "const": false
+        },
+        "part": {
+          "type": "string",
+          "const": "session"
+        },
+        "offset": {
+          "type": "number",
+          "const": 0
+        },
+        "total_count": {
+          "type": "number",
+          "const": 1
+        },
+        "next_offset": {
+          "type": "number",
+          "const": 1
+        },
+        "has_more": {
+          "type": "boolean",
+          "const": false
+        },
+        "session": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                },
+                "optional_count": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "seed": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "progress_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "next_sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "candidate_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 500
+                },
+                "snapshot_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "has_more": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "paused",
+                    "completed",
+                    "abandoned"
+                  ]
+                },
+                "started_at": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "ended_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 64,
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expires_at": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "create_request_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{16,64}$"
+                },
+                "create_fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "local_session": {
+                  "type": "boolean"
+                },
+                "local_start_index": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "local_fingerprint": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "domain": {
+                  "type": "string",
+                  "const": "word"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "sequential",
+                    "random",
+                    "dictionary",
+                    "review",
+                    "intake",
+                    "shuffle",
+                    "mistakes"
+                  ]
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "study",
+                    "lookup"
+                  ]
+                },
+                "ordering": {
+                  "type": "string",
+                  "enum": [
+                    "sequential",
+                    "guided_random_v1",
+                    "lexicographic",
+                    "due_queue_v1",
+                    "new_intake_v1",
+                    "pure_random_v1",
+                    "mistake_words_v1"
+                  ]
+                },
+                "scope": {
+                  "type": "object",
+                  "properties": {
+                    "deck_ids": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      }
+                    },
+                    "include_mastered": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deck_ids",
+                    "include_mastered"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "session_id",
+                "optional_count",
+                "seed",
+                "progress_revision",
+                "next_sequence",
+                "candidate_count",
+                "snapshot_count",
+                "cursor",
+                "has_more",
+                "status",
+                "started_at",
+                "ended_at",
+                "expires_at",
+                "create_request_id",
+                "create_fingerprint",
+                "local_session",
+                "local_start_index",
+                "local_fingerprint",
+                "domain",
+                "mode",
+                "purpose",
+                "ordering",
+                "scope"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "session_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                },
+                "optional_count": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "seed": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                },
+                "progress_revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "next_sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "candidate_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 500
+                },
+                "snapshot_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                },
+                "cursor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "has_more": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "paused",
+                    "completed",
+                    "abandoned"
+                  ]
+                },
+                "started_at": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "ended_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 64,
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expires_at": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "create_request_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{16,64}$"
+                },
+                "create_fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "local_session": {
+                  "type": "boolean"
+                },
+                "local_start_index": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 10000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "local_fingerprint": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "domain": {
+                  "type": "string",
+                  "const": "note"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "sequential",
+                    "recent"
+                  ]
+                },
+                "purpose": {
+                  "type": "string",
+                  "const": "browse"
+                },
+                "ordering": {
+                  "type": "string",
+                  "enum": [
+                    "sequential_note_v1",
+                    "least_recently_viewed_v1"
+                  ]
+                },
+                "scope": {
+                  "type": "object",
+                  "properties": {
+                    "notebook_ids": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      }
+                    },
+                    "include_archived": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "notebook_ids",
+                    "include_archived"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "session_id",
+                "optional_count",
+                "seed",
+                "progress_revision",
+                "next_sequence",
+                "candidate_count",
+                "snapshot_count",
+                "cursor",
+                "has_more",
+                "status",
+                "started_at",
+                "ended_at",
+                "expires_at",
+                "create_request_id",
+                "create_fingerprint",
+                "local_session",
+                "local_start_index",
+                "local_fingerprint",
+                "domain",
+                "mode",
+                "purpose",
+                "ordering",
+                "scope"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "contract",
+        "read_at",
+        "context_sha256",
+        "actor",
+        "binding",
+        "session_id",
+        "domain",
+        "repair_authorized",
+        "part",
+        "offset",
+        "total_count",
+        "next_offset",
+        "has_more",
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "read_at": {
+          "type": "string",
+          "maxLength": 64,
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            },
+            "device_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            }
+          },
+          "required": [
+            "user_id",
+            "device_id"
+          ],
+          "additionalProperties": false
+        },
+        "binding": {
+          "type": "object",
+          "properties": {
+            "source_mac": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "elf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "source_mac",
+            "nonce",
+            "manifest_sha256",
+            "elf_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "repair_authorized": {
+          "type": "boolean",
+          "const": false
+        },
+        "part": {
+          "type": "string",
+          "const": "pins"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "total_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "next_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "pins": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 31
+                  },
+                  "pin": {
+                    "type": "object",
+                    "properties": {
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "pack_revision": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "deck_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      }
+                    },
+                    "required": [
+                      "content_revision",
+                      "pack_revision",
+                      "sha256",
+                      "deck_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "registry": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "word_ready_registry"
+                          },
+                          "state": {
+                            "type": "string",
+                            "const": "missing"
+                          },
+                          "record": {
+                            "type": "null"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "state",
+                          "record"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "word_ready_registry"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "ready",
+                              "stale",
+                              "failed"
+                            ]
+                          },
+                          "record": {
+                            "type": "object",
+                            "properties": {
+                              "pack_id": {
+                                "type": "string",
+                                "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                              },
+                              "pack_revision": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 9007199254740991
+                              },
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "schema_version": {
+                                "type": "number",
+                                "const": 2
+                              },
+                              "format": {
+                                "type": "string",
+                                "const": "jsonl"
+                              },
+                              "compression": {
+                                "type": "string",
+                                "const": "none"
+                              },
+                              "entry_count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              },
+                              "byte_size": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4194304
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "pack_id",
+                              "pack_revision",
+                              "sha256",
+                              "schema_version",
+                              "format",
+                              "compression",
+                              "entry_count",
+                              "byte_size",
+                              "created_at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "state",
+                          "record"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "index",
+                  "pin",
+                  "registry"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 31
+                  },
+                  "pin": {
+                    "type": "object",
+                    "properties": {
+                      "content_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "pack_revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "notebook_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      }
+                    },
+                    "required": [
+                      "content_revision",
+                      "pack_revision",
+                      "sha256",
+                      "notebook_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "registry": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "note_artifact_registry"
+                          },
+                          "state": {
+                            "type": "string",
+                            "const": "missing"
+                          },
+                          "record": {
+                            "type": "null"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "state",
+                          "record"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "note_artifact_registry"
+                          },
+                          "state": {
+                            "type": "string",
+                            "const": "found"
+                          },
+                          "record": {
+                            "type": "object",
+                            "properties": {
+                              "logical_id": {
+                                "type": "string",
+                                "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              },
+                              "byte_size": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4194304
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "logical_id",
+                              "revision",
+                              "sha256",
+                              "byte_size",
+                              "created_at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "state",
+                          "record"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "index",
+                  "pin",
+                  "registry"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "contract",
+        "read_at",
+        "context_sha256",
+        "actor",
+        "binding",
+        "session_id",
+        "domain",
+        "repair_authorized",
+        "part",
+        "offset",
+        "total_count",
+        "next_offset",
+        "has_more",
+        "pins"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "read_at": {
+          "type": "string",
+          "maxLength": 64,
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            },
+            "device_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            }
+          },
+          "required": [
+            "user_id",
+            "device_id"
+          ],
+          "additionalProperties": false
+        },
+        "binding": {
+          "type": "object",
+          "properties": {
+            "source_mac": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "elf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "source_mac",
+            "nonce",
+            "manifest_sha256",
+            "elf_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "repair_authorized": {
+          "type": "boolean",
+          "const": false
+        },
+        "part": {
+          "type": "string",
+          "const": "candidates"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "total_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "next_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "candidates": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 499
+                  },
+                  "item": {
+                    "type": "object",
+                    "properties": {
+                      "item_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "deck_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "ordinal": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "item_id",
+                      "deck_id",
+                      "ordinal"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "index",
+                  "item"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 499
+                  },
+                  "item": {
+                    "type": "object",
+                    "properties": {
+                      "item_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "notebook_id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "ordinal": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "last_opened_at": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 64,
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "item_id",
+                      "notebook_id",
+                      "ordinal"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "index",
+                  "item"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "contract",
+        "read_at",
+        "context_sha256",
+        "actor",
+        "binding",
+        "session_id",
+        "domain",
+        "repair_authorized",
+        "part",
+        "offset",
+        "total_count",
+        "next_offset",
+        "has_more",
+        "candidates"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "const": "outbox-recovery-context-v1"
+        },
+        "read_at": {
+          "type": "string",
+          "maxLength": 64,
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "context_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            },
+            "device_id": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+            }
+          },
+          "required": [
+            "user_id",
+            "device_id"
+          ],
+          "additionalProperties": false
+        },
+        "binding": {
+          "type": "object",
+          "properties": {
+            "source_mac": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "elf_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "source_mac",
+            "nonce",
+            "manifest_sha256",
+            "elf_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "word",
+            "note"
+          ]
+        },
+        "repair_authorized": {
+          "type": "boolean",
+          "const": false
+        },
+        "part": {
+          "type": "string",
+          "const": "receipts"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "random",
+                "dictionary",
+                "review",
+                "intake",
+                "shuffle",
+                "mistakes"
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "recent"
+              ]
+            }
+          ]
+        },
+        "offset": {
+          "type": "number",
+          "const": 0
+        },
+        "total_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "next_offset": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "has_more": {
+          "type": "boolean",
+          "const": false
+        },
+        "receipts": {
+          "minItems": 1,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "const": "found"
+                  },
+                  "observation": {
+                    "type": "object",
+                    "properties": {
+                      "observation_id": {
+                        "type": "string",
+                        "minLength": 36,
+                        "maxLength": 36,
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "request_id": {
+                        "type": "string",
+                        "minLength": 16,
+                        "maxLength": 64,
+                        "pattern": "^[A-Za-z0-9_-]+$"
+                      },
+                      "session_id": {
+                        "type": "string",
+                        "minLength": 36,
+                        "maxLength": 36,
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "item_id": {
+                        "type": "string",
+                        "minLength": 36,
+                        "maxLength": 36,
+                        "pattern": "^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+                      },
+                      "action": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "shown",
+                              "revealed",
+                              "known",
+                              "unknown",
+                              "skipped",
+                              "looked_up"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "opened",
+                              "read_completed",
+                              "skipped",
+                              "session_paused"
+                            ]
+                          }
+                        ]
+                      },
+                      "mode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sequential",
+                              "random",
+                              "dictionary",
+                              "review",
+                              "intake",
+                              "shuffle",
+                              "mistakes"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sequential",
+                              "recent"
+                            ]
+                          }
+                        ]
+                      },
+                      "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    },
+                    "required": [
+                      "observation_id",
+                      "request_id",
+                      "session_id",
+                      "sequence",
+                      "item_id",
+                      "action",
+                      "mode",
+                      "occurred_at",
+                      "created_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "request_id",
+                  "state",
+                  "observation"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "not_found",
+                      "conflict"
+                    ]
+                  },
+                  "observation": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "request_id",
+                  "state",
+                  "observation"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "contract",
+        "read_at",
+        "context_sha256",
+        "actor",
+        "binding",
+        "session_id",
+        "domain",
+        "repair_authorized",
+        "part",
+        "mode",
+        "offset",
+        "total_count",
+        "next_offset",
+        "has_more",
+        "receipts"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
