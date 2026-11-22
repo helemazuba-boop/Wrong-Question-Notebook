@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/helemazuba-boop/WQN-Knowledge-Registry",
-  "source_sha": "dc6e4493eb94abc31ae14e8fac95d97cd6a936b8",
+  "source_sha": "8deab76067809b88d48ac2c94c2354f671f39cb7",
   "schema_version": 1,
-  "artifact_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/dc6e4493eb94abc31ae14e8fac95d97cd6a936b8/dist/registry.json",
-  "content_sha256": "5d37bd7acc52a3edbc1ac4cf64c22b6852263cc70b9d77f3543eee32c5f091a9",
+  "artifact_url": "https://raw.githubusercontent.com/helemazuba-boop/WQN-Knowledge-Registry/8deab76067809b88d48ac2c94c2354f671f39cb7/dist/registry.json",
+  "content_sha256": "7a8f9fe52cd7f71af08a6a4140d855ef2e6de5a935cdd5c299c8beecff32ecb2",
   "agent_marking": {
-    "artifact_sha256": "7d2d5bfef493a24e6e089a9a93aa76bf703338c60fc4c1c5f1adf7be32a997bd",
+    "artifact_sha256": "f2e1d96999ce56beda85142e08ac5ea0c70b5f217c99619e05138ec4a5778c93",
     "skill_version": "1.0.0"
   }
 }
