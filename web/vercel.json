@@ -1,28 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/generate-digests",
-      "schedule": "0 19 * * *"
-    },
-    {
-      "path": "/api/cron/project-problem-reviews",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/cleanup-qr-uploads",
-      "schedule": "17 * * * *"
-    },
-    {
-      "path": "/api/cron/problem-marks-annotate",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/todo-reminders",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/account-data",
-      "schedule": "* * * * *"
-    }
-  ]
+  "crons": []
 }
