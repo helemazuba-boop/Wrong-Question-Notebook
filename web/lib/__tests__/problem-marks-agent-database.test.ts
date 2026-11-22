@@ -6,6 +6,7 @@ vi.mock('@/lib/supabase-utils', () => ({
   createServiceClient: () => ({ rpc: transport.execute }),
 }));
 import { POST } from '@/app/api/mcp/mark/route';
+import { AgentBundleSchema } from '@/lib/problem-marks/agent-contract';
 import { agentRpc, taskToken } from '@/lib/problem-marks/agent-service';
 
 const db = process.env.WQN_AGENT_TEST_DB;
@@ -21,8 +22,10 @@ function sql(statement: string) {
     'docker',
     [
       'exec',
+      '-i',
       container,
       'psql',
+      '-X',
       '-U',
       'supabase_admin',
       '-d',
@@ -30,10 +33,10 @@ function sql(statement: string) {
       '-v',
       'ON_ERROR_STOP=1',
       '-Atq',
-      '-c',
-      statement,
+      '-f',
+      '-',
     ],
-    { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }
+    { input: statement, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }
   ).trim();
 }
 const secret = 'isolated-mark-smoke-credential-000000000000';
@@ -53,7 +56,8 @@ describe.skipIf(!db || !container)(
       sql(`select public.sync_knowledge_registry_revision('https://example.invalid/agent-integration',${literal(lock.source_sha)},1,${literal(lock.content_sha256)},${literal(artifact)});
       insert into auth.users(id,aud,role,email,encrypted_password,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) values('a2600000-0000-4000-8000-000000000001','authenticated','authenticated','agent-integration@example.invalid','','{}','{}',now(),now());
       insert into public.subjects(id,user_id,name,color,icon,canonical_subject_key) values('b2600000-0000-4000-8000-000000000001','a2600000-0000-4000-8000-000000000001','物理','blue','Atom','physics');
-      insert into public.problems(id,user_id,subject_id,title,content,assets,solution_assets,status,parts,source,is_optional) values('${problem}','a2600000-0000-4000-8000-000000000001','b2600000-0000-4000-8000-000000000001','Integration fixture','已知三个物理量，求第四个。','[]','[]','needs_review','[{"index":1,"type":"short_answer","content":"求第四个物理量"}]','{}',false);`);
+      insert into public.problems(id,user_id,subject_id,title,content,assets,solution_assets,status,parts,source,is_optional) values('${problem}','a2600000-0000-4000-8000-000000000001','b2600000-0000-4000-8000-000000000001','Integration fixture','已知三个物理量，求第四个。','[]','[]','needs_review','[{"index":1,"type":"short_answer","content":"求第四个物理量"}]','{}',false);
+      update public.problem_mark_annotations set updated_at=now()-interval '10 minutes',next_retry_at=now()-interval '10 minutes' where problem_id='${problem}';`);
       transport.execute.mockImplementation(
         async (
           name: string,
@@ -71,9 +75,9 @@ describe.skipIf(!db || !container)(
         }
       );
     });
-    it('validates real evidence, commits one receipt and replays without duplicating methods', async () => {
-      const bundle = JSON.parse(
-        readFileSync('agent-marking.bundle.json', 'utf8')
+    it('claims a ten-minute-old Problem and replays its accepted receipt without duplicating methods', async () => {
+      const bundle = AgentBundleSchema.parse(
+        JSON.parse(readFileSync('agent-marking.bundle.json', 'utf8'))
       );
       const lock = JSON.parse(
         readFileSync('knowledge-registry.lock.json', 'utf8')
@@ -105,7 +109,11 @@ describe.skipIf(!db || !container)(
       const context = await call('get_mark_context', auth);
       expect(context.isError).toBe(false);
       expect(context.structuredContent.data.problem_id).toBe(problem);
-      const doc = bundle.documents[0];
+      const doc = bundle.documents.find(
+        document => document.subject === 'physics' && document.kind === 'skill'
+      );
+      if (!doc?.sections.length)
+        throw new Error('Physics evidence fixture missing');
       const result = {
         assignments: [],
         methods: [

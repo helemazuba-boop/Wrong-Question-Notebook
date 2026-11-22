@@ -10,7 +10,10 @@ import {
 const bundle = AgentBundleSchema.parse(
   JSON.parse(readFileSync('agent-marking.bundle.json', 'utf8'))
 );
-const doc = bundle.documents[0];
+const doc = bundle.documents.find(
+  document => document.subject === 'physics' && document.kind === 'skill'
+);
+if (!doc?.sections.length) throw new Error('Physics evidence fixture missing');
 const base = {
   assignments: [],
   methods: [
