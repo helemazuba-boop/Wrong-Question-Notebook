@@ -15,11 +15,11 @@ are the completion authority.
    and repairs its user-override replacement behavior.
 2. Generate the matching OpenCode workspace in WQN-Knowledge-Registry with
    `npm run build:agent`. Copy `dist/agent-marking/` to the OpenCode host. It
-   includes `opencode.jsonc`, the `mark` agent/Skill, catalog and 76 method files.
+   includes `opencode.jsonc`, the `mark` agent/Skill, catalog and method files.
    Changing provider-neutral content or the Skill requires regenerating the
    workspace and updating the WQN bundled artifact and its lock hash together.
 3. Start an OpenCode **V2** service with that workspace as its directory. Use its
-   existing provider configuration/default model. Export `WQN_MARK_MCP_URL`
+   effective provider configuration and a resolvable default model. Export `WQN_MARK_MCP_URL`
    and `PROBLEM_MARKING_AGENT_SECRET` to that service. The workspace connects
    only to `/api/mcp/mark`; it does not use the general user MCP or user PATs.
    V1 APIs/configuration are not compatible with this worker. Verify the V2
@@ -31,16 +31,16 @@ are the completion authority.
 5. Build `web/Dockerfile.mark-worker`, or use `web/docker-compose.yml`. Compose
    starts `wqn-mark-worker` alongside the App. Existing standalone releases can
    run the worker image with the dedicated env file and the App's Docker network.
-   `/health` must be ready before enabling Agent admission. The worker startup
-   checks the App engine and pinned bundle; missing prerequisites fail explicitly.
+   Verify OpenCode and MCP connectivity before starting the worker. Check
+   `/health` for `ready: true` and `engine: agent` after startup.
 
 The App image includes `agent-marking.bundle.json`; its SHA-256 and Skill version
 are pinned in `knowledge-registry.lock.json`. App and OpenCode workspace must
-publish the same bytes. The default deployment keeps `PROBLEM_MARKING_ENGINE=rag`.
-Changing both App and worker configuration to `rag` restores original processing;
-already running Agent tasks retain their original session and may finish. No
-automatic RAG fallback or reclassification of already completed historical
-Problems occurs.
+publish the same bytes. The current lock pins Agent marking only. Deploy the
+App and worker with `PROBLEM_MARKING_ENGINE=agent` from the first release. Stop
+the worker to pause claims. A RAG rollback requires a compatible App release
+with a pinned retrieval profile, matching active Registry and vector artifacts,
+and provider configuration.
 
 ## MCP contract
 

@@ -1,7 +1,8 @@
 # Agent 分类部署与测试
 
 本版每题创建一个 OpenCode 新会话；进程恢复继续原会话，用户明确重试才创建新 run/会话。
-本文的发布、迁移和真实题目测试命令供操作时执行；编写本文没有执行生产部署或模型调用。
+当前 Registry 锁只固定 Agent bundle。App 与 worker 从首次发布起都配置 `agent`，
+连接预检完成后再启动 worker 认领任务。
 工程测试记录见 [VALIDATION.md](VALIDATION.md)，协议与恢复说明见 [README.md](README.md)。
 
 1. 准备三个运行单元和网络
@@ -36,7 +37,7 @@ npm run marks:sync-agent -- "$REGISTRY_ROOT/dist/agent-marking/bundle.json"
 node scripts/sync-knowledge-registry.ts --verify-only --artifact "$REGISTRY_ROOT/dist/registry.json"
 ```
 
-预期：生成 76 份方法文档，canonical registry 校验成功。`bundle.json` 的 SHA-256 必须等于
+预期生成与锁定 Registry 对应的数学和物理方法文档，canonical registry 校验成功。`bundle.json` 的 SHA-256 必须等于
 `web/knowledge-registry.lock.json` 的 `agent_marking.artifact_sha256`。
 修改文档或 Skill 后必须重新生成、同步并发布 App 和 OpenCode 工作区。
 
@@ -60,28 +61,28 @@ tar -xzf /tmp/wqn-mark-workspace.tar.gz -C /srv/wqn-mark/registry
 生成独立分类密钥：`openssl rand -hex 32`。三处使用同一个值；模型供应商密钥只保留在 OpenCode 环境。
 下面的 `REPLACE_*` 都需替换。
 
-| 变量                                  | App                        | worker                        | OpenCode                       |
-| ------------------------------------- | -------------------------- | ----------------------------- | ------------------------------ |
-| `PROBLEM_MARKING_ENGINE`              | `rag` 预检，完成后 `agent` | 与 App 一致                   | 不需要                         |
-| `PROBLEM_MARKING_AGENT_SECRET`        | 同一把分类密钥             | 同一把分类密钥                | 同一把分类密钥                 |
-| `WQN_MARK_APP_URL`                    | 不需要                     | App 内网 URL                  | 不需要                         |
-| `WQN_MARK_OPENCODE_URL`               | 不需要                     | OpenCode 服务 URL             | 不需要                         |
-| `WQN_MARK_OPENCODE_DIRECTORY`         | 不需要                     | OpenCode 主机的工作区绝对路径 | 对应的工作区目录               |
-| `WQN_MARK_OPENCODE_USERNAME/PASSWORD` | 不需要                     | OpenCode HTTP 认证            | 对应的服务认证                 |
-| `WQN_MARK_MCP_URL`                    | 不需要                     | 不使用                        | App 的完整 `/api/mcp/mark` URL |
-| `WQN_MARK_CONCURRENCY`                | 不需要                     | 默认 2，初次实测可用 1        | 不需要                         |
+| 变量                                  | App            | worker                        | OpenCode                       |
+| ------------------------------------- | -------------- | ----------------------------- | ------------------------------ |
+| `PROBLEM_MARKING_ENGINE`              | `agent`        | `agent`                       | 不需要                         |
+| `PROBLEM_MARKING_AGENT_SECRET`        | 同一把分类密钥 | 同一把分类密钥                | 同一把分类密钥                 |
+| `WQN_MARK_APP_URL`                    | 不需要         | App 内网 URL                  | 不需要                         |
+| `WQN_MARK_OPENCODE_URL`               | 不需要         | OpenCode 服务 URL             | 不需要                         |
+| `WQN_MARK_OPENCODE_DIRECTORY`         | 不需要         | OpenCode 主机的工作区绝对路径 | 对应的工作区目录               |
+| `WQN_MARK_OPENCODE_USERNAME/PASSWORD` | 不需要         | OpenCode HTTP 认证            | 对应的服务认证                 |
+| `WQN_MARK_MCP_URL`                    | 不需要         | 不使用                        | App 的完整 `/api/mcp/mark` URL |
+| `WQN_MARK_CONCURRENCY`                | 不需要         | 默认 2，初次实测可用 1        | 不需要                         |
 
 App：在现有 `web/.env.production` 中增加，保留原有数据库和其他配置：
 
 ```dotenv
-PROBLEM_MARKING_ENGINE=rag
+PROBLEM_MARKING_ENGINE=agent
 PROBLEM_MARKING_AGENT_SECRET=REPLACE_WITH_SHARED_MARK_SECRET
 ```
 
 单独创建 worker 环境文件，例如部署主机的 `~/.env.wqn-mark-worker`，权限设为 600：
 
 ```dotenv
-PROBLEM_MARKING_ENGINE=rag
+PROBLEM_MARKING_ENGINE=agent
 PROBLEM_MARKING_AGENT_SECRET=REPLACE_WITH_SHARED_MARK_SECRET
 WQN_MARK_APP_URL=http://wqn-app:3000
 WQN_MARK_OPENCODE_URL=http://10.0.0.20:4096
@@ -94,9 +95,10 @@ WQN_MARK_CONCURRENCY=1
 `wqn-app` 是现有 release.sh 默认容器名；Compose 中应使用 `http://wqn:3000`。
 把示例 IP 换成 worker 实际可达的 OpenCode 地址。容器内的 `127.0.0.1` 指向该容器自身。
 
-4. 发布数据库与 App，暂时保留 RAG
+4. 发布数据库与 Agent App
 
-先把现有生产配置放到当前 WQN 工作区的 `web/.env.production`。在 WQN 根目录：
+先暂停已有分类 worker，避免更新 Registry 或工作区期间认领新任务。将生产配置放到当前 WQN 工作区的
+`web/.env.production`，确认 `PROBLEM_MARKING_ENGINE=agent`。在 WQN 根目录执行迁移预检：
 
 ```bash
 cd "$WQN_ROOT"
@@ -120,7 +122,7 @@ node --env-file=.env.production scripts/sync-knowledge-registry.ts --artifact "$
 
 ```bash
 cd "$WQN_ROOT"
-WQN_APP_TAG=agent-marking-20261026-preflight
+WQN_APP_TAG=agent-marking-REPLACE_WITH_RELEASE_TAG
 bash deploy/release.sh "$WQN_APP_TAG" --skip-realtime
 ```
 
@@ -129,8 +131,7 @@ App 中必须包含本次 bundle、lock 和路由代码。桌面发布流程也�
 
 5. 启动 OpenCode V2 并检查工作区
 
-使用具备现有 provider 配置和默认模型的 OpenCode V2 运行账号。先确认 `opencode --version` 为 2.x；
-本地 WSL 目前检查到的 1.18.34 不能用于此框架。
+使用具备 provider 配置和默认模型的 OpenCode V2 运行账号。先确认 `opencode --version` 为 2.x。
 以下命令配置该账号的共享后台服务；建议分类使用独立运行账号，避免调整个人服务：
 
 ```bash
@@ -167,63 +168,13 @@ curl -fsS -u "$WQN_MARK_OPENCODE_USERNAME:$WQN_MARK_OPENCODE_PASSWORD" \
 ```
 
 预期：OpenAPI 包含 `/api/session`、`/api/session/{sessionID}/prompt`、`/api/event`，
-session 创建接受指定 id/metadata，prompt 接受指定消息 id；agent 列表含 `mark`，MCP 列表中
-`wqn_mark` 连接成功。检查 provider 的默认模型已配置可用；需要图题时确认该模型能处理图片。
-不要把读取配置、MCP 连接成功当作模型分类已经验证。
+session 创建接受指定 id/metadata，prompt 接受指定消息 id。agent 列表应包含 `mark`，MCP 列表应显示
+`wqn_mark` 已连接。worker 创建会话时省略 `model`，因此要确认该运行账号在实际工作区解析出的默认
+`provider/model` 在其模型目录中可用。需要图题时，确认默认模型支持图片。
 
-6. 部署常驻 worker
+6. 验证专用 MCP 的四个工具
 
-沿用现有 App 部署时，在构建机 WQN 根目录构建并发布新镜像：
-
-```bash
-cd "$WQN_ROOT"
-MARK_WORKER_IMAGE=your-registry/your-namespace/wqn-mark-worker:agent-marking-20261026
-docker build -f web/Dockerfile.mark-worker -t "$MARK_WORKER_IMAGE" web
-docker push "$MARK_WORKER_IMAGE"
-```
-
-在 App 部署主机上，使用对应镜像名和刚才准备的独立环境文件：
-
-```bash
-MARK_WORKER_IMAGE=your-registry/your-namespace/wqn-mark-worker:agent-marking-20261026
-chmod 600 "$HOME/.env.wqn-mark-worker"
-docker pull "$MARK_WORKER_IMAGE"
-docker run -d --name wqn-mark-worker --restart unless-stopped \
-  --network wqn-runtime \
-  --env-file "$HOME/.env.wqn-mark-worker" \
-  "$MARK_WORKER_IMAGE"
-docker logs --tail 100 wqn-mark-worker
-docker exec wqn-mark-worker wget -qO- http://127.0.0.1:8090/health
-```
-
-`wqn-runtime` 是现有 release.sh 默认网络；自定义了网络或容器名时一并修改。
-这是首次创建命令；已有 worker 时先按部署窗口停止、移除旧 worker 容器，再用相同名字创建。
-此时配置齐全的 RAG worker 会检查 App/数据库、bundle 与 OpenCode V2，并只恢复已有 Agent 任务。
-空配置 RAG 的 `ready:true` 仅表示空闲存活，不能作为接入验收。
-
-7. 切换为 Agent
-
-连接预检完成后，先停止 worker，在 App 配置和独立 worker 环境文件中都改为
-`PROBLEM_MARKING_ENGINE=agent`。重新发布/创建 App，再重新创建 worker 容器。
-环境文件更新后只 `docker restart` 不会注入新值，必须 recreate。
-保持相同分类密钥和 OpenCode 连接设置。Agent worker 的 `/health` 应返回
-`{"ready":true,"engine":"agent",...}`，日志不应持续出现启动/鉴权错误。
-
-若采用仓库的 Compose，先在现有 `web/.env.production` 加入步骤 3 的 App/worker 变量，
-`WQN_MARK_APP_URL` 由 Compose 固定为 `http://wqn:3000`。设置一个非空的 `IMAGE_WQN`
-及现有 App 所需配置/构建 secret，然后在 `web/` 执行；不同时启动第二套现有 App：
-
-```bash
-docker compose --env-file .env.production -f docker-compose.yml build wqn wqn-mark-worker
-docker compose --env-file .env.production -f docker-compose.yml up -d --force-recreate wqn wqn-mark-worker
-docker compose --env-file .env.production -f docker-compose.yml logs --tail=100 wqn-mark-worker
-docker compose --env-file .env.production -f docker-compose.yml exec -T wqn-mark-worker \
-  wget -qO- http://127.0.0.1:8090/health
-```
-
-8. 验证专用 MCP 的四个工具
-
-下面在可信终端执行，不调用模型、不认领任务。先 export 同一分类密钥和 MCP URL：
+在启动 worker 前，从可信终端查询工具清单。这个请求不会认领任务或调用模型。
 
 ```bash
 export WQN_MARK_MCP_URL=https://wqn.example.com/api/mcp/mark
@@ -237,9 +188,51 @@ curl -fsS "$WQN_MARK_MCP_URL" \
 
 预期只有 `get_mark_context`、`read_mark_images`、`submit_mark_result`、`get_mark_receipt`，
 且都带 inputSchema/outputSchema。OpenCode 侧调用名称带 `wqn_mark_` 前缀。
-一次任务的 run_id/task_token 由 worker 自动发给模型；普通手工聊天没有这些凭据，不能提交题目成果。
+一次任务的 run_id/task_token 由 worker 自动发给模型。
 
-9. 实际分类与验收报告
+7. 部署常驻 worker 并确认就绪
+
+沿用现有 App 部署时，在构建机 WQN 根目录构建并发布新镜像：
+
+```bash
+cd "$WQN_ROOT"
+MARK_WORKER_IMAGE=your-registry/your-namespace/wqn-mark-worker:REPLACE_WITH_RELEASE_TAG
+docker build -f web/Dockerfile.mark-worker -t "$MARK_WORKER_IMAGE" web
+docker push "$MARK_WORKER_IMAGE"
+```
+
+在 App 部署主机上，使用对应镜像名和刚才准备的独立环境文件：
+
+```bash
+MARK_WORKER_IMAGE=your-registry/your-namespace/wqn-mark-worker:REPLACE_WITH_RELEASE_TAG
+chmod 600 "$HOME/.env.wqn-mark-worker"
+docker pull "$MARK_WORKER_IMAGE"
+docker run -d --name wqn-mark-worker --restart unless-stopped \
+  --network wqn-runtime \
+  --env-file "$HOME/.env.wqn-mark-worker" \
+  "$MARK_WORKER_IMAGE"
+docker logs --tail 100 wqn-mark-worker
+docker exec wqn-mark-worker wget -qO- http://127.0.0.1:8090/health
+```
+
+`wqn-runtime` 是现有 release.sh 默认网络；自定义了网络或容器名时一并修改。
+已有 worker 时移除已停止的旧容器，再用相同名字创建。修改容器环境后需要重新创建容器。
+Agent worker 的 `/health` 应返回 `{"ready":true,"engine":"agent",...}`。
+worker 就绪后会开始认领已有待处理题目。逐题回执验收见下一步。
+
+若采用仓库的 Compose，先在现有 `web/.env.production` 加入步骤 3 的 App/worker 变量，
+`WQN_MARK_APP_URL` 由 Compose 固定为 `http://wqn:3000`。设置一个非空的 `IMAGE_WQN`
+及现有 App 所需配置/构建 secret，然后在 `web/` 执行；不同时启动第二套现有 App：
+
+```bash
+docker compose --env-file .env.production -f docker-compose.yml build wqn wqn-mark-worker
+docker compose --env-file .env.production -f docker-compose.yml up -d --force-recreate wqn wqn-mark-worker
+docker compose --env-file .env.production -f docker-compose.yml logs --tail=100 wqn-mark-worker
+docker compose --env-file .env.production -f docker-compose.yml exec -T wqn-mark-worker \
+  wget -qO- http://127.0.0.1:8090/health
+```
+
+8. 实际分类与验收报告
 
 先选少量新题，或在题目分类卡中对一题明确重试。管理员也可在 `/zh-CN/admin/problem-marks`
 按单题重新排队；首轮不要使用全量重排。已完成的历史题不会因切换自动重跑，现有待处理题可能被认领。
@@ -283,9 +276,9 @@ node --env-file=/secure/path/mark-export.env \
 `mark-export.env` 只需包含 `PROBLEM_MARKING_AGENT_SECRET`。以上覆盖只影响导出进程，不切换服务器引擎。
 报告包含结果、引用、回执、错误、实际模型、排队/执行/总耗时、token、已知费用和工具调用计数。
 未知费用保留 null；逐题人工检查适用性、遗漏、必需与推荐的区别，不把工程测试视为分类质量评分。
-当前词库只有 76 项物理 Skill，无 Knowledge 定义；缺失内容应返回 unresolved。
+当前词库包含数学和物理 Skill。缺失的知识点或方法应返回 `unresolved`。
 
-10. 工程测试与回退
+9. 工程测试与回退
 
 下面在 WQN `web/` 执行，均不代表真实模型效果：
 
@@ -320,19 +313,22 @@ npx vitest run lib/__tests__/problem-marks-agent-database.test.ts --maxWorkers=1
 预期 1 项通过；未设置这两个环境变量时该项会跳过。此测试通过 Docker 中的
 `psql -U supabase_admin` 连接，测试库名和容器名必须使用示例前缀，且会写入合成 fixture。
 
-回退时把 App 和 worker 都改回 `rag` 并 recreate；保留 worker 的分类密钥和 OpenCode 连接设置，
-让已有 Agent 任务继续沿用原会话恢复。无需删表或反向迁移；不会自动改写已完成题目。
+需要暂停认领时，先停止 worker 并保留 App 的 `agent` 配置。已启动的会话仍可在任务期限内提交。
+恢复时启动匹配当前 App 与 Registry 的 worker，让它按租约继续原会话。
+恢复 RAG 处理需要回退到带 `skill_retrieval` 锁的兼容 App 和相匹配的 Registry、向量产物及 provider 配置，
+并重新创建相关容器。当前 App 直接改为 `rag` 会因缺少检索锁而使分类失败。
 
-| 现象                             | 核查                                                  |
-| -------------------------------- | ----------------------------------------------------- |
-| `OPENCODE_V2_REQUIRED`           | 是否误用了 V1；检查目标服务 `/openapi.json`           |
-| `REGISTRY_LOCK_MISMATCH`         | 数据库 active registry 是否已同步到 App lock          |
-| `AGENT_BUNDLE_LOCK_MISMATCH`     | App bundle/lock 是否来自同次构建                      |
-| `MARK_ENGINE_MISMATCH`           | App 与 worker 的 engine 是否一致                      |
-| 401 / MCP 未连接                 | 分类密钥、OpenCode HTTP 密码、MCP URL 和服务环境      |
-| 找不到 mark 或文档               | 绝对目录、`.opencode/` 隐藏文件、运行账号与工作区加载 |
-| `PROMPT_OUTCOME_UNKNOWN`         | 原输入接收状态未知；保留原会话/回执，禁止自动重发     |
-| `AGENT_FINISHED_WITHOUT_RECEIPT` | 读取会话中的工具错误；模型文本完成不等于成果入库      |
+| 现象                             | 核查                                                     |
+| -------------------------------- | -------------------------------------------------------- |
+| `OPENCODE_V2_REQUIRED`           | 是否误用了 V1；检查目标服务 `/openapi.json`              |
+| `REGISTRY_LOCK_MISMATCH`         | 数据库 active registry 是否已同步到 App lock             |
+| `AGENT_BUNDLE_LOCK_MISMATCH`     | App bundle/lock 是否来自同次构建                         |
+| `MARK_ENGINE_MISMATCH`           | App 与 worker 的 engine 是否一致                         |
+| `SKILL_RETRIEVAL_CONTRACT`       | 当前 App 锁只支持 Agent 标注，检查 engine 是否为 `agent` |
+| 401 / MCP 未连接                 | 分类密钥、OpenCode HTTP 密码、MCP URL 和服务环境         |
+| 找不到 mark 或文档               | 绝对目录、`.opencode/` 隐藏文件、运行账号与工作区加载    |
+| `PROMPT_OUTCOME_UNKNOWN`         | 原输入接收状态未知；保留原会话/回执，禁止自动重发        |
+| `AGENT_FINISHED_WITHOUT_RECEIPT` | 读取会话中的工具错误；模型文本完成不等于成果入库         |
 
 OpenCode 命令与配置依据 2026-10-26 核对的官方 V2 文档：
 [服务](https://dev.opencode.ai/v2/docs/cli/web/)、
