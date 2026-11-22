@@ -49,7 +49,9 @@ npm run check:client-bundle-secrets
 ```
 
 Run `supabase/tests/database/agent-problem-marking.test.sql` after applying the
-migration to a disposable database containing WQN's existing schema.
+Agent migrations to a disposable database containing WQN's existing schema.
+The current suite expects 36 assertions, including a claim after ten minutes
+of queue wait and deadline preservation on renewal and takeover.
 
 The real database smoke is opt-in. Supply a fresh schema-complete database whose
 name starts with `wqn_agent_mark_validation_`, in a local Supabase container
@@ -67,17 +69,15 @@ other database/container names. Use a fresh disposable database for another run.
 ## Deployment and quality acceptance still required
 
 The generated configuration and worker target OpenCode V2, including
-client-assigned session/message identity. Startup rejects a V1 API. The existing
-local WSL CLI is V1; real V2 workspace loading, MCP tool discovery, provider
-behavior and model classification were not exercised by these engineering
-checks. Container health in default RAG mode does not prove Agent admission.
+client-assigned session/message identity. Startup rejects a V1 API. Verify
+workspace loading, MCP tool discovery, provider behavior and model classification
+on the deployment host.
 
-Current registry content is 76 physics Skill definitions and no Knowledge
-definitions. The framework supports both kinds, but absent definitions must be
-reported as unresolved. Quotation validation proves evidence provenance, not
-educational applicability.
+The original checks above used 76 physics Skill definitions. The current lock
+pins a math and physics corpus. Report missing definitions as unresolved and
+evaluate the educational applicability of verified quotations separately.
 
-Before rollout, apply the reviewed migration, synchronize the active canonical
+Before rollout, apply the reviewed migrations, synchronize the active canonical
 registry and pinned workspace, configure the independent service credentials,
 and verify worker readiness against the actual V2 host. Then evaluate the
 user-supplied corpus case by case, exporting classifications, evidence, omissions,

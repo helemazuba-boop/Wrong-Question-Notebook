@@ -105,7 +105,8 @@ cd "$WQN_ROOT"
 bash deploy/supabase-push.sh --dry-run-only
 ```
 
-核对待执行清单和目标库；本次需要 `20261025000000_agent_problem_marking.sql` 及其已有前置迁移。
+核对待执行清单和目标库。Agent 需要 `20261025000000_agent_problem_marking.sql`、其前置迁移，
+以及 `20261122000000_agent_mark_execution_deadline.sql`。
 `supabase-push.sh` 会应用该目录所有待执行迁移，不只本文件；不要用 `--include-all` 掩盖历史差异。
 当前脚本从配置读取维护 URL，经 SSH `tencent` 直连数据库容器。
 确认清单符合本次发布范围后执行：
@@ -236,7 +237,8 @@ docker compose --env-file .env.production -f docker-compose.yml exec -T wqn-mark
 
 先选少量新题，或在题目分类卡中对一题明确重试。管理员也可在 `/zh-CN/admin/problem-marks`
 按单题重新排队；首轮不要使用全量重排。已完成的历史题不会因切换自动重跑，现有待处理题可能被认领。
-期限从排队起算五分钟，排队已经超时的题会直接失败。
+新任务从首次认领起有五分钟执行时间，排队时长单独记录。续租和接管沿用同一截止时间。
+迁移前已认领的任务沿用原截止时间。此前因 `AGENT_QUEUE_DEADLINE_EXCEEDED` 失败的题可明确重新排队。
 
 检查每个 run 对应一个新的 session；结果卡能展示目标/必需项、推荐/备选方法及证据。
 确定失败后通过题目卡明确重试；断线但提交结果未知时先读原回执。
@@ -246,7 +248,7 @@ docker compose --env-file .env.production -f docker-compose.yml exec -T wqn-mark
 run_id/problem_id/session_id、状态与用量。也可用受信数据库查询获得更早任务：
 
 ```sql
-select run_id, problem_id, session_id, state, error_code, queued_at, telemetry
+select run_id, problem_id, session_id, state, error_code, queued_at, created_at, deadline_at, telemetry
 from public.problem_mark_agent_tasks
 order by created_at desc limit 20;
 ```
@@ -293,7 +295,7 @@ npm run check:client-bundle-secrets
 ```
 
 生产构建需要现有 App 构建环境，包括公开 Supabase URL、origin 配置和 Server Actions secret。
-SQL 32 项测试及真实 MCP→数据库 smoke 只对独立测试库运行，具体命令见 VALIDATION.md；不要指向生产。
+SQL 36 项测试及真实 MCP→数据库 smoke 使用独立测试库，具体命令见 VALIDATION.md。
 
 SQL 使用包含 WQN 全部前置 schema 和本次迁移的独立空测试库，运行账号需具备测试 fixture 权限：
 
@@ -302,7 +304,8 @@ MARK_TEST_DATABASE_URL='postgresql://test_admin:test_password@127.0.0.1:54322/wq
 supabase test db --db-url "$MARK_TEST_DATABASE_URL" supabase/tests/database/agent-problem-marking.test.sql
 ```
 
-预期 32 项全部通过。真实 MCP→数据库 smoke 需要一个新的、schema 完整的独立测试库：
+预期 36 项全部通过，覆盖排队超过五分钟的认领、续租和接管对截止时间的处理。
+真实 MCP→数据库 smoke 需要一个新的、schema 完整的独立测试库：
 
 ```bash
 WQN_AGENT_TEST_DB=wqn_agent_mark_validation_fresh \
@@ -318,17 +321,18 @@ npx vitest run lib/__tests__/problem-marks-agent-database.test.ts --maxWorkers=1
 恢复 RAG 处理需要回退到带 `skill_retrieval` 锁的兼容 App 和相匹配的 Registry、向量产物及 provider 配置，
 并重新创建相关容器。当前 App 直接改为 `rag` 会因缺少检索锁而使分类失败。
 
-| 现象                             | 核查                                                     |
-| -------------------------------- | -------------------------------------------------------- |
-| `OPENCODE_V2_REQUIRED`           | 是否误用了 V1；检查目标服务 `/openapi.json`              |
-| `REGISTRY_LOCK_MISMATCH`         | 数据库 active registry 是否已同步到 App lock             |
-| `AGENT_BUNDLE_LOCK_MISMATCH`     | App bundle/lock 是否来自同次构建                         |
-| `MARK_ENGINE_MISMATCH`           | App 与 worker 的 engine 是否一致                         |
-| `SKILL_RETRIEVAL_CONTRACT`       | 当前 App 锁只支持 Agent 标注，检查 engine 是否为 `agent` |
-| 401 / MCP 未连接                 | 分类密钥、OpenCode HTTP 密码、MCP URL 和服务环境         |
-| 找不到 mark 或文档               | 绝对目录、`.opencode/` 隐藏文件、运行账号与工作区加载    |
-| `PROMPT_OUTCOME_UNKNOWN`         | 原输入接收状态未知；保留原会话/回执，禁止自动重发        |
-| `AGENT_FINISHED_WITHOUT_RECEIPT` | 读取会话中的工具错误；模型文本完成不等于成果入库         |
+| 现象                             | 核查                                                         |
+| -------------------------------- | ------------------------------------------------------------ |
+| `OPENCODE_V2_REQUIRED`           | 是否误用了 V1；检查目标服务 `/openapi.json`                  |
+| `REGISTRY_LOCK_MISMATCH`         | 数据库 active registry 是否已同步到 App lock                 |
+| `AGENT_BUNDLE_LOCK_MISMATCH`     | App bundle/lock 是否来自同次构建                             |
+| `MARK_ENGINE_MISMATCH`           | App 与 worker 的 engine 是否一致                             |
+| `SKILL_RETRIEVAL_CONTRACT`       | 当前 App 锁只支持 Agent 标注，检查 engine 是否为 `agent`     |
+| 401 / MCP 未连接                 | 分类密钥、OpenCode HTTP 密码、MCP URL 和服务环境             |
+| 找不到 mark 或文档               | 绝对目录、`.opencode/` 隐藏文件、运行账号与工作区加载        |
+| `PROMPT_OUTCOME_UNKNOWN`         | 原输入接收状态未知；保留原会话/回执，禁止自动重发            |
+| `AGENT_DEADLINE_EXCEEDED`        | 对比 `created_at` 和 `deadline_at`，核对首次认领后的执行时间 |
+| `AGENT_FINISHED_WITHOUT_RECEIPT` | 读取会话中的工具错误；模型文本完成不等于成果入库             |
 
 OpenCode 命令与配置依据 2026-10-26 核对的官方 V2 文档：
 [服务](https://dev.opencode.ai/v2/docs/cli/web/)、

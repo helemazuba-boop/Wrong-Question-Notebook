@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(32);
+select plan(36);
 
 create temporary table agent_test_artifact(value text);
 insert into agent_test_artifact values ('{"schema_version":1,"subjects":[{"stable_key":"physics","name":"物理","aliases":[],"status":"active"}],"marks":[{"stable_key":"physics.knowledge.kinematics","name":"运动学","kind":"knowledge","subject":"physics","aliases":[],"include":[],"exclude":[],"status":"active"},{"stable_key":"physics.skill.motion","name":"运动公式","kind":"skill","subject":"physics","aliases":[],"include":[],"exclude":[],"status":"active"}]}');
@@ -19,13 +19,20 @@ values('a2500000-0000-4000-8000-000000000001','authenticated','authenticated','a
 insert into public.subjects(id,user_id,name,color,icon,canonical_subject_key) values('b2500000-0000-4000-8000-000000000001','a2500000-0000-4000-8000-000000000001','物理','blue','Atom','physics');
 insert into public.problems(id,user_id,subject_id,title,content,assets,solution_assets,status,parts,source,is_optional)
 values('c2500000-0000-4000-8000-000000000001','a2500000-0000-4000-8000-000000000001','b2500000-0000-4000-8000-000000000001','Agent fixture','已知三个物理量','[]','[]','needs_review','[{"index":1,"type":"short_answer","content":"求第四个物理量"}]','{}',false);
+update public.problem_mark_annotations
+set updated_at=now()-interval '10 minutes',next_retry_at=now()-interval '10 minutes'
+where problem_id='c2500000-0000-4000-8000-000000000001';
 create temporary table agent_test_tasks(value jsonb);
 insert into agent_test_tasks select public.agent_mark_control_v1('claim',jsonb_build_object('worker_id','worker-one','registry_source_sha',repeat('a',40),'registry_content_sha256',encode(extensions.digest(value,'sha256'),'hex'),'bundle_sha256',repeat('b',64),'skill_version','1.0.0')) from agent_test_artifact;
 select ok(not has_function_privilege('authenticated','public.agent_mark_control_v1(text,jsonb)','EXECUTE'),'public MCP credentials cannot execute internal task control');
-select is((select value->>'state' from agent_test_tasks),'processing','claim creates a live task');
+select is((select value->>'state' from agent_test_tasks),'processing','a Problem queued for ten minutes is still claimable');
+select is((select (value->>'queued_at')::timestamptz from agent_test_tasks),now()-interval '10 minutes','the original queue timestamp is retained for telemetry');
+select is((select (value->>'deadline_at')::timestamptz-(value->>'created_at')::timestamptz from agent_test_tasks),interval '300 seconds','the first claim starts a full execution budget');
 select is((select executor from public.problem_mark_annotation_runs where id=(select (value->>'run_id')::uuid from agent_test_tasks)),'agent','run records its actual executor');
 select ok((select embedding_profile_id is null from public.problem_mark_annotation_runs where id=(select (value->>'run_id')::uuid from agent_test_tasks)),'Agent does not fabricate embedding provenance');
 select isnt(public.agent_mark_control_v1('renew',jsonb_build_object('run_id',value->>'run_id','worker_id','worker-one'))->>'lease_token',value->>'lease_token','renewal rotates the annotation ownership token') from agent_test_tasks;
+select is(t.deadline_at,(a.value->>'deadline_at')::timestamptz,'lease renewal preserves the execution deadline')
+from agent_test_tasks a join public.problem_mark_agent_tasks t on t.run_id=(a.value->>'run_id')::uuid;
 select lives_ok($q$select public.agent_mark_control_v1('bind',jsonb_build_object('run_id',value->>'run_id','worker_id','worker-one','session_id','ses_agent_fixture')) from agent_test_tasks$q$,'bind a single session before submitting upstream input');
 select throws_ok($q$select public.agent_mark_control_v1('bind',jsonb_build_object('run_id',value->>'run_id','worker_id','worker-one','session_id','ses_another')) from agent_test_tasks$q$,'P0001','MARK_SESSION_CONFLICT','a task cannot be rebound to a second session');
 insert into public.problem_marks(problem_id,mark_key,role,part_index,registry_revision_id,semantic_revision,source,is_user_override)
@@ -56,6 +63,8 @@ update public.problem_mark_agent_tasks set lease_until=clock_timestamp()-interva
 update public.problem_mark_annotations set lease_until=clock_timestamp()-interval '1 second' where problem_id='c2500000-0000-4000-8000-000000000001';
 select is(public.agent_mark_control_v1('claim',jsonb_build_object('worker_id','replacement-worker','allow_new',false,'registry_source_sha',repeat('a',40),'registry_content_sha256',encode(extensions.digest(a.value,'sha256'),'hex'),'bundle_sha256',repeat('b',64),'skill_version','1.0.0'))->>'run_id',r.value->>'run_id','recovery keeps the original run even when new admission is disabled') from agent_test_artifact a cross join agent_recovery r;
 select is((select session_id from public.problem_mark_agent_tasks where run_id=(select (value->>'run_id')::uuid from agent_recovery)),'ses_recovery_fixture','recovery preserves the single bound session');
+select is(t.deadline_at,(r.value->>'deadline_at')::timestamptz,'lease takeover preserves the original execution deadline')
+from agent_recovery r join public.problem_mark_agent_tasks t on t.run_id=(r.value->>'run_id')::uuid;
 select throws_ok($q$select public.agent_mark_control_v1('renew',jsonb_build_object('run_id',value->>'run_id','worker_id','old-worker')) from agent_recovery$q$,'P0001','MARK_WORKER_MISMATCH','a replaced worker cannot renew the reclaimed task');
 select throws_ok($q$select public.agent_mark_control_v1('fail',jsonb_build_object('run_id',value->>'run_id','worker_id','old-worker','error_code','MARK_TRANSPORT_FAILED')) from agent_recovery$q$,'P0001','MARK_WORKER_MISMATCH','a replaced worker cannot fail its successor');
 update public.problems set content='New revision while the model is running' where id='c2500000-0000-4000-8000-000000000001';

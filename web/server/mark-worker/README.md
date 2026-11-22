@@ -10,9 +10,9 @@ are the completion authority.
 
 ## Deploy
 
-1. Apply `20261025000000_agent_problem_marking.sql` using the normal reviewed
-   database release procedure. The migration preserves existing RAG execution
-   and repairs its user-override replacement behavior.
+1. Apply `20261025000000_agent_problem_marking.sql` and
+   `20261122000000_agent_mark_execution_deadline.sql` using the normal reviewed
+   database release procedure.
 2. Generate the matching OpenCode workspace in WQN-Knowledge-Registry with
    `npm run build:agent`. Copy `dist/agent-marking/` to the OpenCode host. It
    includes `opencode.jsonc`, the `mark` agent/Skill, catalog and method files.
@@ -60,10 +60,10 @@ credential and a worker id. It is not exposed as an Agent tool.
 
 ## Recovery and operations
 
-- Default concurrency: 2, idle poll: 1 second; task poll: 2 seconds; lease: 90
-  seconds, renewal: 20 seconds. Five minutes from enqueue is the task deadline;
-  an already overdue queued item fails without making a model call. The
-  workspace agent limits each run to 12 model steps.
+- Default concurrency is 2. Idle polling runs every second, and task polling
+  every two seconds. A 90-second lease renews every 20 seconds. The first claim
+  starts a five-minute execution budget. Renewing or taking over a lease retains
+  that deadline. The workspace agent limits each run to 12 model steps.
 - A run reserves its deterministic session id before creating it. Lost create
   responses read that same id. Lost prompt responses check the original message
   id; unresolved prompt acceptance is `PROMPT_OUTCOME_UNKNOWN`, never a replay.
