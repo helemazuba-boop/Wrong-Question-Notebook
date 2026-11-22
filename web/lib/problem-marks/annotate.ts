@@ -17,6 +17,7 @@ import {
 } from '@/lib/problem-marks/lifecycle';
 import {
   KnowledgeRegistryLockSchema,
+  pinnedSkillRetrieval,
   type KnowledgeRegistryLock,
 } from '@/lib/problem-marks/registry-artifact';
 import {
@@ -471,16 +472,16 @@ async function resolveSkillRetrieval(
           candidateKeys: [],
           candidateViews: [],
           queryHash,
-          embeddingProfileId: lock.skill_retrieval.profile_id,
+          embeddingProfileId: pinnedSkillRetrieval(lock).profile_id,
           queryTemplateVersion: query.templateVersion,
           coverageMiss: true,
           debug: {
             skill: [],
             coverage: 'miss',
             subject: subjectKey,
-            profile_fingerprint: lock.skill_retrieval.profile_fingerprint,
+            profile_fingerprint: pinnedSkillRetrieval(lock).profile_fingerprint,
             representation_revision:
-              lock.skill_retrieval.representation_revision,
+              pinnedSkillRetrieval(lock).representation_revision,
           },
         },
       };
@@ -564,7 +565,7 @@ function skippedRetrieval(
     candidateKeys: [],
     candidateViews: [],
     queryHash: EMPTY_QUERY_HASH,
-    embeddingProfileId: lock.skill_retrieval.profile_id,
+    embeddingProfileId: pinnedSkillRetrieval(lock).profile_id,
     queryTemplateVersion: SKILL_QUERY_TEMPLATE_VERSION,
     coverageMiss: false,
     debug: { skill: [], coverage: 'skipped', reason },

@@ -135,7 +135,9 @@ export const KnowledgeRegistryLockSchema = z
       .url()
       .refine(value => value.startsWith('https://')),
     content_sha256: sha256Schema,
-    skill_retrieval: SkillRetrievalLockSchema,
+    // Optional: the Agent marking path classifies against the pinned bundle and
+    // never loads a retrieval artifact. A deployment on `rag` still pins one.
+    skill_retrieval: SkillRetrievalLockSchema.optional(),
     agent_marking: z
       .object({ artifact_sha256: sha256Schema, skill_version: nonBlankSchema })
       .strict()
@@ -143,11 +145,14 @@ export const KnowledgeRegistryLockSchema = z
   })
   .strict()
   .superRefine((lock, context) => {
-    for (const [field, url] of [
-      ['artifact_url', lock.artifact_url],
-      ['skill_retrieval.artifact_url', lock.skill_retrieval.artifact_url],
-      ['skill_retrieval.manifest_url', lock.skill_retrieval.manifest_url],
-    ] as const) {
+    const urls: Array<[string, string]> = [['artifact_url', lock.artifact_url]];
+    if (lock.skill_retrieval) {
+      urls.push(
+        ['skill_retrieval.artifact_url', lock.skill_retrieval.artifact_url],
+        ['skill_retrieval.manifest_url', lock.skill_retrieval.manifest_url]
+      );
+    }
+    for (const [field, url] of urls) {
       const pathSegments = new URL(url).pathname.split('/');
       if (!pathSegments.includes(lock.source_sha)) {
         context.addIssue({
@@ -158,6 +163,21 @@ export const KnowledgeRegistryLockSchema = z
       }
     }
   });
+
+/**
+ * The pinned Skill retrieval block, or a hard failure when the deployment runs
+ * the Agent engine and therefore pins none.
+ */
+export function pinnedSkillRetrieval(
+  lock: KnowledgeRegistryLock
+): SkillRetrievalLock {
+  if (!lock.skill_retrieval) {
+    throw new Error(
+      'SKILL_RETRIEVAL_NOT_PINNED: this deployment uses the Agent marking engine'
+    );
+  }
+  return lock.skill_retrieval;
+}
 
 export type KnowledgeRegistryArtifact = z.infer<
   typeof KnowledgeRegistryArtifactSchema

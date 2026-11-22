@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   KnowledgeRegistryLockSchema,
   parseKnowledgeRegistryArtifactText,
+  pinnedSkillRetrieval,
   verifyKnowledgeRegistryArtifact,
 } from '@/lib/problem-marks/registry-artifact';
 
@@ -89,6 +90,25 @@ describe('Knowledge Registry artifact consumer', () => {
         },
       })
     ).toThrow('locked source SHA');
+  });
+
+  it('accepts a lock without Skill retrieval for the Agent engine', () => {
+    const text = artifactText();
+    const { skill_retrieval: _omitted, ...rest } = lock(text);
+    const agentLock = KnowledgeRegistryLockSchema.parse(rest);
+    expect(agentLock.skill_retrieval).toBeUndefined();
+    // The canonical artifact still verifies; only the retrieval block is gone.
+    expect(verifyKnowledgeRegistryArtifact(agentLock, text).marks).toHaveLength(
+      1
+    );
+    // Loading the retrieval runtime without a pinned block fails loudly rather
+    // than falling back to an unpinned artifact.
+    expect(() => pinnedSkillRetrieval(agentLock)).toThrow(
+      /SKILL_RETRIEVAL_NOT_PINNED/
+    );
+    expect(pinnedSkillRetrieval(lock(text)).profile_id).toBe(
+      'skill-rag-qwen37-v1'
+    );
   });
 
   it('rejects duplicate and internally inconsistent stable identities', () => {

@@ -113,6 +113,17 @@ describe('Mark service task authority and objective projection', () => {
   it('loads the exact artifact pinned by the WQN lock', async () => {
     const result = await loadAgentBundle();
     expect(result.sha256).toBe(result.lock.agent_marking?.artifact_sha256);
-    expect(result.bundle.documents.length).toBe(76);
+    // The 题型笔记 corpus replaced the 解题觉醒 corpus. Assert the invariant the
+    // loader actually enforces — one document per active Mark — rather than a
+    // corpus size that changes with every import.
+    const active = result.bundle.registry.marks.filter(
+      (mark: { status: string }) => mark.status === 'active'
+    );
+    expect(result.bundle.documents).toHaveLength(active.length);
+    expect(
+      new Set(
+        result.bundle.documents.map((d: { stable_key: string }) => d.stable_key)
+      ).size
+    ).toBe(active.length);
   });
 });

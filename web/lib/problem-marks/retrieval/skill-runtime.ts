@@ -1,7 +1,10 @@
 import 'server-only';
 
 import { readFile } from 'node:fs/promises';
-import type { KnowledgeRegistryLock } from '@/lib/problem-marks/registry-artifact';
+import {
+  pinnedSkillRetrieval,
+  type KnowledgeRegistryLock,
+} from '@/lib/problem-marks/registry-artifact';
 import { parseSkillRetrievalArtifact } from './skill-artifact';
 import { createEmbeddingProvider } from './embedding-provider';
 import type { SkillRetrievalRuntime } from './skill-retriever';
@@ -33,22 +36,22 @@ export async function loadSkillRetrievalRuntime(
     options.artifactText ??
     (options.artifactPath
       ? await readFile(options.artifactPath, 'utf8')
-      : await fetchText(lock.skill_retrieval.artifact_url));
+      : await fetchText(pinnedSkillRetrieval(lock).artifact_url));
   const manifestText =
     options.manifestText ??
     (options.manifestPath
       ? await readFile(options.manifestPath, 'utf8')
-      : await fetchText(lock.skill_retrieval.manifest_url));
+      : await fetchText(pinnedSkillRetrieval(lock).manifest_url));
   const artifact = parseSkillRetrievalArtifact(
     artifactText,
     manifestText,
-    lock.skill_retrieval
+    pinnedSkillRetrieval(lock)
   );
   const manifest = JSON.parse(
     manifestText
   ) as SkillRetrievalRuntime['manifest'];
   return {
-    lock: lock.skill_retrieval,
+    lock: pinnedSkillRetrieval(lock),
     artifact,
     manifest,
     provider: createEmbeddingProvider(artifact.embedding_profile),
