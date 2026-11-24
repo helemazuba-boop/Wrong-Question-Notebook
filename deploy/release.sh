@@ -28,7 +28,7 @@ APP_TAG=""
 RT_TAG=""
 SSH_HOST="aliyun"
 APP_CONTAINER="wqn-app"
-APP_PORT="3000:3000"
+APP_PORT="127.0.0.1:3000:3000"
 RT_CONTAINER="wqn-realtime"
 RT_PORT="127.0.0.1:8080:8080"
 RUNTIME_NETWORK="wqn-runtime"
@@ -48,7 +48,7 @@ Options:
   --recreate-builders       Force recreation of both Buildx builders
   --ssh-host HOST           ECS SSH host/alias (default: aliyun)
   --app-container NAME      App container name (default: wqn-app)
-  --app-port HOST:CONTAINER App port mapping (default: 3000:3000)
+  --app-port HOST:CONTAINER App port mapping (default: 127.0.0.1:3000:3000)
   --rt-container NAME       Realtime container name (default: wqn-realtime)
   --rt-port HOST:CONTAINER  Realtime port mapping (default: 127.0.0.1:8080:8080)
   --network NAME            Docker runtime network (default: wqn-runtime)
