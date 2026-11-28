@@ -8,6 +8,14 @@ import {
   type Esp32AiAsrProvider,
 } from './esp32-ai-asr-selection';
 import { runStepFunAsrSse } from './stepfun-asr';
+import { voiceUpstreamErrorStatus } from './voice-upstream-status';
+import {
+  createVoiceOperation,
+  throwIfVoiceStopped,
+  waitForVoiceOperation,
+  sleepForVoiceOperation,
+  VoiceOperationStopped,
+} from './voice-operation';
 import {
   NotebookToolError,
   type NotebookAiAction,
@@ -67,6 +75,7 @@ export class Esp32AiProviderError extends Error {
 }
 
 export interface Esp32AiProviderInput {
+  signal?: AbortSignal;
   audio: ArrayBuffer;
   sampleRate: number;
   channels: number;
@@ -197,6 +206,7 @@ interface DashScopeTaskResponse {
 }
 
 interface DashScopeProviderConfig {
+  signal?: AbortSignal;
   apiKey: string;
   chatApiKeyStd: string;
   chatApiKeyPro: string;
@@ -645,7 +655,7 @@ function providerErrorFromStatus(
     stage === 'asr'
       ? `DashScope ASR request failed (HTTP ${status})`
       : `DashScope chat request failed (HTTP ${status})`,
-    status
+    voiceUpstreamErrorStatus(status)
   );
 }
 
@@ -655,16 +665,26 @@ async function fetchJsonWithTimeout<T>(
   timeoutMs: number,
   stage: 'asr' | 'chat'
 ): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const operation = createVoiceOperation(timeoutMs, init.signal ?? undefined);
 
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    if (!response.ok) throw providerErrorFromStatus(response.status, stage);
+    throwIfVoiceStopped(operation.signal);
+    const response = await waitForVoiceOperation(
+      fetch(url, { ...init, signal: operation.signal }),
+      operation.signal
+    );
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      throw providerErrorFromStatus(response.status, stage);
+    }
 
     try {
-      return (await response.json()) as T;
+      return (await waitForVoiceOperation(
+        response.json(),
+        operation.signal
+      )) as T;
     } catch {
+      throwIfVoiceStopped(operation.signal);
       throw new Esp32AiProviderError(
         stage === 'asr' ? 'asr_failed' : 'model_failed',
         stage === 'asr'
@@ -674,6 +694,17 @@ async function fetchJsonWithTimeout<T>(
       );
     }
   } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError(
+          stage === 'asr' ? 'asr_timeout' : 'chat_timeout',
+          stage === 'asr'
+            ? 'DashScope ASR request timed out'
+            : 'DashScope chat request timed out',
+          504
+        )
+    );
     if (error instanceof Esp32AiProviderError) throw error;
     const isAbort = error instanceof Error && error.name === 'AbortError';
     throw new Esp32AiProviderError(
@@ -692,12 +723,8 @@ async function fetchJsonWithTimeout<T>(
       isAbort ? 504 : 502
     );
   } finally {
-    clearTimeout(timeout);
+    operation.dispose();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function createDashScopeAuthHeaders(apiKey: string): Record<string, string> {
@@ -720,6 +747,7 @@ async function submitParaformerTask(
     config.asrTaskUrl,
     {
       method: 'POST',
+      signal: config.signal,
       headers: {
         ...createDashScopeAuthHeaders(config.apiKey),
         'X-DashScope-Async': 'enable',
@@ -756,6 +784,7 @@ async function queryParaformerTask(
     `${config.taskStatusBaseUrl}/${encodeURIComponent(taskId)}`,
     {
       method: 'GET',
+      signal: config.signal,
       headers: createDashScopeAuthHeaders(config.apiKey),
     },
     config.asrTimeoutMs,
@@ -784,7 +813,7 @@ async function fetchTranscriptResultUrl(
 ): Promise<string> {
   const response = await fetchJsonWithTimeout<unknown>(
     url,
-    { method: 'GET' },
+    { method: 'GET', signal: config.signal },
     config.asrTimeoutMs,
     'asr'
   );
@@ -797,7 +826,9 @@ async function waitForParaformerTranscript(
   tracker?: StatusTracker
 ): Promise<string> {
   for (let attempt = 0; attempt < config.asrPollAttempts; attempt += 1) {
-    if (attempt > 0) await sleep(config.asrPollIntervalMs);
+    if (attempt > 0)
+      await sleepForVoiceOperation(config.asrPollIntervalMs, config.signal);
+    throwIfVoiceStopped(config.signal);
 
     const response = await queryParaformerTask(config, taskId);
     const status = response.output?.task_status?.toUpperCase();
@@ -877,6 +908,7 @@ async function runParaformerAsr(
     Awaited<ReturnType<typeof stageEsp32AiAudioFile>> | undefined;
 
   try {
+    throwIfVoiceStopped(config.signal);
     tracker?.mark('audio_stage', 'started');
     stagedAudio = await stageEsp32AiAudioFile({
       audio: input.audio,
@@ -885,6 +917,7 @@ async function runParaformerAsr(
       publicBaseUrl: config.publicBaseUrl,
       ttlMs: config.audioUrlTtlMs,
     });
+    throwIfVoiceStopped(config.signal);
     tracker?.mark('audio_stage', 'succeeded');
 
     tracker?.mark('asr_submit', 'started');
@@ -980,7 +1013,8 @@ async function executeAiToolCall(
   actions: Esp32AiAction[],
   functionCalls?: Esp32AiFunctionCallSummary[],
   timeContext?: VoiceTimeContext,
-  requestId?: string
+  requestId?: string,
+  signal?: AbortSignal
 ): Promise<unknown> {
   const name = call.function?.name || '';
   if (!ctx) {
@@ -1014,9 +1048,11 @@ async function executeAiToolCall(
   }
 
   try {
+    throwIfVoiceStopped(signal);
     const executor = buildAiToolExecutor({ ...ctx, timeContext, requestId });
     const executed = await executor(name, call.function?.arguments ?? '{}', {
       callId: call.id ?? '',
+      signal,
     });
     if (!executed.ok) {
       functionCalls?.push({
@@ -1055,6 +1091,7 @@ async function executeAiToolCall(
     }
     return { success: true, data: result };
   } catch (error) {
+    if (error instanceof VoiceOperationStopped) throw error;
     functionCalls?.push({
       name,
       status: 'failed',
@@ -1108,12 +1145,15 @@ async function runDashScopeChat(
   const startedAt = Date.now();
   tracker?.mark('chat', 'started');
   const voiceContext = toolContext
-    ? await loadVoiceContext(toolContext)
+    ? await waitForVoiceOperation(loadVoiceContext(toolContext), config.signal)
     : undefined;
   const voiceTurnId = mintConversationId();
   const activeConversationId = conversationId || mintConversationId();
   const priorTurns = userId
-    ? await loadTurns(userId, activeConversationId)
+    ? await waitForVoiceOperation(
+        loadTurns(userId, activeConversationId),
+        config.signal
+      )
     : [];
   const messages: DashScopeRequestMessage[] = [
     {
@@ -1128,6 +1168,7 @@ async function runDashScopeChat(
 
   let lastRequestId: string | null = null;
   for (let round = 0; round <= 4; round += 1) {
+    throwIfVoiceStopped(config.signal);
     const hasTools = Boolean(toolContext) && round < 4;
     if (round === 4)
       messages.push({
@@ -1140,6 +1181,7 @@ async function runDashScopeChat(
       `${baseUrl || config.openAiBaseUrl}/chat/completions`,
       {
         method: 'POST',
+        signal: config.signal,
         headers: createDashScopeAuthHeaders(authKey || config.chatApiKeyStd),
         body: JSON.stringify({
           model: chatModel || config.chatModel,
@@ -1153,6 +1195,7 @@ async function runDashScopeChat(
       config.llmTimeoutMs,
       'chat'
     );
+    throwIfVoiceStopped(config.signal);
 
     lastRequestId = response.request_id || response.id || lastRequestId;
     const message = extractChatMessage(response);
@@ -1177,6 +1220,7 @@ async function runDashScopeChat(
         `elapsed_ms=${Date.now() - startedAt}`
       );
       if (userId && replyText) {
+        throwIfVoiceStopped(config.signal);
         const now = new Date().toISOString();
         await appendTurns(
           userId,
@@ -1216,19 +1260,24 @@ async function runDashScopeChat(
     });
 
     for (const call of normalizedToolCalls) {
+      throwIfVoiceStopped(config.signal);
       const toolResult = await executeAiToolCall(
         toolContext,
         call,
         actions,
         functionCalls,
         voiceContext,
-        voiceTurnId
+        voiceTurnId,
+        config.signal
       );
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         content: JSON.stringify(toolResult),
       });
+      // A dispatched write is awaited and its receipt processed before stopping.
+      // Never cancel/replay it or dispatch a later tool after cancellation.
+      throwIfVoiceStopped(config.signal);
     }
     tracker?.mark(
       'function_call',
@@ -1272,6 +1321,7 @@ async function runSelectedAsrProvider(
         stepfunAsrHotwords: config.stepfunAsrHotwords,
         stepfunAsrEnableItn: config.stepfunAsrEnableItn,
         asrTimeoutMs: config.asrTimeoutMs,
+        signal: config.signal,
       },
       input.audio,
       input.sampleRate,
@@ -1286,6 +1336,34 @@ async function runAsrWithFallback(
   config: DashScopeProviderConfig,
   input: Esp32AiProviderInput,
   tracker: StatusTracker
+): ReturnType<typeof runAsrWithinBudget> {
+  const operation = createVoiceOperation(config.asrTimeoutMs, input.signal);
+  try {
+    throwIfVoiceStopped(operation.signal);
+    return await waitForVoiceOperation(
+      runAsrWithinBudget(
+        { ...config, signal: operation.signal },
+        input,
+        tracker
+      ),
+      operation.signal
+    );
+  } catch (error) {
+    throwIfVoiceStopped(
+      operation.signal,
+      () =>
+        new Esp32AiProviderError('asr_timeout', 'ASR deadline exceeded', 504)
+    );
+    throw error;
+  } finally {
+    operation.dispose();
+  }
+}
+
+async function runAsrWithinBudget(
+  config: DashScopeProviderConfig,
+  input: Esp32AiProviderInput,
+  tracker: StatusTracker
 ): Promise<{
   transcript: string;
   requestId: string | null;
@@ -1295,6 +1373,7 @@ async function runAsrWithFallback(
   tracker.mark('asr', 'started');
   let provider = config.asrProvider;
   try {
+    throwIfVoiceStopped(config.signal);
     const result = await runSelectedAsrProvider(
       config,
       input,
@@ -1308,6 +1387,7 @@ async function runAsrWithFallback(
     );
     return { ...result, provider };
   } catch (error) {
+    throwIfVoiceStopped(config.signal);
     if (
       !config.asrFallbackProvider ||
       !(error instanceof Esp32AiProviderError) ||
@@ -1340,6 +1420,7 @@ async function runAsrWithFallback(
 export async function runEsp32VoiceTranscription(
   input: Esp32AiProviderInput
 ): Promise<Esp32VoiceTranscriptionResult> {
+  throwIfVoiceStopped(input.signal);
   const config = getProviderConfig(false);
   if (!config) {
     throw new Esp32AiProviderError(
@@ -1352,6 +1433,7 @@ export async function runEsp32VoiceTranscription(
   const tracker = createStatusTracker(startedAt);
   tracker.mark('request', 'started');
   const result = await runAsrWithFallback(config, input, tracker);
+  throwIfVoiceStopped(input.signal);
   tracker.mark('request', 'succeeded');
   return {
     transcript: result.transcript,
@@ -1454,6 +1536,7 @@ export async function runEsp32WordAiLookup(input: {
 export async function runEsp32AiProvider(
   input: Esp32AiProviderInput
 ): Promise<Esp32AiProviderResult> {
+  throwIfVoiceStopped(input.signal);
   const config = getProviderConfig();
   if (!config) {
     throw new Esp32AiProviderError(
@@ -1467,6 +1550,7 @@ export async function runEsp32AiProvider(
   const tracker = createStatusTracker(startedAt);
   tracker.mark('request', 'started');
   const asr = await runAsrWithFallback(config, input, tracker);
+  throwIfVoiceStopped(input.signal);
   const toolContext = input.userId
     ? {
         userId: input.userId,
@@ -1481,19 +1565,34 @@ export async function runEsp32AiProvider(
     input.tier === 'pro' ? config.openAiBaseUrlPro : config.openAiBaseUrlStd;
   const selectedApiKey =
     input.tier === 'pro' ? config.chatApiKeyPro : config.chatApiKeyStd;
-  const chat = await runDashScopeChat(
-    config,
-    asr.transcript,
-    input.conversationId,
-    input.userId,
-    input.deviceId,
-    input.tier,
-    toolContext,
-    tracker,
-    selectedModel,
-    selectedBaseUrl,
-    selectedApiKey
-  );
+  const chatOperation = createVoiceOperation(config.llmTimeoutMs, input.signal);
+  let chat: Awaited<ReturnType<typeof runDashScopeChat>>;
+  try {
+    throwIfVoiceStopped(chatOperation.signal);
+    chat = await runDashScopeChat(
+      { ...config, signal: chatOperation.signal },
+      asr.transcript,
+      input.conversationId,
+      input.userId,
+      input.deviceId,
+      input.tier,
+      toolContext,
+      tracker,
+      selectedModel,
+      selectedBaseUrl,
+      selectedApiKey
+    );
+    throwIfVoiceStopped(chatOperation.signal);
+  } catch (error) {
+    throwIfVoiceStopped(
+      chatOperation.signal,
+      () =>
+        new Esp32AiProviderError('chat_timeout', 'Chat deadline exceeded', 504)
+    );
+    throw error;
+  } finally {
+    chatOperation.dispose();
+  }
   tracker.mark('request', 'succeeded');
 
   return {

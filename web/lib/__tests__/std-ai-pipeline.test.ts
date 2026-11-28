@@ -52,8 +52,15 @@ describe('confirmed STD text pipeline', () => {
     );
   });
   it('retains ASR for the legacy audio entrypoint', async () => {
-    const result = await runStreamingPipeline(options());
+    const request = options();
+    const result = await runStreamingPipeline(request);
     expect(asr).toHaveBeenCalledOnce();
+    const ready = request.writer.emit.mock.calls.find(
+      (call: unknown[]) => call[0] === 'ready'
+    );
+    expect(asr.mock.calls[0][0]).toMatchObject({
+      diagnosticTurnId: ready[1].turn_id,
+    });
     expect(chat.mock.calls[0][1]).toMatchObject({ transcript: 'recognized' });
     expect(result.transcript).toBe('recognized');
   });

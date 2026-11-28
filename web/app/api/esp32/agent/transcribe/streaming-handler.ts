@@ -32,6 +32,7 @@ import {
 
 export async function handleAgentTranscribeStreaming(
   req: NextRequest,
+  audio: ArrayBuffer,
   config?: V2RuntimeConfig
 ): Promise<NextResponse> {
   const resolvedConfig = config ?? loadV2RuntimeConfig();
@@ -42,7 +43,6 @@ export async function handleAgentTranscribeStreaming(
   const headerRequestId = (req.headers.get('x-wqn-request-id') || '').trim();
   const turnId = headerRequestId || randomUUID();
 
-  const audio = await req.arrayBuffer();
   const startedAt = Date.now();
 
   const sse = createSseResponse(
@@ -63,7 +63,11 @@ export async function handleAgentTranscribeStreaming(
         // runPipelineAsr emits stage + asr.delta (StepFun) only; ready /
         // asr.complete / final are the caller's responsibility here.
         const result = await runPipelineAsr(
-          { ...resolvedConfig, signal: writer.signal },
+          {
+            ...resolvedConfig,
+            signal: writer.signal,
+            diagnosticTurnId: turnId,
+          },
           audio,
           16000,
           1,

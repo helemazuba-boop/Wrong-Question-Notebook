@@ -21,6 +21,7 @@ import {
   type StreamingPipelineInput,
 } from './sse-pipeline-types';
 import { takeNextSseEvent } from './sse-events';
+import { voiceUpstreamErrorStatus } from './voice-upstream-status';
 import { AI_TOOLS, STD_AI_TOOLS } from './ai-tools/voice-tools';
 import { findCatalogTool } from './mcp/tool-catalog';
 import {
@@ -485,7 +486,7 @@ async function fetchStreamingCompletion(
       throw new Esp32AiProviderError(
         code,
         'DashScope chat HTTP ' + r.status,
-        code === 'provider_unavailable' ? 502 : r.status
+        voiceUpstreamErrorStatus(r.status)
       );
     }
     return await consumeOpenAiSse(

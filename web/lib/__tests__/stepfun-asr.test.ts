@@ -182,6 +182,94 @@ describe('runStepFunAsrSse empty-transcript classification', () => {
     );
   });
 
+  it.each([
+    ['missing', {}],
+    ['empty_string', { text: '' }],
+    ['null', { text: null }],
+    ['number', { text: 17 }],
+    ['boolean', { text: false }],
+    ['array', { text: ['PRIVATE_TRANSCRIPT_PAYLOAD'] }],
+    ['object', { text: { value: 'PRIVATE_TRANSCRIPT_PAYLOAD' } }],
+  ])(
+    'distinguishes a %s done.text without logging its contents',
+    async (kind, fields) => {
+      mockFetch.mockResolvedValueOnce(
+        sseResponse([
+          'data: ' +
+            JSON.stringify({ type: 'transcript.text.done', ...fields }),
+          '',
+          '',
+        ])
+      );
+      await expect(
+        runStepFunAsrSse(
+          { ...baseConfig, diagnosticTurnId: '77d7ecc1156db6f0' },
+          pcmBuffer(3, 5000),
+          16000,
+          1
+        )
+      ).rejects.toMatchObject({ code: 'asr_failed', status: 500 });
+      const context = loggerErrorMock.mock.calls[0][2];
+      expect(context).toMatchObject({
+        voiceTurnId: '77d7ecc1156db6f0',
+        events: { deltaCount: 0, doneCount: 1, doneTextLength: 0 },
+        textFields: {
+          lastDeltaTextKind: 'not_observed',
+          lastDoneTextKind: kind,
+          doneTextKinds: { [String(kind)]: 1 },
+        },
+      });
+      expect(JSON.stringify(context)).not.toContain(
+        'PRIVATE_TRANSCRIPT_PAYLOAD'
+      );
+      expect(JSON.stringify(context)).not.toContain(baseConfig.stepfunApiKey);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(sent).not.toHaveProperty('voiceTurnId');
+      expect(sent).not.toHaveProperty('diagnosticTurnId');
+    }
+  );
+
+  it.each(['', 'unbounded-'.repeat(10), 'invalid trace value', 'line\nvalue'])(
+    'omits an unsuitable diagnostic identifier without changing the ASR outcome',
+    async diagnosticTurnId => {
+      mockFetch.mockResolvedValueOnce(
+        sseResponse(['data: {"type":"transcript.text.done","text":""}', '', ''])
+      );
+      await expect(
+        runStepFunAsrSse(
+          { ...baseConfig, diagnosticTurnId },
+          pcmBuffer(3, 5000),
+          16000,
+          1
+        )
+      ).rejects.toMatchObject({ code: 'asr_failed', status: 500 });
+      expect(loggerErrorMock.mock.calls[0][2].voiceTurnId).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('preserves preceding deltas when done.text is empty', async () => {
+    mockFetch.mockResolvedValueOnce(
+      sseResponse([
+        'data: {"type":"transcript.text.delta","delta":"保留文本"}',
+        '',
+        'data: {"type":"transcript.text.done","text":""}',
+        '',
+        '',
+      ])
+    );
+    const result = await runStepFunAsrSse(
+      baseConfig,
+      pcmBuffer(3, 5000),
+      16000,
+      1
+    );
+    expect(result.transcript).toBe('保留文本');
+    expect(loggerErrorMock).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps provider no_speech error events mapped to 422', async () => {
     mockFetch.mockResolvedValueOnce(
       sseResponse([

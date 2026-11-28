@@ -23,6 +23,7 @@ declare -A CFG=(
   [STEP_API_KEY]='step-realtime-test-value'
   [STEP_TTS_MODEL]='stepaudio-test'
   [STEP_TTS_REALTIME_URL]='wss://step.example.test/realtime'
+  [WQN_FLASH_WEB_SEARCH_ENABLED]='true'
   [WQN_REALTIME_PROXY_SECRET]='shared-proxy-test-value'
   [WQN_INTERNAL_API_BASE]='http://wqn:3000'
   [WQN_INTERNAL_API_ALLOWED_HOST]='wqn'
@@ -30,6 +31,9 @@ declare -A CFG=(
   [WQN_ESP32_AI_TURN_TIMEOUT_MS]='450000'
   [WQN_OPENCODE_SERVER_URL]='http://opencode.example.test:4096'
   [WQN_OPENCODE_SERVER_PASSWORD]='secret-opencode-pass'
+  [WQN_OPENCODE_MODEL]='stepfun/step-3.7-flash'
+  [WQN_OPENCODE_FALLBACK_MODEL]='opencode/deepseek-v4.1-flash-free'
+  [WQN_OPENCODE_FALLBACK_ENABLED]='false'
   [ACR_PASSWORD]='must-not-be-runtime'
   [NEXT_SERVER_ACTIONS_ENCRYPTION_KEY]='must-not-be-runtime-either'
   [TARGET_DATABASE_URL]='postgresql://admin:test@127.0.0.1:65432/postgres'
@@ -39,6 +43,8 @@ getv() {
   local key="$1"
   printf '%s' "${CFG[$key]:-}"
 }
+
+hasv() { [[ -v "CFG[$1]" ]]; }
 
 # shellcheck source=deploy/release-env-policy.sh
 source "$DEPLOY_DIR/release-env-policy.sh"
@@ -76,10 +82,33 @@ assert_key "$TMP_DIR/app.env" STEPFUN_API_KEY
 assert_key "$TMP_DIR/app.env" WQN_ESP32_AI_TURN_TIMEOUT_MS
 assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_URL
 assert_key "$TMP_DIR/app.env" WQN_OPENCODE_SERVER_PASSWORD
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_MODEL
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_FALLBACK_MODEL
+assert_key "$TMP_DIR/app.env" WQN_OPENCODE_FALLBACK_ENABLED
+assert_no_key "$TMP_DIR/app.env" WQN_OPENCODE_PROVIDER_ID
+assert_no_key "$TMP_DIR/app.env" WQN_OPENCODE_MODEL_ID
+
+(
+  CFG[WQN_OPENCODE_PROVIDER_ID]=''
+  ! validate_opencode_runtime_policy >/dev/null 2>&1
+) || fail 'removed OpenCode provider key was accepted'
+(
+  CFG[WQN_OPENCODE_USER_BINDINGS_JSON]='{"user":{"providerId":"removed","modelId":"removed"}}'
+  ! validate_opencode_runtime_policy >/dev/null 2>&1
+) || fail 'removed OpenCode binding fields were accepted'
 assert_key "$TMP_DIR/realtime.env" SUPABASE_URL
 assert_key "$TMP_DIR/realtime.env" SUPABASE_SECRET_KEY
 assert_key "$TMP_DIR/realtime.env" STEP_API_KEY
 assert_key "$TMP_DIR/realtime.env" WQN_INTERNAL_API_BASE
+assert_key "$TMP_DIR/realtime.env" WQN_FLASH_WEB_SEARCH_ENABLED
+assert_no_key "$TMP_DIR/app.env" WQN_FLASH_WEB_SEARCH_ENABLED
+grep -q '^WQN_FLASH_WEB_SEARCH_ENABLED=true$' "$TMP_DIR/realtime.env" || fail 'Search opt-in lost'
+CFG[WQN_FLASH_WEB_SEARCH_ENABLED]='false'
+make_runtime_env realtime "$TMP_DIR/search-off.env"
+grep -q '^WQN_FLASH_WEB_SEARCH_ENABLED=false$' "$TMP_DIR/search-off.env" || fail 'Search opt-out lost'
+unset 'CFG[WQN_FLASH_WEB_SEARCH_ENABLED]'
+make_runtime_env realtime "$TMP_DIR/search-unset.env"
+assert_no_key "$TMP_DIR/search-unset.env" WQN_FLASH_WEB_SEARCH_ENABLED
 
 for key in \
   ACR_PASSWORD TARGET_DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY \

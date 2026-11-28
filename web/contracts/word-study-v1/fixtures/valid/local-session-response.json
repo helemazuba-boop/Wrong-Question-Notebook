@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "request_id": "req_local_session_000001",
+  "server_time_ms": 1762360000000,
+  "data": {
+    "session_id": "33333333-3333-4333-8333-333333333333",
+    "registered": true,
+    "replayed": false
+  }
+}

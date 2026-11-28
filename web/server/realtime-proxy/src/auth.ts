@@ -68,7 +68,8 @@ export class AuthFailure extends Error {
 }
 
 export async function authenticateDevice(
-  req: IncomingMessage
+  req: IncomingMessage,
+  signal?: AbortSignal
 ): Promise<DeviceContext> {
   const header = req.headers['authorization'];
   if (!header || !header.startsWith(BEARER_PREFIX)) {
@@ -83,11 +84,13 @@ export async function authenticateDevice(
   }
 
   const svc = getSupabase();
-  const { data: device, error } = await svc
+  const deviceLookup = svc
     .from('esp32_devices')
     .select('id, user_id, mac_address')
-    .eq('access_token_hash', createHash('sha256').update(token).digest('hex'))
-    .maybeSingle();
+    .eq('access_token_hash', createHash('sha256').update(token).digest('hex'));
+  const { data: device, error } = await (
+    signal ? deviceLookup.abortSignal(signal) : deviceLookup
+  ).maybeSingle();
 
   if (error) {
     log.error('device auth lookup failed', { err: error.message });
@@ -101,11 +104,13 @@ export async function authenticateDevice(
   try {
     // Mirror accountIsActive without coupling the independently deployed relay
     // to the Next.js package or a different installed Supabase SDK instance.
-    const { data: profile, error: statusError } = await svc
+    const profileLookup = svc
       .from('user_profiles')
       .select('is_active')
-      .eq('id', device.user_id)
-      .maybeSingle();
+      .eq('id', device.user_id);
+    const { data: profile, error: statusError } = await (
+      signal ? profileLookup.abortSignal(signal) : profileLookup
+    ).maybeSingle();
     if (statusError) throw new Error('Account status lookup failed');
     active = profile?.is_active === true;
   } catch {
@@ -116,6 +121,9 @@ export async function authenticateDevice(
     // be reactivated without requiring the device to pair again.
     throw new AuthFailure('disabled', 'Account is disabled');
   }
+
+  if (signal?.aborted)
+    throw new AuthFailure('internal', 'Device authentication cancelled');
 
   // best-effort last_seen bump — don't fail the connection if it errors
   svc

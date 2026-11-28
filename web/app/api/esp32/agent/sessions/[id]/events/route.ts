@@ -12,7 +12,13 @@ import {
   OpenCodeGatewayError,
   OpenCodeSessionAccessError,
   resolveOpenCodeBinding,
+  loadOpenCodeSessionOutcome,
 } from '@/lib/opencode-agent-gateway';
+
+import {
+  captureOpenCodeTask,
+  finishObservedOpenCodeTask,
+} from '@/lib/opencode-agent-control';
 
 export const runtime = 'nodejs';
 // Read-only re-attach to a session's event stream. This is how the device
@@ -49,11 +55,12 @@ export async function GET(
   try {
     const binding = resolveOpenCodeBinding(auth.userId);
     await assertOpenCodeSessionAccess(binding, id);
+    const observedTask = await captureOpenCodeTask(binding, id);
     const upstream = await openOpenCodeEventStream(binding, req.signal);
     const response = createSseResponse(async writer => {
       writer.emit('agent.attached', { session_id: id });
       try {
-        await relayOpenCodeEvents({
+        const outcome = await relayOpenCodeEvents({
           upstream: upstream.body!,
           writer,
           sessionId: id,
@@ -64,6 +71,9 @@ export async function GET(
           // over, and what delivers asks the upstream never sends as events.
           probe: createOpenCodePendingProbe(binding),
         });
+        await finishObservedOpenCodeTask(observedTask, outcome, () =>
+          loadOpenCodeSessionOutcome(binding, id)
+        );
       } catch {
         writer.emit('agent.error', {
           session_id: id,

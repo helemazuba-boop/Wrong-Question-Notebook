@@ -9,6 +9,7 @@ import { analyzePcmS16le } from './esp32-ai-audio-staging';
 import type { PipelinePusher } from './sse-pipeline-types';
 import { extractSseData, takeNextSseEvent } from './sse-events';
 import { logger } from './logger';
+import { voiceUpstreamErrorStatus } from './voice-upstream-status';
 import {
   createVoiceOperation,
   throwIfVoiceStopped,
@@ -18,6 +19,7 @@ import {
 
 export interface StepFunAsrConfig {
   signal?: AbortSignal;
+  diagnosticTurnId?: string;
   stepfunApiKey: string;
   stepfunAsrUrl: string;
   stepfunAsrModel: string;
@@ -35,12 +37,78 @@ interface StepFunAsrEvent {
   meta?: { session_id?: string };
 }
 
+type TextFieldKind =
+  | 'missing'
+  | 'empty_string'
+  | 'string'
+  | 'null'
+  | 'array'
+  | 'object'
+  | 'number'
+  | 'boolean'
+  | 'other';
+
+function textFieldKind(value: unknown, present: boolean): TextFieldKind {
+  if (!present) return 'missing';
+  if (typeof value === 'string')
+    return value.length ? 'string' : 'empty_string';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'other';
+}
+
+function diagnosticTurnId(value: string | undefined): string | undefined {
+  // Correlation only: accept bounded identifiers, never arbitrary header text.
+  return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : undefined;
+}
+
 // Below these limits the clip is a button tap, a bump or near-silence rather
 // than an utterance, so an empty transcript is expected and must not be
 // reported as a provider failure (500). Device captures are pcm_s16le 16kHz
 // mono, so 2 bytes per sample.
 const NON_SPEECH_MIN_DURATION_MS = 1500;
 const NON_SPEECH_MAX_RMS = 200;
+
+// Application budgets for the bounded device recording path, not provider
+// model limits. Count wire bytes across all events, including keepalives.
+const MAX_ASR_RESPONSE_BYTES = 1024 * 1024;
+const MAX_HTTP_ERROR_PREVIEW_BYTES = 1024;
+
+async function readHttpErrorPreview(
+  response: Response,
+  signal?: AbortSignal
+): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const releaseReader = cancelVoiceReaderOnAbort(reader, signal);
+  const decoder = new TextDecoder();
+  let retainedBytes = 0;
+  let preview = '';
+  try {
+    while (retainedBytes < MAX_HTTP_ERROR_PREVIEW_BYTES) {
+      const { done, value } = await waitForVoiceOperation(
+        reader.read(),
+        signal
+      );
+      if (done) break;
+      const part = value.subarray(
+        0,
+        MAX_HTTP_ERROR_PREVIEW_BYTES - retainedBytes
+      );
+      retainedBytes += part.byteLength;
+      preview += decoder.decode(part, { stream: true });
+    }
+    return (preview + decoder.decode()).slice(0, 200);
+  } finally {
+    // A transport's cancellation can reject or remain pending. It must not
+    // mask the HTTP error or extend the voice operation's deadline.
+    void reader.cancel().catch(() => {});
+    releaseReader();
+  }
+}
 
 export function isLikelyNonSpeechPcm(audio: ArrayBuffer): boolean {
   const sampleCount = Math.floor(audio.byteLength / 2);
@@ -170,7 +238,7 @@ async function runStepFunAsrWithSignal(
           : 'asr_failed';
     let detail = '';
     try {
-      detail = await waitForVoiceOperation(response.text(), config.signal);
+      detail = await readHttpErrorPreview(response, config.signal);
     } catch {
       // ignore body read failure
     }
@@ -179,7 +247,7 @@ async function runStepFunAsrWithSignal(
       'StepFun ASR HTTP ' +
         response.status +
         (detail ? ' ' + detail.slice(0, 200) : ''),
-      code === 'provider_unavailable' ? 502 : response.status
+      voiceUpstreamErrorStatus(response.status)
     );
   }
 
@@ -187,6 +255,7 @@ async function runStepFunAsrWithSignal(
   const releaseReader = cancelVoiceReaderOnAbort(reader, config.signal);
   const decoder = new TextDecoder();
   let buffer = '';
+  let responseBytes = 0;
   let transcript = '';
   let requestId: string | null = null;
 
@@ -205,6 +274,9 @@ async function runStepFunAsrWithSignal(
   let lastUnknownType = '';
   let unknownPayloadSample = '';
   let malformedPayloadSample = '';
+  let lastDeltaTextKind: TextFieldKind | 'not_observed' = 'not_observed';
+  let lastDoneTextKind: TextFieldKind | 'not_observed' = 'not_observed';
+  const doneTextKinds: Partial<Record<TextFieldKind, number>> = {};
 
   try {
     while (true) {
@@ -213,6 +285,14 @@ async function runStepFunAsrWithSignal(
         config.signal
       );
       if (done) break;
+      if (value.byteLength > MAX_ASR_RESPONSE_BYTES - responseBytes) {
+        throw new Esp32AiProviderError(
+          'asr_failed',
+          'StepFun ASR response exceeds byte limit',
+          500
+        );
+      }
+      responseBytes += value.byteLength;
       buffer += decoder.decode(value, { stream: true });
       let nextEvent;
       while ((nextEvent = takeNextSseEvent(buffer)) !== null) {
@@ -236,6 +316,10 @@ async function runStepFunAsrWithSignal(
         const type = json.type;
         if (type === 'transcript.text.delta') {
           deltaCount += 1;
+          lastDeltaTextKind = textFieldKind(
+            json.delta,
+            Object.prototype.hasOwnProperty.call(json, 'delta')
+          );
           const delta = typeof json.delta === 'string' ? json.delta : '';
           if (delta) {
             transcript += delta;
@@ -243,6 +327,12 @@ async function runStepFunAsrWithSignal(
           }
         } else if (type === 'transcript.text.done') {
           doneCount += 1;
+          lastDoneTextKind = textFieldKind(
+            json.text,
+            Object.prototype.hasOwnProperty.call(json, 'text')
+          );
+          doneTextKinds[lastDoneTextKind] =
+            (doneTextKinds[lastDoneTextKind] ?? 0) + 1;
           if (typeof json.text === 'string' && json.text) {
             transcript = json.text;
             doneTextLength = json.text.length;
@@ -276,6 +366,9 @@ async function runStepFunAsrWithSignal(
       isAbort ? 504 : 500
     );
   } finally {
+    // Releasing a lock does not stop an open upstream response after an
+    // error event or a parser/budget rejection. EOF cancellation is a no-op.
+    void reader.cancel().catch(() => {});
     releaseReader();
   }
 
@@ -300,6 +393,8 @@ async function runStepFunAsrWithSignal(
       unknownPayloadSample: unknownPayloadSample || undefined,
       malformedPayloadSample: malformedPayloadSample || undefined,
       requestId: requestId ?? undefined,
+      voiceTurnId: diagnosticTurnId(config.diagnosticTurnId),
+      textFields: { lastDeltaTextKind, lastDoneTextKind, doneTextKinds },
       elapsedMs: Date.now() - startedAt,
       audio: {
         pcmBytes: audioDiagnostics.pcmBytes,

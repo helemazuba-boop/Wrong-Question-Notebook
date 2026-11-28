@@ -563,6 +563,56 @@ export type Database = {
         };
         Relationships: [];
       };
+      esp32_ai_interactions: {
+        Row: {
+          answer: string | null;
+          call_id: string;
+          created_at: string;
+          device_id: string;
+          expires_at: string;
+          fingerprint: string;
+          id: string;
+          payload: Json;
+          request_id: string;
+          state: string;
+          user_id: string;
+        };
+        Insert: {
+          answer?: string | null;
+          call_id: string;
+          created_at?: string;
+          device_id: string;
+          expires_at: string;
+          fingerprint: string;
+          id?: string;
+          payload: Json;
+          request_id: string;
+          state?: string;
+          user_id: string;
+        };
+        Update: {
+          answer?: string | null;
+          call_id?: string;
+          created_at?: string;
+          device_id?: string;
+          expires_at?: string;
+          fingerprint?: string;
+          id?: string;
+          payload?: Json;
+          request_id?: string;
+          state?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'esp32_ai_interactions_device_id_fkey';
+            columns: ['device_id'];
+            isOneToOne: false;
+            referencedRelation: 'esp32_devices';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       esp32_devices: {
         Row: {
           access_token_hash: string;
@@ -3536,6 +3586,9 @@ export type Database = {
           has_more: boolean;
           id: string;
           last_activity_at: string;
+          local_fingerprint: string | null;
+          local_session: boolean;
+          local_start_index: number | null;
           mode: string;
           next_sequence: number;
           optional_count: number | null;
@@ -3564,6 +3617,9 @@ export type Database = {
           has_more?: boolean;
           id?: string;
           last_activity_at?: string;
+          local_fingerprint?: string | null;
+          local_session?: boolean;
+          local_start_index?: number | null;
           mode: string;
           next_sequence?: number;
           optional_count?: number | null;
@@ -3592,6 +3648,9 @@ export type Database = {
           has_more?: boolean;
           id?: string;
           last_activity_at?: string;
+          local_fingerprint?: string | null;
+          local_session?: boolean;
+          local_start_index?: number | null;
           mode?: string;
           next_sequence?: number;
           optional_count?: number | null;
@@ -5158,6 +5217,10 @@ export type Database = {
       };
     };
     Functions: {
+      opencode_agent_control_v1: {
+        Args: { p_action: string; p_payload: Json };
+        Returns: Json;
+      };
       account_storage_objects: { Args: { p_user_id: string }; Returns: Json };
       acquire_external_provider_rate_limit: {
         Args: {
@@ -5195,6 +5258,18 @@ export type Database = {
           device_id: string;
           sealed_credential: Json;
         }[];
+      };
+      begin_esp32_ai_interaction_v1: {
+        Args: {
+          p_call_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_payload: Json;
+          p_request_id: string;
+          p_timeout_ms: number;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       bootstrap_super_admin: {
         Args: { p_user_id: string };
@@ -5872,6 +5947,90 @@ export type Database = {
         };
         Returns: undefined;
       };
+      read_device_outbox_recovery_context_v1: {
+        Args: {
+          p_user_id: string;
+          p_device_id: string;
+          p_domain: string;
+          p_session_id: string;
+          p_source_mac: string;
+          p_nonce: string;
+          p_manifest_sha256: string;
+          p_elf_sha256: string;
+          p_part: string;
+          p_offset: number;
+          p_expected_context_sha256: string | null;
+          p_token_sha256: string;
+          p_request_ids: string[];
+        };
+        Returns: Json;
+      };
+      lookup_device_outbox_receipts_bound_v1: {
+        Args: {
+          p_device_id: string;
+          p_domain: string;
+          p_request_ids: string[];
+          p_session_id: string;
+          p_source_mac: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      lookup_device_outbox_receipts_v1: {
+        Args: {
+          p_user_id: string;
+          p_device_id: string;
+          p_domain: string;
+          p_session_id: string;
+          p_request_ids: string[];
+        };
+        Returns: Json;
+      };
+      record_word_study_observation_batch_v1: {
+        Args: {
+          p_device_id: string;
+          p_observations: Json;
+          p_session_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      register_local_word_study_session_v1: {
+        Args: {
+          p_candidate_items: Json;
+          p_create_request_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_scope: Json;
+          p_seed: string;
+          p_session_id: string;
+          p_snapshot: Json;
+          p_start_index: number;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      read_word_study_eligibility_v1: {
+        Args: { p_user_id: string; p_device_id: string; p_snapshot: Json };
+        Returns: Json;
+      };
+      register_local_word_study_session_v2: {
+        Args: {
+          p_mode: string;
+          p_progress_revision: number;
+          p_candidate_items: Json;
+          p_create_request_id: string;
+          p_device_id: string;
+          p_fingerprint: string;
+          p_scope: Json;
+          p_seed: string;
+          p_session_id: string;
+          p_snapshot: Json;
+          p_start_index: number;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       record_study_observation_v1: {
         Args: {
           p_action: string;
@@ -5943,6 +6102,15 @@ export type Database = {
       replace_problem_tags: {
         Args: { p_problem_id: string; p_tag_ids: string[] };
         Returns: undefined;
+      };
+      reply_esp32_ai_interaction_v1: {
+        Args: {
+          p_answer: string;
+          p_device_id: string;
+          p_id: string;
+          p_user_id: string;
+        };
+        Returns: Json;
       };
       requeue_all_problem_mark_annotations: { Args: never; Returns: Json };
       requeue_problem_mark_annotation: {

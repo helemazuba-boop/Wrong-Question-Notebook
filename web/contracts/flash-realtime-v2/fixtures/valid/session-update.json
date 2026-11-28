@@ -1,0 +1,11 @@
+{
+  "type": "session.update",
+  "wqn": {
+    "playback_epoch": 1
+  },
+  "session": {
+    "input_audio_format": "pcm16",
+    "output_audio_format": "pcm16",
+    "turn_detection": null
+  }
+}

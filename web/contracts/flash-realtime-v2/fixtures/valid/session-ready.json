@@ -1,0 +1,9 @@
+{
+  "type": "session.ready",
+  "protocol": "wqn-flash-v2",
+  "output_sample_rate_hz": 24000,
+  "wqn": {
+    "playback_epoch": 1,
+    "turn_detection": "manual"
+  }
+}

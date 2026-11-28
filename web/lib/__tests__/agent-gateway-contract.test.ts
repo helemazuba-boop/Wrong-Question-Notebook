@@ -121,6 +121,23 @@ describe('agent gateway v0 contract mirror', () => {
     });
   });
 
+  it.each(['accepted-without-data-stream.json', 'round-boundary-stream.json'])(
+    'keeps the mirrored %s stream terminal last',
+    name => {
+      const frames = readJson(`fixtures/valid/${name}`) as StreamFrame[];
+      expect(frames.at(-1)).toMatchObject({
+        event: 'agent.status',
+        data: { status: 'idle' },
+      });
+      expect(frames.slice(0, -1)).not.toContainEqual(
+        expect.objectContaining({
+          event: 'agent.status',
+          data: expect.objectContaining({ status: 'idle' }),
+        })
+      );
+    }
+  );
+
   describe('envelopes the routes actually send', () => {
     const { validate } = loadValidator();
 

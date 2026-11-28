@@ -39,12 +39,14 @@ describe('OpenCode Agent run route', () => {
         directory: '/workspaces/a',
         username: 'opencode',
         password: 'secret-a',
+        model: 'openai/gpt-test',
       },
       'user-b': {
         baseUrl: 'https://agent-b.example.test',
         directory: '/workspaces/b',
         username: 'opencode',
         password: 'secret-b',
+        model: 'openai/gpt-test',
       },
     });
   });

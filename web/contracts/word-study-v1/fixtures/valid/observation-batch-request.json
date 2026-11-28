@@ -1,0 +1,28 @@
+{
+  "request_id": "req_observation_batch_01",
+  "boot_id": "boot_local_session_00001",
+  "firmware_version": "0.1.0-longseq",
+  "capabilities": [
+    "word.study.v1",
+    "word.study.longseq.v1"
+  ],
+  "session_id": "33333333-3333-4333-8333-333333333333",
+  "observations": [
+    {
+      "request_id": "obs_longseq_request_0001",
+      "sequence": 0,
+      "item_id": "22222222-2222-4222-8222-222222222221",
+      "action": "shown",
+      "mode": "sequential",
+      "occurred_at": "2026-11-05T10:00:00.000Z"
+    },
+    {
+      "request_id": "obs_longseq_request_0002",
+      "sequence": 1,
+      "item_id": "22222222-2222-4222-8222-222222222222",
+      "action": "known",
+      "mode": "sequential",
+      "occurred_at": "2026-11-05T10:00:01.000Z"
+    }
+  ]
+}
