@@ -1071,6 +1071,7 @@
         },
         {
           "if": {
+            "type": "object",
             "properties": {
               "mode": {
                 "const": "shuffle"
@@ -1081,11 +1082,13 @@
             ]
           },
           "then": {
+            "type": "object",
             "required": [
               "progress_revision"
             ],
             "properties": {
               "scope": {
+                "type": "object",
                 "properties": {
                   "include_mastered": {
                     "const": false
@@ -1095,8 +1098,10 @@
             }
           },
           "else": {
+            "type": "object",
             "properties": {
               "scope": {
+                "type": "object",
                 "properties": {
                   "include_mastered": {
                     "const": true
@@ -1109,6 +1114,7 @@
         {
           "if": {
             "not": {
+              "type": "object",
               "required": [
                 "mode"
               ]
@@ -1116,6 +1122,7 @@
           },
           "then": {
             "not": {
+              "type": "object",
               "required": [
                 "progress_revision"
               ]
