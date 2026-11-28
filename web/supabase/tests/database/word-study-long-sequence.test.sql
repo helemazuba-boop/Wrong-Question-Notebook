@@ -3,6 +3,8 @@
 -- This file is rollback-only and uses a dedicated set of UUIDs.
 
 begin;
+create extension if not exists pgtap with schema extensions;
+select plan(2);
 
 insert into auth.users (
   id, aud, role, email, encrypted_password, created_at, updated_at,
@@ -566,6 +568,7 @@ begin
   end if;
 end;
 $$;
+select pass('long-sequence registration, upload and rollback assertions completed');
 
 -- Personal snapshots are independent from shared packs and learning writes.
 do $$
@@ -626,5 +629,7 @@ begin
  end if;
  raise notice 'PASS: offline shuffle identity, bitmap, actor, revision, upload and grants';
 end $$;
+select pass('offline shuffle identity, upload and permission assertions completed');
 
+select * from finish();
 rollback;
